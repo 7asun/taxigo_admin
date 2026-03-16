@@ -5,6 +5,8 @@ import { Trip } from '../api/trips.service';
 import { getSortingStateParser } from '@/lib/parsers';
 import { TripsViewToggle } from './trips-view-toggle';
 import { TripsCalendar } from './trips-calendar';
+import { TripsKanbanBoard } from './trips-kanban-board';
+import { TripsFiltersBar } from './trips-filters-bar';
 
 type TripsListingPageProps = {
   searchParams?: any;
@@ -150,37 +152,19 @@ export default async function TripsListingPage({
   const trips = data as any[]; // Use any for joined data
   const totalTrips = count || 0;
 
-  // #region agent log
-  fetch('http://127.0.0.1:7665/ingest/fea5df42-b29d-48fc-9b64-783ecb4dafb8', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': 'ba8809'
-    },
-    body: JSON.stringify({
-      sessionId: 'ba8809',
-      runId: 'list-render',
-      hypothesisId: 'H2',
-      location: 'trips-listing.tsx:afterQuery',
-      message: 'TripsListingPage query result',
-      data: {
-        view,
-        driverId,
-        status,
-        scheduledAt,
-        totalTrips
-      },
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
-  // #endregion agent log
-
   return (
-    <div className='flex min-h-0 flex-1 flex-col space-y-4 overflow-hidden'>
-      <TripsViewToggle currentView={view} />
-      {view === 'calendar' ? (
-        <TripsCalendar trips={trips as Trip[]} />
-      ) : (
+    <div className='flex min-h-0 min-w-0 flex-1 flex-col space-y-4 overflow-hidden'>
+      <div className='flex flex-wrap items-center gap-3'>
+        <TripsViewToggle currentView={view} />
+        <div className='min-w-0 flex-1'>
+          <TripsFiltersBar totalItems={totalTrips} />
+        </div>
+      </div>
+      {view === 'calendar' && <TripsCalendar trips={trips as Trip[]} />}
+      {view === 'kanban' && (
+        <TripsKanbanBoard trips={trips as Trip[]} totalItems={totalTrips} />
+      )}
+      {view !== 'calendar' && view !== 'kanban' && (
         <TripsTable data={trips} totalItems={totalTrips} columns={columns} />
       )}
     </div>
