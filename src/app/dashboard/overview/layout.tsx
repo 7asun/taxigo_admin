@@ -24,6 +24,7 @@ import {
   formatCurrency,
   formatNumber
 } from '@/features/dashboard/lib/stats-utils';
+import { CreateTripDialogButton } from '@/features/trips/components/create-trip-dialog-button';
 
 export default function OverViewLayout({
   sales,
@@ -73,7 +74,7 @@ export default function OverViewLayout({
             Hi, Willkommen zurück 👋
           </h2>
           <div className='hidden items-center space-x-2 md:flex'>
-            <Button>Download</Button>
+            <CreateTripDialogButton />
           </div>
         </div>
         <div className='*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs md:grid-cols-2 lg:grid-cols-4'>
@@ -132,17 +133,16 @@ export default function OverViewLayout({
             </CardFooter>
           </Card>
         </div>
-        <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-7'>
-          <div className='col-span-4 md:col-span-3 lg:col-span-7'>
+        <div className='flex flex-col gap-4 lg:grid lg:grid-cols-7 lg:items-start'>
+          <div className='flex flex-col gap-4 lg:col-span-4'>
             <PendingToursWidget />
+            {bar_stats}
+            {area_stats}
           </div>
-          <div className='col-span-4'>{bar_stats}</div>
-          <div className='col-span-4 md:col-span-3'>
-            {/* sales arallel routes */}
+          <div className='flex flex-col gap-4 lg:col-span-3'>
             {sales}
+            {pie_stats}
           </div>
-          <div className='col-span-4'>{area_stats}</div>
-          <div className='col-span-4 md:col-span-3'>{pie_stats}</div>
         </div>
       </div>
     </PageContainer>

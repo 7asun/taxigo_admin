@@ -5,8 +5,20 @@ import { FormSwitch } from '@/components/forms/form-switch';
 import { FormTextarea } from '@/components/forms/form-textarea';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Form } from '@/components/ui/form';
-import { Client, clientsService } from '@/features/clients/api/clients.service';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from '@/components/ui/form';
+import {
+  Client,
+  clientsService,
+  type InsertClient,
+  type UpdateClient
+} from '@/features/clients/api/clients.service';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -19,6 +31,10 @@ import {
   RecurringRule
 } from '@/features/trips/api/recurring-rules.service';
 import { useEffect } from 'react';
+import {
+  AddressAutocomplete,
+  type AddressResult
+} from '@/features/trips/components/address-autocomplete';
 
 const formSchema = z.object({
   first_name: z.string().optional(),
@@ -106,9 +122,13 @@ export default function ClientForm({
       }
 
       const payload = {
-        ...values,
+        ...(values as any),
         is_company: isCompany,
-        company_id: companyIdStr
+        company_id: companyIdStr,
+        // Preserve existing lat/lng when editing; rely on AddressAutocomplete to have
+        // populated them on the values object when a suggestion was selected.
+        lat: (initialData as any)?.lat ?? (values as any).lat ?? null,
+        lng: (initialData as any)?.lng ?? (values as any).lng ?? null
       };
 
       if (initialData) {
@@ -160,12 +180,45 @@ export default function ClientForm({
                 label='Firmenname'
                 placeholder='Firmenname eingeben'
               />
-              <FormInput
+              <FormField
                 control={form.control}
                 name='street'
-                label='Straße'
-                placeholder='Straße eingeben'
-                required
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Straße<span className='ml-1 text-red-500'>*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <AddressAutocomplete
+                        value={field.value}
+                        onChange={(result: AddressResult | string) => {
+                          if (typeof result === 'string') {
+                            field.onChange(result);
+                          } else {
+                            // While typing, AddressAutocomplete sends { address: typedText } with no street.
+                            // In that case, keep the raw address in the text field so the user can see their input.
+                            if (!result.street) {
+                              field.onChange(result.address);
+                              return;
+                            }
+
+                            // On selecting a suggestion, fill all structured fields.
+                            field.onChange(result.street || result.address);
+                            form.setValue(
+                              'street_number',
+                              result.street_number || ''
+                            );
+                            form.setValue('zip_code', result.zip_code || '');
+                            form.setValue('city', result.city || '');
+                          }
+                        }}
+                        placeholder='Straße eingeben'
+                        className='h-8 text-[11px]'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
               <FormInput
                 control={form.control}
