@@ -21,7 +21,8 @@ import {
   Upload,
   FileSpreadsheet,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  RotateCcw
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,13 +30,46 @@ import type { InsertTrip } from '@/features/trips/api/trips.service';
 import {
   type ParsedCsvRow,
   type ValidatedTripRow,
-  type UnresolvedRow,
-  type ValidationIssue
+  type ValidationIssue,
+  type RehydratedTripRow
 } from '@/features/trips/components/bulk-upload/bulk-upload-types';
+import { matchClient } from '@/features/trips/components/bulk-upload/match-client';
 import { ResolveClientsStep } from '@/features/trips/components/bulk-upload/resolve-clients-step';
+import {
+  useBulkUploadResumeStore,
+  hasPendingResumeSession
+} from '@/features/trips/stores/use-bulk-upload-resume-store';
+import type { BillingTypeBehavior } from '@/features/payers/types/payer.types';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
+}
+
+/**
+ * Parses a dotted group_id CSV value (e.g. "1.2", "tour-abc.3") into its
+ * group label and explicit stop order.
+ *
+ * Format: "<label>.<stopOrder>" where stopOrder is a positive integer.
+ * Falls back to { label: raw, stopOrder: null } for old-style labels.
+ *
+ * Examples:
+ *   "1.2"        → { label: "1",        stopOrder: 2 }
+ *   "tour-abc.3" → { label: "tour-abc", stopOrder: 3 }
+ *   "tour-1"     → { label: "tour-1",   stopOrder: null }  (backward compat)
+ */
+function parseGroupId(raw: string): {
+  label: string;
+  stopOrder: number | null;
+} {
+  const lastDotIndex = raw.lastIndexOf('.');
+  if (lastDotIndex > 0) {
+    const suffix = raw.slice(lastDotIndex + 1);
+    const order = parseInt(suffix, 10);
+    if (!isNaN(order) && String(order) === suffix) {
+      return { label: raw.slice(0, lastDotIndex), stopOrder: order };
+    }
+  }
+  return { label: raw, stopOrder: null };
 }
 
 /**
@@ -45,6 +79,10 @@ interface BulkUploadDialogProps {
  * - parses and validates rows
  * - creates trips in bulk
  * - starts a follow‑up wizard to resolve trips without linked clients.
+ *
+ * The wizard state is persisted to localStorage so an accidental dialog
+ * close does not lose progress. Re-opening the dialog shows a resume
+ * banner when an unfinished session is found.
  */
 export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   const router = useRouter();
@@ -54,55 +92,365 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     success: number;
     errors: string[];
     rows: ValidatedTripRow[];
+    returnTripsCreated: number;
+    addressOverrides: number;
   } | null>(null);
-  const [mode, setMode] = React.useState<'upload' | 'resolve_clients' | 'done'>(
-    'upload'
-  );
-  const [unresolvedRows, setUnresolvedRows] = React.useState<
-    UnresolvedRow<InsertTrip>[]
-  >([]);
-  const [currentIndex, setCurrentIndex] = React.useState(0);
-  const [isCreatingClient, setIsCreatingClient] = React.useState(false);
-  const [homeAddressChoice, setHomeAddressChoice] = React.useState<
-    'pickup' | 'dropoff'
-  >('pickup');
+  const [mode, setMode] = React.useState<
+    'upload' | 'resume_prompt' | 'resume_loading' | 'resolve_clients' | 'done'
+  >('upload');
+
+  // Wizard rows — built either from a fresh upload or rehydrated from DB.
+  const [wizardRows, setWizardRows] = React.useState<RehydratedTripRow[]>([]);
+
+  // ── Resume store ──────────────────────────────────────────────────────────
+  const resumeStore = useBulkUploadResumeStore();
+  const hasPending = hasPendingResumeSession(resumeStore);
 
   const { payers } = useTripFormData(null);
-  const [billingTypes, setBillingTypes] = React.useState<any[]>([]);
+  const [billingTypes, setBillingTypes] = React.useState<
+    { id: string; name: string; payer_id: string; behavior_profile: unknown }[]
+  >([]);
 
   React.useEffect(() => {
     const fetchAllBillingTypes = async () => {
       const supabase = createSupabaseClient();
       const { data } = await supabase
         .from('billing_types')
-        .select('id, name, payer_id');
-      if (data) setBillingTypes(data);
+        .select('id, name, payer_id, behavior_profile');
+      if (data)
+        setBillingTypes(
+          data as {
+            id: string;
+            name: string;
+            payer_id: string;
+            behavior_profile: unknown;
+          }[]
+        );
     };
     fetchAllBillingTypes();
   }, []);
 
-  /**
-   * Parses a German style date (DD.MM.YY / DD.MM.YYYY) and 24h time (HH:mm)
-   * into a JavaScript Date instance. Returns null for invalid input.
-   */
-  const parseGermanDate = (dateStr: string, timeStr: string) => {
+  // Show resume prompt when the dialog first opens if there's pending state.
+  const handleOpenChange = (next: boolean) => {
+    if (next && hasPending && mode === 'upload') {
+      setMode('resume_prompt');
+    }
+    setOpen(next);
+  };
+
+  // ── Resume / Discard ──────────────────────────────────────────────────────
+
+  const handleDiscard = () => {
+    resumeStore.clear();
+    setMode('upload');
+  };
+
+  const handleResume = async () => {
+    setMode('resume_loading');
     try {
-      // Handle DD.MM.YY or DD.MM.YYYY
+      const supabase = createSupabaseClient();
+      const { data, error } = await supabase
+        .from('trips')
+        .select(
+          'id, client_id, client_name, client_phone, pickup_address, pickup_street, pickup_street_number, pickup_zip_code, pickup_city, dropoff_address, dropoff_street, dropoff_street_number, dropoff_zip_code, dropoff_city, greeting_style'
+        )
+        .in('id', resumeStore.tripIds)
+        .is('client_id', null)
+        .not('client_name', 'is', null);
+
+      if (error) throw error;
+
+      const rows: RehydratedTripRow[] = (data || []).map((t: any) => ({
+        tripId: t.id as string,
+        clientName: t.client_name as string | null,
+        // Not recoverable from DB without a migration — wizard falls back to split
+        clientFirstName: null,
+        clientLastName: null,
+        clientPhone: t.client_phone as string | null,
+        pickupAddress: t.pickup_address as string | null,
+        pickupStreet: t.pickup_street as string | null,
+        pickupStreetNumber: t.pickup_street_number as string | null,
+        pickupZip: t.pickup_zip_code as string | null,
+        pickupCity: t.pickup_city as string | null,
+        dropoffAddress: t.dropoff_address as string | null,
+        dropoffStreet: t.dropoff_street as string | null,
+        dropoffStreetNumber: t.dropoff_street_number as string | null,
+        dropoffZip: t.dropoff_zip_code as string | null,
+        dropoffCity: t.dropoff_city as string | null,
+        greetingStyle: t.greeting_style as string | null
+      }));
+
+      if (rows.length === 0) {
+        // All trips have been resolved in the meantime – finish up.
+        resumeStore.clear();
+        setMode('done');
+        return;
+      }
+
+      // Clamp the stored index to the actual list length.
+      const clampedIndex = Math.min(resumeStore.currentIndex, rows.length - 1);
+      if (clampedIndex !== resumeStore.currentIndex) {
+        resumeStore.setIndex(clampedIndex);
+      }
+
+      setWizardRows(rows);
+      setMode('resolve_clients');
+    } catch {
+      toast.error(
+        'Fehler beim Laden der offenen Fahrgäste. Bitte versuche es erneut.'
+      );
+      setMode('resume_prompt');
+    }
+  };
+
+  // ── CSV parsing helpers ───────────────────────────────────────────────────
+
+  /**
+   * Parses a German date string (DD.MM.YY or DD.MM.YYYY).
+   * Returns midnight Date on success, null if the format is unrecognisable.
+   */
+  const parseGermanDateOnly = (dateStr: string): Date | null => {
+    try {
       const dateParts = dateStr.trim().split('.');
       if (dateParts.length !== 3) return null;
-
       let [day, month, year] = dateParts.map(Number);
       if (year < 100) year += 2000;
-
-      const timeParts = timeStr.trim().split(':');
-      const [hours, minutes] = timeParts.map(Number);
-
-      const date = new Date(year, month - 1, day, hours, minutes);
-      return isNaN(date.getTime()) ? null : date;
+      const d = new Date(year, month - 1, day, 0, 0, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
     } catch {
       return null;
     }
   };
+
+  /**
+   * Formats a Date to YYYY-MM-DD using LOCAL time — not UTC.
+   * toISOString() converts to UTC first, which shifts the date back by one day
+   * for timezones ahead of UTC (e.g. Germany UTC+1/UTC+2).
+   */
+  const toLocalISODate = (d: Date): string =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  /**
+   * Combines a date string with an optional HH:MM time string.
+   *
+   * requestedDate is ALWAYS set to the CSV date (local timezone) so the
+   * widget date-picker is always pre-filled correctly, regardless of whether
+   * a time was provided.
+   *
+   * Returns:
+   *   null                                         — date format invalid (blocking)
+   *   { scheduledAt: Date,  requestedDate: 'YYYY-MM-DD' } — date + time valid
+   *   { scheduledAt: null,  requestedDate: 'YYYY-MM-DD' } — date ok, time absent/invalid
+   */
+  const parseDateAndTime = (
+    dateStr: string,
+    timeStr: string | undefined
+  ): { scheduledAt: Date | null; requestedDate: string } | null => {
+    const dateOnly = parseGermanDateOnly(dateStr);
+    if (!dateOnly) return null;
+
+    const isoDate = toLocalISODate(dateOnly);
+
+    const trimmed = timeStr?.trim() ?? '';
+    if (!trimmed) {
+      return { scheduledAt: null, requestedDate: isoDate };
+    }
+
+    const parts = trimmed.split(':');
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    if (isNaN(hours) || isNaN(minutes)) {
+      return { scheduledAt: null, requestedDate: isoDate };
+    }
+
+    const full = new Date(dateOnly);
+    full.setHours(hours, minutes, 0, 0);
+    return isNaN(full.getTime())
+      ? { scheduledAt: null, requestedDate: isoDate }
+      : { scheduledAt: full, requestedDate: isoDate };
+  };
+
+  // ── Billing type behavior helpers ─────────────────────────────────────────
+
+  /**
+   * Normalises the raw JSON blob from the DB into a typed BillingTypeBehavior.
+   * Handles both legacy snake_case keys from old records and current camelCase.
+   */
+  const normaliseBehaviorProfile = (raw: unknown): BillingTypeBehavior => {
+    const b = (raw ?? {}) as Record<string, unknown>;
+    const returnPolicyRaw = (b.returnPolicy ??
+      b.return_policy ??
+      'none') as string;
+    const returnPolicy: BillingTypeBehavior['returnPolicy'] =
+      returnPolicyRaw === 'create_placeholder'
+        ? 'time_tbd'
+        : ((returnPolicyRaw as BillingTypeBehavior['returnPolicy']) ?? 'none');
+
+    return {
+      returnPolicy,
+      lockReturnMode: Boolean(b.lockReturnMode ?? b.lock_return_mode ?? false),
+      lockPickup: Boolean(b.lockPickup ?? b.lock_pickup ?? false),
+      lockDropoff: Boolean(b.lockDropoff ?? b.lock_dropoff ?? false),
+      prefillDropoffFromPickup: Boolean(
+        b.prefillDropoffFromPickup ?? b.prefill_dropoff_from_pickup ?? false
+      ),
+      requirePassenger: Boolean(
+        b.requirePassenger ?? b.show_pickup_passenger ?? true
+      ),
+      defaultPickup: (b.defaultPickup ?? b.default_pickup ?? null) as
+        | string
+        | null,
+      defaultDropoff: (b.defaultDropoff ?? b.default_dropoff ?? null) as
+        | string
+        | null,
+      defaultPickupStreet: (b.defaultPickupStreet ??
+        b.default_pickup_street ??
+        null) as string | null,
+      defaultPickupStreetNumber: (b.defaultPickupStreetNumber ??
+        b.default_pickup_street_number ??
+        null) as string | null,
+      defaultPickupZip: (b.defaultPickupZip ?? b.default_pickup_zip ?? null) as
+        | string
+        | null,
+      defaultPickupCity: (b.defaultPickupCity ??
+        b.default_pickup_city ??
+        null) as string | null,
+      defaultDropoffStreet: (b.defaultDropoffStreet ??
+        b.default_dropoff_street ??
+        null) as string | null,
+      defaultDropoffStreetNumber: (b.defaultDropoffStreetNumber ??
+        b.default_dropoff_street_number ??
+        null) as string | null,
+      defaultDropoffZip: (b.defaultDropoffZip ??
+        b.default_dropoff_zip ??
+        null) as string | null,
+      defaultDropoffCity: (b.defaultDropoffCity ??
+        b.default_dropoff_city ??
+        null) as string | null
+    };
+  };
+
+  /**
+   * Applies address locking / prefill rules from a BillingTypeBehavior onto a
+   * draft InsertTrip. Returns the (potentially mutated) trip plus flags that
+   * tell the caller what was changed.
+   */
+  const applyBehaviorToTrip = (
+    trip: InsertTrip,
+    behavior: BillingTypeBehavior
+  ): {
+    trip: InsertTrip;
+    hasAddressOverride: boolean;
+    needsReturnTrip: boolean;
+  } => {
+    let result = { ...trip };
+    let hasAddressOverride = false;
+
+    if (
+      behavior.lockPickup &&
+      (behavior.defaultPickupStreet || behavior.defaultPickup)
+    ) {
+      const street = behavior.defaultPickupStreet ?? null;
+      const streetNumber = behavior.defaultPickupStreetNumber ?? null;
+      const zip = behavior.defaultPickupZip ?? null;
+      const city = behavior.defaultPickupCity ?? null;
+      result = {
+        ...result,
+        pickup_street: street,
+        pickup_street_number: streetNumber,
+        pickup_zip_code: zip,
+        pickup_city: city,
+        pickup_address:
+          [
+            [street, streetNumber].filter(Boolean).join(' '),
+            [zip, city].filter(Boolean).join(' ')
+          ]
+            .filter(Boolean)
+            .join(', ') ||
+          behavior.defaultPickup ||
+          null
+      };
+      hasAddressOverride = true;
+    }
+
+    if (
+      behavior.lockDropoff &&
+      (behavior.defaultDropoffStreet || behavior.defaultDropoff)
+    ) {
+      const street = behavior.defaultDropoffStreet ?? null;
+      const streetNumber = behavior.defaultDropoffStreetNumber ?? null;
+      const zip = behavior.defaultDropoffZip ?? null;
+      const city = behavior.defaultDropoffCity ?? null;
+      result = {
+        ...result,
+        dropoff_street: street,
+        dropoff_street_number: streetNumber,
+        dropoff_zip_code: zip,
+        dropoff_city: city,
+        dropoff_address:
+          [
+            [street, streetNumber].filter(Boolean).join(' '),
+            [zip, city].filter(Boolean).join(' ')
+          ]
+            .filter(Boolean)
+            .join(', ') ||
+          behavior.defaultDropoff ||
+          null
+      };
+      hasAddressOverride = true;
+    }
+
+    if (behavior.prefillDropoffFromPickup) {
+      result = {
+        ...result,
+        dropoff_street: result.pickup_street,
+        dropoff_street_number: result.pickup_street_number,
+        dropoff_zip_code: result.pickup_zip_code,
+        dropoff_city: result.pickup_city,
+        dropoff_address: result.pickup_address
+      };
+    }
+
+    const needsReturnTrip =
+      behavior.returnPolicy === 'time_tbd' || behavior.returnPolicy === 'exact';
+
+    return { trip: result, hasAddressOverride, needsReturnTrip };
+  };
+
+  /**
+   * Builds a return trip from a confirmed outbound trip (post-insert, so outboundId
+   * is available). Pickup and dropoff are swapped; geocoordinates are reused.
+   */
+  const buildReturnTrip = (
+    outbound: InsertTrip,
+    outboundId: string
+  ): InsertTrip => ({
+    ...outbound,
+    scheduled_at: null,
+    requested_date: null,
+    link_type: 'return',
+    linked_trip_id: outboundId,
+    status: 'pending',
+    driver_id: null,
+    needs_driver_assignment: false,
+    // Swap addresses
+    pickup_address: outbound.dropoff_address ?? null,
+    pickup_street: outbound.dropoff_street ?? null,
+    pickup_street_number: outbound.dropoff_street_number ?? null,
+    pickup_zip_code: outbound.dropoff_zip_code ?? null,
+    pickup_city: outbound.dropoff_city ?? null,
+    pickup_station: outbound.dropoff_station ?? null,
+    pickup_lat: outbound.dropoff_lat ?? null,
+    pickup_lng: outbound.dropoff_lng ?? null,
+    dropoff_address: outbound.pickup_address ?? null,
+    dropoff_street: outbound.pickup_street ?? null,
+    dropoff_street_number: outbound.pickup_street_number ?? null,
+    dropoff_zip_code: outbound.pickup_zip_code ?? null,
+    dropoff_city: outbound.pickup_city ?? null,
+    dropoff_station: outbound.pickup_station ?? null,
+    dropoff_lat: outbound.pickup_lat ?? null,
+    dropoff_lng: outbound.pickup_lng ?? null
+  });
 
   /**
    * Main CSV processing entrypoint used by the file uploader.
@@ -110,7 +458,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
    * - reading the CSV
    * - building ValidatedTripRow entries with issues
    * - inserting successful trips
-   * - preparing unresolvedRows for the client‑resolution wizard.
+   * - preparing wizard rows for the client‑resolution step.
    */
   const processCsv = async (files: File[]) => {
     if (files.length === 0) return;
@@ -118,16 +466,16 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     setIsProcessing(true);
     setResults(null);
     setMode('upload');
-    setUnresolvedRows([]);
-    setCurrentIndex(0);
+    setWizardRows([]);
+    resumeStore.clear();
 
     const file = files[0];
 
     Papa.parse<ParsedCsvRow>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data;
+      complete: async (papaResults) => {
+        const rows = papaResults.data;
         const validatedRows: ValidatedTripRow<InsertTrip>[] = [];
         const errors: string[] = [];
         const groupIdMap = new Map<string, string>();
@@ -147,19 +495,18 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
           companyId = profile?.company_id ?? null;
         }
 
-        // Preload clients for simple in-memory matching.
-        // Prefer same company, but fall back to all clients if company_id is missing.
         type CompanyClient = {
           id: string;
           first_name: string | null;
           last_name: string | null;
           phone: string | null;
+          zip_code: string | null;
         };
 
         let companyClients: CompanyClient[] = [];
         const clientsQuery = supabase
           .from('clients')
-          .select('id, first_name, last_name, phone');
+          .select('id, first_name, last_name, phone, zip_code');
 
         const { data: clientsData } = companyId
           ? await clientsQuery.eq('company_id', companyId)
@@ -195,21 +542,16 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
         const findMatchingClient = (
           row: ParsedCsvRow
         ): CompanyClient | null => {
-          const fullName =
-            `${row.firstname || ''} ${row.lastname || ''}`.trim();
-          if (!fullName) return null;
-
-          const normFullName = normalize(fullName);
-
-          const candidates = companyClients.filter((client) => {
-            const clientFullName = `${client.first_name || ''} ${
-              client.last_name || ''
-            }`.trim();
-            return normalize(clientFullName) === normFullName;
-          });
-
-          if (candidates.length === 1) return candidates[0];
-          return null;
+          const result = matchClient(
+            {
+              firstname: row.firstname,
+              lastname: row.lastname,
+              phone: row.phone,
+              pickup_zip: row.pickup_zip
+            },
+            companyClients
+          );
+          return result.matched ? (result.client as CompanyClient) : null;
         };
 
         const findMatchingDriver = (
@@ -232,26 +574,16 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
         const splitStreetAndNumber = (
           raw: string | undefined
         ): { street: string | null; streetNumber: string | null } => {
-          if (!raw) {
-            return { street: null, streetNumber: null };
-          }
+          if (!raw) return { street: null, streetNumber: null };
 
           const trimmed = raw.trim();
-          // Match the first digit and treat everything from there as the house number,
-          // allowing things like "4", "4A", "4 A", "9 C" at the end.
           const match = trimmed.match(/^(.+?)(\s+\d+\s*\w*)$/u);
 
-          if (!match) {
-            // No obvious number part found – keep full string as street, no number
-            return { street: trimmed, streetNumber: null };
-          }
-
-          const street = match[1].trim();
-          const streetNumber = match[2].trim();
+          if (!match) return { street: trimmed, streetNumber: null };
 
           return {
-            street: street || null,
-            streetNumber: streetNumber || null
+            street: match[1].trim() || null,
+            streetNumber: match[2].trim() || null
           };
         };
 
@@ -263,7 +595,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             (parsedRow as any)[trimmedKey] = String(rowRaw[key] || '').trim();
           });
 
-          const rowNum = i + 2; // +1 for 0-index, +1 for header row
+          const rowNum = i + 2;
           const issues: ValidationIssue[] = [];
 
           if (!parsedRow.kostentraeger) {
@@ -332,27 +664,35 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             .filter(Boolean)
             .join(', ')}`;
 
-          const scheduled_at = parseGermanDate(parsedRow.date, parsedRow.time);
-          if (!scheduled_at) {
+          const dateTimeResult = parseDateAndTime(
+            parsedRow.date,
+            parsedRow.time
+          );
+          if (!dateTimeResult) {
             issues.push({
               type: 'invalid_datetime',
-              message: `Ungültiges Datum/Uhrzeit Format (erwartet DD.MM.YY HH:mm): "${parsedRow.date} ${parsedRow.time}"`
+              message: `Ungültiges Datum-Format (erwartet DD.MM.YY): "${parsedRow.date}"`
             });
           }
+          const scheduled_at = dateTimeResult?.scheduledAt ?? null;
+          const requested_date = dateTimeResult?.requestedDate ?? null;
 
           let finalGroupId: string | null = null;
+          let finalStopOrder: number | null = null;
           if (parsedRow.group_id) {
-            if (!groupIdMap.has(parsedRow.group_id)) {
-              groupIdMap.set(parsedRow.group_id, crypto.randomUUID());
+            const parsed = parseGroupId(parsedRow.group_id);
+            const groupLabel = parsed.label;
+            finalStopOrder = parsed.stopOrder;
+            if (!groupIdMap.has(groupLabel)) {
+              groupIdMap.set(groupLabel, crypto.randomUUID());
             }
-            finalGroupId = groupIdMap.get(parsedRow.group_id) ?? null;
+            finalGroupId = groupIdMap.get(groupLabel) ?? null;
           }
 
           const fullNameFromCsv =
             `${parsedRow.firstname || ''} ${parsedRow.lastname || ''}`.trim() ||
             null;
 
-          // Try to match an existing client by full name
           const matchedClient = findMatchingClient(parsedRow);
 
           const matchedDriver = findMatchingDriver(parsedRow);
@@ -364,8 +704,8 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
           const status: 'pending' | 'assigned' =
             driverId != null ? 'assigned' : 'pending';
 
-          const trip: InsertTrip | null =
-            payer && scheduled_at
+          let builtTrip: InsertTrip | null =
+            payer && dateTimeResult
               ? {
                   payer_id: payer.id,
                   billing_type_id: billingTypeId,
@@ -376,7 +716,10 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                       }`.trim() || null
                     : fullNameFromCsv,
                   client_phone: parsedRow.phone || null,
-                  scheduled_at: scheduled_at.toISOString(),
+                  scheduled_at: scheduled_at
+                    ? scheduled_at.toISOString()
+                    : null,
+                  requested_date: requested_date,
                   pickup_address,
                   pickup_street:
                     pickupStreetParts.street || parsedRow.pickup_street || null,
@@ -405,6 +748,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   company_id: companyId,
                   created_by: user?.id || null,
                   group_id: finalGroupId,
+                  stop_order: finalStopOrder,
                   stop_updates: [],
                   has_missing_geodata: true,
                   driver_id: driverId,
@@ -413,14 +757,32 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 }
               : null;
 
+          // Apply BillingTypeBehavior rules (address overrides, return policy)
+          let rowNeedsReturnTrip = false;
+          let rowHasAddressOverride = false;
+          if (builtTrip && billingTypeId) {
+            const btRecord = billingTypes.find((b) => b.id === billingTypeId);
+            if (btRecord?.behavior_profile) {
+              const behavior = normaliseBehaviorProfile(
+                btRecord.behavior_profile
+              );
+              const applied = applyBehaviorToTrip(builtTrip, behavior);
+              builtTrip = applied.trip;
+              rowNeedsReturnTrip = applied.needsReturnTrip;
+              rowHasAddressOverride = applied.hasAddressOverride;
+            }
+          }
+
           const matchedClientId: string | null = matchedClient?.id ?? null;
 
           validatedRows.push({
             rowNumber: rowNum,
             source: parsedRow,
-            trip,
+            trip: builtTrip,
             issues,
-            clientId: matchedClientId
+            clientId: matchedClientId,
+            needsReturnTrip: rowNeedsReturnTrip,
+            addressOverrideApplied: rowHasAddressOverride
           });
         }
 
@@ -428,10 +790,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
           (row) => row.trip && row.issues.length === 0
         );
 
-        // Geocode pickup/dropoff addresses for successful rows using the existing
-        // geocoding API endpoint so that trips get lat/lng where possible and
-        // normalize zip_code/city based on Google data (street is treated as
-        // the source of truth).
+        // Geocode pickup/dropoff addresses for successful outbound trips.
         await Promise.all(
           successfulRows.map(async (row) => {
             if (!row.trip) return;
@@ -440,9 +799,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               const [pickupResult, dropoffResult] = await Promise.all([
                 fetch('/api/geocode-address', {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     street: row.trip.pickup_street,
                     street_number: row.trip.pickup_street_number,
@@ -452,9 +809,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 }),
                 fetch('/api/geocode-address', {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     street: row.trip.dropoff_street,
                     street_number: row.trip.dropoff_street_number,
@@ -464,11 +819,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 })
               ]);
 
-              const pickupOk = pickupResult.ok;
-              const dropoffOk = dropoffResult.ok;
-
-              const pickupData = pickupOk ? await pickupResult.json() : null;
-              const dropoffData = dropoffOk ? await dropoffResult.json() : null;
+              const pickupData = pickupResult.ok
+                ? await pickupResult.json()
+                : null;
+              const dropoffData = dropoffResult.ok
+                ? await dropoffResult.json()
+                : null;
 
               if (
                 pickupData &&
@@ -488,9 +844,6 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 row.trip.dropoff_lng = dropoffData.lng;
               }
 
-              // Use Google-derived postal code and city to backfill or correct
-              // CSV values when possible. We assume the street (from CSV) is
-              // correct and trust Google's metadata for that street.
               if (pickupData) {
                 if (pickupData.zip_code) {
                   row.trip.pickup_zip_code = pickupData.zip_code;
@@ -509,9 +862,6 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 }
               }
 
-              // Keep the denormalized address strings in sync with potentially
-              // corrected zip/city values and include the house number again
-              // so that the wizard and UI always show the full address.
               row.trip.pickup_address = `${[
                 [row.trip.pickup_street, row.trip.pickup_street_number]
                   .filter(Boolean)
@@ -543,57 +893,134 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 row.trip.has_missing_geodata = false;
               }
             } catch {
-              // If geocoding fails, we keep has_missing_geodata = true and
-              // allow later backfill scripts to handle it.
+              // Non-fatal: keep has_missing_geodata = true for later backfill.
             }
           })
         );
 
-        const successfulTrips = successfulRows.map(
+        const outboundTrips = successfulRows.map(
           (row) => row.trip!
         ) as InsertTrip[];
 
-        if (successfulTrips.length > 0 && errors.length === 0) {
-          try {
-            const createdTrips =
-              await tripsService.bulkCreateTrips(successfulTrips);
+        const addressOverrides = successfulRows.filter(
+          (r) => r.addressOverrideApplied
+        ).length;
 
-            // Map back created trip ids to corresponding rows (by index)
-            const unresolved = createdTrips
+        if (outboundTrips.length > 0 && errors.length === 0) {
+          try {
+            // ── Pass 1: Insert all outbound trips ─────────────────────────────
+            const createdOutbound =
+              await tripsService.bulkCreateTrips(outboundTrips);
+
+            // ── Pass 2: Build and insert auto-return trips ────────────────────
+            // Return trips use the geocoded addresses from the now-inserted
+            // outbound trips (just swapped) so no additional geocoding is needed.
+            const returnTripPayloads: InsertTrip[] = [];
+            const returnToOutboundMap: {
+              returnIdx: number;
+              outboundId: string;
+            }[] = [];
+
+            successfulRows.forEach((row, i) => {
+              if (row.needsReturnTrip && createdOutbound[i]) {
+                const outboundId = createdOutbound[i].id as string;
+                returnTripPayloads.push(
+                  buildReturnTrip(outboundTrips[i], outboundId)
+                );
+                returnToOutboundMap.push({
+                  returnIdx: returnTripPayloads.length - 1,
+                  outboundId
+                });
+              }
+            });
+
+            let returnTripsCreated = 0;
+            if (returnTripPayloads.length > 0) {
+              const createdReturn =
+                await tripsService.bulkCreateTrips(returnTripPayloads);
+              returnTripsCreated = createdReturn.length;
+
+              // ── Pass 3: Backfill linked_trip_id on outbound trips ───────────
+              const supabaseForLinks = createSupabaseClient();
+              await Promise.all(
+                returnToOutboundMap.map(({ returnIdx, outboundId }) =>
+                  supabaseForLinks
+                    .from('trips')
+                    .update({ linked_trip_id: createdReturn[returnIdx].id })
+                    .eq('id', outboundId)
+                )
+              );
+            }
+
+            // Build wizard rows from unresolved outbound trips only.
+            const unresolvedCreated = createdOutbound
               .map((trip: any, idx: number) => ({
-                tripId: trip.id as string,
-                row: successfulRows[idx]
+                createdTrip: trip,
+                sourceRow: successfulRows[idx]
               }))
               .filter(
-                ({ row }) =>
-                  !row.clientId &&
-                  row.trip?.client_name &&
-                  row.trip?.ingestion_source === 'csv_bulk_upload'
+                ({ sourceRow }) =>
+                  !sourceRow.clientId &&
+                  sourceRow.trip?.client_name &&
+                  sourceRow.trip?.ingestion_source === 'csv_bulk_upload'
               );
 
-            setUnresolvedRows(unresolved);
-
+            const totalCreated = outboundTrips.length + returnTripsCreated;
             toast.success(
-              `${successfulTrips.length} Fahrten erfolgreich hochgeladen!`
+              returnTripsCreated > 0
+                ? `${outboundTrips.length} Fahrten + ${returnTripsCreated} Rückfahrten erfolgreich hochgeladen!`
+                : `${outboundTrips.length} Fahrten erfolgreich hochgeladen!`
             );
             setResults({
-              success: successfulTrips.length,
+              success: totalCreated,
               errors: [],
-              rows: validatedRows
+              rows: validatedRows,
+              returnTripsCreated,
+              addressOverrides
             });
             onSuccess?.();
             router.refresh();
 
-            if (unresolved.length > 0) {
+            if (unresolvedCreated.length > 0) {
+              const freshRows: RehydratedTripRow[] = unresolvedCreated.map(
+                ({ createdTrip, sourceRow }) => ({
+                  tripId: createdTrip.id as string,
+                  clientName: sourceRow.trip?.client_name ?? null,
+                  clientFirstName: sourceRow.source.firstname?.trim() || null,
+                  clientLastName: sourceRow.source.lastname?.trim() || null,
+                  clientPhone: sourceRow.trip?.client_phone ?? null,
+                  pickupAddress: sourceRow.trip?.pickup_address ?? null,
+                  pickupStreet: sourceRow.trip?.pickup_street ?? null,
+                  pickupStreetNumber:
+                    sourceRow.trip?.pickup_street_number ?? null,
+                  pickupZip: sourceRow.trip?.pickup_zip_code ?? null,
+                  pickupCity: sourceRow.trip?.pickup_city ?? null,
+                  dropoffAddress: sourceRow.trip?.dropoff_address ?? null,
+                  dropoffStreet: sourceRow.trip?.dropoff_street ?? null,
+                  dropoffStreetNumber:
+                    sourceRow.trip?.dropoff_street_number ?? null,
+                  dropoffZip: sourceRow.trip?.dropoff_zip_code ?? null,
+                  dropoffCity: sourceRow.trip?.dropoff_city ?? null,
+                  greetingStyle: sourceRow.trip?.greeting_style ?? null
+                })
+              );
+
+              resumeStore.start(freshRows.map((r) => r.tripId));
+              setWizardRows(freshRows);
               setMode('resolve_clients');
-              setCurrentIndex(0);
             } else {
               setMode('done');
               setTimeout(() => setOpen(false), 2000);
             }
           } catch (e: any) {
             errors.push(`Datenbankfehler: ${e.message}`);
-            setResults({ success: 0, errors, rows: validatedRows });
+            setResults({
+              success: 0,
+              errors,
+              rows: validatedRows,
+              returnTripsCreated: 0,
+              addressOverrides: 0
+            });
           }
         } else {
           const combinedErrors =
@@ -608,9 +1035,11 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   );
 
           setResults({
-            success: successfulTrips.length,
+            success: outboundTrips.length,
             errors: combinedErrors,
-            rows: validatedRows
+            rows: validatedRows,
+            returnTripsCreated: 0,
+            addressOverrides
           });
           setMode('done');
         }
@@ -623,12 +1052,33 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     });
   };
 
+  // ── Wizard advance helpers ────────────────────────────────────────────────
+
+  const handleWizardSkip = () => {
+    const nextIndex = resumeStore.currentIndex + 1;
+    resumeStore.advance();
+    if (nextIndex >= wizardRows.length) {
+      resumeStore.clear();
+      setMode('done');
+    }
+  };
+
+  const handleWizardDone = () => {
+    resumeStore.clear();
+    setMode('done');
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant='outline' className='gap-2'>
           <Upload className='h-4 w-4' />
           Bulk Upload
+          {hasPending && (
+            <span className='ml-1 h-2 w-2 rounded-full bg-amber-500' />
+          )}
         </Button>
       </DialogTrigger>
       <DialogContent className='sm:max-w-[500px]'>
@@ -644,11 +1094,54 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
         </DialogHeader>
 
         <div className='grid gap-4 py-4'>
+          {/* ── Resume prompt ── */}
+          {mode === 'resume_prompt' && (
+            <div className='space-y-3'>
+              <Alert className='border-amber-200 bg-amber-50 dark:bg-amber-950/20'>
+                <RotateCcw className='h-4 w-4 text-amber-600' />
+                <AlertTitle className='text-amber-800 dark:text-amber-400'>
+                  Unfertiger Bulk-Upload gefunden
+                </AlertTitle>
+                <AlertDescription className='text-amber-700 dark:text-amber-500'>
+                  {resumeStore.tripIds.length} Fahrgast
+                  {resumeStore.tripIds.length !== 1
+                    ? 'gäste wurden'
+                    : ' wurde'}{' '}
+                  noch nicht zugeordnet. Möchten Sie dort weitermachen?
+                </AlertDescription>
+              </Alert>
+              <div className='flex gap-2'>
+                <Button type='button' className='flex-1' onClick={handleResume}>
+                  Fortsetzen
+                </Button>
+                <Button
+                  type='button'
+                  variant='outline'
+                  className='flex-1'
+                  onClick={handleDiscard}
+                >
+                  Verwerfen
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Resume loading ── */}
+          {mode === 'resume_loading' && (
+            <div className='flex flex-col items-center justify-center py-8'>
+              <span className='h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent' />
+              <p className='text-muted-foreground mt-4 text-sm'>
+                Lade offene Fahrgäste…
+              </p>
+            </div>
+          )}
+
+          {/* ── Initial upload UI ── */}
           {mode === 'upload' && !results && (
             <FileUploader
               accept={{ 'text/csv': ['.csv'] }}
               maxFiles={1}
-              maxSize={1024 * 1024 * 5} // 5MB
+              maxSize={1024 * 1024 * 5}
               onUpload={processCsv}
               disabled={isProcessing}
             />
@@ -709,26 +1202,19 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             </div>
           )}
 
-          {mode === 'resolve_clients' && unresolvedRows.length > 0 && (
+          {/* ── Wizard ── */}
+          {mode === 'resolve_clients' && wizardRows.length > 0 && (
             <ResolveClientsStep
-              unresolvedRows={unresolvedRows}
-              currentIndex={currentIndex}
-              homeAddressChoice={homeAddressChoice}
-              isCreatingClient={isCreatingClient}
-              onHomeAddressChange={setHomeAddressChoice}
-              onUseAsNonClient={() => {
-                if (currentIndex + 1 < unresolvedRows.length) {
-                  setCurrentIndex((idx) => idx + 1);
-                } else {
-                  setMode('done');
-                }
-              }}
-              onDone={() => {
-                setMode('done');
-              }}
+              rows={wizardRows}
+              currentIndex={resumeStore.currentIndex}
+              homeAddressChoice={resumeStore.homeAddressChoice}
+              onHomeAddressChange={resumeStore.setHomeAddressChoice}
+              onSkip={handleWizardSkip}
+              onDone={handleWizardDone}
             />
           )}
 
+          {/* ── Done ── */}
           {mode === 'done' && (
             <div className='space-y-4'>
               <Alert className='border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20'>
@@ -736,8 +1222,32 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 <AlertTitle className='text-emerald-800 dark:text-emerald-400'>
                   Import abgeschlossen
                 </AlertTitle>
-                <AlertDescription className='text-emerald-700 dark:text-emerald-500'>
-                  Alle aus dieser CSV erstellten Fahrten wurden verarbeitet.
+                <AlertDescription className='space-y-1 text-emerald-700 dark:text-emerald-500'>
+                  <p>
+                    Alle aus dieser CSV erstellten Fahrten wurden verarbeitet.
+                  </p>
+                  {results && results.success > 0 && (
+                    <ul className='mt-2 list-inside list-disc space-y-0.5 text-xs'>
+                      <li>
+                        {results.success} Fahrt
+                        {results.success !== 1 ? 'en' : ''} gesamt erstellt
+                      </li>
+                      {results.returnTripsCreated > 0 && (
+                        <li>
+                          {results.returnTripsCreated} Rückfahrt
+                          {results.returnTripsCreated !== 1 ? 'en' : ''}{' '}
+                          automatisch angelegt
+                        </li>
+                      )}
+                      {results.addressOverrides > 0 && (
+                        <li>
+                          {results.addressOverrides} Adresse
+                          {results.addressOverrides !== 1 ? 'n' : ''} durch
+                          Abrechnungsart-Regel überschrieben
+                        </li>
+                      )}
+                    </ul>
+                  )}
                 </AlertDescription>
               </Alert>
               <Button
