@@ -1,7 +1,7 @@
 'use client';
 
 import { DataTableColumnHeader } from '@/components/ui/table/data-table-column-header';
-import { Column, ColumnDef } from '@tanstack/react-table';
+import { ColumnDef } from '@tanstack/react-table';
 import { CellAction } from './cell-action';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -9,20 +9,36 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Accessibility, RepeatIcon } from 'lucide-react';
 import { DriverSelectCell } from './driver-select-cell';
+import { cn } from '@/lib/utils';
+import {
+  tripStatusBadge,
+  tripStatusLabels,
+  type TripStatus
+} from '@/lib/trip-status';
 
-const statusMap: Record<
-  string,
-  {
-    label: string;
-    variant: 'outline' | 'default' | 'secondary' | 'destructive';
+function parseAddress(raw: string | null | undefined): {
+  street: string | null;
+  cityLine: string | null;
+} {
+  if (!raw) return { street: null, cityLine: null };
+  // Split on the first occurrence of a 5-digit German ZIP code
+  const match = raw.match(/^(.*?)\s*,?\s*(\d{5}\s+.+)$/);
+  if (match) {
+    return {
+      street: match[1].trim() || null,
+      cityLine: match[2].trim()
+    };
   }
-> = {
-  pending: { label: 'Offen', variant: 'outline' },
-  assigned: { label: 'Zugewiesen', variant: 'default' },
-  in_progress: { label: 'In Fahrt', variant: 'secondary' },
-  completed: { label: 'Abgeschlossen', variant: 'default' },
-  cancelled: { label: 'Storniert', variant: 'destructive' }
-};
+  return { street: raw, cityLine: null };
+}
+
+const statusFilterOptions: { label: string; value: string }[] = [
+  { label: 'Offen', value: 'pending' },
+  { label: 'Zugewiesen', value: 'assigned' },
+  { label: 'In Fahrt', value: 'in_progress' },
+  { label: 'Abgeschlossen', value: 'completed' },
+  { label: 'Storniert', value: 'cancelled' }
+];
 
 export const columns: ColumnDef<any>[] = [
   {
@@ -101,10 +117,12 @@ export const columns: ColumnDef<any>[] = [
       return (
         <div className='flex items-center gap-2'>
           <span className='font-medium'>{format(date, 'HH:mm')}</span>
-          {isRecurring && <RepeatIcon className='h-3 w-3 text-blue-500' />}
+          {isRecurring && (
+            <RepeatIcon className='h-3 w-3 text-blue-500 dark:text-blue-400' />
+          )}
           {isNowWindow && (
             <span
-              className='h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.2)]'
+              className='bg-primary h-2 w-2 rounded-full shadow-[0_0_0_3px_color-mix(in_srgb,var(--primary),transparent_80%)]'
               aria-label='Aktuelle Fahrt'
             />
           )}
@@ -130,7 +148,7 @@ export const columns: ColumnDef<any>[] = [
           {row.original.is_wheelchair && (
             <Badge
               variant='outline'
-              className='w-fit origin-left scale-75 bg-black text-white hover:bg-black/90'
+              className='bg-foreground text-background hover:bg-foreground/90 w-fit origin-left scale-75'
             >
               <Accessibility className='mr-1 h-3 w-3' />
               Rollstuhl
@@ -150,36 +168,62 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Abholung' />
     ),
-    cell: ({ row }) => (
-      <div className='flex max-w-[200px] flex-col truncate'>
-        <span title={row.original.pickup_address}>
-          {row.original.pickup_address}
-        </span>
-        {row.original.pickup_station && (
-          <span className='text-muted-foreground truncate text-[10px] italic'>
-            ({row.original.pickup_station})
+    cell: ({ row }) => {
+      const { street, cityLine } = parseAddress(row.original.pickup_address);
+      const station = row.original.pickup_station as string | undefined;
+      return (
+        <div
+          className='flex max-w-[200px] flex-col'
+          title={row.original.pickup_address ?? ''}
+        >
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <span className='truncate text-sm font-medium'>{street}</span>
+            {station && (
+              <span className='bg-muted text-foreground shrink-0 rounded px-1.5 py-0 text-[10px] font-medium'>
+                {station}
+              </span>
+            )}
           </span>
-        )}
-      </div>
-    )
+          {cityLine && (
+            <span className='text-muted-foreground truncate text-xs'>
+              {cityLine}
+            </span>
+          )}
+        </div>
+      );
+    },
+    meta: { label: 'Abholung' }
   },
   {
     accessorKey: 'dropoff_address',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Ziel' />
     ),
-    cell: ({ row }) => (
-      <div className='flex max-w-[200px] flex-col truncate'>
-        <span title={row.original.dropoff_address}>
-          {row.original.dropoff_address}
-        </span>
-        {row.original.dropoff_station && (
-          <span className='text-muted-foreground truncate text-[10px] italic'>
-            ({row.original.dropoff_station})
+    cell: ({ row }) => {
+      const { street, cityLine } = parseAddress(row.original.dropoff_address);
+      const station = row.original.dropoff_station as string | undefined;
+      return (
+        <div
+          className='flex max-w-[200px] flex-col'
+          title={row.original.dropoff_address ?? ''}
+        >
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <span className='truncate text-sm font-medium'>{street}</span>
+            {station && (
+              <span className='bg-muted text-foreground shrink-0 rounded px-1.5 py-0 text-[10px] font-medium'>
+                {station}
+              </span>
+            )}
           </span>
-        )}
-      </div>
-    )
+          {cityLine && (
+            <span className='text-muted-foreground truncate text-xs'>
+              {cityLine}
+            </span>
+          )}
+        </div>
+      );
+    },
+    meta: { label: 'Ziel' }
   },
   {
     id: 'driver_id',
@@ -188,7 +232,8 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Fahrer' />
     ),
     cell: ({ row }) => <DriverSelectCell trip={row.original} />,
-    enableColumnFilter: false
+    enableColumnFilter: false,
+    meta: { label: 'Fahrer' }
   },
   {
     id: 'status',
@@ -197,17 +242,17 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Status' />
     ),
     cell: ({ cell }) => {
-      const status = cell.getValue<string>();
-      const config = statusMap[status] || { label: status, variant: 'outline' };
-      return <Badge variant={config.variant}>{config.label}</Badge>;
+      const status = cell.getValue<string>() as TripStatus;
+      return (
+        <Badge className={tripStatusBadge({ status })}>
+          {tripStatusLabels[status] ?? status}
+        </Badge>
+      );
     },
     meta: {
       label: 'Status',
       variant: 'select',
-      options: Object.entries(statusMap).map(([value, { label }]) => ({
-        label,
-        value
-      }))
+      options: statusFilterOptions
     },
     enableColumnFilter: false
   },
@@ -217,7 +262,8 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Kostenträger' />
     ),
-    cell: ({ row }) => <div>{row.original.payer?.name || '-'}</div>
+    cell: ({ row }) => <div>{row.original.payer?.name || '-'}</div>,
+    meta: { label: 'Kostenträger' }
   },
   {
     id: 'billing_type',
@@ -234,7 +280,7 @@ export const columns: ColumnDef<any>[] = [
           style={{
             borderColor: bt.color,
             color: bt.color,
-            backgroundColor: `color-mix(in srgb, ${bt.color}, transparent 90%)`
+            backgroundColor: `color-mix(in srgb, ${bt.color}, var(--background) 90%)`
           }}
         >
           {bt.name}

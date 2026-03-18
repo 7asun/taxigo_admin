@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Settings2 } from 'lucide-react';
+import { CheckIcon, CaretSortIcon } from '@radix-ui/react-icons';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,9 +21,19 @@ import {
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import type { DateRange } from 'react-day-picker';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
+import { cn } from '@/lib/utils';
 
 interface TripsFiltersBarProps {
   totalItems: number;
@@ -34,12 +45,35 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
 
-  const name = searchParams.get('name') ?? '';
+  const search = searchParams.get('search') ?? '';
   const driverId = searchParams.get('driver_id') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
   const payerId = searchParams.get('payer_id') ?? 'all';
   const billingTypeId = searchParams.get('billing_type_id') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
+  const currentView = searchParams.get('view') ?? 'list';
+
+  const table = useTripsTableStore((s) => s.table);
+  const columnVisibility = useTripsTableStore((s) => s.columnVisibility);
+
+  const hidableColumns = useMemo(() => {
+    if (!table) return [];
+    return table
+      .getAllColumns()
+      .filter(
+        (col) => typeof col.accessorFn !== 'undefined' && col.getCanHide()
+      );
+    // columnVisibility in deps ensures re-render (and fresh getIsVisible()) on every toggle
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table, columnVisibility]);
+
+  const [localSearch, setLocalSearch] = useState(search);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync local input back when URL search param changes externally (e.g. reset button)
+  useEffect(() => {
+    setLocalSearch(search);
+  }, [search]);
 
   const hasSetDefaultDate = useRef(false);
 
@@ -131,15 +165,21 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     });
   };
 
+  const handleSearchChange = (value: string) => {
+    setLocalSearch(value);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      updateFilters({ search: value || null });
+    }, 350);
+  };
+
   return (
     <div className='bg-muted/40 mb-1 flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs'>
       <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2 md:flex-nowrap'>
         <Input
-          placeholder='Fahrgast / Adresse suchen'
-          value={name}
-          onChange={(event) => {
-            updateFilters({ name: event.target.value || null });
-          }}
+          placeholder='Fahrgast oder Adresse suchen'
+          value={localSearch}
+          onChange={(event) => handleSearchChange(event.target.value)}
           className='h-8 min-w-[120px] flex-1 truncate'
         />
 
@@ -319,6 +359,56 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             </SelectContent>
           </Select>
         )}
+
+        {currentView === 'list' && table && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-8 flex-shrink-0 justify-between gap-1.5 text-xs font-normal'
+              >
+                <Settings2 className='h-3.5 w-3.5 shrink-0' />
+                <span>Spalten</span>
+                <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align='start' className='w-48 p-0'>
+              <Command>
+                <CommandInput
+                  placeholder='Spalte suchen...'
+                  className='h-8 text-xs'
+                />
+                <CommandList>
+                  <CommandEmpty className='py-2 text-center text-xs'>
+                    Keine Spalten gefunden.
+                  </CommandEmpty>
+                  <CommandGroup>
+                    {hidableColumns.map((column) => (
+                      <CommandItem
+                        key={column.id}
+                        onSelect={() =>
+                          column.toggleVisibility(!column.getIsVisible())
+                        }
+                        className='text-xs'
+                      >
+                        <span className='truncate'>
+                          {(column.columnDef.meta as any)?.label ?? column.id}
+                        </span>
+                        <CheckIcon
+                          className={cn(
+                            'ml-auto size-3.5 shrink-0',
+                            column.getIsVisible() ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
       <div className='flex items-center gap-3'>
         <span className='text-muted-foreground hidden text-[11px] sm:inline'>
@@ -330,7 +420,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
           className='text-muted-foreground hover:text-foreground h-8 px-3 text-xs'
           onClick={() => {
             updateFilters({
-              name: null,
+              search: null,
               driver_id: null,
               status: null,
               payer_id: null,

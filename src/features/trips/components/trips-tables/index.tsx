@@ -8,6 +8,7 @@ import * as React from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { parseAsInteger, useQueryState } from 'nuqs';
 import { columns } from './columns';
+import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
 
 export { columns };
 
@@ -32,6 +33,19 @@ export function TripsTable<TData, TValue>({
     shallow: false,
     debounceMs: 500
   });
+
+  const setTable = useTripsTableStore((s) => s.setTable);
+  const setColumnVisibility = useTripsTableStore((s) => s.setColumnVisibility);
+
+  React.useEffect(() => {
+    setTable(table as any);
+    return () => setTable(null);
+  }, [table, setTable]);
+
+  const columnVisibility = table.getState().columnVisibility;
+  React.useEffect(() => {
+    setColumnVisibility(columnVisibility);
+  }, [columnVisibility, setColumnVisibility]);
 
   // Calculate groups for visual indicators
   const groupCounts = React.useMemo(() => {
@@ -72,12 +86,12 @@ export function TripsTable<TData, TValue>({
 
         if (row.group_id && groupCounts[row.group_id] > 1) {
           classes.push(
-            'border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-500/10'
+            'border-l-4 border-l-green-500 bg-green-50/30 dark:bg-green-950/10'
           );
         }
 
         if (scheduledAt && isToday(scheduledAt)) {
-          classes.push('bg-slate-50/80 dark:bg-slate-900/40');
+          classes.push('bg-muted/40');
         }
 
         if (scheduledAt && isNowWindow(scheduledAt)) {
@@ -89,7 +103,7 @@ export function TripsTable<TData, TValue>({
         return cn(classes);
       }}
     >
-      <DataTableToolbar table={table} />
+      <DataTableToolbar table={table} showViewOptions={false} />
     </DataTable>
   );
 }
