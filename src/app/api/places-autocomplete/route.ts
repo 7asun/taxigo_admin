@@ -14,15 +14,25 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           input: query,
-          // Hard-restrict to Oldenburg area so we always get local streets first
-          locationRestriction: {
+          // Soft bias toward Oldenburg city centre (53.1435°N, 8.2147°E).
+          // Using locationBias (not locationRestriction) is intentional:
+          //   - locationRestriction = hard wall, zero results outside the circle
+          //   - locationBias       = preference, Google expands outward when no
+          //     local match exists, returning the closest results geographically
+          // This gives us "Oldenburg streets first, everything else as fallback."
+          locationBias: {
             circle: {
-              center: { latitude: 53.1435, longitude: 8.2147 }, // Oldenburg
-              radius: 15000 // 15km radius
+              center: { latitude: 53.1435, longitude: 8.2147 }, // Oldenburg centre
+              radius: 15000 // 15 km — covers the entire Oldenburg urban area
             }
           },
-          // Prefer street names; user can add house numbers after
-          includedPrimaryTypes: ['route'],
+          // Three result types cover all dispatcher input patterns:
+          //   route          — street name only ("Alexanderstraße")
+          //   street_address — full address with house number ("Alexanderstraße 14")
+          //   establishment  — named place ("Klinikum Oldenburg", "Hauptbahnhof")
+          // Google Places API v1 (New) allows mixing address and establishment types
+          // in the same request, unlike the legacy Places API.
+          includedPrimaryTypes: ['route', 'street_address', 'establishment'],
           includedRegionCodes: ['de'],
           languageCode: 'de'
         })
