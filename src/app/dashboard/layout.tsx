@@ -1,4 +1,5 @@
 import KBar from '@/components/kbar';
+import { getDocSearchData } from '@/lib/documentation';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
 import { InfoSidebar } from '@/components/layout/info-sidebar';
@@ -25,16 +26,21 @@ export default async function DashboardLayout({
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get('sidebar_state')?.value === 'true';
 
+  const docSearchData = getDocSearchData();
+
   return (
-    <KBar>
-      <SidebarProvider defaultOpen={defaultOpen}>
+    <KBar docSearchData={docSearchData}>
+      <SidebarProvider
+        defaultOpen={defaultOpen}
+        className='h-svh max-h-svh overflow-hidden'
+      >
         <InfobarProvider defaultOpen={false}>
           <AppSidebar />
           <SidebarInset>
             <Header />
-            {/* page main content */}
-            {children}
-            {/* page main content ends */}
+            <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+              {children}
+            </div>
           </SidebarInset>
           <InfoSidebar side='right' />
         </InfobarProvider>

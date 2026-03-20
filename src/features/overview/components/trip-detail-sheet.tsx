@@ -22,24 +22,29 @@ import {
 } from '@/components/ui/select';
 import { useTrip } from '@/features/trips/hooks/use-trips';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
+import { de } from 'date-fns/locale';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import {
-  Flag,
   Navigation,
   Phone,
   User2,
   Briefcase,
-  History,
-  Clock,
   AlertCircle,
   AlertTriangle,
   CreditCard,
   Trash2,
-  Share2
+  Share2,
+  ArrowLeftRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { useTripCancellation } from '@/features/trips/hooks/use-trip-cancellation';
 import {
@@ -48,7 +53,13 @@ import {
 } from '@/features/trips/api/recurring-exceptions.actions';
 import { RecurringTripCancelDialog } from '@/features/trips/components/recurring-trip-cancel-dialog';
 import { copyTripToClipboard } from '@/features/trips/lib/share-utils';
-import { getCancelledPartnerLabel } from '@/features/trips/lib/trip-direction';
+import {
+  getCancelledPartnerLabel,
+  getTripDirection
+} from '@/features/trips/lib/trip-direction';
+import { shouldShowCreateReturnTripButton } from '@/features/trips/lib/can-create-linked-return';
+import { CreateReturnTripDialog } from '@/features/trips/components/return-trip';
+import { tripsService } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import {
   tripStatusBadge,
@@ -60,12 +71,15 @@ interface TripDetailSheetProps {
   tripId: string | null;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Switch the sheet to another trip (e.g. linked Hinfahrt/Rückfahrt). */
+  onNavigateToTrip?: (tripId: string) => void;
 }
 
 export function TripDetailSheet({
   tripId,
   isOpen,
-  onOpenChange
+  onOpenChange,
+  onNavigateToTrip
 }: TripDetailSheetProps) {
   const { trip, isLoading: isTripLoading } = useTrip(tripId);
   const [groupTrips, setGroupTrips] = useState<any[]>([]);
@@ -75,7 +89,29 @@ export function TripDetailSheet({
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [hasPair, setHasPair] = useState(false);
   const [linkedPartner, setLinkedPartner] = useState<Trip | null>(null);
+  const [isCreateReturnOpen, setIsCreateReturnOpen] = useState(false);
+  /** `HH:mm` for inline time edit; only used when `trip.scheduled_at` is set */
+  const [timeDraft, setTimeDraft] = useState('');
+  const [isSavingTime, setIsSavingTime] = useState(false);
   const { cancelTrip, isLoading: isCancelling } = useTripCancellation();
+
+  // Time draft: only treat as "live" while the sheet is open. Closing discards
+  // unsaved edits by resetting from `trip.scheduled_at` (server / cache).
+  useEffect(() => {
+    if (!isOpen) {
+      if (trip?.scheduled_at) {
+        setTimeDraft(format(new Date(trip.scheduled_at), 'HH:mm'));
+      } else {
+        setTimeDraft('');
+      }
+      return;
+    }
+    if (!trip?.scheduled_at) {
+      setTimeDraft('');
+      return;
+    }
+    setTimeDraft(format(new Date(trip.scheduled_at), 'HH:mm'));
+  }, [isOpen, trip?.id, trip?.scheduled_at]);
 
   useEffect(() => {
     const fetchDrivers = async () => {
@@ -157,6 +193,26 @@ export function TripDetailSheet({
 
   const isLoading = isTripLoading || isLoadingGroup;
 
+  /** Legs sharing `group_id`, or a single-element array for a non-grouped trip. */
+  const effectiveGroupTrips: Trip[] =
+    trip && trip.group_id && groupTrips.length > 0
+      ? (groupTrips as Trip[])
+      : trip
+        ? [trip as Trip]
+        : [];
+
+  const showCreateReturnButton = trip
+    ? shouldShowCreateReturnTripButton(
+        trip as Trip,
+        !!linkedPartner,
+        trip.billing_types
+      )
+    : false;
+
+  useEffect(() => {
+    if (!showCreateReturnButton) setIsCreateReturnOpen(false);
+  }, [showCreateReturnButton]);
+
   const handleOpenCancelDialog = async () => {
     if (!trip) return;
     setIsCancelDialogOpen(true);
@@ -174,6 +230,34 @@ export function TripDetailSheet({
       label: (tripStatusLabels[s] ?? status).toUpperCase(),
       class: tripStatusBadge({ status: s })
     };
+  };
+
+  const tripLegDirection = trip ? getTripDirection(trip as Trip) : 'standalone';
+
+  const timeDirty =
+    isOpen &&
+    !!trip?.scheduled_at &&
+    !!timeDraft &&
+    (() => {
+      const next = applyTimeToScheduledDate(trip.scheduled_at, timeDraft);
+      return next.toISOString() !== new Date(trip.scheduled_at).toISOString();
+    })();
+
+  const handleSaveTime = async () => {
+    if (!isOpen || !trip?.scheduled_at || !timeDraft) return;
+    setIsSavingTime(true);
+    try {
+      const next = applyTimeToScheduledDate(trip.scheduled_at, timeDraft);
+      await tripsService.updateTrip(trip.id, {
+        scheduled_at: next.toISOString()
+      });
+      toast.success('Zeit aktualisiert');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Speichern fehlgeschlagen: ${message}`);
+    } finally {
+      setIsSavingTime(false);
+    }
   };
 
   return (
@@ -210,39 +294,116 @@ export function TripDetailSheet({
                 className='absolute inset-y-0 left-0 w-1.5'
                 style={{ backgroundColor: trip.billing_types?.color }}
               />
-              <div className='mb-2 flex items-start justify-between'>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Badge className={getStatusInfo(trip.status).class}>
-                    {getStatusInfo(trip.status).label}
+              <div className='mb-2 flex flex-wrap items-center gap-2'>
+                <Badge className={getStatusInfo(trip.status).class}>
+                  {getStatusInfo(trip.status).label}
+                </Badge>
+                {tripLegDirection !== 'standalone' && (
+                  <Badge
+                    variant='outline'
+                    className='border-border bg-background/60 text-[10px] font-semibold shadow-none'
+                  >
+                    {tripLegDirection === 'rueckfahrt'
+                      ? 'Rückfahrt'
+                      : 'Hinfahrt'}
                   </Badge>
-                  {linkedPartner?.status === 'cancelled' && (
-                    <Badge
-                      variant='destructive'
-                      className='gap-1 px-2 py-0.5 text-[10px] font-bold'
-                    >
-                      <AlertTriangle className='h-3 w-3' />
-                      {/* We pass the CURRENT trip (not the cancelled partner) so
-                          getCancelledPartnerLabel can return the partner's label. */}
-                      {getCancelledPartnerLabel(trip as Trip)}
-                    </Badge>
-                  )}
-                </div>
+                )}
+                {linkedPartner?.status === 'cancelled' && (
+                  <Badge
+                    variant='destructive'
+                    className='gap-1 px-2 py-0.5 text-[10px] font-bold'
+                  >
+                    <AlertTriangle className='h-3 w-3' />
+                    {/* We pass the CURRENT trip (not the cancelled partner) so
+                        getCancelledPartnerLabel can return the partner's label. */}
+                    {getCancelledPartnerLabel(trip as Trip)}
+                  </Badge>
+                )}
               </div>
               <SheetHeader className='space-y-1 pl-3 text-left'>
                 <SheetTitle className='text-2xl font-bold tracking-tight'>
                   {trip.client_name || 'Unbekannter Kunde'}
                 </SheetTitle>
-                <SheetDescription className='text-foreground flex items-center gap-2 font-medium'>
-                  <Clock className='text-primary h-4 w-4' />
-                  {trip.scheduled_at
-                    ? format(new Date(trip.scheduled_at), 'PPPP p')
-                    : 'Keine Zeit'}
-                </SheetDescription>
+                <div className='flex w-full min-w-0 items-center justify-between gap-2'>
+                  <SheetDescription className='text-foreground flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-1 font-medium'>
+                    {trip.scheduled_at ? (
+                      <>
+                        <span className='min-w-0'>
+                          {format(new Date(trip.scheduled_at), 'PPPP', {
+                            locale: de
+                          })}
+                        </span>
+                        <span className='text-muted-foreground' aria-hidden>
+                          ·
+                        </span>
+                        {/* Match kanban-trip-card time chip: muted surface + centered digits (`span` = valid inside `<p>` description) */}
+                        <span
+                          className={cn(
+                            'border-border/80 inline-grid h-8 min-w-[4.75rem] shrink-0 place-items-center rounded-md border align-middle',
+                            'bg-muted/80 hover:bg-muted transition-colors',
+                            (isSavingTime || !isOpen) &&
+                              'pointer-events-none opacity-70'
+                          )}
+                        >
+                          <input
+                            type='time'
+                            step={60}
+                            value={timeDraft}
+                            onChange={(e) => setTimeDraft(e.target.value)}
+                            disabled={isSavingTime || !isOpen}
+                            title='Zeit bearbeiten'
+                            aria-label='Geplante Uhrzeit bearbeiten'
+                            className={cn(
+                              'h-8 w-full min-w-[4.75rem] cursor-text rounded-md border-0 bg-transparent px-1.5',
+                              'text-foreground text-center text-sm font-semibold outline-none',
+                              '[&::-webkit-calendar-picker-indicator]:hidden',
+                              '[&::-webkit-datetime-edit]:m-0 [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-full [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center',
+                              '[&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:justify-center',
+                              '[&::-moz-calendar-picker-indicator]:hidden',
+                              'focus-visible:ring-ring focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2'
+                            )}
+                          />
+                        </span>
+                      </>
+                    ) : (
+                      <span>Keine Zeit</span>
+                    )}
+                  </SheetDescription>
+                  <Button
+                    type='button'
+                    variant='default'
+                    size='sm'
+                    className='h-8 shrink-0 gap-1.5 px-3'
+                    title='Details in die Zwischenablage kopieren'
+                    aria-label='Teilen: Details kopieren'
+                    onClick={async () => {
+                      const success = await copyTripToClipboard(trip as Trip);
+                      if (success) {
+                        toast.success('Details kopiert');
+                      } else {
+                        toast.error('Fehler beim Kopieren');
+                      }
+                    }}
+                  >
+                    <Share2 className='h-4 w-4 shrink-0' />
+                    <span className='text-xs font-medium'>Teilen</span>
+                  </Button>
+                </div>
               </SheetHeader>
             </div>
 
             <div className='min-h-0 flex-1 overflow-y-auto px-6'>
               <div className='space-y-8 py-6 pb-20'>
+                {linkedPartner && trip && (
+                  <LinkedPartnerCallout
+                    anchorTrip={trip as Trip}
+                    partner={linkedPartner}
+                    statusClass={getStatusInfo(linkedPartner.status).class}
+                    statusLabel={getStatusInfo(linkedPartner.status).label}
+                    onNavigateToTrip={onNavigateToTrip}
+                  />
+                )}
+
                 {/* Timeline / Stops */}
                 <section>
                   <div className='mb-6 flex items-center justify-between'>
@@ -253,7 +414,9 @@ export function TripDetailSheet({
                       variant='outline'
                       className='h-5 px-2 py-0 text-[10px] font-semibold'
                     >
-                      {trip.distance_km ? `${trip.distance_km} km` : 'Geplant'}
+                      {trip.driving_distance_km
+                        ? `${trip.driving_distance_km} km`
+                        : 'Geplant'}
                     </Badge>
                   </div>
 
@@ -275,6 +438,7 @@ export function TripDetailSheet({
                             address: t.pickup_address,
                             station: t.pickup_station,
                             name: t.client_name,
+                            passengerStation: t.pickup_station,
                             time: t.actual_pickup_at,
                             update: t.stop_updates?.[t.pickup_address]
                           });
@@ -303,6 +467,7 @@ export function TripDetailSheet({
                             address: t.dropoff_address,
                             station: t.dropoff_station,
                             name: t.client_name,
+                            passengerStation: t.dropoff_station,
                             time: t.actual_dropoff_at,
                             update: t.stop_updates?.[t.dropoff_address]
                           });
@@ -334,6 +499,7 @@ export function TripDetailSheet({
                               }
                               address={p.address}
                               name={p.name}
+                              passengerStation={p.passengerStation}
                               time={p.time}
                               station={p.station}
                               update={p.update}
@@ -352,6 +518,7 @@ export function TripDetailSheet({
                               }
                               address={d.address}
                               name={d.name}
+                              passengerStation={d.passengerStation}
                               time={d.time}
                               station={d.station}
                               update={d.update}
@@ -410,14 +577,18 @@ export function TripDetailSheet({
                     }
                   />
                   <DetailItem
-                    icon={<CreditCard className='h-3.5 w-3.5' />}
-                    label='Abrechnung'
-                    value={trip.billing_types?.name || 'Privat'}
-                  />
-                  <DetailItem
                     icon={<Briefcase className='h-3.5 w-3.5' />}
                     label='Kostenträger'
                     value={trip.payers?.name || '---'}
+                  />
+                  <DetailItem
+                    icon={<CreditCard className='h-3.5 w-3.5' />}
+                    label='Abrechnung'
+                    value={
+                      trip.billing_types?.name?.trim()
+                        ? trip.billing_types.name.trim()
+                        : '-'
+                    }
                   />
                   <DetailItem
                     icon={<Phone className='h-3.5 w-3.5' />}
@@ -439,48 +610,40 @@ export function TripDetailSheet({
               </div>
             </div>
 
-            <SheetFooter className='bg-background mt-auto flex items-center justify-between gap-3 border-t px-6 py-4'>
-              <div className='text-muted-foreground flex flex-col text-[11px] leading-snug'>
-                <span className='font-semibold'>
-                  Fahrt-ID:{' '}
-                  <span className='font-mono'>
-                    {trip.id.slice(0, 8)}
-                    {'…'}
-                  </span>
-                </span>
-                {trip.rule_id && (
+            <SheetFooter className='bg-background mt-auto flex flex-wrap items-center justify-end gap-3 border-t px-6 py-4'>
+              {trip.rule_id && (
+                <div className='text-muted-foreground mr-auto flex flex-col text-[11px] leading-snug'>
                   <span className='font-mono text-[10px]'>
                     Serie: {trip.rule_id.slice(0, 8)}
                     {'…'}
                   </span>
-                )}
-              </div>
+                </div>
+              )}
               <div className='flex items-center gap-2'>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  className='text-primary hover:bg-primary/10 hover:text-primary'
-                  onClick={async () => {
-                    const success = await copyTripToClipboard(trip as Trip);
-                    if (success) {
-                      toast.success('Details kopiert');
-                    } else {
-                      toast.error('Fehler beim Kopieren');
-                    }
-                  }}
-                >
-                  <Share2 className='mr-1.5 h-3.5 w-3.5' />
-                  QuickShare
-                </Button>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  onClick={() => onOpenChange(false)}
-                >
-                  Schließen
-                </Button>
+                {timeDirty && (
+                  <Button
+                    type='button'
+                    size='sm'
+                    disabled={isSavingTime}
+                    onClick={() => {
+                      void handleSaveTime();
+                    }}
+                  >
+                    {isSavingTime ? 'Wird gespeichert…' : 'Aktualisieren'}
+                  </Button>
+                )}
+                {showCreateReturnButton && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='text-primary hover:bg-primary/10 hover:text-primary'
+                    onClick={() => setIsCreateReturnOpen(true)}
+                  >
+                    <ArrowLeftRight className='mr-1.5 h-3.5 w-3.5' />
+                    Rückfahrt
+                  </Button>
+                )}
                 <Button
                   type='button'
                   variant='destructive'
@@ -496,6 +659,22 @@ export function TripDetailSheet({
                 </Button>
               </div>
             </SheetFooter>
+
+            {trip && (
+              <CreateReturnTripDialog
+                open={isCreateReturnOpen}
+                onOpenChange={setIsCreateReturnOpen}
+                anchorTrip={trip as Trip}
+                groupTrips={effectiveGroupTrips}
+                drivers={drivers}
+                onSuccess={() => {
+                  // Realtime on `trips` will refetch; paired leg also triggers UPDATE on this row.
+                  void findPairedTrip(trip as Trip).then((p) =>
+                    setLinkedPartner(p ?? null)
+                  );
+                }}
+              />
+            )}
 
             <RecurringTripCancelDialog
               trip={trip as Trip}
@@ -527,7 +706,7 @@ export function TripDetailSheet({
                           : 'cancel-nonrecurring-and-paired',
                         {
                           source:
-                            'Manually cancelled (Hin/Rück) via Trip Detail Sheet',
+                            'Manually cancelled (Hinfahrt/Rückfahrt) via Trip Detail Sheet',
                           reason
                         }
                       ).then(() => setIsCancelDialogOpen(false));
@@ -567,11 +746,224 @@ export function TripDetailSheet({
   );
 }
 
+interface LinkedPartnerCalloutProps {
+  anchorTrip: Trip;
+  partner: Trip;
+  statusClass: string;
+  statusLabel: string;
+  onNavigateToTrip?: (tripId: string) => void;
+}
+
+function LinkedPartnerCallout({
+  anchorTrip,
+  partner,
+  statusClass,
+  statusLabel,
+  onNavigateToTrip
+}: LinkedPartnerCalloutProps) {
+  const dir = getTripDirection(partner);
+  const typeShort =
+    dir === 'rueckfahrt'
+      ? 'Rückfahrt'
+      : dir === 'hinfahrt'
+        ? 'Hinfahrt'
+        : 'Gegenfahrt';
+  const legAction =
+    dir === 'rueckfahrt'
+      ? 'Rückfahrt öffnen'
+      : dir === 'hinfahrt'
+        ? 'Hinfahrt öffnen'
+        : 'Gegenfahrt öffnen';
+
+  const partnerDate = partner.scheduled_at
+    ? new Date(partner.scheduled_at)
+    : null;
+  const anchorDate = anchorTrip.scheduled_at
+    ? new Date(anchorTrip.scheduled_at)
+    : null;
+  const showDate =
+    !!partnerDate && (!anchorDate || !isSameDay(partnerDate, anchorDate));
+
+  const timeStr = partnerDate != null ? format(partnerDate, 'HH:mm') : '—';
+
+  return (
+    <section aria-label='Verknüpfte Gegenfahrt'>
+      <p className='text-muted-foreground mb-1.5 text-[10px] font-bold tracking-widest uppercase'>
+        Verknüpfte Fahrt
+      </p>
+      <TooltipProvider delayDuration={200}>
+        <div className='bg-muted/40 border-border flex min-h-9 items-center gap-2 rounded-lg border px-2 py-1.5 pr-1'>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type='button'
+                className={cn(
+                  'text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs',
+                  'hover:bg-muted/80 -mx-1 rounded-md px-1 py-0.5 transition-colors',
+                  'focus-visible:ring-ring outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
+                )}
+              >
+                <span className='text-muted-foreground shrink-0 font-semibold'>
+                  {typeShort}
+                </span>
+                {showDate && partnerDate != null && (
+                  <>
+                    <span className='text-muted-foreground/80' aria-hidden>
+                      ·
+                    </span>
+                    <span className='text-muted-foreground shrink-0 tabular-nums'>
+                      {format(partnerDate, 'dd.MM.yyyy', { locale: de })}
+                    </span>
+                  </>
+                )}
+                <span className='text-muted-foreground/80' aria-hidden>
+                  ·
+                </span>
+                <span className='text-muted-foreground shrink-0 text-[11px] font-medium'>
+                  Uhrzeit
+                </span>
+                <span className='shrink-0 font-medium tabular-nums'>
+                  {timeStr}
+                </span>
+                <span className='text-muted-foreground/80' aria-hidden>
+                  ·
+                </span>
+                <Badge
+                  className={cn(
+                    'h-5 max-w-[7rem] shrink-0 truncate px-1.5 py-0 text-[9px]',
+                    statusClass
+                  )}
+                >
+                  {statusLabel}
+                </Badge>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side='bottom'
+              align='start'
+              className={cn(
+                'border-border bg-muted/95 text-foreground max-w-sm space-y-2 border text-left shadow-md backdrop-blur-sm'
+              )}
+              arrowClassName='bg-muted/95 fill-muted/95'
+            >
+              <p className='bg-background/80 border-border/60 text-foreground rounded-md border px-2 py-1.5 text-xs font-semibold'>
+                {dir === 'rueckfahrt'
+                  ? 'Rückfahrt'
+                  : dir === 'hinfahrt'
+                    ? 'Hinfahrt'
+                    : 'Gegenfahrt'}
+                {partnerDate != null && (
+                  <span className='text-muted-foreground font-normal'>
+                    {' '}
+                    · {format(partnerDate, 'PPP', { locale: de })}{' '}
+                    <span className='text-foreground font-medium'>
+                      Uhrzeit {format(partnerDate, 'HH:mm')}
+                    </span>
+                  </span>
+                )}
+              </p>
+              <div className='space-y-1.5 text-xs leading-snug'>
+                <p className='text-foreground rounded-r-md border-l-2 border-sky-500/45 bg-sky-500/8 py-1 pr-1 pl-2'>
+                  <span className='font-medium text-sky-700 dark:text-sky-300'>
+                    Von:{' '}
+                  </span>
+                  <span className='text-muted-foreground'>
+                    {partner.pickup_address || '—'}
+                    {partner.pickup_station
+                      ? ` (${partner.pickup_station})`
+                      : ''}
+                  </span>
+                </p>
+                <p className='text-foreground rounded-r-md border-l-2 border-emerald-500/45 bg-emerald-500/8 py-1 pr-1 pl-2'>
+                  <span className='font-medium text-emerald-700 dark:text-emerald-300'>
+                    Nach:{' '}
+                  </span>
+                  <span className='text-muted-foreground'>
+                    {partner.dropoff_address || '—'}
+                    {partner.dropoff_station
+                      ? ` (${partner.dropoff_station})`
+                      : ''}
+                  </span>
+                </p>
+                {partner.client_name && (
+                  <p className='text-foreground'>
+                    <span className='font-medium text-violet-700 dark:text-violet-300'>
+                      Fahrgast:{' '}
+                    </span>
+                    <span className='text-muted-foreground'>
+                      {partner.client_name}
+                    </span>
+                  </p>
+                )}
+                {partner.driving_distance_km != null &&
+                  partner.driving_distance_km > 0 && (
+                    <p className='text-foreground'>
+                      <span className='font-medium text-amber-700 dark:text-amber-300'>
+                        Distanz:{' '}
+                      </span>
+                      <span className='text-muted-foreground'>
+                        {partner.driving_distance_km} km
+                      </span>
+                    </p>
+                  )}
+                {partner.notes?.trim() && (
+                  <p className='border-border text-foreground border-t pt-1.5'>
+                    <span className='font-medium text-orange-800 dark:text-orange-200'>
+                      Hinweise:{' '}
+                    </span>
+                    <span className='text-muted-foreground'>
+                      {partner.notes}
+                    </span>
+                  </p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+          <Button
+            type='button'
+            variant='outline'
+            size='icon'
+            className='text-foreground h-8 w-8 shrink-0'
+            disabled={!onNavigateToTrip}
+            title={
+              onNavigateToTrip
+                ? legAction
+                : 'Navigation in diesem Kontext nicht verfügbar'
+            }
+            aria-label={legAction}
+            onClick={() => {
+              if (onNavigateToTrip && partner.id) {
+                onNavigateToTrip(partner.id);
+              }
+            }}
+          >
+            <ArrowLeftRight className='h-4 w-4' />
+          </Button>
+        </div>
+      </TooltipProvider>
+    </section>
+  );
+}
+
+/** Keeps calendar day from `scheduledIso`, replaces clock time with `HH:mm`. */
+function applyTimeToScheduledDate(
+  scheduledIso: string,
+  timeHHmm: string
+): Date {
+  const d = new Date(scheduledIso);
+  const [hStr, mStr] = timeHHmm.split(':');
+  const h = parseInt(hStr ?? '0', 10);
+  const m = parseInt(mStr ?? '0', 10);
+  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
+}
+
 function TimelineItem({
   stopLabel,
   title,
   address,
   name,
+  passengerStation,
   time,
   station,
   update,
@@ -583,16 +975,12 @@ function TimelineItem({
   return (
     <div className={`relative pb-8 pl-10 ${isLast ? 'pb-2' : ''}`}>
       <div className='absolute top-[10px] left-0 z-10'>
-        <div
-          className={cn(
-            'ring-background flex h-6 w-6 items-center justify-center rounded-full border-2 text-[10px] font-bold whitespace-nowrap shadow-sm ring-[4px]',
-            stopLabel?.startsWith('A')
-              ? 'border-green-600 bg-green-500 text-white dark:border-green-500 dark:bg-green-600'
-              : 'border-red-600 bg-red-500 text-white dark:border-red-500 dark:bg-red-600'
-          )}
+        <Badge
+          variant='outline'
+          className='border-border bg-muted/60 text-muted-foreground flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold tabular-nums'
         >
           {stopLabel}
-        </div>
+        </Badge>
       </div>
       <div className='flex flex-col gap-1'>
         <div className='flex items-center justify-between'>
@@ -609,16 +997,24 @@ function TimelineItem({
           className={`flex flex-col text-sm leading-snug font-semibold ${isCancelled ? 'line-through opacity-50' : ''}`}
         >
           {address}
-          {station && (
+          {station && !name && (
             <span className='text-muted-foreground text-xs font-normal'>
               ({station})
             </span>
           )}
         </div>
         {name && (
-          <span className='text-muted-foreground text-xs font-medium'>
-            Fahrgast: {name}
-          </span>
+          <div className='text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs font-medium'>
+            <span>Fahrgast: {name}</span>
+            {passengerStation?.trim() ? (
+              <Badge
+                variant='outline'
+                className='border-border bg-muted/60 text-muted-foreground h-5 px-1.5 py-0 text-[10px] font-medium'
+              >
+                {passengerStation.trim()}
+              </Badge>
+            ) : null}
+          </div>
         )}
 
         {isCancelled && (
