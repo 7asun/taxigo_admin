@@ -56,13 +56,19 @@ export default function PageContainer({
   return scrollable ? (
     <ScrollArea className='min-h-0 flex-1'>
       <div className='flex flex-1 flex-col p-4 md:px-6'>
-        <div className='mb-4 flex items-start justify-between'>
-          <Heading
-            title={pageTitle ?? ''}
-            description={pageDescription ?? ''}
-            infoContent={infoContent}
-          />
-          {pageHeaderAction && <div>{pageHeaderAction}</div>}
+        <div className='mb-4 flex min-w-0 shrink-0 flex-row items-start justify-between gap-2 sm:gap-4'>
+          <div className='min-w-0 flex-1'>
+            <Heading
+              title={pageTitle ?? ''}
+              description={pageDescription ?? ''}
+              infoContent={infoContent}
+            />
+          </div>
+          {pageHeaderAction && (
+            <div className='flex shrink-0 flex-nowrap items-center justify-end gap-2 overflow-x-auto'>
+              {pageHeaderAction}
+            </div>
+          )}
         </div>
         {content}
       </div>
@@ -71,13 +77,19 @@ export default function PageContainer({
     // Fills SidebarInset below Header via flex-1 min-h-0 (dashboard layout wrapper).
     // overflow-hidden: child panels own their scroll.
     <div className='flex min-h-0 flex-1 flex-col overflow-hidden p-4 md:px-6'>
-      <div className='mb-4 flex shrink-0 items-start justify-between'>
-        <Heading
-          title={pageTitle ?? ''}
-          description={pageDescription ?? ''}
-          infoContent={infoContent}
-        />
-        {pageHeaderAction && <div>{pageHeaderAction}</div>}
+      <div className='mb-4 flex min-w-0 shrink-0 flex-row items-start justify-between gap-2 sm:gap-4'>
+        <div className='min-w-0 flex-1'>
+          <Heading
+            title={pageTitle ?? ''}
+            description={pageDescription ?? ''}
+            infoContent={infoContent}
+          />
+        </div>
+        {pageHeaderAction && (
+          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-2 overflow-x-auto'>
+            {pageHeaderAction}
+          </div>
+        )}
       </div>
       {content}
     </div>
