@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -13,20 +13,65 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Trip } from '@/features/trips/api/trips.service';
-import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useDriversQuery } from '@/features/trips/hooks/use-trip-reference-queries';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 
+/** Minimum time the “loading” UI stays visible before the select appears (trial UX). */
+const DRIVER_CELL_MIN_LOADING_MS = 250;
+
 interface DriverSelectCellProps {
-  trip: Trip & { group_id?: string | null };
+  /** Server list query embeds `driver:accounts!trips_driver_id_fkey(name)` for row context / refresh. */
+  trip: Trip & {
+    group_id?: string | null;
+    driver?: { name: string } | null;
+  };
 }
 
 export function DriverSelectCell({ trip }: DriverSelectCellProps) {
   const { refreshTripsPage } = useTripsRscRefresh();
-  const { drivers, isLoading } = useTripFormData();
+  const { data: drivers = [], isPending } = useDriversQuery();
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(
     trip.driver_id
   );
   const [isUpdating, setIsUpdating] = useState(false);
+
+  const isLoadingDrivers = isPending && drivers.length === 0;
+  const loadingPassStartedAtRef = useRef<number | null>(null);
+  const [canRevealSelect, setCanRevealSelect] = useState(
+    () => !isLoadingDrivers
+  );
+
+  /**
+   * Enforce a minimum visible loading state so fast cache hits don’t “pop” instantly.
+   * Instant cache (never entered loading): no extra delay.
+   */
+  useEffect(() => {
+    if (isLoadingDrivers) {
+      if (loadingPassStartedAtRef.current === null) {
+        loadingPassStartedAtRef.current = Date.now();
+      }
+      setCanRevealSelect(false);
+      return;
+    }
+
+    if (loadingPassStartedAtRef.current === null) {
+      setCanRevealSelect(true);
+      return;
+    }
+
+    const elapsed = Date.now() - loadingPassStartedAtRef.current;
+    const remaining = Math.max(0, DRIVER_CELL_MIN_LOADING_MS - elapsed);
+    if (remaining === 0) {
+      loadingPassStartedAtRef.current = null;
+      setCanRevealSelect(true);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      loadingPassStartedAtRef.current = null;
+      setCanRevealSelect(true);
+    }, remaining);
+    return () => clearTimeout(id);
+  }, [isLoadingDrivers]);
 
   // Keep local state in sync with latest trip data so reused table cells
   // don't show a stale driver for rows that are actually unassigned.
@@ -80,7 +125,8 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
     }
   };
 
-  if (isLoading) {
+  // Until minimum loading window + drivers list ready: same skeleton as before (not the full Select).
+  if (!canRevealSelect) {
     return <Skeleton className='h-8 w-32' />;
   }
 

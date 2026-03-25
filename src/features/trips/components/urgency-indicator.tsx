@@ -101,6 +101,9 @@ const levelLabels: Record<UrgencyLevel, string> = {
  *
  * Performance Note: This component uses a 10s interval to update the indicator
  * since urgency is time-dependent.
+ *
+ * Variants: `dot` (alignment spacer when idle), `badge` (pill with label).
+ * Kanban uses `useUrgencyLevel` + `KANBAN_TIME_CHIP_CLASS` on the time container instead of a dot.
  */
 export function UrgencyIndicator({
   scheduledAt,
@@ -122,13 +125,13 @@ export function UrgencyIndicator({
     return () => clearInterval(interval);
   }, [scheduledAt, status]);
 
-  // Dot variant: always reserve the same footprint as the visible dot so time columns
-  // stay aligned when urgency is "none" (avoids layout shift vs coloured rows / neighbours).
   const effectiveVariant = variant ?? 'dot';
   if (level === 'none') {
+    // `dot`: invisible spacer keeps table/list time columns aligned across rows.
     if (effectiveVariant === 'dot') {
       return <span className='inline-block size-2 shrink-0' aria-hidden />;
     }
+    // `badge`: no placeholder when idle.
     return null;
   }
 

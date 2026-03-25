@@ -1,11 +1,18 @@
 'use client';
 
 /**
- * URL-driven trip filters for `/dashboard/trips` (shared by list + kanban queries).
- * Below `md`: compact row (search, date, “more filters”); advanced selects + Spalten expand
- * inside a collapsible. From `md` up, all controls stay in one non-wrapping row
- * (horizontal scroll if needed). State syncs
- * via `router.replace` + `refreshTripsPage()` so the server RSC reloads with matching query params.
+ * @fileoverview Fahrten filter bar — **URL is the source of truth** for the trip grid.
+ *
+ * - `trips-listing.tsx` (RSC) reads the same search params from the URL and runs the Supabase query.
+ *   Param names and sentinels (`all`, `unassigned`, `scheduled_at` shape) must stay aligned with that
+ *   server component and `nuqs` parsers — otherwise the UI shows filters that do not match the data.
+ * - This component **never** owns trip rows locally; it only updates the URL and calls
+ *   `refreshTripsPage()` so Next.js refetches the RSC payload and TanStack trip caches invalidate.
+ * - Reference lists (Fahrer, Kostenträger, Abrechnung) come from `useTripFormData` → TanStack Query
+ *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing types** load only when `payer_id` is a
+ *   real UUID — never treat the string `'all'` as a payer id (the hook disables that query).
+ *
+ * Layout: below `md`, compact row + collapsible “more filters”; from `md` up, one horizontal row.
  */
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -87,6 +94,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   /** One filter layout at a time so the date `Popover` (and other overlays) are not mounted twice. */
   const isNarrow = useIsNarrowScreen(768);
 
+  /** Mirrors URL — these keys must match `trips-listing.tsx` / `searchParamsCache` parsers. */
   const search = searchParams.get('search') ?? '';
   const driverId = searchParams.get('driver_id') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
@@ -117,7 +125,11 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     setLocalSearch(search);
   }, [search]);
 
-  // On first mount only: if no date is in the URL, default to today (business TZ).
+  /**
+   * One-time default: if the user lands without `scheduled_at`, set “today” (business TZ) + `page=1`.
+   * Intentionally empty deps — run once on mount; adding `searchParams` would re-run on every keystroke
+   * and fight the debounced search input. If `scheduled_at` is already set (e.g. shared link), we no-op.
+   */
   useEffect(() => {
     if (searchParams.get('scheduled_at')) return;
     const params = new URLSearchParams(searchParams.toString());
@@ -130,6 +142,10 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Drivers/payers: shared TanStack cache (`referenceKeys`). Billing types: only when `payerId` is a
+   * concrete id (not `'all'`) — see `useBillingTypesForPayerQuery`.
+   */
   const { drivers, payers, billingTypes } = useTripFormData(payerId ?? null);
 
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
@@ -206,6 +222,11 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     setDatePopoverOpen(false);
   };
 
+  /**
+   * Writes filter deltas to the URL (always resets `page` to 1) and triggers a server refresh.
+   * Do not skip `refreshTripsPage()` — `router.replace` alone can briefly show a stale RSC tree for the
+   * previous params; the helper also invalidates trip-related TanStack caches (see `TripsRscRefreshProvider`).
+   */
   const updateFilters = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
 
@@ -223,7 +244,6 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     startTransition(() => {
       router.replace(next, { scroll: false });
     });
-    // `replace` alone can reuse a stale RSC payload; `refreshTripsPage` refetches for the new URL + Query caches.
     void refreshTripsPage();
   };
 

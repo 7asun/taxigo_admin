@@ -23,27 +23,13 @@ import { CellAction } from './cell-action';
 import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
 import { DataTablePagination } from '@/components/ui/table/data-table-pagination';
 import type { Table as TanstackTable } from '@tanstack/react-table';
+import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
 
 interface TripsMobileCardListProps<TData> {
   table: TanstackTable<TData>;
   getRowClassName?: (row: TData) => string;
   totalDatasetCount: number;
   scrollToRowId?: string | null;
-}
-
-function parseAddress(raw: string | null | undefined): {
-  street: string | null;
-  cityLine: string | null;
-} {
-  if (!raw) return { street: null, cityLine: null };
-  const match = raw.match(/^(.*?)\s*,?\s*(\d{5}\s+.+)$/);
-  if (match) {
-    return {
-      street: match[1].trim() || null,
-      cityLine: match[2].trim()
-    };
-  }
-  return { street: raw, cityLine: null };
 }
 
 export function TripsMobileCardList<TData>({
@@ -89,8 +75,8 @@ export function TripsMobileCardList<TData>({
             scheduled &&
             !Number.isNaN(scheduled.getTime()) &&
             scheduled.getTime() > 0;
-          const pickup = parseAddress(trip.pickup_address);
-          const dropoff = parseAddress(trip.dropoff_address);
+          const pickup = parseTripAddressForDisplay(trip.pickup_address);
+          const dropoff = parseTripAddressForDisplay(trip.dropoff_address);
           const status = trip.status as TripStatus;
           const rowClass = getRowClassName?.(tableRow.original) ?? '';
 

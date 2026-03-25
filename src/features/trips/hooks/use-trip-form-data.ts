@@ -1,88 +1,44 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type {
+  BillingTypeOption,
+  ClientOption,
+  DriverOption,
+  PayerOption
+} from '@/features/trips/types/trip-form-reference.types';
+import {
+  useBillingTypesForPayerQuery,
+  useDriversQuery,
+  usePayersQuery
+} from '@/features/trips/hooks/use-trip-reference-queries';
 
-export interface PayerOption {
-  id: string;
-  name: string;
-}
+export type {
+  PayerOption,
+  BillingTypeOption,
+  ClientOption,
+  DriverOption
+} from '@/features/trips/types/trip-form-reference.types';
 
-export interface BillingTypeOption {
-  id: string;
-  name: string;
-  color: string;
-  payer_id: string;
-  behavior_profile?: any;
-}
-
-export interface ClientOption {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  company_name: string | null;
-  is_company: boolean;
-  phone: string | null;
-  phone_secondary: string | null;
-  email: string | null;
-  street: string;
-  street_number: string;
-  zip_code: string;
-  city: string;
-  is_wheelchair?: boolean;
-}
-
-export interface DriverOption {
-  id: string;
-  name: string;
-}
-
+/**
+ * Trip create/edit form and Fahrten filter bar: payers, drivers, billing types, client search.
+ *
+ * Payers and drivers are loaded via TanStack Query (`referenceKeys` in `src/query/keys/reference.ts`)
+ * so every `DriverSelectCell` and the filters bar share one cache entry instead of N `useEffect` fetches.
+ *
+ * Billing types depend on the selected payer UUID; never pass URL sentinels (`'all'`) into the query —
+ * the hook disables fetching and exposes an empty list (see `useBillingTypesForPayerQuery`).
+ */
 export function useTripFormData(payerId?: string | null) {
-  const [payers, setPayers] = useState<PayerOption[]>([]);
-  const [billingTypes, setBillingTypes] = useState<BillingTypeOption[]>([]);
-  const [drivers, setDrivers] = useState<DriverOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const payersQuery = usePayersQuery();
+  const driversQuery = useDriversQuery();
+  const billingTypesQuery = useBillingTypesForPayerQuery(payerId);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const supabase = createClient();
-        const [payersRes, driversRes] = await Promise.all([
-          supabase.from('payers').select('id, name').order('name'),
-          supabase
-            .from('accounts')
-            .select('id, name')
-            .eq('role', 'driver')
-            .eq('is_active', true)
-            .order('name')
-        ]);
-        if (payersRes.data) setPayers(payersRes.data);
-        if (driversRes.data) setDrivers(driversRes.data);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const payers: PayerOption[] = payersQuery.data ?? [];
+  const drivers: DriverOption[] = driversQuery.data ?? [];
+  const billingTypes: BillingTypeOption[] = billingTypesQuery.data ?? [];
 
-  useEffect(() => {
-    // 'all' is the URL sentinel for “every payer”, not a real UUID — never query eq('payer_id', 'all').
-    if (!payerId || payerId === 'all') {
-      setBillingTypes([]);
-      return;
-    }
-    const fetchBillingTypes = async () => {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('billing_types')
-        .select('id, name, color, payer_id, behavior_profile')
-        .eq('payer_id', payerId)
-        .order('name');
-      if (data) setBillingTypes(data);
-    };
-    fetchBillingTypes();
-  }, [payerId]);
+  const isLoading = payersQuery.isPending || driversQuery.isPending;
 
   const searchClients = async (query: string): Promise<ClientOption[]> => {
     if (!query || query.length < 2) return [];

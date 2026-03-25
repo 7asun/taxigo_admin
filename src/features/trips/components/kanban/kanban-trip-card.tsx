@@ -25,13 +25,21 @@ import {
   type TripStatus
 } from '@/lib/trip-status';
 import { cn } from '@/lib/utils';
-import { UrgencyIndicator } from '../urgency-indicator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
+import { KANBAN_TIME_CHIP_CLASS } from '@/features/trips/constants/urgency-config';
+import { useUrgencyLevel } from '@/features/trips/hooks/use-urgency-level';
+import { getUrgencyTranslation } from '@/features/trips/lib/urgency-translations';
 import type {
   KanbanTrip,
   OnTimeChange,
   OnStopOrderChange,
   OnUngroup
 } from '@/features/trips/lib/kanban-types';
+import { formatKanbanTripAddressLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 export interface TripCardProps {
   trip: KanbanTrip;
@@ -120,6 +128,15 @@ export function TripCard({
   const cardColor = billing?.color || 'transparent';
   const isGrouped = !!trip.group_id;
 
+  const pickupDisplay =
+    formatKanbanTripAddressLine(trip, 'pickup').trim() || '—';
+  const dropoffDisplay =
+    formatKanbanTripAddressLine(trip, 'dropoff').trim() || '—';
+
+  /** Same 10s cadence as `UrgencyIndicator`; drives full-chip tint on the time control (no dot). */
+  const urgencyLevel = useUrgencyLevel(trip.scheduled_at, trip.status);
+  const { label: urgencyTooltipLabel } = getUrgencyTranslation(urgencyLevel);
+
   // ── Stop-order handlers ────────────────────────────────────────────────────
   const handleStopOrderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -196,6 +213,34 @@ export function TripCard({
         }
       : dragStyle;
 
+  const timeInputClassName = cn(
+    'h-6 w-full min-w-0 rounded border-0 bg-transparent p-0 text-center text-xs font-semibold text-foreground outline-none',
+    '[&::-webkit-calendar-picker-indicator]:hidden',
+    '[&::-webkit-datetime-edit]:m-0 [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-full [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center',
+    '[&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:justify-center',
+    'focus-visible:ring-0'
+  );
+
+  const timeChipShell = (
+    <div
+      className={cn(
+        'flex h-6 min-w-14 shrink-0 items-center rounded px-1.5 transition-colors',
+        urgencyLevel !== 'none' && 'cursor-default',
+        KANBAN_TIME_CHIP_CLASS[urgencyLevel]
+      )}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <input
+        type='time'
+        value={timeValue}
+        onChange={handleTimeChange}
+        onBlur={handleTimeBlur}
+        className={timeInputClassName}
+      />
+    </div>
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
@@ -211,38 +256,29 @@ export function TripCard({
         )}
         {...(!disableDrag ? { ...listeners, ...attributes } : {})}
       >
-        {/* Header row: time input | stop-order (if grouped) | status badge */}
-        <div className='flex items-center justify-between gap-2'>
-          {/* Time input */}
-          <div
-            className='bg-muted/70 hover:bg-muted/40 grid h-6 w-14 shrink-0 place-items-center rounded transition-colors'
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <input
-              type='time'
-              value={timeValue}
-              onChange={handleTimeChange}
-              onBlur={handleTimeBlur}
-              className={cn(
-                'hover:bg-muted/40 h-6 w-14 rounded border-0 bg-transparent p-0 text-center text-xs font-semibold outline-none',
-                '[&::-webkit-calendar-picker-indicator]:hidden',
-                '[&::-webkit-datetime-edit]:m-0 [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-full [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center',
-                '[&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:justify-center',
-                'focus-visible:ring-0'
-              )}
-            />
+        {/* Header row: time chip (urgency = full container tint) + name | stop-order | status */}
+        <div className='flex min-w-0 items-center justify-between gap-2'>
+          <div className='flex min-w-0 flex-1 items-center gap-1.5'>
+            {/* Time: full chip tint = urgency (no dot); tooltip only when not idle */}
+            {urgencyLevel === 'none' ? (
+              timeChipShell
+            ) : (
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>{timeChipShell}</TooltipTrigger>
+                <TooltipContent side='bottom' align='center' sideOffset={6}>
+                  {urgencyTooltipLabel}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <div className='min-w-0 flex-1 truncate text-[11px] font-medium'>
+              {trip.client_name || 'Unbekannter Fahrgast'}
+            </div>
           </div>
-          <UrgencyIndicator
-            scheduledAt={trip.scheduled_at}
-            status={trip.status as TripStatus}
-            variant='dot'
-          />
 
           {/* Stop-order input – only when inside a group */}
           {isGrouped && (
             <div
-              className='ml-auto flex items-center'
+              className='flex shrink-0 items-center'
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
             >
@@ -268,7 +304,7 @@ export function TripCard({
             <Badge
               className={cn(
                 tripStatusBadge({ status: trip.status as TripStatus }),
-                'text-[10px]'
+                'shrink-0 text-[10px]'
               )}
             >
               {tripStatusLabels[trip.status as TripStatus] ?? trip.status}
@@ -276,14 +312,16 @@ export function TripCard({
           )}
         </div>
 
-        {/* Client name */}
-        <div className='mt-0.5 line-clamp-1 text-[11px] font-medium'>
-          {trip.client_name || 'Unbekannter Fahrgast'}
-        </div>
-
-        {/* Route */}
-        <div className='text-muted-foreground mt-0.5 line-clamp-2 text-[11px]'>
-          {trip.pickup_address} → {trip.dropoff_address}
+        {/* Route — one row each */}
+        <div className='text-muted-foreground mt-0.5 flex flex-col gap-0.5 text-[11px]'>
+          <p className='line-clamp-2 break-words'>
+            <span className='text-foreground font-medium'>Ab: </span>
+            {pickupDisplay}
+          </p>
+          <p className='line-clamp-2 break-words'>
+            <span className='text-foreground font-medium'>Nach: </span>
+            {dropoffDisplay}
+          </p>
         </div>
 
         {/* Bottom badges */}
@@ -336,7 +374,7 @@ export function TripCard({
             </Badge>
           )}
           {trip.is_wheelchair && (
-            <Badge variant='outline' className='px-1.5 py-0 text-[10px]'>
+            <Badge variant='destructive' className='px-1.5 py-0 text-[10px]'>
               Rollstuhl
             </Badge>
           )}

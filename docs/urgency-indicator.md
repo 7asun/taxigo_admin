@@ -36,7 +36,8 @@ The indicator calculates an `UrgencyLevel` based on the difference (in minutes) 
   - High-performance, pure logic for calculating urgency levels.
 - **Component**: `src/features/trips/components/urgency-indicator.tsx`
   - A framer-motion powered UI component with `dot` and `badge` variants.
-- **Auto-Sync**: The component refreshes every 10 seconds to ensure the visual state stays accurate even if the page isn't reloaded.
+- **Kanban time chip**: `src/features/trips/hooks/use-urgency-level.ts` + `KANBAN_TIME_CHIP_CLASS` in `urgency-config.ts` — the **entire** time container is tinted by urgency (no dot).
+- **Auto-Sync**: The indicator (and hook) refresh every 10 seconds so the visual state stays accurate even if the page isn't reloaded.
 
 ## Design Rules
 
@@ -46,9 +47,17 @@ The indicator calculates an `UrgencyLevel` based on the difference (in minutes) 
    - `due`: Subtle breathing effect.
    - `overdue`: Faster pulse with opacity shifts to draw the eye.
 
+## Variants
+
+| Variant | When `level === 'none'` | Typical use |
+|---|---|---|
+| **`dot`** | Renders an invisible **spacer** (same size as the dot) so time columns stay aligned across rows in tables and lists. | Zeit column in the trips data table, overview rows, mobile list. |
+| **`badge`** | Renders nothing. | Driver portal / larger cards where the label is shown as a pill. |
+
 ## How to Use
 
-### In Tables (Dot variant)
+### In Tables (Dot variant — alignment spacer)
+
 ```tsx
 <UrgencyIndicator
   scheduledAt={trip.scheduled_at}
@@ -57,7 +66,25 @@ The indicator calculates an `UrgencyLevel` based on the difference (in minutes) 
 />
 ```
 
+### Kanban time chip (full container tint, no dot)
+
+Use the live hook and class map on the wrapper around `<input type="time">` (see `kanban-trip-card.tsx`):
+
+```tsx
+import { KANBAN_TIME_CHIP_CLASS } from '@/features/trips/constants/urgency-config';
+import { useUrgencyLevel } from '@/features/trips/hooks/use-urgency-level';
+
+const urgencyLevel = useUrgencyLevel(trip.scheduled_at, trip.status);
+
+<div className={cn('… flex h-6 min-w-14 items-center rounded px-1.5', KANBAN_TIME_CHIP_CLASS[urgencyLevel])}>
+  <input type="time" … />
+</div>
+```
+
+When `urgencyLevel !== 'none'`, wrap the chip in a `Tooltip` with `getUrgencyTranslation(urgencyLevel).label`.
+
 ### In Cards (Badge variant)
+
 ```tsx
 <UrgencyIndicator
   scheduledAt={trip.scheduled_at}

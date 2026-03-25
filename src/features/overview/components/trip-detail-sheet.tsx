@@ -746,21 +746,6 @@ export function TripDetailSheet({
                     {isSavingTime ? 'Wird gespeichert…' : 'Aktualisieren'}
                   </Button>
                 )}
-                {notesDirty && (
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='secondary'
-                    disabled={isSavingNotes}
-                    className='border border-amber-300/80 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-50 dark:hover:bg-amber-900/70'
-                    onClick={() => {
-                      void handleSaveNotes();
-                    }}
-                  >
-                    <PenLine className='mr-1.5 h-3.5 w-3.5' />
-                    {isSavingNotes ? 'Notizen…' : 'Notizen speichern'}
-                  </Button>
-                )}
                 {showCreateReturnButton && (
                   <Button
                     type='button'

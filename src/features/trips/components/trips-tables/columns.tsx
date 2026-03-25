@@ -16,22 +16,7 @@ import {
   type TripStatus
 } from '@/lib/trip-status';
 import { UrgencyIndicator } from '../urgency-indicator';
-
-function parseAddress(raw: string | null | undefined): {
-  street: string | null;
-  cityLine: string | null;
-} {
-  if (!raw) return { street: null, cityLine: null };
-  // Split on the first occurrence of a 5-digit German ZIP code
-  const match = raw.match(/^(.*?)\s*,?\s*(\d{5}\s+.+)$/);
-  if (match) {
-    return {
-      street: match[1].trim() || null,
-      cityLine: match[2].trim()
-    };
-  }
-  return { street: raw, cityLine: null };
-}
+import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
 
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
@@ -139,10 +124,7 @@ export const columns: ColumnDef<any>[] = [
         <div className='flex flex-col'>
           <span className='font-medium'>{row.original.client_name || '-'}</span>
           {row.original.is_wheelchair && (
-            <Badge
-              variant='outline'
-              className='bg-foreground text-background hover:bg-foreground/90 w-fit origin-left scale-75'
-            >
+            <Badge variant='destructive' className='w-fit origin-left scale-75'>
               <Accessibility className='mr-1 h-3 w-3' />
               Rollstuhl
             </Badge>
@@ -162,7 +144,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Abholung' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseAddress(row.original.pickup_address);
+      const { street, cityLine } = parseTripAddressForDisplay(
+        row.original.pickup_address
+      );
       const station = row.original.pickup_station as string | undefined;
       return (
         <div
@@ -193,7 +177,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Ziel' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseAddress(row.original.dropoff_address);
+      const { street, cityLine } = parseTripAddressForDisplay(
+        row.original.dropoff_address
+      );
       const station = row.original.dropoff_station as string | undefined;
       return (
         <div
