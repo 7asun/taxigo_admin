@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { TripsRscRefreshChrome } from '@/features/trips/components/trips-rsc-refresh-chrome';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import {
   DndContext,
   type DragEndEvent,
@@ -75,7 +76,7 @@ interface TripsKanbanBoardProps {
  * - Status is staged at drag-end so the badge is immediately correct.
  */
 export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
-  const router = useRouter();
+  const { refreshTripsPage } = useTripsRscRefresh();
   const { drivers, isLoading: isFormDataLoading } = useTripFormData();
   const { pendingChanges, setPendingChanges, clearPendingChanges, pruneToIds } =
     useKanbanPendingStore();
@@ -172,7 +173,11 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     })
   );
 
-  // ── Effective trips (server + pending overlay) ──────────────────────────────
+  /**
+   * Server `trips` (from RSC) merged with **staged** `pendingChanges`. A background
+   * `refreshTripsPage()` updates `trips` only — unsaved edits in `pendingChanges` stay
+   * until Speichern/Verwerfen (they are not wiped by RSC refresh).
+   */
   const effectiveTrips = useMemo(
     () =>
       trips.map((trip) => {
@@ -437,8 +442,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
 
   const handleReset = useCallback(() => {
     clearPendingChanges();
-    router.refresh();
-  }, [clearPendingChanges, router]);
+    void refreshTripsPage();
+  }, [clearPendingChanges, refreshTripsPage]);
 
   const handleSave = useCallback(async () => {
     if (Object.keys(pendingChanges).length === 0) return;
@@ -472,13 +477,12 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
           return tripsService.updateTrip(id, payload);
         })
       );
-      // Await refresh before clearing so the board never shows stale data.
-      await router.refresh();
+      await refreshTripsPage();
       clearPendingChanges();
     } finally {
       setIsSaving(false);
     }
-  }, [pendingChanges, router, trips, clearPendingChanges]);
+  }, [pendingChanges, refreshTripsPage, trips, clearPendingChanges]);
 
   const hasPendingChanges = Object.keys(pendingChanges).length > 0;
 
@@ -572,10 +576,16 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     </>
   );
 
+  const boardWithChrome = (
+    <TripsRscRefreshChrome className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
+      {boardContent}
+    </TripsRscRefreshChrome>
+  );
+
   if (isExpanded && typeof document !== 'undefined') {
     return createPortal(
       <div className='bg-background fixed inset-[2.5%] z-40 flex flex-col overflow-hidden rounded-lg border shadow-2xl'>
-        {boardContent}
+        {boardWithChrome}
       </div>,
       document.body
     );
@@ -583,7 +593,7 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
 
   return (
     <div className='bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border'>
-      {boardContent}
+      {boardWithChrome}
     </div>
   );
 }

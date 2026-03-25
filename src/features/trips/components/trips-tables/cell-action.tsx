@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { TripDetailSheet } from '@/features/overview/components/trip-detail-sheet';
-import { useRouter } from 'next/navigation';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { useTripCancellation } from '@/features/trips/hooks/use-trip-cancellation';
@@ -59,7 +59,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
   const [isPermanentDeleting, setIsPermanentDeleting] = useState(false);
   const [hasPair, setHasPair] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
-  const router = useRouter();
+  const { refreshTripsPage } = useTripsRscRefresh();
   const { cancelTrip, isLoading } = useTripCancellation();
 
   const isRecurring = !!data.rule_id;
@@ -81,7 +81,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
       await tripsService.deleteTripsPermanently([data.id]);
       toast.success('Fahrt wurde aus der Datenbank gelöscht.');
       setIsPermanentDeleteOpen(false);
-      router.refresh();
+      void refreshTripsPage();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unbekannter Fehler beim Löschen.';

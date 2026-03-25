@@ -5,7 +5,7 @@
  * Below `md`: compact row (search, date, “more filters”); advanced selects + Spalten expand
  * inside a collapsible. From `md` up, all controls stay in one non-wrapping row
  * (horizontal scroll if needed). State syncs
- * via `router.replace` + `router.refresh()` so the server RSC reloads with matching query params.
+ * via `router.replace` + `refreshTripsPage()` so the server RSC reloads with matching query params.
  */
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -49,6 +49,7 @@ import {
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { cn } from '@/lib/utils';
@@ -82,6 +83,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const { refreshTripsPage } = useTripsRscRefresh();
   /** One filter layout at a time so the date `Popover` (and other overlays) are not mounted twice. */
   const isNarrow = useIsNarrowScreen(768);
 
@@ -220,9 +222,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     const next = `${pathname}?${params.toString()}`;
     startTransition(() => {
       router.replace(next, { scroll: false });
-      // `replace` alone can reuse a stale RSC payload; `refresh` refetches for the new URL.
-      router.refresh();
     });
+    // `replace` alone can reuse a stale RSC payload; `refreshTripsPage` refetches for the new URL + Query caches.
+    void refreshTripsPage();
   };
 
   const handleSearchChange = (value: string) => {

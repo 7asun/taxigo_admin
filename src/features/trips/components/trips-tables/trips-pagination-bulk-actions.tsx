@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import type { Table as TanstackTable } from '@tanstack/react-table';
-import { useRouter } from 'next/navigation';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import { toast } from 'sonner';
 import { Trash2, X } from 'lucide-react';
 
@@ -25,7 +25,7 @@ interface TripsPaginationBulkActionsProps<TData> {
 export function TripsPaginationBulkActions<TData>({
   table
 }: TripsPaginationBulkActionsProps<TData>) {
-  const router = useRouter();
+  const { refreshTripsPage } = useTripsRscRefresh();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
 
@@ -56,7 +56,7 @@ export function TripsPaginationBulkActions<TData>({
       );
       table.resetRowSelection();
       setConfirmOpen(false);
-      router.refresh();
+      void refreshTripsPage();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Unbekannter Fehler beim Löschen.';

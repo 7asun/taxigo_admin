@@ -4,6 +4,9 @@ import * as React from 'react';
 import Papa from 'papaparse';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
+import { tripKeys } from '@/query/keys';
 import {
   Dialog,
   DialogContent,
@@ -95,6 +98,8 @@ function parseGroupId(raw: string): {
  */
 export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const optionalRscRefresh = useOptionalTripsRscRefresh();
   const [open, setOpen] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [results, setResults] = React.useState<{
@@ -1163,7 +1168,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               linkedPairsCount
             });
             onSuccess?.();
-            router.refresh();
+            if (optionalRscRefresh) {
+              await optionalRscRefresh.refreshTripsPage();
+            } else {
+              await router.refresh();
+              await queryClient.invalidateQueries({ queryKey: tripKeys.all });
+            }
 
             if (unresolvedCreated.length > 0) {
               const freshRows: RehydratedTripRow[] = unresolvedCreated.map(

@@ -20,7 +20,10 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useTrip } from '@/features/trips/hooks/use-trips';
+import { useTripQuery } from '@/features/trips/hooks/use-trips';
+import { useUpdateTripMutation } from '@/features/trips/hooks/use-update-trip-mutation';
+import { useQueryClient } from '@tanstack/react-query';
+import { tripKeys } from '@/query/keys';
 import { toast } from 'sonner';
 import { format, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -56,7 +59,10 @@ import {
   findPairedTrip
 } from '@/features/trips/api/recurring-exceptions.actions';
 import { RecurringTripCancelDialog } from '@/features/trips/components/recurring-trip-cancel-dialog';
-import { copyTripToClipboard } from '@/features/trips/lib/share-utils';
+import {
+  copyTripToClipboard,
+  stripAddressForShare
+} from '@/features/trips/lib/share-utils';
 import {
   getCancelledPartnerLabel,
   getTripDirection
@@ -90,7 +96,9 @@ export function TripDetailSheet({
   onOpenChange,
   onNavigateToTrip
 }: TripDetailSheetProps) {
-  const { trip, isLoading: isTripLoading } = useTrip(tripId);
+  const { trip, isLoading: isTripLoading } = useTripQuery(tripId);
+  const queryClient = useQueryClient();
+  const updateTripMutation = useUpdateTripMutation();
   const [groupTrips, setGroupTrips] = useState<any[]>([]);
   const [isLoadingGroup, setIsLoadingGroup] = useState(false);
   const [drivers, setDrivers] = useState<any[]>([]);
@@ -175,6 +183,9 @@ export function TripDetailSheet({
         if (error) throw error;
         toast.success('Fahrer aktualisiert');
       }
+      void queryClient.invalidateQueries({
+        queryKey: tripKeys.detail(trip.id)
+      });
     } catch (error: any) {
       toast.error(`Fehler beim Zuweisen des Fahrers: ${error.message}`);
     } finally {
@@ -200,7 +211,7 @@ export function TripDetailSheet({
       }
     };
     fetchGroup();
-  }, [trip?.group_id]);
+  }, [trip?.group_id, trip?.driver_id]);
 
   useEffect(() => {
     if (!trip) {
@@ -267,8 +278,9 @@ export function TripDetailSheet({
     setIsSavingTime(true);
     try {
       const next = applyTimeToScheduledDate(trip.scheduled_at, timeDraft);
-      await tripsService.updateTrip(trip.id, {
-        scheduled_at: next.toISOString()
+      await updateTripMutation.mutateAsync({
+        id: trip.id,
+        patch: { scheduled_at: next.toISOString() }
       });
       toast.success('Zeit aktualisiert');
     } catch (err: unknown) {
@@ -290,8 +302,9 @@ export function TripDetailSheet({
     setIsSavingNotes(true);
     try {
       const trimmed = normalizeNotes(notesDraft);
-      await tripsService.updateTrip(trip.id, {
-        notes: trimmed ? trimmed : null
+      await updateTripMutation.mutateAsync({
+        id: trip.id,
+        patch: { notes: trimmed ? trimmed : null }
       });
       toast.success('Notizen gespeichert');
     } catch (err: unknown) {
@@ -1125,8 +1138,17 @@ function TimelineItem({
     e.preventDefault();
     e.stopPropagation();
     if (!mapQuery) return;
+    const clipboardText =
+      typeof address === 'string' && address.trim().length > 0
+        ? [
+            stripAddressForShare(address.trim()),
+            station ? String(station).trim() : ''
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : mapQuery;
     try {
-      await navigator.clipboard.writeText(mapQuery);
+      await navigator.clipboard.writeText(clipboardText);
       toast.success('Adresse kopiert');
     } catch {
       toast.error('Kopieren fehlgeschlagen');

@@ -1,47 +1,54 @@
 'use client';
 
 /**
- * TripsRealtimeSync – subscribes to Supabase Realtime postgres_changes for
- * the `trips` table (INSERT + UPDATE) and calls router.refresh() so the RSC
- * payload re-fetches automatically.
+ * TripsRealtimeSync — Supabase Realtime on `trips` (INSERT + UPDATE).
  *
- * This keeps the kanban and list view in sync without polling:
- * - A new trip is created → board updates within ~1 s.
- * - A trip is updated externally (e.g. driver portal) → board reflects it.
+ * - Calls `refreshTripsPage()` from `TripsRscRefreshProvider` so **RSC** (Liste/Kanban)
+ *   re-fetch and **TanStack Query** trip caches invalidate together (Option A for Query).
+ * - **Debounced** so bursts of events do not hammer the server.
  *
- * Mount this component once inside the trips page. It renders nothing.
+ * Must mount under `TripsRscRefreshProvider` (see `FahrtenPageShell` on the Fahrten route).
  *
- * Prerequisites (Supabase):
- *   REPLICA IDENTITY is set to DEFAULT (primary key) by default, which is
- *   sufficient for INSERT events. UPDATE events require FULL if you need the
- *   old row, but we only use it as a trigger for router.refresh().
+ * @see src/query/README.md — Query vs `router.refresh()`.
  */
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { createDebouncedCallback } from '@/query/realtime-bridge';
+import { useTripsRscRefresh } from '@/features/trips/providers';
+
+const REALTIME_DEBOUNCE_MS = 450;
 
 export function TripsRealtimeSync() {
-  const router = useRouter();
+  const { refreshTripsPage } = useTripsRscRefresh();
 
   useEffect(() => {
     const supabase = createClient();
+
+    const { schedule, cancel } = createDebouncedCallback(
+      () => refreshTripsPage(),
+      REALTIME_DEBOUNCE_MS
+    );
 
     const channel = supabase
       .channel('trips-realtime-sync')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'trips' },
-        () => {
-          router.refresh();
-        }
+        schedule
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'trips' },
+        schedule
       )
       .subscribe();
 
     return () => {
+      cancel();
       void supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [refreshTripsPage]);
 
   return null;
 }

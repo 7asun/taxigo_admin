@@ -10,6 +10,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
+import { tripKeys } from '@/query/keys';
 import { CalendarRange, ClockIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -96,6 +99,8 @@ export function TripRescheduleDialog({
   onSuccess
 }: TripRescheduleDialogProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const optionalRscRefresh = useOptionalTripsRscRefresh();
   const [paired, setPaired] = useState<Trip | null>(null);
   const [loadingPair, setLoadingPair] = useState(false);
   const [primaryYmd, setPrimaryYmd] = useState('');
@@ -269,7 +274,12 @@ export function TripRescheduleDialog({
       );
       onOpenChange(false);
       onSuccess?.();
-      router.refresh();
+      if (optionalRscRefresh) {
+        await optionalRscRefresh.refreshTripsPage();
+      } else {
+        await router.refresh();
+        await queryClient.invalidateQueries({ queryKey: tripKeys.all });
+      }
     } finally {
       setSaving(false);
     }

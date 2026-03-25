@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import {
@@ -21,7 +21,7 @@ interface DriverSelectCellProps {
 }
 
 export function DriverSelectCell({ trip }: DriverSelectCellProps) {
-  const router = useRouter();
+  const { refreshTripsPage } = useTripsRscRefresh();
   const { drivers, isLoading } = useTripFormData();
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(
     trip.driver_id
@@ -68,7 +68,7 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
       }
 
       setSelectedDriverId(newDriverId);
-      router.refresh();
+      void refreshTripsPage();
     } catch (error: any) {
       toast.error(
         `Fehler beim Zuweisen des Fahrers: ${

@@ -46,6 +46,7 @@ The project follows a feature-based folder structure designed for scalability in
 
 ### Data & APIs
 - TanStack Table for data tables
+- TanStack Query: shared defaults and query keys in [`src/query/`](src/query/README.md); when to use `invalidateQueries` vs `router.refresh()` is documented there and in [`docs/server-state-query.md`](docs/server-state-query.md)
 - Recharts for analytics/charts
 - Mock API utilities in `src/constants/mock-api.ts`
 

@@ -7,6 +7,7 @@ import { Suspense } from 'react';
 import { BulkUploadDialog } from '@/features/trips/components/bulk-upload-dialog';
 import { PrintTripsButton } from '@/features/trips/components/print-trips-button';
 import { TripsRealtimeSync } from '@/features/trips/components/trips-realtime-sync';
+import { FahrtenPageShell } from './fahrten-page-shell';
 
 export const metadata = {
   title: 'Dashboard: Fahrten'
@@ -23,25 +24,27 @@ export default async function Page(props: pageProps) {
   await searchParamsCache.parse(props.searchParams);
 
   return (
-    <PageContainer
-      scrollable={false}
-      pageTitle='Fahrten'
-      pageDescription='Alle Fahrten auf einen Blick verwalten.'
-      pageHeaderAction={
-        <div className='flex shrink-0 flex-nowrap items-center justify-end gap-2'>
-          <PrintTripsButton />
-          <BulkUploadDialog />
-        </div>
-      }
-    >
-      <Suspense
-        fallback={
-          <DataTableSkeleton columnCount={8} rowCount={10} filterCount={3} />
+    <FahrtenPageShell>
+      <PageContainer
+        scrollable={false}
+        pageTitle='Fahrten'
+        pageDescription='Alle Fahrten auf einen Blick verwalten.'
+        pageHeaderAction={
+          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-2'>
+            <PrintTripsButton />
+            <BulkUploadDialog />
+          </div>
         }
       >
-        <TripsListingPage searchParams={props.searchParams} />
-      </Suspense>
-      <TripsRealtimeSync />
-    </PageContainer>
+        <Suspense
+          fallback={
+            <DataTableSkeleton columnCount={8} rowCount={10} filterCount={3} />
+          }
+        >
+          <TripsListingPage searchParams={props.searchParams} />
+        </Suspense>
+        <TripsRealtimeSync />
+      </PageContainer>
+    </FahrtenPageShell>
   );
 }

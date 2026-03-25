@@ -16,6 +16,7 @@ import { TripsMobileCardList } from './trips-mobile-card-list';
 import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { getTripListScrollAnchorId } from '@/features/trips/lib/trip-list-scroll-anchor';
+import { TripsRscRefreshChrome } from '@/features/trips/components/trips-rsc-refresh-chrome';
 
 export { columns };
 
@@ -112,7 +113,7 @@ export function TripsTable<TData, TValue>({
 
   if (isNarrow) {
     return (
-      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col space-y-4'>
+      <TripsRscRefreshChrome className='flex min-h-0 min-w-0 flex-1 flex-col space-y-4'>
         <DataTableToolbar table={table} showViewOptions={false} />
         <TripsMobileCardList
           table={table}
@@ -120,12 +121,12 @@ export function TripsTable<TData, TValue>({
           totalDatasetCount={totalItems}
           scrollToRowId={scrollToRowId}
         />
-      </div>
+      </TripsRscRefreshChrome>
     );
   }
 
   return (
-    <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
+    <TripsRscRefreshChrome className='flex min-h-0 min-w-0 flex-1 flex-col'>
       <DataTable
         table={table}
         tableClassName='min-w-[720px]'
@@ -139,6 +140,6 @@ export function TripsTable<TData, TValue>({
       >
         <DataTableToolbar table={table} showViewOptions={false} />
       </DataTable>
-    </div>
+    </TripsRscRefreshChrome>
   );
 }
