@@ -99,6 +99,10 @@ export function CreateTripForm({
     pickupGroups?: Record<string, boolean>;
     dropoffGroups?: Record<string, boolean>;
     unassigned?: boolean;
+    passengerStationErrors?: Record<
+      string,
+      { pickup?: boolean; dropoff?: boolean }
+    >;
   }>({});
 
   const form = useForm<TripFormValues>({
@@ -454,6 +458,28 @@ export function CreateTripForm({
       setPassengers((prev) =>
         prev.map((p) => (p.uid === uid ? { ...p, [field]: value } : p))
       );
+      setFormErrors((e) => {
+        const errs = e.passengerStationErrors;
+        if (!errs?.[uid]) return e;
+        const leg = field === 'pickup_station' ? 'pickup' : 'dropoff';
+        if (!value.trim()) return e;
+        const prevEntry = errs[uid];
+        const nextEntry: { pickup?: boolean; dropoff?: boolean } = {
+          ...prevEntry
+        };
+        delete nextEntry[leg];
+        const rest = { ...errs };
+        if (!nextEntry.pickup && !nextEntry.dropoff) {
+          delete rest[uid];
+        } else {
+          rest[uid] = nextEntry;
+        }
+        return {
+          ...e,
+          passengerStationErrors:
+            Object.keys(rest).length > 0 ? rest : undefined
+        };
+      });
     },
     []
   );
@@ -776,6 +802,36 @@ export function CreateTripForm({
         errors.unassigned = true;
         hasCustomError = true;
       }
+
+      const passengerStationErrors: Record<
+        string,
+        { pickup?: boolean; dropoff?: boolean }
+      > = {};
+      if (billingBehavior.requirePickupStation) {
+        for (const p of passengers) {
+          if (!String(p.pickup_station ?? '').trim()) {
+            passengerStationErrors[p.uid] = {
+              ...passengerStationErrors[p.uid],
+              pickup: true
+            };
+            hasCustomError = true;
+          }
+        }
+      }
+      if (billingBehavior.requireDropoffStation) {
+        for (const p of passengers) {
+          if (!String(p.dropoff_station ?? '').trim()) {
+            passengerStationErrors[p.uid] = {
+              ...passengerStationErrors[p.uid],
+              dropoff: true
+            };
+            hasCustomError = true;
+          }
+        }
+      }
+      if (Object.keys(passengerStationErrors).length > 0) {
+        errors.passengerStationErrors = passengerStationErrors;
+      }
     }
 
     if (hasCustomError) {
@@ -785,6 +841,11 @@ export function CreateTripForm({
         scrollToCreateTripSection('pickup');
       } else if (errors.dropoffGroups || errors.unassigned) {
         scrollToCreateTripSection('dropoff');
+      } else if (errors.passengerStationErrors) {
+        const hasPickupErr = Object.values(errors.passengerStationErrors).some(
+          (e) => e.pickup
+        );
+        scrollToCreateTripSection(hasPickupErr ? 'pickup' : 'dropoff');
       }
       return;
     }

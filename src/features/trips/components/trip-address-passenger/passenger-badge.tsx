@@ -13,6 +13,8 @@ import type { PassengerEntry } from '@/features/trips/types';
 interface PassengerBadgeProps {
   passenger: PassengerEntry;
   stationField: 'pickup_station' | 'dropoff_station';
+  /** Highlights station input when submit validation failed. */
+  stationInputError?: boolean;
   onRemove: () => void;
   onStationChange: (value: string) => void;
   onWheelchairChange: (value: boolean) => void;
@@ -24,6 +26,7 @@ interface PassengerBadgeProps {
 export function PassengerBadge({
   passenger,
   stationField,
+  stationInputError = false,
   onRemove,
   onStationChange,
   onWheelchairChange,
@@ -103,7 +106,10 @@ export function PassengerBadge({
         value={stationValue}
         onChange={(e) => onStationChange(e.target.value)}
         placeholder='Station...'
-        className='bg-muted/40 min-h-10 border-dashed px-2 text-base focus-visible:ring-1 sm:h-6 sm:min-h-0 sm:px-1.5 sm:text-[10px]'
+        className={cn(
+          'bg-muted/40 min-h-10 border-dashed px-2 text-base focus-visible:ring-1 sm:h-6 sm:min-h-0 sm:px-1.5 sm:text-[10px]',
+          stationInputError && 'border-destructive'
+        )}
       />
     </div>
   );

@@ -51,7 +51,7 @@ export const columns: ColumnDef<any>[] = [
           (table.getIsSomePageRowsSelected() && 'indeterminate')
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label='Alle auswählen'
+        aria-label='Alle auf dieser Seite auswählen'
       />
     ),
     cell: ({ row }) => (

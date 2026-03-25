@@ -10,6 +10,8 @@ export interface NormalizedBillingTypeBehavior {
   lockReturnMode: boolean;
   prefillDropoffFromPickup: boolean;
   requirePassenger: boolean;
+  requirePickupStation: boolean;
+  requireDropoffStation: boolean;
   /** True if `billing-type-behavior-dialog` defines any default pickup fields (same test as create-trip). */
   hasDefaultPickupAddress: boolean;
   /** True if any default dropoff fields are defined. */
@@ -126,6 +128,16 @@ export function normalizeBillingTypeBehavior(
       false
     ),
     requirePassenger,
+    requirePickupStation: !!(
+      b.requirePickupStation ??
+      b.require_pickup_station ??
+      false
+    ),
+    requireDropoffStation: !!(
+      b.requireDropoffStation ??
+      b.require_dropoff_station ??
+      false
+    ),
     hasDefaultPickupAddress: hasBehaviorDefaultPickup(b),
     hasDefaultDropoffAddress: hasBehaviorDefaultDropoff(b)
   };

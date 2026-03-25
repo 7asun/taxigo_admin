@@ -52,11 +52,15 @@ export type ValidationIssueType =
    * Three or more rows share the same pair_id. Only the first two (by time / row
    * order) are linked; extra rows are created as standalone trips.
    */
-  | 'pair_id_ambiguous';
+  | 'pair_id_ambiguous'
+  | 'missing_pickup_station'
+  | 'missing_dropoff_station';
 
 export interface ValidationIssue {
   type: ValidationIssueType;
   message: string;
+  /** When `'warning'`, row may still be imported; omitted/`'error'` blocks import. */
+  severity?: 'error' | 'warning';
 }
 
 export interface ValidatedTripRow<TripShape = unknown> {

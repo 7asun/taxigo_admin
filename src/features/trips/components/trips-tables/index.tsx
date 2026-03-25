@@ -13,6 +13,9 @@ import { getUrgencyLevel } from '@/features/trips/lib/urgency-logic';
 import { URGENCY_STYLES } from '@/features/trips/constants/urgency-config';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { TripsMobileCardList } from './trips-mobile-card-list';
+import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
+import type { Trip } from '@/features/trips/api/trips.service';
+import { getTripListScrollAnchorId } from '@/features/trips/lib/trip-list-scroll-anchor';
 
 export { columns };
 
@@ -36,7 +39,8 @@ export function TripsTable<TData, TValue>({
     columns,
     pageCount: pageCount,
     shallow: false,
-    debounceMs: 500
+    debounceMs: 500,
+    getRowId: (row) => (row as Trip).id
   });
 
   const setTable = useTripsTableStore((s) => s.setTable);
@@ -51,6 +55,14 @@ export function TripsTable<TData, TValue>({
   React.useEffect(() => {
     setColumnVisibility(columnVisibility);
   }, [columnVisibility, setColumnVisibility]);
+
+  const scrollToRowId = React.useMemo(
+    () =>
+      getTripListScrollAnchorId(
+        data as { id: string; scheduled_at: string | null }[]
+      ),
+    [data]
+  );
 
   // Calculate groups for visual indicators
   const groupCounts = React.useMemo(() => {
@@ -70,13 +82,6 @@ export function TripsTable<TData, TValue>({
       date.getMonth() === today.getMonth() &&
       date.getDate() === today.getDate()
     );
-  };
-
-  const isNowWindow = (date: Date, windowMinutes = 30) => {
-    const now = new Date();
-    if (!isToday(date)) return false;
-    const diffMinutes = Math.abs(date.getTime() - now.getTime()) / 60000;
-    return diffMinutes <= windowMinutes;
   };
 
   const getRowClassName = (row: any) => {
@@ -107,20 +112,33 @@ export function TripsTable<TData, TValue>({
 
   if (isNarrow) {
     return (
-      <div className='flex min-h-0 flex-1 flex-col space-y-4'>
+      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col space-y-4'>
         <DataTableToolbar table={table} showViewOptions={false} />
-        <TripsMobileCardList table={table} getRowClassName={getRowClassName} />
+        <TripsMobileCardList
+          table={table}
+          getRowClassName={getRowClassName}
+          totalDatasetCount={totalItems}
+          scrollToRowId={scrollToRowId}
+        />
       </div>
     );
   }
 
   return (
-    <DataTable
-      table={table}
-      tableClassName='min-w-[720px]'
-      getRowClassName={getRowClassName}
-    >
-      <DataTableToolbar table={table} showViewOptions={false} />
-    </DataTable>
+    <div className='relative flex min-h-0 min-w-0 flex-1 flex-col'>
+      <DataTable
+        table={table}
+        tableClassName='min-w-[720px]'
+        getRowClassName={getRowClassName}
+        paginationProps={{
+          totalDatasetCount: totalItems,
+          datasetNounPlural: 'Fahrten',
+          bulkActions: <TripsPaginationBulkActions table={table} />
+        }}
+        scrollToRowId={scrollToRowId}
+      >
+        <DataTableToolbar table={table} showViewOptions={false} />
+      </DataTable>
+    </div>
   );
 }

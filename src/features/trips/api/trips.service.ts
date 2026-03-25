@@ -71,6 +71,26 @@ export const tripsService = {
     if (error) throw error;
   },
 
+  /**
+   * Hard-delete trips via server API (service role + company check). Browser Supabase
+   * clients often cannot DELETE under RLS even when SELECT/UPDATE work.
+   */
+  async deleteTripsPermanently(ids: string[]): Promise<void> {
+    const res = await fetch('/api/trips/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+
+    if (!res.ok) {
+      throw new Error(
+        payload.error || `Löschen fehlgeschlagen (${res.status})`
+      );
+    }
+  },
+
   async getUpcomingTrips(startDate: string, endDate: string) {
     const supabase = createClient();
     const { data, error } = await supabase

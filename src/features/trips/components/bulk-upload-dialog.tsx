@@ -21,6 +21,7 @@ import {
   Upload,
   FileSpreadsheet,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   RotateCcw
 } from 'lucide-react';
@@ -57,6 +58,14 @@ interface BulkUploadDialogProps {
  *   "tour-abc.3" → { label: "tour-abc", stopOrder: 3 }
  *   "tour-1"     → { label: "tour-1",   stopOrder: null }  (backward compat)
  */
+function validationIssueIsBlocking(issue: ValidationIssue): boolean {
+  return (issue.severity ?? 'error') === 'error';
+}
+
+function rowHasBlockingIssues(row: ValidatedTripRow): boolean {
+  return row.issues.some(validationIssueIsBlocking);
+}
+
 function parseGroupId(raw: string): {
   label: string;
   stopOrder: number | null;
@@ -298,6 +307,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       ),
       requirePassenger: Boolean(
         b.requirePassenger ?? b.show_pickup_passenger ?? true
+      ),
+      requirePickupStation: Boolean(
+        b.requirePickupStation ?? b.require_pickup_station ?? false
+      ),
+      requireDropoffStation: Boolean(
+        b.requireDropoffStation ?? b.require_dropoff_station ?? false
       ),
       defaultPickup: (b.defaultPickup ?? b.default_pickup ?? null) as
         | string
@@ -776,6 +791,29 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               builtTrip = applied.trip;
               rowNeedsReturnTrip = applied.needsReturnTrip;
               rowHasAddressOverride = applied.hasAddressOverride;
+
+              if (
+                behavior.requirePickupStation &&
+                !String(parsedRow.pickup_station ?? '').trim()
+              ) {
+                issues.push({
+                  type: 'missing_pickup_station',
+                  severity: 'warning',
+                  message:
+                    'Abhol-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
+                });
+              }
+              if (
+                behavior.requireDropoffStation &&
+                !String(parsedRow.dropoff_station ?? '').trim()
+              ) {
+                issues.push({
+                  type: 'missing_dropoff_station',
+                  severity: 'warning',
+                  message:
+                    'Ziel-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
+                });
+              }
             }
           }
 
@@ -806,7 +844,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
         }
 
         const successfulRows = validatedRows.filter(
-          (row) => row.trip && row.issues.length === 0
+          (row) => row.trip && !rowHasBlockingIssues(row)
         );
 
         // Geocode pickup/dropoff addresses for successful outbound trips.
@@ -1174,11 +1212,11 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             errors.length > 0
               ? errors
               : validatedRows
-                  .filter((r) => r.issues.length > 0)
+                  .filter((r) => rowHasBlockingIssues(r))
                   .flatMap((r) =>
-                    r.issues.map(
-                      (issue) => `Zeile ${r.rowNumber}: ${issue.message}`
-                    )
+                    r.issues
+                      .filter(validationIssueIsBlocking)
+                      .map((issue) => `Zeile ${r.rowNumber}: ${issue.message}`)
                   );
 
           setResults({
@@ -1318,13 +1356,68 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 </AlertTitle>
                 <AlertDescription className='text-emerald-700 dark:text-emerald-500'>
                   {
-                    results.rows.filter((r) => r.trip && r.issues.length === 0)
-                      .length
+                    results.rows.filter(
+                      (r) => r.trip && !rowHasBlockingIssues(r)
+                    ).length
                   }{' '}
                   Fahrten sind bereit zum Erstellen. Bitte prüfen Sie offene
                   Probleme unten.
                 </AlertDescription>
               </Alert>
+
+              {results.rows.some(
+                (r) =>
+                  r.trip &&
+                  r.issues.some(
+                    (i) =>
+                      i.severity === 'warning' &&
+                      (i.type === 'missing_pickup_station' ||
+                        i.type === 'missing_dropoff_station')
+                  )
+              ) && (
+                <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                  <AlertTriangle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+                  <AlertTitle className='text-amber-900 dark:text-amber-200'>
+                    Station fehlt
+                  </AlertTitle>
+                  <AlertDescription className='text-amber-800 dark:text-amber-300'>
+                    <p className='mb-2 text-xs'>
+                      Bei mindestens einer Zeile fehlt eine laut Abrechnungsart
+                      erwartete Station. Die betroffenen Fahrten werden trotzdem
+                      importiert — bitte nachtragen.
+                    </p>
+                    <ScrollArea className='h-28 pr-4'>
+                      <ul className='list-inside list-disc space-y-1 text-xs'>
+                        {results.rows
+                          .filter(
+                            (r) =>
+                              r.trip &&
+                              r.issues.some(
+                                (i) =>
+                                  i.severity === 'warning' &&
+                                  (i.type === 'missing_pickup_station' ||
+                                    i.type === 'missing_dropoff_station')
+                              )
+                          )
+                          .flatMap((r) =>
+                            r.issues
+                              .filter(
+                                (i) =>
+                                  i.severity === 'warning' &&
+                                  (i.type === 'missing_pickup_station' ||
+                                    i.type === 'missing_dropoff_station')
+                              )
+                              .map((issue, idx) => (
+                                <li key={`${r.rowNumber}-${idx}`}>
+                                  Zeile {r.rowNumber}: {issue.message}
+                                </li>
+                              ))
+                          )}
+                      </ul>
+                    </ScrollArea>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {results.errors.length > 0 && (
                 <Alert variant='destructive'>

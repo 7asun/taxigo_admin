@@ -13,6 +13,8 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   lockDropoff: false,
   prefillDropoffFromPickup: false,
   requirePassenger: true,
+  requirePickupStation: false,
+  requireDropoffStation: false,
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,

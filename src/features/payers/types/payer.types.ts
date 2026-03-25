@@ -5,6 +5,10 @@ export interface BillingTypeBehavior {
   lockDropoff: boolean;
   prefillDropoffFromPickup: boolean;
   requirePassenger: boolean;
+  /** When true (Fahrgast flow), Abhol-Station per passenger is required on create. */
+  requirePickupStation: boolean;
+  /** When true (Fahrgast flow), Ziel-Station per passenger is required on create. */
+  requireDropoffStation: boolean;
   // Legacy single-string defaults (kept for backward compatibility)
   defaultPickup?: string | null;
   defaultDropoff?: string | null;

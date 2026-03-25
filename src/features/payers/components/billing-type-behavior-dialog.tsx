@@ -46,6 +46,8 @@ const formSchema = z.object({
   lockDropoff: z.boolean(),
   prefillDropoffFromPickup: z.boolean(),
   requirePassenger: z.boolean(),
+  requirePickupStation: z.boolean(),
+  requireDropoffStation: z.boolean(),
   defaultPickup: z.string().optional().nullable(),
   defaultPickupStreet: z.string().optional().nullable(),
   defaultPickupStreetNumber: z.string().optional().nullable(),
@@ -90,6 +92,16 @@ function normaliseBehavior(b: any): FormValues {
       false
     ),
     requirePassenger,
+    requirePickupStation: !!(
+      b.requirePickupStation ??
+      b.require_pickup_station ??
+      false
+    ),
+    requireDropoffStation: !!(
+      b.requireDropoffStation ??
+      b.require_dropoff_station ??
+      false
+    ),
     defaultPickup: b.defaultPickup ?? b.default_pickup ?? '',
     defaultPickupStreet: b.defaultPickupStreet ?? b.default_pickup_street ?? '',
     defaultPickupStreetNumber:
@@ -130,6 +142,8 @@ export function BillingTypeBehaviorDialog({
       lockDropoff: false,
       prefillDropoffFromPickup: false,
       requirePassenger: true,
+      requirePickupStation: false,
+      requireDropoffStation: false,
       defaultPickup: '',
       defaultPickupStreet: '',
       defaultPickupStreetNumber: '',
@@ -267,6 +281,27 @@ export function BillingTypeBehaviorDialog({
                         <FormLabel>Abholadresse sperren</FormLabel>
                         <FormDescription>
                           Adresse ist im Trip-Formular nicht editierbar.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='requirePickupStation'
+                  render={({ field }) => (
+                    <FormItem className='bg-background flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>Abhol-Station erforderlich</FormLabel>
+                        <FormDescription>
+                          Gilt bei Fahrgast-Fahrten: Station im Abholbereich
+                          muss ausgefüllt sein, sonst keine Fertigstellung.
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -445,6 +480,27 @@ export function BillingTypeBehaviorDialog({
                         <FormLabel>Zieladresse sperren</FormLabel>
                         <FormDescription>
                           Adresse ist im Trip-Formular nicht editierbar.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='requireDropoffStation'
+                  render={({ field }) => (
+                    <FormItem className='bg-background flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>Ziel-Station erforderlich</FormLabel>
+                        <FormDescription>
+                          Gilt bei Fahrgast-Fahrten: Station im Zielbereich muss
+                          ausgefüllt sein, sonst keine Fertigstellung.
                         </FormDescription>
                       </div>
                       <FormControl>

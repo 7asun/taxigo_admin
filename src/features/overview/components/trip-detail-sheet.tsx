@@ -37,9 +37,12 @@ import {
   Trash2,
   Share2,
   ArrowLeftRight,
-  Copy
+  CalendarRange,
+  Copy,
+  PenLine
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Tooltip,
   TooltipContent,
@@ -60,6 +63,11 @@ import {
 } from '@/features/trips/lib/trip-direction';
 import { shouldShowCreateReturnTripButton } from '@/features/trips/lib/can-create-linked-return';
 import { CreateReturnTripDialog } from '@/features/trips/components/return-trip';
+import {
+  TripRescheduleDialog,
+  canRescheduleTrip,
+  getRescheduleDisabledReason
+} from '@/features/trips/trip-reschedule';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import {
@@ -91,9 +99,12 @@ export function TripDetailSheet({
   const [hasPair, setHasPair] = useState(false);
   const [linkedPartner, setLinkedPartner] = useState<Trip | null>(null);
   const [isCreateReturnOpen, setIsCreateReturnOpen] = useState(false);
+  const [isRescheduleDialogOpen, setIsRescheduleDialogOpen] = useState(false);
   /** `HH:mm` for inline time edit; only used when `trip.scheduled_at` is set */
   const [timeDraft, setTimeDraft] = useState('');
   const [isSavingTime, setIsSavingTime] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
   const { cancelTrip, isLoading: isCancelling } = useTripCancellation();
 
   // Time draft: only treat as "live" while the sheet is open. Closing discards
@@ -113,6 +124,13 @@ export function TripDetailSheet({
     }
     setTimeDraft(format(new Date(trip.scheduled_at), 'HH:mm'));
   }, [isOpen, trip?.id, trip?.scheduled_at]);
+
+  useEffect(() => {
+    if (!isOpen || !trip) {
+      return;
+    }
+    setNotesDraft(trip.notes ?? '');
+  }, [isOpen, trip?.id, trip?.notes]);
 
   useEffect(() => {
     const fetchDrivers = async () => {
@@ -258,6 +276,29 @@ export function TripDetailSheet({
       toast.error(`Speichern fehlgeschlagen: ${message}`);
     } finally {
       setIsSavingTime(false);
+    }
+  };
+
+  const normalizeNotes = (s: string) => s.trim();
+  const notesDirty =
+    isOpen &&
+    !!trip &&
+    normalizeNotes(notesDraft) !== normalizeNotes(trip.notes ?? '');
+
+  const handleSaveNotes = async () => {
+    if (!trip) return;
+    setIsSavingNotes(true);
+    try {
+      const trimmed = normalizeNotes(notesDraft);
+      await tripsService.updateTrip(trip.id, {
+        notes: trimmed ? trimmed : null
+      });
+      toast.success('Notizen gespeichert');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Notizen konnten nicht gespeichert werden: ${message}`);
+    } finally {
+      setIsSavingNotes(false);
     }
   };
 
@@ -600,16 +641,73 @@ export function TripDetailSheet({
                   />
                 </section>
 
-                {trip.notes && (
-                  <section className='rounded-lg border border-amber-100 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40'>
-                    <h4 className='mb-1 flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-400'>
-                      <AlertCircle className='h-3 w-3' /> Wichtige Hinweise
-                    </h4>
-                    <p className='text-sm text-amber-900 dark:text-amber-300'>
-                      {trip.notes}
-                    </p>
-                  </section>
-                )}
+                <section
+                  className={cn(
+                    'rounded-xl border p-4 shadow-sm',
+                    'border-amber-200/90 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+                  )}
+                >
+                  <div className='mb-3 flex items-start justify-between gap-3'>
+                    <div className='min-w-0'>
+                      <h4 className='flex items-start gap-2.5'>
+                        <span
+                          className='mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 shadow-sm dark:bg-amber-900/60'
+                          aria-hidden
+                        >
+                          <PenLine className='h-4 w-4 text-amber-800 dark:text-amber-200' />
+                        </span>
+                        <span className='min-w-0'>
+                          <span className='block text-xs font-bold tracking-wide text-amber-950 uppercase dark:text-amber-100'>
+                            Wichtige Hinweise
+                          </span>
+                          <span className='mt-0.5 block text-[11px] leading-snug font-normal tracking-normal text-amber-800/85 normal-case dark:text-amber-300/90'>
+                            Kurzinfos für Fahrer &amp; Disposition — sofort
+                            sichtbar
+                          </span>
+                        </span>
+                      </h4>
+                    </div>
+                    {notesDirty && (
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        className='h-8 shrink-0 border border-amber-300/80 bg-white/90 text-xs text-amber-950 shadow-sm hover:bg-white dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-50 dark:hover:bg-amber-900/70'
+                        disabled={isSavingNotes}
+                        onClick={() => {
+                          void handleSaveNotes();
+                        }}
+                      >
+                        {isSavingNotes ? 'Speichern…' : 'Speichern'}
+                      </Button>
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      'overflow-hidden rounded-lg border shadow-inner',
+                      'border-amber-200/80 bg-white/95 dark:border-amber-800/70 dark:bg-amber-950/35'
+                    )}
+                  >
+                    <Textarea
+                      value={notesDraft}
+                      onChange={(e) => setNotesDraft(e.target.value)}
+                      disabled={isSavingNotes || !isOpen}
+                      placeholder='z. B. Treppenlift, zweiter Ansprechpartner, exakte Abholstelle…'
+                      rows={3}
+                      aria-label='Wichtige Hinweise zur Fahrt'
+                      className={cn(
+                        'min-h-[4.75rem] resize-y border-0 text-sm shadow-none',
+                        'bg-transparent px-3.5 py-3',
+                        'text-amber-950 placeholder:text-amber-900/40 dark:text-amber-50 dark:placeholder:text-amber-400/35',
+                        'focus-visible:ring-2 focus-visible:ring-amber-400/35 focus-visible:ring-offset-0 dark:focus-visible:ring-amber-500/30'
+                      )}
+                    />
+                  </div>
+                  <p className='mt-2.5 flex items-center gap-1.5 text-[11px] leading-snug text-amber-800/85 dark:text-amber-400/90'>
+                    <AlertCircle className='h-3 w-3 shrink-0 opacity-80' />
+                    Wird mit der Fahrt gespeichert und im Team angezeigt.
+                  </p>
+                </section>
               </div>
             </div>
 
@@ -622,7 +720,7 @@ export function TripDetailSheet({
                   </span>
                 </div>
               )}
-              <div className='flex items-center gap-2'>
+              <div className='flex flex-wrap items-center gap-2'>
                 {timeDirty && (
                   <Button
                     type='button'
@@ -633,6 +731,21 @@ export function TripDetailSheet({
                     }}
                   >
                     {isSavingTime ? 'Wird gespeichert…' : 'Aktualisieren'}
+                  </Button>
+                )}
+                {notesDirty && (
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='secondary'
+                    disabled={isSavingNotes}
+                    className='border border-amber-300/80 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-50 dark:hover:bg-amber-900/70'
+                    onClick={() => {
+                      void handleSaveNotes();
+                    }}
+                  >
+                    <PenLine className='mr-1.5 h-3.5 w-3.5' />
+                    {isSavingNotes ? 'Notizen…' : 'Notizen speichern'}
                   </Button>
                 )}
                 {showCreateReturnButton && (
@@ -647,6 +760,17 @@ export function TripDetailSheet({
                     Rückfahrt
                   </Button>
                 )}
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={!canRescheduleTrip(trip as Trip)}
+                  title={getRescheduleDisabledReason(trip as Trip)}
+                  onClick={() => setIsRescheduleDialogOpen(true)}
+                >
+                  <CalendarRange className='mr-1.5 h-3.5 w-3.5' />
+                  Verschieben
+                </Button>
                 <Button
                   type='button'
                   variant='destructive'
@@ -678,6 +802,17 @@ export function TripDetailSheet({
                 }}
               />
             )}
+
+            <TripRescheduleDialog
+              trip={trip ? (trip as Trip) : null}
+              open={isRescheduleDialogOpen}
+              onOpenChange={setIsRescheduleDialogOpen}
+              onSuccess={() => {
+                void findPairedTrip(trip as Trip).then((p) =>
+                  setLinkedPartner(p ?? null)
+                );
+              }}
+            />
 
             <RecurringTripCancelDialog
               trip={trip as Trip}

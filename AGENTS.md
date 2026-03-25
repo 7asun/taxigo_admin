@@ -122,6 +122,8 @@ The project follows a feature-based folder structure designed for scalability in
 │   ├── kanban-view.md     # Kanban trips board behaviour
 │   ├── print-trips-export.md # Fahrten drucken ZIP (PDF + JPEG overviews)
 │   ├── trips-date-filter.md # Fahrten date query + “stuck cards” fix
+│   ├── date-picker.md       # DatePicker + DateTimePicker (one module: date-time-picker.tsx)
+│   ├── trip-reschedule-v1.md # Verschieben — implementation: `src/features/trips/trip-reschedule/`
 │   └── trips-rueckfahrt-detail-sheet.md # Rückfahrt-Button in Trip-Detailansicht
 
 /__CLEANUP__               # Feature removal scripts

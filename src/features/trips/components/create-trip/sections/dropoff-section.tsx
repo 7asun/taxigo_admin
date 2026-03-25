@@ -228,6 +228,9 @@ export function CreateTripDropoffSection() {
                 dropoffGroups.length > 1 ? `Zieladresse ${idx + 1}` : undefined
               }
               hasError={!!formErrors.dropoffGroups?.[group.uid]}
+              stationErrorForPassenger={(uid) =>
+                !!formErrors.passengerStationErrors?.[uid]?.dropoff
+              }
             />
           ))}
 

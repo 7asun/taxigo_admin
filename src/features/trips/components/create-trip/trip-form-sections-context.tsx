@@ -22,6 +22,11 @@ export interface TripFormErrorsState {
   pickupGroups?: Record<string, boolean>;
   dropoffGroups?: Record<string, boolean>;
   unassigned?: boolean;
+  /** Per-passenger station validation (Fahrgast flow). */
+  passengerStationErrors?: Record<
+    string,
+    { pickup?: boolean; dropoff?: boolean }
+  >;
 }
 
 export interface TripFormSectionsContextType {

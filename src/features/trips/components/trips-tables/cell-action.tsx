@@ -6,17 +6,41 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { Edit, MoreHorizontal, Eye, Trash, Share2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import {
+  Ban,
+  CalendarRange,
+  Edit,
+  MoreHorizontal,
+  Eye,
+  Share2,
+  Trash2
+} from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { TripDetailSheet } from '@/features/overview/components/trip-detail-sheet';
 import { useRouter } from 'next/navigation';
 import type { Trip } from '@/features/trips/api/trips.service';
+import { tripsService } from '@/features/trips/api/trips.service';
 import { useTripCancellation } from '@/features/trips/hooks/use-trip-cancellation';
 import { hasPairedLeg } from '@/features/trips/api/recurring-exceptions.actions';
 import { RecurringTripCancelDialog } from '@/features/trips/components/recurring-trip-cancel-dialog';
 import { copyTripToClipboard } from '@/features/trips/lib/share-utils';
+import {
+  TripRescheduleDialog,
+  canRescheduleTrip,
+  getRescheduleDisabledReason
+} from '@/features/trips/trip-reschedule';
 import { toast } from 'sonner';
 
 interface CellActionProps {
@@ -30,15 +54,18 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
   useEffect(() => {
     if (isDetailOpen) setDetailTripId(data.id);
   }, [isDetailOpen, data.id]);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isStornoDialogOpen, setIsStornoDialogOpen] = useState(false);
+  const [isPermanentDeleteOpen, setIsPermanentDeleteOpen] = useState(false);
+  const [isPermanentDeleting, setIsPermanentDeleting] = useState(false);
   const [hasPair, setHasPair] = useState(false);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const router = useRouter();
   const { cancelTrip, isLoading } = useTripCancellation();
 
   const isRecurring = !!data.rule_id;
 
-  const handleOpenDeleteDialog = async () => {
-    setIsDeleteDialogOpen(true);
+  const handleOpenStornoDialog = async () => {
+    setIsStornoDialogOpen(true);
 
     try {
       const pairExists = await hasPairedLeg(data);
@@ -48,29 +75,20 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
     }
   };
 
-  const handleDeleteSingle = async () => {
-    await cancelTrip(
-      data,
-      isRecurring ? 'skip-occurrence' : 'single-nonrecurring',
-      {
-        source: 'Manually cancelled via Trips Table'
-      }
-    );
-    setIsDeleteDialogOpen(false);
-  };
-
-  const handleDeleteWithPair = async () => {
-    await cancelTrip(data, 'skip-occurrence-and-paired', {
-      source: 'Manually cancelled (Hin/Rück) via Trips Table'
-    });
-    setIsDeleteDialogOpen(false);
-  };
-
-  const handleCancelSeries = async () => {
-    await cancelTrip(data, 'cancel-series', {
-      source: 'Recurring series cancelled via Trips Table'
-    });
-    setIsDeleteDialogOpen(false);
+  const handleConfirmPermanentDelete = async (): Promise<void> => {
+    try {
+      setIsPermanentDeleting(true);
+      await tripsService.deleteTripsPermanently([data.id]);
+      toast.success('Fahrt wurde aus der Datenbank gelöscht.');
+      setIsPermanentDeleteOpen(false);
+      router.refresh();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unbekannter Fehler beim Löschen.';
+      toast.error(message);
+    } finally {
+      setIsPermanentDeleting(false);
+    }
   };
 
   return (
@@ -102,15 +120,28 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
           >
             <Share2 className='mr-2 h-4 w-4' /> QuickShare (WhatsApp)
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!canRescheduleTrip(data)}
+            title={getRescheduleDisabledReason(data)}
+            onClick={() => setIsRescheduleOpen(true)}
+          >
+            <CalendarRange className='mr-2 h-4 w-4' /> Verschieben
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {
-              // fire and forget, dialog opens immediately and pair check runs in background
               // eslint-disable-next-line @typescript-eslint/no-floating-promises
-              handleOpenDeleteDialog();
+              handleOpenStornoDialog();
             }}
             className='text-destructive focus:text-destructive'
           >
-            <Trash className='mr-2 h-4 w-4' /> Löschen
+            <Ban className='mr-2 h-4 w-4' /> Stornieren
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => setIsPermanentDeleteOpen(true)}
+            className='text-destructive focus:text-destructive'
+          >
+            <Trash2 className='mr-2 h-4 w-4' /> Endgültig löschen
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -122,14 +153,20 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
         onNavigateToTrip={setDetailTripId}
       />
 
+      <TripRescheduleDialog
+        trip={data}
+        open={isRescheduleOpen}
+        onOpenChange={setIsRescheduleOpen}
+      />
+
       <RecurringTripCancelDialog
         trip={data}
         hasPair={hasPair}
-        isOpen={isDeleteDialogOpen}
+        isOpen={isStornoDialogOpen}
         isLoading={isLoading}
-        title='Fahrt löschen?'
-        description='Möchten Sie diese Fahrt wirklich löschen?'
-        onOpenChange={setIsDeleteDialogOpen}
+        title='Fahrt stornieren?'
+        description='Möchten Sie diese Fahrt wirklich stornieren?'
+        onOpenChange={setIsStornoDialogOpen}
         onConfirmSingle={(reason) => {
           // eslint-disable-next-line @typescript-eslint/no-floating-promises
           cancelTrip(
@@ -139,7 +176,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
               source: 'Manually cancelled via Trips Table',
               reason
             }
-          ).finally(() => setIsDeleteDialogOpen(false));
+          ).finally(() => setIsStornoDialogOpen(false));
         }}
         onConfirmWithPair={
           hasPair
@@ -154,7 +191,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
                     source: 'Manually cancelled (Hin/Rück) via Trips Table',
                     reason
                   }
-                ).finally(() => setIsDeleteDialogOpen(false));
+                ).finally(() => setIsStornoDialogOpen(false));
               }
             : undefined
         }
@@ -165,7 +202,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
                 cancelTrip(data, 'cancel-series', {
                   source: 'Recurring series cancelled via Trips Table',
                   reason
-                }).finally(() => setIsDeleteDialogOpen(false));
+                }).finally(() => setIsStornoDialogOpen(false));
               }
             : undefined
         }
@@ -174,11 +211,48 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
             ? 'Nur diese Fahrt stornieren (Aussetzen)'
             : hasPair
               ? 'Nur diese Fahrt stornieren'
-              : 'Löschen'
+              : 'Stornieren'
         }
         pairLabel='Diese Fahrt & Rückfahrt stornieren'
         seriesLabel='Gesamte Serie beenden'
       />
+
+      <AlertDialog
+        open={isPermanentDeleteOpen}
+        onOpenChange={setIsPermanentDeleteOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fahrt endgültig löschen?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className='space-y-2 text-sm'>
+                <p>
+                  Sie löschen diese Fahrt <strong>unwiderruflich</strong> aus
+                  der Datenbank. Das ist keine Stornierung: der Eintrag
+                  verschwindet vollständig.
+                </p>
+                <p>
+                  Verknüpfungen und Zuweisungen zu dieser Fahrt werden
+                  mitentfernt bzw. gelöst.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPermanentDeleting}>
+              Abbrechen
+            </AlertDialogCancel>
+            <Button
+              type='button'
+              variant='destructive'
+              disabled={isPermanentDeleting}
+              onClick={() => void handleConfirmPermanentDelete()}
+            >
+              {isPermanentDeleting ? 'Löschen…' : 'Endgültig löschen'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
