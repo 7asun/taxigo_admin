@@ -30,6 +30,7 @@ import {
   normalizeBillingTypeBehavior,
   parseBehaviorProfileRaw
 } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 import { useCreateTripDraft } from '@/features/trips/hooks/use-create-trip-draft';
 import {
   buildTripFormValuesFromDraft,
@@ -320,14 +321,17 @@ export function CreateTripForm({
       pickupZip ||
       pickupCity
     ) {
+      // Prefer structured fields for the display line — `defaultPickup` may be an
+      // older Autocomplete string without PLZ while zip/city exist separately.
       const pickupAddress =
+        formatTripAddressDisplayLine({
+          street: pickupStreet,
+          street_number: pickupStreetNumber,
+          zip_code: pickupZip,
+          city: pickupCity
+        }) ||
         defaultPickup ||
-        [
-          [pickupStreet, pickupStreetNumber].filter(Boolean).join(' '),
-          [pickupZip, pickupCity].filter(Boolean).join(' ')
-        ]
-          .filter(Boolean)
-          .join(', ');
+        '';
 
       setPickupGroups((prev) =>
         prev.map((g, i) =>
@@ -353,13 +357,14 @@ export function CreateTripForm({
       dropoffCity
     ) {
       const dropoffAddress =
+        formatTripAddressDisplayLine({
+          street: dropoffStreet,
+          street_number: dropoffStreetNumber,
+          zip_code: dropoffZip,
+          city: dropoffCity
+        }) ||
         defaultDropoff ||
-        [
-          [dropoffStreet, dropoffStreetNumber].filter(Boolean).join(' '),
-          [dropoffZip, dropoffCity].filter(Boolean).join(' ')
-        ]
-          .filter(Boolean)
-          .join(', ');
+        '';
 
       setDropoffGroups((prev) =>
         prev.map((g, i) =>
@@ -657,12 +662,12 @@ export function CreateTripForm({
       const result: AddressResult = {
         address:
           payload.address ||
-          [
-            [payload.street, payload.street_number].filter(Boolean).join(' '),
-            [payload.zip_code, payload.city].filter(Boolean).join(' ')
-          ]
-            .filter(Boolean)
-            .join(', '),
+          formatTripAddressDisplayLine({
+            street: payload.street,
+            street_number: payload.street_number,
+            zip_code: payload.zip_code,
+            city: payload.city
+          }),
         street: payload.street,
         street_number: payload.street_number,
         zip_code: payload.zip_code,
@@ -691,14 +696,12 @@ export function CreateTripForm({
       prev.map((g) => {
         if (g.uid === uid) {
           const updated = { ...g, [field]: value };
-          // Re-construct the full address string for backward compatibility/display
-          const streetStr = [updated.street, updated.street_number]
-            .filter(Boolean)
-            .join(' ');
-          const cityStr = [updated.zip_code, updated.city]
-            .filter(Boolean)
-            .join(' ');
-          updated.address = [streetStr, cityStr].filter(Boolean).join(', ');
+          updated.address = formatTripAddressDisplayLine({
+            street: updated.street,
+            street_number: updated.street_number,
+            zip_code: updated.zip_code,
+            city: updated.city
+          });
           return updated;
         }
         return g;

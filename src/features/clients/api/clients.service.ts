@@ -17,8 +17,9 @@ export const clientsService = {
     let query = supabase.from('clients').select('*', { count: 'exact' });
 
     if (filters?.search) {
+      const q = filters.search;
       query = query.or(
-        `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,company_name.ilike.%${filters.search}%`
+        `first_name.ilike.%${q}%,last_name.ilike.%${q}%,company_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%,phone_secondary.ilike.%${q}%`
       );
     }
 

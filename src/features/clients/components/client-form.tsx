@@ -5,6 +5,8 @@ import { FormSwitch } from '@/components/forms/form-switch';
 import { FormTextarea } from '@/components/forms/form-textarea';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import {
   Form,
   FormControl,
@@ -13,12 +15,7 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
-import {
-  Client,
-  clientsService,
-  type InsertClient,
-  type UpdateClient
-} from '@/features/clients/api/clients.service';
+import { Client, clientsService } from '@/features/clients/api/clients.service';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import {
@@ -26,11 +23,13 @@ import {
   useImperativeHandle,
   useEffect,
   useRef,
-  useState
+  useState,
+  type ReactNode
 } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import * as z from 'zod';
+import { cn } from '@/lib/utils';
 import { RecurringRulesList } from './recurring-rules-list';
 import {
   recurringRulesService,
@@ -50,16 +49,30 @@ const formSchema = z.object({
   zip_code: z.string().min(1, { message: 'PLZ ist erforderlich.' }),
   city: z.string().min(1, { message: 'Stadt ist erforderlich.' }),
   phone: z.string().optional(),
+  phone_secondary: z.string().optional(),
+  email: z
+    .string()
+    .optional()
+    .refine(
+      (val) =>
+        !val ||
+        val.trim() === '' ||
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim()),
+      { message: 'Ungültige E-Mail-Adresse.' }
+    ),
   relation: z.string().optional(),
   greeting_style: z.string().optional(),
   notes: z.string().optional(),
-  requires_daily_scheduling: z.boolean()
+  requires_daily_scheduling: z.boolean(),
+  is_wheelchair: z.boolean()
 });
 
 /** Imperative handle exposed via forwardRef — used by ClientDetailPanel */
 export interface ClientFormHandle {
   /** Programmatically trigger form submission (equivalent to clicking the submit button) */
   submit: () => void;
+  /** Sync Rollstuhl with the panel header switch (noCard / column view) */
+  setWheelchair: (value: boolean) => void;
 }
 
 interface ClientFormProps {
@@ -83,6 +96,16 @@ interface ClientFormProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className='flex items-center gap-2'>
+      <span className='text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase'>
+        {children}
+      </span>
+    </div>
+  );
+}
+
 const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
   function ClientForm(
     {
@@ -98,6 +121,9 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
     const router = useRouter();
 
     const [rules, setRules] = useState<RecurringRule[]>([]);
+    const [companyFieldVisible, setCompanyFieldVisible] = useState(
+      () => !!initialData?.company_name?.trim()
+    );
 
     const fetchRules = async () => {
       if (!initialData) return;
@@ -113,6 +139,10 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       fetchRules();
     }, [initialData]);
 
+    useEffect(() => {
+      setCompanyFieldVisible(!!initialData?.company_name?.trim());
+    }, [initialData?.id]);
+
     const defaultValues = {
       first_name: initialData?.first_name || '',
       last_name: initialData?.last_name || '',
@@ -122,10 +152,14 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       zip_code: initialData?.zip_code || '',
       city: initialData?.city || '',
       phone: initialData?.phone || '',
+      phone_secondary: initialData?.phone_secondary || '',
+      email: initialData?.email || '',
       relation: initialData?.relation || '',
       greeting_style: initialData?.greeting_style || '',
       notes: initialData?.notes || '',
-      requires_daily_scheduling: initialData?.requires_daily_scheduling ?? false
+      requires_daily_scheduling:
+        initialData?.requires_daily_scheduling ?? false,
+      is_wheelchair: initialData?.is_wheelchair ?? false
     };
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -133,10 +167,17 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       defaultValues
     });
 
-    // Expose submit() so ClientDetailPanel's header button can trigger submission
-    useImperativeHandle(ref, () => ({
-      submit: () => void form.handleSubmit(onSubmit)()
-    }));
+    // Expose submit() + setWheelchair for panel header Rollstuhl switch
+    useImperativeHandle(
+      ref,
+      () => ({
+        submit: () => void form.handleSubmit(onSubmit)(),
+        setWheelchair: (value: boolean) => {
+          form.setValue('is_wheelchair', value, { shouldDirty: true });
+        }
+      }),
+      [form]
+    );
 
     // Notify parent when dirty state changes so the header button can react
     const isDirty = form.formState.isDirty;
@@ -172,10 +213,15 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
           }
         }
 
+        const emailTrimmed = values.email?.trim() ?? '';
+        const phoneSecondaryTrimmed = values.phone_secondary?.trim() ?? '';
+
         const payload = {
           ...(values as any),
           is_company: isCompany,
           company_id: companyIdStr,
+          email: emailTrimmed ? emailTrimmed : null,
+          phone_secondary: phoneSecondaryTrimmed ? phoneSecondaryTrimmed : null,
           // Preserve existing lat/lng when editing; rely on AddressAutocomplete to have
           // populated them on the values object when a suggestion was selected.
           lat: (initialData as any)?.lat ?? (values as any).lat ?? null,
@@ -218,128 +264,238 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       <Form
         form={form}
         onSubmit={form.handleSubmit(onSubmit)}
-        className='space-y-8'
+        className='space-y-0'
       >
-        <div className='grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3'>
-          <FormInput
-            control={form.control}
-            name='first_name'
-            label='Vorname'
-            placeholder='Vorname eingeben'
-          />
-          <FormInput
-            control={form.control}
-            name='last_name'
-            label='Nachname'
-            placeholder='Nachname eingeben'
-          />
-          <FormInput
-            control={form.control}
-            name='company_name'
-            label='Firmenname'
-            placeholder='Firmenname eingeben'
-          />
-          <FormField
-            control={form.control}
-            name='street'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  Straße<span className='ml-1 text-red-500'>*</span>
-                </FormLabel>
-                <FormControl>
-                  <AddressAutocomplete
-                    value={field.value}
-                    onChange={(result: AddressResult | string) => {
-                      if (typeof result === 'string') {
-                        field.onChange(result);
-                      } else {
-                        if (!result.street) {
-                          field.onChange(result.address);
-                          return;
-                        }
-                        field.onChange(result.street || result.address);
-                        form.setValue(
-                          'street_number',
-                          result.street_number || ''
-                        );
-                        form.setValue('zip_code', result.zip_code || '');
-                        form.setValue('city', result.city || '');
-                      }
-                    }}
-                    placeholder='Straße eingeben'
-                    className='h-8 text-[11px]'
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+        <div
+          className={cn('w-full space-y-10', !noCard && 'mx-auto max-w-3xl')}
+        >
+          {/* Kontakt */}
+          <section className='space-y-5'>
+            <SectionLabel>Kontakt</SectionLabel>
+            <div className='grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-4'>
+              <FormInput
+                control={form.control}
+                name='greeting_style'
+                label='Anrede'
+                placeholder='z. B. Herr, Frau, Dr.'
+              />
+              <FormInput
+                control={form.control}
+                name='first_name'
+                label='Vorname'
+                placeholder='Vorname'
+              />
+              <FormInput
+                control={form.control}
+                name='last_name'
+                label='Nachname'
+                placeholder='Nachname'
+              />
+              <FormInput
+                control={form.control}
+                name='phone'
+                label='Telefon'
+                placeholder='Telefon'
+                type='tel'
+              />
+            </div>
+
+            <div className='grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2'>
+              <FormInput
+                control={form.control}
+                name='email'
+                label='E-Mail'
+                placeholder='name@beispiel.de'
+                type='email'
+              />
+              <FormInput
+                control={form.control}
+                name='phone_secondary'
+                label='Telefon 2'
+                placeholder='Optional — zweite Rufnummer.'
+                type='tel'
+              />
+            </div>
+
+            {companyFieldVisible ? (
+              <div className='space-y-2'>
+                <FormInput
+                  control={form.control}
+                  name='company_name'
+                  label='Firma'
+                  description='Nur bei geschäftlichem oder organisatorischem Bezug.'
+                  placeholder='z. B. Klinik, Wohnheim, Firma'
+                  className='max-w-xl'
+                />
+                <button
+                  type='button'
+                  className='text-muted-foreground hover:text-foreground text-xs underline-offset-4 transition-colors hover:underline'
+                  onClick={() => {
+                    form.setValue('company_name', '', { shouldDirty: true });
+                    setCompanyFieldVisible(false);
+                  }}
+                >
+                  Ausblenden
+                </button>
+              </div>
+            ) : (
+              <button
+                type='button'
+                className='text-muted-foreground hover:text-foreground -ml-0.5 text-left text-xs underline-offset-4 transition-colors hover:underline'
+                onClick={() => setCompanyFieldVisible(true)}
+              >
+                Firma hinzufügen
+              </button>
             )}
-          />
-          <FormInput
-            control={form.control}
-            name='street_number'
-            label='Hausnummer'
-            placeholder='Hausnummer eingeben'
-            required
-          />
-          <FormInput
-            control={form.control}
-            name='relation'
-            label='Beziehung'
-            placeholder='Beziehung eingeben'
-          />
-          <FormInput
-            control={form.control}
-            name='greeting_style'
-            label='Anrede'
-            placeholder='z. B. Herr, Frau, Dr., etc.'
-          />
-          <FormInput
-            control={form.control}
-            name='zip_code'
-            label='PLZ'
-            placeholder='Postleitzahl eingeben'
-            required
-          />
-          <FormInput
-            control={form.control}
-            name='city'
-            label='Stadt'
-            placeholder='Stadt eingeben'
-            required
-          />
-          <FormInput
-            control={form.control}
-            name='phone'
-            label='Telefonnummer'
-            placeholder='Telefonnummer eingeben'
-          />
+          </section>
+
+          <Separator className='bg-border/80' />
+
+          {/* Adresse */}
+          <section className='space-y-5'>
+            <SectionLabel>Adresse</SectionLabel>
+            <div className='grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_minmax(0,1fr)]'>
+              <FormField
+                control={form.control}
+                name='street'
+                render={({ field }) => (
+                  <FormItem className='min-w-0 md:col-span-1'>
+                    <FormLabel>
+                      Straße<span className='ml-1 text-red-500'>*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <AddressAutocomplete
+                        value={field.value}
+                        onChange={(result: AddressResult | string) => {
+                          if (typeof result === 'string') {
+                            field.onChange(result);
+                          } else {
+                            if (!result.street) {
+                              field.onChange(result.address);
+                              return;
+                            }
+                            field.onChange(result.street || result.address);
+                            form.setValue(
+                              'street_number',
+                              result.street_number || ''
+                            );
+                            form.setValue('zip_code', result.zip_code || '');
+                            form.setValue('city', result.city || '');
+                          }
+                        }}
+                        placeholder='Straße eingeben'
+                        className='h-8 text-[11px]'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormInput
+                control={form.control}
+                name='street_number'
+                label='Nr.'
+                placeholder='Nr.'
+                required
+                className='min-w-0 md:w-full'
+              />
+              <FormField
+                control={form.control}
+                name='zip_code'
+                render={({ field }) => (
+                  <FormItem className='min-w-0 md:w-full'>
+                    <FormLabel>
+                      PLZ<span className='ml-1 text-red-500'>*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        inputMode='numeric'
+                        maxLength={5}
+                        autoComplete='postal-code'
+                        placeholder='12345'
+                        className='h-8 font-mono text-[11px] tracking-widest'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormInput
+                control={form.control}
+                name='city'
+                label='Stadt'
+                placeholder='Stadt eingeben'
+                required
+                className='min-w-0'
+              />
+            </div>
+          </section>
+
+          <Separator className='bg-border/80' />
+
+          <section className='space-y-4'>
+            <SectionLabel>Weitere Angaben</SectionLabel>
+            <FormInput
+              control={form.control}
+              name='relation'
+              label='Beziehung'
+              placeholder='z. B. Angehörige, Betreuer'
+              className='max-w-md'
+            />
+            <FormTextarea
+              control={form.control}
+              name='notes'
+              label='Notizen'
+              placeholder='Interne Hinweise, Besonderheiten am Einstieg …'
+              config={{
+                maxLength: 500,
+                showCharCount: true,
+                rows: 4
+              }}
+            />
+          </section>
+
+          <Separator className='bg-border/80' />
+
+          <section className='space-y-4'>
+            <SectionLabel>Einstellungen</SectionLabel>
+            <div className='border-border/80 bg-muted/15 overflow-hidden rounded-xl border shadow-sm'>
+              {!noCard && (
+                <>
+                  <FormSwitch
+                    control={form.control}
+                    name='is_wheelchair'
+                    label='Rollstuhl'
+                    description='Vorauswahl bei neuer Fahrt, wenn dieser Fahrgast verknüpft wird.'
+                    className='rounded-none border-0 bg-transparent shadow-none'
+                  />
+                  <div className='bg-border/60 mx-4 h-px' />
+                </>
+              )}
+              <FormSwitch
+                control={form.control}
+                name='requires_daily_scheduling'
+                label='Tägliche Zeitabsprache'
+                description='Jeden Tag eine neue Abholzeit abstimmen.'
+                className='rounded-none border-0 bg-transparent shadow-none'
+              />
+            </div>
+          </section>
         </div>
-
-        <FormSwitch
-          control={form.control}
-          name='requires_daily_scheduling'
-          label='Benötigt tägliche Zeitabsprache'
-          description='Aktivieren, wenn dieser Fahrgast jeden Tag eine neue Abholzeit benötigt.'
-        />
-
-        <FormTextarea
-          control={form.control}
-          name='notes'
-          label='Notizen'
-          placeholder='Zusätzliche Notizen eingeben'
-          config={{
-            maxLength: 500,
-            showCharCount: true,
-            rows: 4
-          }}
-        />
 
         {/* In noCard mode the panel header provides the submit button */}
         {!noCard && (
-          <Button type='submit' disabled={loading}>
-            {initialData ? 'Fahrgast aktualisieren' : 'Fahrgast hinzufügen'}
-          </Button>
+          <div className='mx-auto mt-10 max-w-3xl'>
+            <Button
+              type='submit'
+              disabled={loading}
+              size='lg'
+              className='min-w-[10rem]'
+            >
+              {initialData ? 'Fahrgast aktualisieren' : 'Fahrgast hinzufügen'}
+            </Button>
+          </div>
         )}
       </Form>
     );
@@ -352,13 +508,18 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
     // Default: wrap in Card with title header + recurring rules list below
     return (
       <>
-        <Card className='mx-auto w-full'>
-          <CardHeader>
-            <CardTitle className='text-left text-2xl font-bold'>
+        <Card className='border-border/60 mx-auto w-full max-w-4xl shadow-sm'>
+          <CardHeader className='border-border/40 space-y-1 border-b px-6 pt-8 pb-6 sm:px-10'>
+            <CardTitle className='text-foreground text-left text-xl font-semibold tracking-tight sm:text-2xl'>
               {pageTitle}
             </CardTitle>
+            <p className='text-muted-foreground text-sm font-normal'>
+              Stammdaten für Abholung, Fahrtenbuch und Suche.
+            </p>
           </CardHeader>
-          <CardContent>{formFields}</CardContent>
+          <CardContent className='px-6 py-8 sm:px-10 sm:pb-10'>
+            {formFields}
+          </CardContent>
         </Card>
 
         {initialData && (

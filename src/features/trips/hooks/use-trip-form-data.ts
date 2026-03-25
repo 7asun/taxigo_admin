@@ -23,10 +23,13 @@ export interface ClientOption {
   company_name: string | null;
   is_company: boolean;
   phone: string | null;
+  phone_secondary: string | null;
+  email: string | null;
   street: string;
   street_number: string;
   zip_code: string;
   city: string;
+  is_wheelchair?: boolean;
 }
 
 export interface DriverOption {
@@ -87,10 +90,10 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
       .or(
-        `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%`
+        `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
       )
       .limit(8);
     return data || [];
@@ -104,9 +107,11 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
-      .or(`first_name.ilike.%${query}%,company_name.ilike.%${query}%`)
+      .or(
+        `first_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+      )
       .order('first_name')
       .limit(8);
     return data || [];
@@ -120,9 +125,11 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
-      .or(`last_name.ilike.%${query}%,company_name.ilike.%${query}%`)
+      .or(
+        `last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+      )
       .order('last_name')
       .limit(8);
     return data || [];
@@ -136,7 +143,7 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
       .eq('id', id)
       .single();

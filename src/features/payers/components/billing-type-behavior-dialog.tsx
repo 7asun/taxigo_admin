@@ -38,6 +38,7 @@ import {
   AddressAutocomplete,
   type AddressResult
 } from '@/features/trips/components/address-autocomplete';
+import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 const formSchema = z.object({
   returnPolicy: z.enum(['none', 'time_tbd', 'exact']),
@@ -326,21 +327,14 @@ export function BillingTypeBehaviorDialog({
                             if (typeof result === 'string') {
                               field.onChange(result);
                             } else {
-                              // Use the full formatted address, but prefer structured pieces when available
-                              const streetPart = [
-                                result.street,
-                                result.street_number
-                              ]
-                                .filter(Boolean)
-                                .join(' ');
-                              const cityPart = [result.zip_code, result.city]
-                                .filter(Boolean)
-                                .join(' ');
                               const full =
-                                result.address ||
-                                [streetPart, cityPart]
-                                  .filter(Boolean)
-                                  .join(', ');
+                                formatTripAddressDisplayLine({
+                                  street: result.street,
+                                  street_number: result.street_number,
+                                  zip_code: result.zip_code,
+                                  city: result.city,
+                                  placeName: result.name
+                                }) || result.address;
                               field.onChange(full);
                               form.setValue(
                                 'defaultPickupStreet',
@@ -525,20 +519,14 @@ export function BillingTypeBehaviorDialog({
                             if (typeof result === 'string') {
                               field.onChange(result);
                             } else {
-                              const streetPart = [
-                                result.street,
-                                result.street_number
-                              ]
-                                .filter(Boolean)
-                                .join(' ');
-                              const cityPart = [result.zip_code, result.city]
-                                .filter(Boolean)
-                                .join(' ');
                               const full =
-                                result.address ||
-                                [streetPart, cityPart]
-                                  .filter(Boolean)
-                                  .join(', ');
+                                formatTripAddressDisplayLine({
+                                  street: result.street,
+                                  street_number: result.street_number,
+                                  zip_code: result.zip_code,
+                                  city: result.city,
+                                  placeName: result.name
+                                }) || result.address;
                               field.onChange(full);
                               form.setValue(
                                 'defaultDropoffStreet',
