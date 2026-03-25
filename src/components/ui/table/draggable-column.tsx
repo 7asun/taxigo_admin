@@ -18,11 +18,13 @@ export function DraggableTableHeader<TData, TValue>({
 
   const style: CSSProperties = {
     opacity: isDragging ? 0.8 : 1,
-    position: 'relative',
-    transform: CSS.Translate.toString(transform),
+    // `position: relative` breaks sticky headers; only use it while dragging (transform layer).
+    position: isDragging ? 'relative' : 'sticky',
+    top: isDragging ? undefined : 0,
+    ...(isDragging ? { transform: CSS.Translate.toString(transform) } : {}),
     transition: 'width transform 0.2s ease-in-out',
     whiteSpace: 'nowrap',
-    zIndex: isDragging ? 1 : 0,
+    zIndex: isDragging ? 20 : 10,
     cursor: 'auto' // Handle cursor on the grip
   };
 
@@ -31,7 +33,7 @@ export function DraggableTableHeader<TData, TValue>({
       ref={setNodeRef}
       style={style}
       colSpan={header.colSpan}
-      className='group relative'
+      className='group bg-muted shadow-[0_1px_0_0_hsl(var(--border))]'
     >
       <div className='flex items-center gap-2'>
         {header.isPlaceholder
