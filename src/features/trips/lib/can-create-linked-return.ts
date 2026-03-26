@@ -25,14 +25,24 @@ function normalisedReturnPolicy(
  * (`returnPolicy === 'none'`) — hide the post-hoc “Rückfahrt” action so it
  * matches the create-trip flow.
  *
- * If `billing_types` is missing (e.g. join failed), we still show the action
+ * If billing join is missing (e.g. join failed), we still show the action
  * so dispatchers are not blocked.
  */
 export function billingTypeAllowsPosthocLinkedReturn(
-  billingTypes: { behavior_profile?: unknown } | null | undefined
+  billing:
+    | { behavior_profile?: unknown }
+    | { billing_types?: { behavior_profile?: unknown } | null }
+    | null
+    | undefined
 ): boolean {
-  if (!billingTypes?.behavior_profile) return true;
-  return normalisedReturnPolicy(billingTypes.behavior_profile) !== 'none';
+  const bp =
+    billing && typeof billing === 'object' && 'billing_types' in billing
+      ? billing.billing_types?.behavior_profile
+      : billing && typeof billing === 'object' && 'behavior_profile' in billing
+        ? billing.behavior_profile
+        : undefined;
+  if (bp === undefined || bp === null) return true;
+  return normalisedReturnPolicy(bp) !== 'none';
 }
 
 /**
@@ -42,9 +52,13 @@ export function billingTypeAllowsPosthocLinkedReturn(
 export function shouldShowCreateReturnTripButton(
   trip: Pick<Trip, 'link_type' | 'linked_trip_id' | 'status'>,
   hasLinkedPartner: boolean,
-  billingTypes: { behavior_profile?: unknown } | null | undefined
+  billing:
+    | { behavior_profile?: unknown }
+    | { billing_types?: { behavior_profile?: unknown } | null }
+    | null
+    | undefined
 ): boolean {
-  if (!billingTypeAllowsPosthocLinkedReturn(billingTypes)) return false;
+  if (!billingTypeAllowsPosthocLinkedReturn(billing)) return false;
   return canCreateLinkedReturn(trip, hasLinkedPartner).ok;
 }
 

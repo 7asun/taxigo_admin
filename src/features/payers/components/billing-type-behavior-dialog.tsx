@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/form';
 import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
-import type { BillingType, BillingTypeBehavior } from '../types/payer.types';
+import type { BillingFamily, BillingTypeBehavior } from '../types/payer.types';
 import {
   AddressAutocomplete,
   type AddressResult
@@ -121,18 +121,19 @@ function normaliseBehavior(b: any): FormValues {
 
 interface BillingTypeBehaviorDialogProps {
   payerId: string;
-  billingType: BillingType | null;
+  /** Behavior lives on the family (all variants share it). */
+  billingFamily: BillingFamily | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export function BillingTypeBehaviorDialog({
   payerId,
-  billingType,
+  billingFamily,
   open,
   onOpenChange
 }: BillingTypeBehaviorDialogProps) {
-  const { updateBehavior, isUpdatingBehavior } = useBillingTypes(payerId);
+  const { updateFamilyBehavior, isUpdatingBehavior } = useBillingTypes(payerId);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -161,13 +162,13 @@ export function BillingTypeBehaviorDialog({
   const watchedReturnPolicy = form.watch('returnPolicy');
 
   useEffect(() => {
-    if (billingType?.behavior_profile) {
-      form.reset(normaliseBehavior(billingType.behavior_profile));
+    if (billingFamily?.behavior_profile) {
+      form.reset(normaliseBehavior(billingFamily.behavior_profile));
     }
-  }, [billingType, form]);
+  }, [billingFamily, form]);
 
   async function onSubmit(data: FormValues) {
-    if (!billingType) return;
+    if (!billingFamily) return;
     try {
       const processedData: BillingTypeBehavior = {
         ...data,
@@ -184,7 +185,10 @@ export function BillingTypeBehaviorDialog({
         defaultDropoffZip: data.defaultDropoffZip?.trim() || null,
         defaultDropoffCity: data.defaultDropoffCity?.trim() || null
       };
-      await updateBehavior({ id: billingType.id, behavior: processedData });
+      await updateFamilyBehavior({
+        familyId: billingFamily.id,
+        behavior: processedData
+      });
       toast.success('Verhalten aktualisiert');
       onOpenChange(false);
     } catch (error) {
@@ -192,7 +196,7 @@ export function BillingTypeBehaviorDialog({
     }
   }
 
-  if (!billingType) return null;
+  if (!billingFamily) return null;
 
   return (
     <Dialog
@@ -201,7 +205,7 @@ export function BillingTypeBehaviorDialog({
     >
       <DialogContent className='flex max-h-[90vh] flex-col p-0 sm:max-w-2xl'>
         <DialogHeader className='px-6 pt-6 pb-2'>
-          <DialogTitle>Verhalten: {billingType.name}</DialogTitle>
+          <DialogTitle>Verhalten: {billingFamily.name}</DialogTitle>
         </DialogHeader>
 
         <Form

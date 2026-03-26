@@ -246,24 +246,45 @@ export const columns: ColumnDef<any>[] = [
   },
   {
     id: 'billing_type',
-    accessorKey: 'billing_type.name',
+    accessorKey: 'billing_variant.name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Abrechnung' />
     ),
     cell: ({ row }) => {
-      const bt = row.original.billing_type;
-      if (!bt) return '-';
+      const bv = row.original.billing_variant as
+        | {
+            name?: string | null;
+            code?: string | null;
+            billing_types?: { name?: string | null; color?: string | null };
+          }
+        | null
+        | undefined;
+      const fam = bv?.billing_types;
+      const color = fam?.color ?? '#64748b';
+      const label =
+        fam?.name && bv?.name
+          ? `${fam.name} · ${bv.name}`
+          : bv?.name || fam?.name || '-';
+      if (!bv && !fam) return '-';
       return (
-        <Badge
-          variant='outline'
-          style={{
-            borderColor: bt.color,
-            color: bt.color,
-            backgroundColor: `color-mix(in srgb, ${bt.color}, var(--background) 90%)`
-          }}
-        >
-          {bt.name}
-        </Badge>
+        <div className='flex min-w-0 flex-col gap-0.5'>
+          <Badge
+            variant='outline'
+            className='w-fit max-w-full truncate font-normal'
+            style={{
+              borderColor: color,
+              color,
+              backgroundColor: `color-mix(in srgb, ${color}, var(--background) 90%)`
+            }}
+          >
+            {label}
+          </Badge>
+          {bv?.code ? (
+            <span className='text-muted-foreground font-mono text-[10px]'>
+              {bv.code}
+            </span>
+          ) : null}
+        </div>
       );
     }
   },

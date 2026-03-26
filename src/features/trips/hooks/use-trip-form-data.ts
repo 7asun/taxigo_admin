@@ -2,43 +2,51 @@
 
 import { createClient } from '@/lib/supabase/client';
 import type {
-  BillingTypeOption,
+  BillingVariantOption,
   ClientOption,
   DriverOption,
   PayerOption
 } from '@/features/trips/types/trip-form-reference.types';
 import {
-  useBillingTypesForPayerQuery,
+  useBillingVariantsForPayerQuery,
   useDriversQuery,
   usePayersQuery
 } from '@/features/trips/hooks/use-trip-reference-queries';
 
 export type {
   PayerOption,
-  BillingTypeOption,
+  BillingVariantOption,
   ClientOption,
   DriverOption
 } from '@/features/trips/types/trip-form-reference.types';
 
+/** @deprecated use BillingVariantOption — same shape as former billing type row for forms */
+export type BillingTypeOption = BillingVariantOption;
+
 /**
- * Trip create/edit form and Fahrten filter bar: payers, drivers, billing types, client search.
+ * Trip create/edit form and Fahrten filter bar: payers, drivers, billing variants, client search.
  *
  * Payers and drivers are loaded via TanStack Query (`referenceKeys` in `src/query/keys/reference.ts`)
  * so every `DriverSelectCell` and the filters bar share one cache entry instead of N `useEffect` fetches.
  *
- * Billing types depend on the selected payer UUID; never pass URL sentinels (`'all'`) into the query —
- * the hook disables fetching and exposes an empty list (see `useBillingTypesForPayerQuery`).
+ * Billing variants depend on the selected payer UUID; never pass URL sentinels (`'all'`) into the query.
  */
 export function useTripFormData(payerId?: string | null) {
   const payersQuery = usePayersQuery();
   const driversQuery = useDriversQuery();
-  const billingTypesQuery = useBillingTypesForPayerQuery(payerId);
+  const billingVariantsQuery = useBillingVariantsForPayerQuery(payerId);
 
   const payers: PayerOption[] = payersQuery.data ?? [];
   const drivers: DriverOption[] = driversQuery.data ?? [];
-  const billingTypes: BillingTypeOption[] = billingTypesQuery.data ?? [];
+  const billingVariants: BillingVariantOption[] =
+    billingVariantsQuery.data ?? [];
 
-  const isLoading = payersQuery.isPending || driversQuery.isPending;
+  const payerIsConcrete =
+    typeof payerId === 'string' && payerId.length > 0 && payerId !== 'all';
+  const isLoading =
+    payersQuery.isPending ||
+    driversQuery.isPending ||
+    (payerIsConcrete && billingVariantsQuery.isPending);
 
   const searchClients = async (query: string): Promise<ClientOption[]> => {
     if (!query || query.length < 2) return [];
@@ -108,7 +116,10 @@ export function useTripFormData(payerId?: string | null) {
 
   return {
     payers,
-    billingTypes,
+    /** Flat variant list (includes `billing_type_name`, `code`, `behavior_profile` from `billing_types`). */
+    billingVariants,
+    /** @deprecated alias for billingVariants — same rows as former billing_types leaf concept */
+    billingTypes: billingVariants,
     drivers,
     isLoading,
     searchClients,

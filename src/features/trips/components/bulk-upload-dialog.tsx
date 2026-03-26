@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import {
   type ParsedCsvRow,
@@ -39,6 +40,7 @@ import {
 } from '@/features/trips/components/bulk-upload/bulk-upload-types';
 import { matchClient } from '@/features/trips/components/bulk-upload/match-client';
 import { ResolveClientsStep } from '@/features/trips/components/bulk-upload/resolve-clients-step';
+import { ResolveBillingVariantsStep } from '@/features/trips/components/bulk-upload/resolve-billing-variants-step';
 import {
   useBulkUploadResumeStore,
   hasPendingResumeSession
@@ -67,6 +69,25 @@ function validationIssueIsBlocking(issue: ValidationIssue): boolean {
 
 function rowHasBlockingIssues(row: ValidatedTripRow): boolean {
   return row.issues.some(validationIssueIsBlocking);
+}
+
+function rowHasBlockingIssuesExceptVariantMissing(
+  row: ValidatedTripRow<InsertTrip | null>
+): boolean {
+  return row.issues.some(
+    (i) => validationIssueIsBlocking(i) && i.type !== 'billing_variant_missing'
+  );
+}
+
+function rowVariantMissingOnlyBlocking(
+  row: ValidatedTripRow<InsertTrip | null>
+): boolean {
+  if (!row.trip) return false;
+  const blocking = row.issues.filter(validationIssueIsBlocking);
+  return (
+    blocking.length > 0 &&
+    blocking.every((i) => i.type === 'billing_variant_missing')
+  );
 }
 
 function parseGroupId(raw: string): {
@@ -112,7 +133,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     linkedPairsCount: number;
   } | null>(null);
   const [mode, setMode] = React.useState<
-    'upload' | 'resume_prompt' | 'resume_loading' | 'resolve_clients' | 'done'
+    | 'upload'
+    | 'resume_prompt'
+    | 'resume_loading'
+    | 'resolve_billing_variants'
+    | 'resolve_clients'
+    | 'done'
   >('upload');
 
   // Wizard rows — built either from a fresh upload or rehydrated from DB.
@@ -123,28 +149,43 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   const hasPending = hasPendingResumeSession(resumeStore);
 
   const { payers } = useTripFormData(null);
-  const [billingTypes, setBillingTypes] = React.useState<
-    { id: string; name: string; payer_id: string; behavior_profile: unknown }[]
+
+  type BillingTypeTreeRow = {
+    id: string;
+    name: string;
+    payer_id: string;
+    behavior_profile: unknown;
+    billing_variants: {
+      id: string;
+      name: string;
+      code: string;
+      sort_order: number;
+    }[];
+  };
+  const [billingTypeTree, setBillingTypeTree] = React.useState<
+    BillingTypeTreeRow[]
   >([]);
 
   React.useEffect(() => {
-    const fetchAllBillingTypes = async () => {
+    const load = async () => {
       const supabase = createSupabaseClient();
       const { data } = await supabase
         .from('billing_types')
-        .select('id, name, payer_id, behavior_profile');
-      if (data)
-        setBillingTypes(
-          data as {
-            id: string;
-            name: string;
-            payer_id: string;
-            behavior_profile: unknown;
-          }[]
+        .select(
+          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order )`
         );
+      if (data) setBillingTypeTree(data as BillingTypeTreeRow[]);
     };
-    fetchAllBillingTypes();
+    void load();
   }, []);
+
+  const [billingVariantResolve, setBillingVariantResolve] = React.useState<{
+    pending: ValidatedTripRow<InsertTrip>[];
+    allRows: ValidatedTripRow<InsertTrip>[];
+  } | null>(null);
+  const billingVariantInsertRef = React.useRef<(() => Promise<void>) | null>(
+    null
+  );
 
   // Show resume prompt when the dialog first opens if there's pending state.
   const handleOpenChange = (next: boolean) => {
@@ -493,6 +534,8 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     setResults(null);
     setMode('upload');
     setWizardRows([]);
+    setBillingVariantResolve(null);
+    billingVariantInsertRef.current = null;
     resumeStore.clear();
 
     const file = files[0];
@@ -643,21 +686,98 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             });
           }
 
-          let billingTypeId: string | null = null;
-          if (parsedRow.abrechnungsart && payer) {
-            const bt = billingTypes.find(
-              (b) =>
-                b.name.toLowerCase() ===
-                  parsedRow.abrechnungsart!.toLowerCase() &&
-                b.payer_id === payer.id
-            );
-            if (!bt) {
+          const typesForPayer = payer
+            ? billingTypeTree.filter((t) => t.payer_id === payer.id)
+            : [];
+          const abrechnungsartTrim = (parsedRow.abrechnungsart || '').trim();
+          let matchedType: BillingTypeTreeRow | null = null;
+
+          if (payer) {
+            if (abrechnungsartTrim) {
+              matchedType =
+                typesForPayer.find(
+                  (t) =>
+                    t.name.toLowerCase() === abrechnungsartTrim.toLowerCase()
+                ) ?? null;
+              if (!matchedType) {
+                issues.push({
+                  type: 'billing_type_not_found',
+                  message: `Abrechnungsart "${parsedRow.abrechnungsart}" für Kostenträger "${parsedRow.kostentraeger}" nicht gefunden.`
+                });
+              }
+            } else if (typesForPayer.length === 1) {
+              matchedType = typesForPayer[0];
+            } else if (typesForPayer.length === 0) {
               issues.push({
                 type: 'billing_type_not_found',
-                message: `Abrechnungsart "${parsedRow.abrechnungsart}" für Kostenträger "${parsedRow.kostentraeger}" nicht gefunden.`
+                message: `Keine Abrechnungsart für Kostenträger "${parsedRow.kostentraeger}" hinterlegt.`
               });
             } else {
-              billingTypeId = bt.id;
+              issues.push({
+                type: 'billing_type_not_found',
+                message:
+                  'Abrechnungsart in CSV fehlt (mehrere Abrechnungsarten für diesen Kostenträger).'
+              });
+            }
+          }
+
+          const variantCell = (
+            parsedRow.abrechnungsvariante ||
+            parsedRow.unterart ||
+            ''
+          ).trim();
+
+          let billingVariantId: string | null = null;
+          let variantResolution:
+            | ValidatedTripRow<InsertTrip>['variantResolution']
+            | undefined;
+
+          if (matchedType) {
+            const variants = [...(matchedType.billing_variants || [])].sort(
+              (a, b) => {
+                if (a.sort_order !== b.sort_order)
+                  return a.sort_order - b.sort_order;
+                return a.name.localeCompare(b.name);
+              }
+            );
+            const normCode = (s: string) => s.trim().toUpperCase();
+            if (variantCell) {
+              const byCode = variants.find(
+                (v) => normCode(v.code) === normCode(variantCell)
+              );
+              const byName = variants.find(
+                (v) => v.name.toLowerCase() === variantCell.toLowerCase()
+              );
+              const hit = byCode ?? byName;
+              if (!hit) {
+                issues.push({
+                  type: 'billing_variant_not_found',
+                  message: `Unterart "${variantCell}" passt nicht zu Abrechnungsart "${matchedType.name}".`
+                });
+              } else {
+                billingVariantId = hit.id;
+              }
+            } else if (variants.length === 1) {
+              billingVariantId = variants[0].id;
+            } else if (variants.length > 1) {
+              issues.push({
+                type: 'billing_variant_missing',
+                message: `Unterart fehlt — "${matchedType.name}" hat mehrere Varianten (Spalte abrechnungsvariante).`
+              });
+              variantResolution = {
+                payerId: payer!.id,
+                familyName: matchedType.name,
+                variants: variants.map((v) => ({
+                  id: v.id,
+                  name: v.name,
+                  code: v.code
+                }))
+              };
+            } else {
+              issues.push({
+                type: 'billing_variant_not_found',
+                message: `Keine Unterart für "${matchedType.name}" definiert.`
+              });
             }
           }
 
@@ -734,7 +854,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             payer && dateTimeResult
               ? {
                   payer_id: payer.id,
-                  billing_type_id: billingTypeId,
+                  billing_variant_id: billingVariantId,
                   client_id: matchedClient?.id ?? null,
                   client_name: matchedClient
                     ? `${matchedClient.first_name || ''} ${
@@ -786,39 +906,36 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
           // Apply BillingTypeBehavior rules (address overrides, return policy)
           let rowNeedsReturnTrip = false;
           let rowHasAddressOverride = false;
-          if (builtTrip && billingTypeId) {
-            const btRecord = billingTypes.find((b) => b.id === billingTypeId);
-            if (btRecord?.behavior_profile) {
-              const behavior = normaliseBehaviorProfile(
-                btRecord.behavior_profile
-              );
-              const applied = applyBehaviorToTrip(builtTrip, behavior);
-              builtTrip = applied.trip;
-              rowNeedsReturnTrip = applied.needsReturnTrip;
-              rowHasAddressOverride = applied.hasAddressOverride;
+          if (builtTrip && matchedType?.behavior_profile) {
+            const behavior = normaliseBehaviorProfile(
+              matchedType.behavior_profile
+            );
+            const applied = applyBehaviorToTrip(builtTrip, behavior);
+            builtTrip = applied.trip;
+            rowNeedsReturnTrip = applied.needsReturnTrip;
+            rowHasAddressOverride = applied.hasAddressOverride;
 
-              if (
-                behavior.requirePickupStation &&
-                !String(parsedRow.pickup_station ?? '').trim()
-              ) {
-                issues.push({
-                  type: 'missing_pickup_station',
-                  severity: 'warning',
-                  message:
-                    'Abhol-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
-                });
-              }
-              if (
-                behavior.requireDropoffStation &&
-                !String(parsedRow.dropoff_station ?? '').trim()
-              ) {
-                issues.push({
-                  type: 'missing_dropoff_station',
-                  severity: 'warning',
-                  message:
-                    'Ziel-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
-                });
-              }
+            if (
+              behavior.requirePickupStation &&
+              !String(parsedRow.pickup_station ?? '').trim()
+            ) {
+              issues.push({
+                type: 'missing_pickup_station',
+                severity: 'warning',
+                message:
+                  'Abhol-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
+              });
+            }
+            if (
+              behavior.requireDropoffStation &&
+              !String(parsedRow.dropoff_station ?? '').trim()
+            ) {
+              issues.push({
+                type: 'missing_dropoff_station',
+                severity: 'warning',
+                message:
+                  'Ziel-Station fehlt (laut Abrechnungsart empfohlen). Die Fahrt wird trotzdem importiert.'
+              });
             }
           }
 
@@ -841,6 +958,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             trip: builtTrip,
             issues,
             clientId: matchedClientId,
+            variantResolution,
             needsReturnTrip: rowNeedsReturnTrip,
             addressOverrideApplied: rowHasAddressOverride,
             pairId,
@@ -848,376 +966,417 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
           });
         }
 
-        const successfulRows = validatedRows.filter(
-          (row) => row.trip && !rowHasBlockingIssues(row)
-        );
+        const runBulkInsert = async () => {
+          const successfulRows = validatedRows.filter(
+            (row) => row.trip && !rowHasBlockingIssues(row)
+          );
 
-        // Geocode pickup/dropoff addresses for successful outbound trips.
-        await Promise.all(
-          successfulRows.map(async (row) => {
-            if (!row.trip) return;
+          // Geocode pickup/dropoff addresses for successful outbound trips.
+          await Promise.all(
+            successfulRows.map(async (row) => {
+              if (!row.trip) return;
 
-            try {
-              const [pickupResult, dropoffResult] = await Promise.all([
-                fetch('/api/geocode-address', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    street: row.trip.pickup_street,
-                    street_number: row.trip.pickup_street_number,
-                    zip_code: row.trip.pickup_zip_code,
-                    city: row.trip.pickup_city
-                  })
-                }),
-                fetch('/api/geocode-address', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    street: row.trip.dropoff_street,
-                    street_number: row.trip.dropoff_street_number,
-                    zip_code: row.trip.dropoff_zip_code,
-                    city: row.trip.dropoff_city
-                  })
-                })
-              ]);
-
-              const pickupData = pickupResult.ok
-                ? await pickupResult.json()
-                : null;
-              const dropoffData = dropoffResult.ok
-                ? await dropoffResult.json()
-                : null;
-
-              if (
-                pickupData &&
-                typeof pickupData.lat === 'number' &&
-                typeof pickupData.lng === 'number'
-              ) {
-                row.trip.pickup_lat = pickupData.lat;
-                row.trip.pickup_lng = pickupData.lng;
-              }
-
-              if (
-                dropoffData &&
-                typeof dropoffData.lat === 'number' &&
-                typeof dropoffData.lng === 'number'
-              ) {
-                row.trip.dropoff_lat = dropoffData.lat;
-                row.trip.dropoff_lng = dropoffData.lng;
-              }
-
-              if (pickupData) {
-                if (pickupData.zip_code) {
-                  row.trip.pickup_zip_code = pickupData.zip_code;
-                }
-                if (pickupData.city) {
-                  row.trip.pickup_city = pickupData.city;
-                }
-              }
-
-              if (dropoffData) {
-                if (dropoffData.zip_code) {
-                  row.trip.dropoff_zip_code = dropoffData.zip_code;
-                }
-                if (dropoffData.city) {
-                  row.trip.dropoff_city = dropoffData.city;
-                }
-              }
-
-              row.trip.pickup_address = `${[
-                [row.trip.pickup_street, row.trip.pickup_street_number]
-                  .filter(Boolean)
-                  .join(' '),
-                [row.trip.pickup_zip_code, row.trip.pickup_city]
-                  .filter(Boolean)
-                  .join(' ')
-              ]
-                .filter(Boolean)
-                .join(', ')}`;
-
-              row.trip.dropoff_address = `${[
-                [row.trip.dropoff_street, row.trip.dropoff_street_number]
-                  .filter(Boolean)
-                  .join(' '),
-                [row.trip.dropoff_zip_code, row.trip.dropoff_city]
-                  .filter(Boolean)
-                  .join(' ')
-              ]
-                .filter(Boolean)
-                .join(', ')}`;
-
-              if (
-                typeof row.trip.pickup_lat === 'number' &&
-                typeof row.trip.pickup_lng === 'number' &&
-                typeof row.trip.dropoff_lat === 'number' &&
-                typeof row.trip.dropoff_lng === 'number'
-              ) {
-                row.trip.has_missing_geodata = false;
-              }
-            } catch {
-              // Non-fatal: keep has_missing_geodata = true for later backfill.
-            }
-          })
-        );
-
-        const outboundTrips = successfulRows.map(
-          (row) => row.trip!
-        ) as InsertTrip[];
-
-        const addressOverrides = successfulRows.filter(
-          (r) => r.addressOverrideApplied
-        ).length;
-
-        if (outboundTrips.length > 0 && errors.length === 0) {
-          try {
-            // ── Pass 1: Insert all outbound trips ─────────────────────────────
-            const createdOutbound =
-              await tripsService.bulkCreateTrips(outboundTrips);
-
-            // ── Pass 2: Build and insert auto-return trips ────────────────────
-            // Return trips use the geocoded addresses from the now-inserted
-            // outbound trips (just swapped) so no additional geocoding is needed.
-            const returnTripPayloads: InsertTrip[] = [];
-            const returnToOutboundMap: {
-              returnIdx: number;
-              outboundId: string;
-            }[] = [];
-
-            successfulRows.forEach((row, i) => {
-              if (row.needsReturnTrip && createdOutbound[i]) {
-                const outboundId = createdOutbound[i].id as string;
-                returnTripPayloads.push(
-                  buildReturnTrip(outboundTrips[i], outboundId)
-                );
-                returnToOutboundMap.push({
-                  returnIdx: returnTripPayloads.length - 1,
-                  outboundId
-                });
-              }
-            });
-
-            let returnTripsCreated = 0;
-            if (returnTripPayloads.length > 0) {
-              const createdReturn =
-                await tripsService.bulkCreateTrips(returnTripPayloads);
-              returnTripsCreated = createdReturn.length;
-
-              // ── Pass 3: Backfill linked_trip_id on outbound trips ───────────
-              // Also stamp link_type = 'outbound' so getTripDirection() can
-              // identify this leg as the Hinfahrt. Without it the fallback in
-              // getTripDirection would misread the linked_trip_id as a signal
-              // that this trip is the Rückfahrt.
-              const supabaseForLinks = createSupabaseClient();
-              await Promise.all(
-                returnToOutboundMap.map(({ returnIdx, outboundId }) =>
-                  supabaseForLinks
-                    .from('trips')
-                    .update({
-                      linked_trip_id: createdReturn[returnIdx].id,
-                      link_type: 'outbound'
+              try {
+                const [pickupResult, dropoffResult] = await Promise.all([
+                  fetch('/api/geocode-address', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      street: row.trip.pickup_street,
+                      street_number: row.trip.pickup_street_number,
+                      zip_code: row.trip.pickup_zip_code,
+                      city: row.trip.pickup_city
                     })
-                    .eq('id', outboundId)
-                )
-              );
-            }
+                  }),
+                  fetch('/api/geocode-address', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      street: row.trip.dropoff_street,
+                      street_number: row.trip.dropoff_street_number,
+                      zip_code: row.trip.dropoff_zip_code,
+                      city: row.trip.dropoff_city
+                    })
+                  })
+                ]);
 
-            // ── Pass 4: Link explicit pair_id pairs ─────────────────────────
-            //
-            // Collect all successful rows that carried a pair_id into a map keyed
-            // by that value. Each group must have exactly 2 members to be linked.
-            //
-            // Direction is resolved by scheduled_at (earlier = Hinfahrt). When
-            // both timestamps are equal or absent, CSV row order determines it
-            // (lower pairRowIndex = Hinfahrt).
-            //
-            // The resulting links are bidirectional: both trips get linked_trip_id,
-            // and the Rückfahrt also receives link_type = 'return' so that
-            // getTripDirection() and all badge/cancel-dialog logic works correctly.
-            let linkedPairsCount = 0;
+                const pickupData = pickupResult.ok
+                  ? await pickupResult.json()
+                  : null;
+                const dropoffData = dropoffResult.ok
+                  ? await dropoffResult.json()
+                  : null;
 
-            type PairMember = {
-              insertedId: string;
-              scheduledAt: string | null;
-              rowIndex: number;
-            };
+                if (
+                  pickupData &&
+                  typeof pickupData.lat === 'number' &&
+                  typeof pickupData.lng === 'number'
+                ) {
+                  row.trip.pickup_lat = pickupData.lat;
+                  row.trip.pickup_lng = pickupData.lng;
+                }
 
-            const pairGroups = new Map<string, PairMember[]>();
+                if (
+                  dropoffData &&
+                  typeof dropoffData.lat === 'number' &&
+                  typeof dropoffData.lng === 'number'
+                ) {
+                  row.trip.dropoff_lat = dropoffData.lat;
+                  row.trip.dropoff_lng = dropoffData.lng;
+                }
 
-            successfulRows.forEach((row, i) => {
-              if (!row.pairId) return;
-              const insertedId = (createdOutbound[i] as any)?.id as
-                | string
-                | undefined;
-              if (!insertedId) return;
-              const existing = pairGroups.get(row.pairId) ?? [];
-              existing.push({
-                insertedId,
-                scheduledAt: row.trip?.scheduled_at ?? null,
-                rowIndex: row.pairRowIndex ?? i
-              });
-              pairGroups.set(row.pairId, existing);
-            });
-
-            /**
-             * Sorts a pair of PairMembers so that index 0 is the Hinfahrt and
-             * index 1 is the Rückfahrt, using the direction-resolution rules:
-             *   1. Both have scheduled_at → earlier is Hinfahrt
-             *   2. One has time, one doesn't → timed = Hinfahrt
-             *   3. Both absent or equal → lower rowIndex = Hinfahrt
-             */
-            const sortPairMembers = (
-              members: PairMember[]
-            ): [PairMember, PairMember] => {
-              const [a, b] = members;
-              const aMs = a.scheduledAt
-                ? new Date(a.scheduledAt).getTime()
-                : null;
-              const bMs = b.scheduledAt
-                ? new Date(b.scheduledAt).getTime()
-                : null;
-
-              if (aMs !== null && bMs !== null) {
-                return aMs <= bMs ? [a, b] : [b, a];
-              }
-              if (aMs !== null) return [a, b]; // a has time → a is Hinfahrt
-              if (bMs !== null) return [b, a]; // b has time → b is Hinfahrt
-              return a.rowIndex <= b.rowIndex ? [a, b] : [b, a]; // row order
-            };
-
-            const supabaseForPairs = createSupabaseClient();
-
-            await Promise.all(
-              Array.from(pairGroups.entries()).map(
-                async ([pairKey, members]) => {
-                  if (members.length < 2) return; // lone key — skip silently
-
-                  if (members.length > 2) {
-                    // Non-blocking warning — trips are created but extra rows are
-                    // not linked. The issue is surfaced in the results summary.
-                    errors.push(
-                      `pair_id "${pairKey}": ${members.length} Zeilen gefunden, nur die ersten 2 werden verknüpft.`
-                    );
+                if (pickupData) {
+                  if (pickupData.zip_code) {
+                    row.trip.pickup_zip_code = pickupData.zip_code;
                   }
+                  if (pickupData.city) {
+                    row.trip.pickup_city = pickupData.city;
+                  }
+                }
 
-                  const [hinfahrt, rueckfahrt] = sortPairMembers(
-                    members.slice(0, 2)
+                if (dropoffData) {
+                  if (dropoffData.zip_code) {
+                    row.trip.dropoff_zip_code = dropoffData.zip_code;
+                  }
+                  if (dropoffData.city) {
+                    row.trip.dropoff_city = dropoffData.city;
+                  }
+                }
+
+                row.trip.pickup_address = `${[
+                  [row.trip.pickup_street, row.trip.pickup_street_number]
+                    .filter(Boolean)
+                    .join(' '),
+                  [row.trip.pickup_zip_code, row.trip.pickup_city]
+                    .filter(Boolean)
+                    .join(' ')
+                ]
+                  .filter(Boolean)
+                  .join(', ')}`;
+
+                row.trip.dropoff_address = `${[
+                  [row.trip.dropoff_street, row.trip.dropoff_street_number]
+                    .filter(Boolean)
+                    .join(' '),
+                  [row.trip.dropoff_zip_code, row.trip.dropoff_city]
+                    .filter(Boolean)
+                    .join(' ')
+                ]
+                  .filter(Boolean)
+                  .join(', ')}`;
+
+                if (
+                  typeof row.trip.pickup_lat === 'number' &&
+                  typeof row.trip.pickup_lng === 'number' &&
+                  typeof row.trip.dropoff_lat === 'number' &&
+                  typeof row.trip.dropoff_lng === 'number'
+                ) {
+                  row.trip.has_missing_geodata = false;
+                }
+              } catch {
+                // Non-fatal: keep has_missing_geodata = true for later backfill.
+              }
+            })
+          );
+
+          const outboundTrips = successfulRows.map(
+            (row) => row.trip!
+          ) as InsertTrip[];
+
+          const addressOverrides = successfulRows.filter(
+            (r) => r.addressOverrideApplied
+          ).length;
+
+          if (outboundTrips.length > 0 && errors.length === 0) {
+            try {
+              // ── Pass 1: Insert all outbound trips ─────────────────────────────
+              const createdOutbound =
+                await tripsService.bulkCreateTrips(outboundTrips);
+
+              // ── Pass 2: Build and insert auto-return trips ────────────────────
+              // Return trips use the geocoded addresses from the now-inserted
+              // outbound trips (just swapped) so no additional geocoding is needed.
+              const returnTripPayloads: InsertTrip[] = [];
+              const returnToOutboundMap: {
+                returnIdx: number;
+                outboundId: string;
+              }[] = [];
+
+              successfulRows.forEach((row, i) => {
+                if (row.needsReturnTrip && createdOutbound[i]) {
+                  const outboundId = createdOutbound[i].id as string;
+                  returnTripPayloads.push(
+                    buildReturnTrip(outboundTrips[i], outboundId)
                   );
+                  returnToOutboundMap.push({
+                    returnIdx: returnTripPayloads.length - 1,
+                    outboundId
+                  });
+                }
+              });
 
-                  await Promise.all([
-                    // Hinfahrt: link_type = 'outbound' so getTripDirection()
-                    // identifies this leg correctly. Without this the fallback
-                    // would misread linked_trip_id as a Rückfahrt signal.
-                    supabaseForPairs
+              let returnTripsCreated = 0;
+              if (returnTripPayloads.length > 0) {
+                const createdReturn =
+                  await tripsService.bulkCreateTrips(returnTripPayloads);
+                returnTripsCreated = createdReturn.length;
+
+                // ── Pass 3: Backfill linked_trip_id on outbound trips ───────────
+                // Also stamp link_type = 'outbound' so getTripDirection() can
+                // identify this leg as the Hinfahrt. Without it the fallback in
+                // getTripDirection would misread the linked_trip_id as a signal
+                // that this trip is the Rückfahrt.
+                const supabaseForLinks = createSupabaseClient();
+                await Promise.all(
+                  returnToOutboundMap.map(({ returnIdx, outboundId }) =>
+                    supabaseForLinks
                       .from('trips')
                       .update({
-                        linked_trip_id: rueckfahrt.insertedId,
+                        linked_trip_id: createdReturn[returnIdx].id,
                         link_type: 'outbound'
                       })
-                      .eq('id', hinfahrt.insertedId),
-                    // Rückfahrt: link_type = 'return', linked_trip_id → Hinfahrt
-                    supabaseForPairs
-                      .from('trips')
-                      .update({
-                        linked_trip_id: hinfahrt.insertedId,
-                        link_type: 'return'
-                      })
-                      .eq('id', rueckfahrt.insertedId)
-                  ]);
+                      .eq('id', outboundId)
+                  )
+                );
+              }
 
-                  linkedPairsCount++;
+              // ── Pass 4: Link explicit pair_id pairs ─────────────────────────
+              //
+              // Collect all successful rows that carried a pair_id into a map keyed
+              // by that value. Each group must have exactly 2 members to be linked.
+              //
+              // Direction is resolved by scheduled_at (earlier = Hinfahrt). When
+              // both timestamps are equal or absent, CSV row order determines it
+              // (lower pairRowIndex = Hinfahrt).
+              //
+              // The resulting links are bidirectional: both trips get linked_trip_id,
+              // and the Rückfahrt also receives link_type = 'return' so that
+              // getTripDirection() and all badge/cancel-dialog logic works correctly.
+              let linkedPairsCount = 0;
+
+              type PairMember = {
+                insertedId: string;
+                scheduledAt: string | null;
+                rowIndex: number;
+              };
+
+              const pairGroups = new Map<string, PairMember[]>();
+
+              successfulRows.forEach((row, i) => {
+                if (!row.pairId) return;
+                const insertedId = (createdOutbound[i] as any)?.id as
+                  | string
+                  | undefined;
+                if (!insertedId) return;
+                const existing = pairGroups.get(row.pairId) ?? [];
+                existing.push({
+                  insertedId,
+                  scheduledAt: row.trip?.scheduled_at ?? null,
+                  rowIndex: row.pairRowIndex ?? i
+                });
+                pairGroups.set(row.pairId, existing);
+              });
+
+              /**
+               * Sorts a pair of PairMembers so that index 0 is the Hinfahrt and
+               * index 1 is the Rückfahrt, using the direction-resolution rules:
+               *   1. Both have scheduled_at → earlier is Hinfahrt
+               *   2. One has time, one doesn't → timed = Hinfahrt
+               *   3. Both absent or equal → lower rowIndex = Hinfahrt
+               */
+              const sortPairMembers = (
+                members: PairMember[]
+              ): [PairMember, PairMember] => {
+                const [a, b] = members;
+                const aMs = a.scheduledAt
+                  ? new Date(a.scheduledAt).getTime()
+                  : null;
+                const bMs = b.scheduledAt
+                  ? new Date(b.scheduledAt).getTime()
+                  : null;
+
+                if (aMs !== null && bMs !== null) {
+                  return aMs <= bMs ? [a, b] : [b, a];
                 }
-              )
-            );
+                if (aMs !== null) return [a, b]; // a has time → a is Hinfahrt
+                if (bMs !== null) return [b, a]; // b has time → b is Hinfahrt
+                return a.rowIndex <= b.rowIndex ? [a, b] : [b, a]; // row order
+              };
 
-            // Build wizard rows from unresolved outbound trips only.
-            const unresolvedCreated = createdOutbound
-              .map((trip: any, idx: number) => ({
-                createdTrip: trip,
-                sourceRow: successfulRows[idx]
-              }))
-              .filter(
-                ({ sourceRow }) =>
-                  !sourceRow.clientId &&
-                  sourceRow.trip?.client_name &&
-                  sourceRow.trip?.ingestion_source === 'csv_bulk_upload'
+              const supabaseForPairs = createSupabaseClient();
+
+              await Promise.all(
+                Array.from(pairGroups.entries()).map(
+                  async ([pairKey, members]) => {
+                    if (members.length < 2) return; // lone key — skip silently
+
+                    if (members.length > 2) {
+                      // Non-blocking warning — trips are created but extra rows are
+                      // not linked. The issue is surfaced in the results summary.
+                      errors.push(
+                        `pair_id "${pairKey}": ${members.length} Zeilen gefunden, nur die ersten 2 werden verknüpft.`
+                      );
+                    }
+
+                    const [hinfahrt, rueckfahrt] = sortPairMembers(
+                      members.slice(0, 2)
+                    );
+
+                    await Promise.all([
+                      // Hinfahrt: link_type = 'outbound' so getTripDirection()
+                      // identifies this leg correctly. Without this the fallback
+                      // would misread linked_trip_id as a Rückfahrt signal.
+                      supabaseForPairs
+                        .from('trips')
+                        .update({
+                          linked_trip_id: rueckfahrt.insertedId,
+                          link_type: 'outbound'
+                        })
+                        .eq('id', hinfahrt.insertedId),
+                      // Rückfahrt: link_type = 'return', linked_trip_id → Hinfahrt
+                      supabaseForPairs
+                        .from('trips')
+                        .update({
+                          linked_trip_id: hinfahrt.insertedId,
+                          link_type: 'return'
+                        })
+                        .eq('id', rueckfahrt.insertedId)
+                    ]);
+
+                    linkedPairsCount++;
+                  }
+                )
               );
 
-            const totalCreated = outboundTrips.length + returnTripsCreated;
+              // Build wizard rows from unresolved outbound trips only.
+              const unresolvedCreated = createdOutbound
+                .map((trip: any, idx: number) => ({
+                  createdTrip: trip,
+                  sourceRow: successfulRows[idx]
+                }))
+                .filter(
+                  ({ sourceRow }) =>
+                    !sourceRow.clientId &&
+                    sourceRow.trip?.client_name &&
+                    sourceRow.trip?.ingestion_source === 'csv_bulk_upload'
+                );
 
-            // Build a context-aware success toast that mentions pairs when relevant.
-            const toastParts: string[] = [];
-            toastParts.push(
-              `${outboundTrips.length} Fahrt${outboundTrips.length !== 1 ? 'en' : ''}`
-            );
-            if (returnTripsCreated > 0)
+              const totalCreated = outboundTrips.length + returnTripsCreated;
+
+              // Build a context-aware success toast that mentions pairs when relevant.
+              const toastParts: string[] = [];
               toastParts.push(
-                `${returnTripsCreated} Rückfahrt${returnTripsCreated !== 1 ? 'en' : ''}`
+                `${outboundTrips.length} Fahrt${outboundTrips.length !== 1 ? 'en' : ''}`
               );
-            if (linkedPairsCount > 0)
-              toastParts.push(
-                `${linkedPairsCount} Paar${linkedPairsCount !== 1 ? 'e' : ''} verknüpft`
+              if (returnTripsCreated > 0)
+                toastParts.push(
+                  `${returnTripsCreated} Rückfahrt${returnTripsCreated !== 1 ? 'en' : ''}`
+                );
+              if (linkedPairsCount > 0)
+                toastParts.push(
+                  `${linkedPairsCount} Paar${linkedPairsCount !== 1 ? 'e' : ''} verknüpft`
+                );
+              toast.success(
+                `${toastParts.join(' + ')} erfolgreich hochgeladen!`
               );
-            toast.success(`${toastParts.join(' + ')} erfolgreich hochgeladen!`);
+
+              setResults({
+                success: totalCreated,
+                errors: [],
+                rows: validatedRows,
+                returnTripsCreated,
+                addressOverrides,
+                linkedPairsCount
+              });
+              onSuccess?.();
+              if (optionalRscRefresh) {
+                await optionalRscRefresh.refreshTripsPage();
+              } else {
+                await router.refresh();
+                await queryClient.invalidateQueries({ queryKey: tripKeys.all });
+              }
+
+              if (unresolvedCreated.length > 0) {
+                const freshRows: RehydratedTripRow[] = unresolvedCreated.map(
+                  ({ createdTrip, sourceRow }) => ({
+                    tripId: createdTrip.id as string,
+                    clientName: sourceRow.trip?.client_name ?? null,
+                    clientFirstName: sourceRow.source.firstname?.trim() || null,
+                    clientLastName: sourceRow.source.lastname?.trim() || null,
+                    clientPhone: sourceRow.trip?.client_phone ?? null,
+                    pickupAddress: sourceRow.trip?.pickup_address ?? null,
+                    pickupStreet: sourceRow.trip?.pickup_street ?? null,
+                    pickupStreetNumber:
+                      sourceRow.trip?.pickup_street_number ?? null,
+                    pickupZip: sourceRow.trip?.pickup_zip_code ?? null,
+                    pickupCity: sourceRow.trip?.pickup_city ?? null,
+                    dropoffAddress: sourceRow.trip?.dropoff_address ?? null,
+                    dropoffStreet: sourceRow.trip?.dropoff_street ?? null,
+                    dropoffStreetNumber:
+                      sourceRow.trip?.dropoff_street_number ?? null,
+                    dropoffZip: sourceRow.trip?.dropoff_zip_code ?? null,
+                    dropoffCity: sourceRow.trip?.dropoff_city ?? null,
+                    greetingStyle: sourceRow.trip?.greeting_style ?? null
+                  })
+                );
+
+                resumeStore.start(freshRows.map((r) => r.tripId));
+                setWizardRows(freshRows);
+                setMode('resolve_clients');
+              } else {
+                setMode('done');
+                setTimeout(() => setOpen(false), 2000);
+              }
+            } catch (e: any) {
+              errors.push(`Datenbankfehler: ${e.message}`);
+              setResults({
+                success: 0,
+                errors,
+                rows: validatedRows,
+                returnTripsCreated: 0,
+                addressOverrides: 0,
+                linkedPairsCount: 0
+              });
+            }
+          } else {
+            const combinedErrors =
+              errors.length > 0
+                ? errors
+                : validatedRows
+                    .filter((r) => rowHasBlockingIssues(r))
+                    .flatMap((r) =>
+                      r.issues
+                        .filter(validationIssueIsBlocking)
+                        .map(
+                          (issue) => `Zeile ${r.rowNumber}: ${issue.message}`
+                        )
+                    );
 
             setResults({
-              success: totalCreated,
-              errors: [],
-              rows: validatedRows,
-              returnTripsCreated,
-              addressOverrides,
-              linkedPairsCount
-            });
-            onSuccess?.();
-            if (optionalRscRefresh) {
-              await optionalRscRefresh.refreshTripsPage();
-            } else {
-              await router.refresh();
-              await queryClient.invalidateQueries({ queryKey: tripKeys.all });
-            }
-
-            if (unresolvedCreated.length > 0) {
-              const freshRows: RehydratedTripRow[] = unresolvedCreated.map(
-                ({ createdTrip, sourceRow }) => ({
-                  tripId: createdTrip.id as string,
-                  clientName: sourceRow.trip?.client_name ?? null,
-                  clientFirstName: sourceRow.source.firstname?.trim() || null,
-                  clientLastName: sourceRow.source.lastname?.trim() || null,
-                  clientPhone: sourceRow.trip?.client_phone ?? null,
-                  pickupAddress: sourceRow.trip?.pickup_address ?? null,
-                  pickupStreet: sourceRow.trip?.pickup_street ?? null,
-                  pickupStreetNumber:
-                    sourceRow.trip?.pickup_street_number ?? null,
-                  pickupZip: sourceRow.trip?.pickup_zip_code ?? null,
-                  pickupCity: sourceRow.trip?.pickup_city ?? null,
-                  dropoffAddress: sourceRow.trip?.dropoff_address ?? null,
-                  dropoffStreet: sourceRow.trip?.dropoff_street ?? null,
-                  dropoffStreetNumber:
-                    sourceRow.trip?.dropoff_street_number ?? null,
-                  dropoffZip: sourceRow.trip?.dropoff_zip_code ?? null,
-                  dropoffCity: sourceRow.trip?.dropoff_city ?? null,
-                  greetingStyle: sourceRow.trip?.greeting_style ?? null
-                })
-              );
-
-              resumeStore.start(freshRows.map((r) => r.tripId));
-              setWizardRows(freshRows);
-              setMode('resolve_clients');
-            } else {
-              setMode('done');
-              setTimeout(() => setOpen(false), 2000);
-            }
-          } catch (e: any) {
-            errors.push(`Datenbankfehler: ${e.message}`);
-            setResults({
-              success: 0,
-              errors,
+              success: outboundTrips.length,
+              errors: combinedErrors,
               rows: validatedRows,
               returnTripsCreated: 0,
-              addressOverrides: 0,
+              addressOverrides,
               linkedPairsCount: 0
             });
+            setMode('upload');
           }
-        } else {
+        };
+
+        billingVariantInsertRef.current = runBulkInsert;
+
+        const hasHardBlock = validatedRows.some(
+          rowHasBlockingIssuesExceptVariantMissing
+        );
+        const variantPending = validatedRows.filter(
+          rowVariantMissingOnlyBlocking
+        );
+
+        if (hasHardBlock) {
+          const outboundTrips = validatedRows.filter(
+            (r) => r.trip && !rowHasBlockingIssues(r)
+          );
           const combinedErrors =
             errors.length > 0
               ? errors
@@ -1228,7 +1387,9 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                       .filter(validationIssueIsBlocking)
                       .map((issue) => `Zeile ${r.rowNumber}: ${issue.message}`)
                   );
-
+          const addressOverrides = validatedRows.filter(
+            (r) => r.addressOverrideApplied
+          ).length;
           setResults({
             success: outboundTrips.length,
             errors: combinedErrors,
@@ -1237,8 +1398,17 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             addressOverrides,
             linkedPairsCount: 0
           });
-          setMode('done');
+          setMode('upload');
+        } else if (variantPending.length > 0) {
+          setBillingVariantResolve({
+            pending: variantPending,
+            allRows: validatedRows
+          });
+          setMode('resolve_billing_variants');
+        } else {
+          await runBulkInsert();
         }
+
         setIsProcessing(false);
       },
       error: (error) => {
@@ -1264,6 +1434,38 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     setMode('done');
   };
 
+  const handleBillingVariantResolveContinue = async () => {
+    const run = billingVariantInsertRef.current;
+    setBillingVariantResolve(null);
+    setMode('upload');
+    if (!run) return;
+    setIsProcessing(true);
+    try {
+      await run();
+    } finally {
+      billingVariantInsertRef.current = null;
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBillingVariantResolveCancel = () => {
+    setBillingVariantResolve((prev) => {
+      if (prev) {
+        setResults({
+          success: 0,
+          errors: [],
+          rows: prev.allRows,
+          returnTripsCreated: 0,
+          addressOverrides: 0,
+          linkedPairsCount: 0
+        });
+      }
+      return null;
+    });
+    billingVariantInsertRef.current = null;
+    setMode('upload');
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1277,9 +1479,14 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
         >
           <Upload className='h-4 w-4 shrink-0' />
           <span className='hidden sm:inline'>Bulk Upload</span>
-          {hasPending && (
-            <span className='ml-1 h-2 w-2 rounded-full bg-amber-500' />
-          )}
+          {/* Fixed subtree: conditional nodes after Zustand rehydrate changed useId order for Radix siblings (e.g. Print popover). */}
+          <span
+            aria-hidden
+            className={cn(
+              'ml-1 inline-block h-2 w-2 shrink-0 rounded-full transition-colors',
+              hasPending ? 'bg-amber-500' : 'bg-transparent'
+            )}
+          />
         </Button>
       </DialogTrigger>
       <DialogContent className='sm:max-w-[500px]'>
@@ -1335,6 +1542,14 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 Lade offene Fahrgäste…
               </p>
             </div>
+          )}
+
+          {mode === 'resolve_billing_variants' && billingVariantResolve && (
+            <ResolveBillingVariantsStep
+              rows={billingVariantResolve.pending}
+              onCancel={handleBillingVariantResolveCancel}
+              onContinue={() => void handleBillingVariantResolveContinue()}
+            />
           )}
 
           {/* ── Initial upload UI ── */}

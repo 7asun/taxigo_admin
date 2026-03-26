@@ -1,5 +1,6 @@
 /**
- * Single source of truth for reading `billing_types.behavior_profile` (JSON)
+ * Single source of truth for reading billing **family** `behavior_profile` JSON
+ * (stored on `billing_types`; joined via `billing_variants` in API responses).
  * in trip flows. Matches `billing-type-behavior-dialog` / bulk-upload semantics.
  */
 

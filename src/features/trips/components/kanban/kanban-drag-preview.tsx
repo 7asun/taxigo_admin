@@ -66,8 +66,9 @@ export function KanbanDragPreview({
   if (!trip) return null;
 
   const payerName = trip.payer?.name;
-  const billing = trip.billing_type;
-  const cardColor = billing?.color || 'transparent';
+  const bv = trip.billing_variant;
+  const fam = bv?.billing_types;
+  const cardColor = fam?.color || 'transparent';
   const style =
     cardColor !== 'transparent'
       ? {

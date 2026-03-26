@@ -9,7 +9,7 @@
  * - This component **never** owns trip rows locally; it only updates the URL and calls
  *   `refreshTripsPage()` so Next.js refetches the RSC payload and TanStack trip caches invalidate.
  * - Reference lists (Fahrer, Kostenträger, Abrechnung) come from `useTripFormData` → TanStack Query
- *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing types** load only when `payer_id` is a
+ *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing variants** load only when `payer_id` is a
  *   real UUID — never treat the string `'all'` as a payer id (the hook disables that query).
  *
  * Layout: below `md`, compact row + collapsible “more filters”; from `md` up, one horizontal row.
@@ -99,7 +99,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const driverId = searchParams.get('driver_id') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
   const payerId = searchParams.get('payer_id') ?? 'all';
-  const billingTypeId = searchParams.get('billing_type_id') ?? 'all';
+  const billingVariantId = searchParams.get('billing_variant_id') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
   const currentView = searchParams.get('view') ?? 'list';
 
@@ -144,9 +144,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
 
   /**
    * Drivers/payers: shared TanStack cache (`referenceKeys`). Billing types: only when `payerId` is a
-   * concrete id (not `'all'`) — see `useBillingTypesForPayerQuery`.
+   * concrete id (not `'all'`) — see `useBillingVariantsForPayerQuery`.
    */
-  const { drivers, payers, billingTypes } = useTripFormData(payerId ?? null);
+  const { drivers, payers, billingVariants } = useTripFormData(payerId ?? null);
 
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -156,9 +156,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       driverId !== 'all' ||
       status !== 'all' ||
       payerId !== 'all' ||
-      (Boolean(billingTypeId) && billingTypeId !== 'all')
+      (Boolean(billingVariantId) && billingVariantId !== 'all')
     );
-  }, [driverId, status, payerId, billingTypeId]);
+  }, [driverId, status, payerId, billingVariantId]);
 
   const prevAdvancedRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -434,9 +434,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         value={payerId}
         onValueChange={(val) => {
           if (val === 'all') {
-            updateFilters({ payer_id: null, billing_type_id: null });
+            updateFilters({ payer_id: null, billing_variant_id: null });
           } else {
-            updateFilters({ payer_id: val, billing_type_id: null });
+            updateFilters({ payer_id: val, billing_variant_id: null });
           }
         }}
       >
@@ -455,14 +455,14 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         </SelectContent>
       </Select>
 
-      {payerId !== 'all' && billingTypes.length > 0 && (
+      {payerId !== 'all' && billingVariants.length > 0 && (
         <Select
-          value={billingTypeId}
+          value={billingVariantId}
           onValueChange={(val) => {
             if (val === 'all') {
-              updateFilters({ billing_type_id: null });
+              updateFilters({ billing_variant_id: null });
             } else {
-              updateFilters({ billing_type_id: val });
+              updateFilters({ billing_variant_id: val });
             }
           }}
         >
@@ -473,9 +473,16 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             <SelectItem value='all' className='text-xs'>
               Alle Abrechnungen
             </SelectItem>
-            {billingTypes.map((bt) => (
-              <SelectItem key={bt.id} value={bt.id} className='text-xs'>
-                {bt.name}
+            {billingVariants.map((bv) => (
+              <SelectItem key={bv.id} value={bv.id} className='text-xs'>
+                <span className='flex flex-col gap-0 leading-tight'>
+                  <span>
+                    {bv.billing_type_name} · {bv.name}
+                  </span>
+                  <span className='text-muted-foreground font-mono text-[10px]'>
+                    {bv.code}
+                  </span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -503,7 +510,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             status: null,
             payer_id: null,
             scheduled_at: null,
-            billing_type_id: null
+            billing_variant_id: null
           });
         }}
       >

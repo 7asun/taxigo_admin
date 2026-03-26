@@ -124,8 +124,14 @@ export function TripCard({
 
   // ── Derived display values ─────────────────────────────────────────────────
   const payerName = trip.payer?.name;
-  const billing = trip.billing_type;
-  const cardColor = billing?.color || 'transparent';
+  const bv = trip.billing_variant;
+  const fam = bv?.billing_types;
+  const billingColor = fam?.color || undefined;
+  const billingLabel =
+    fam?.name && bv?.name
+      ? `${fam.name} · ${bv.name}`
+      : bv?.name || fam?.name || '';
+  const cardColor = billingColor || 'transparent';
   const isGrouped = !!trip.group_id;
 
   const pickupDisplay =
@@ -356,23 +362,23 @@ export function TripCard({
               {payerName}
             </Badge>
           )}
-          {billing && (
+          {billingLabel ? (
             <Badge
               variant='outline'
               className='px-1.5 py-0 text-[10px]'
               style={
-                billing.color
+                billingColor
                   ? {
-                      borderColor: billing.color,
-                      color: billing.color,
-                      backgroundColor: `color-mix(in srgb, ${billing.color}, var(--background) 90%)`
+                      borderColor: billingColor,
+                      color: billingColor,
+                      backgroundColor: `color-mix(in srgb, ${billingColor}, var(--background) 90%)`
                     }
                   : undefined
               }
             >
-              {billing.name}
+              {billingLabel}
             </Badge>
-          )}
+          ) : null}
           {trip.is_wheelchair && (
             <Badge variant='destructive' className='px-1.5 py-0 text-[10px]'>
               Rollstuhl

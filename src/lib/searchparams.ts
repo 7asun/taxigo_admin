@@ -16,7 +16,7 @@ export const searchParams = {
   status: parseAsString,
   driver_id: parseAsString,
   payer_id: parseAsString,
-  billing_type_id: parseAsString,
+  billing_variant_id: parseAsString,
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
   view: parseAsString.withDefault('list')

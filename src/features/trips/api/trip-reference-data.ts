@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client';
+import { toQueryError } from '@/lib/supabase/to-query-error';
 import type {
-  BillingTypeOption,
+  BillingVariantOption,
   DriverOption,
   PayerOption
 } from '@/features/trips/types/trip-form-reference.types';
@@ -19,7 +20,7 @@ export async function fetchActiveDrivers(): Promise<DriverOption[]> {
     .eq('is_active', true)
     .order('name');
 
-  if (error) throw error;
+  if (error) throw toQueryError(error);
   return data ?? [];
 }
 
@@ -30,20 +31,72 @@ export async function fetchPayers(): Promise<PayerOption[]> {
     .select('id, name')
     .order('name');
 
-  if (error) throw error;
+  if (error) throw toQueryError(error);
   return data ?? [];
 }
 
-export async function fetchBillingTypesForPayer(
+/**
+ * All variants for a payer (flattened), each carrying its parent `billing_types` row's
+ * behavior_profile + color so trip creation can apply defaults without a second round-trip.
+ */
+export async function fetchBillingVariantsForPayer(
   payerId: string
-): Promise<BillingTypeOption[]> {
+): Promise<BillingVariantOption[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('billing_types')
-    .select('id, name, color, payer_id, behavior_profile')
+    .select(
+      `
+      id,
+      name,
+      color,
+      behavior_profile,
+      payer_id,
+      billing_variants (
+        id,
+        name,
+        code,
+        sort_order
+      )
+    `
+    )
     .eq('payer_id', payerId)
     .order('name');
 
-  if (error) throw error;
-  return data ?? [];
+  if (error) throw toQueryError(error);
+
+  type TypeRow = {
+    id: string;
+    name: string;
+    color: string;
+    behavior_profile: unknown;
+    payer_id: string;
+    billing_variants: {
+      id: string;
+      name: string;
+      code: string;
+      sort_order: number;
+    }[];
+  };
+
+  const out: BillingVariantOption[] = [];
+  for (const bt of (data || []) as TypeRow[]) {
+    const variants = [...(bt.billing_variants || [])].sort((a, b) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return a.name.localeCompare(b.name);
+    });
+    for (const v of variants) {
+      out.push({
+        id: v.id,
+        name: v.name,
+        code: v.code,
+        sort_order: v.sort_order,
+        billing_type_id: bt.id,
+        billing_type_name: bt.name,
+        color: bt.color,
+        behavior_profile: bt.behavior_profile
+      });
+    }
+  }
+  return out;
 }

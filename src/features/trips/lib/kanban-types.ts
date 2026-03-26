@@ -10,7 +10,13 @@ import type { Trip } from '../api/trips.service';
 /** A single trip enriched with joined relations used on the board. */
 export type KanbanTrip = Trip & {
   payer?: { name?: string | null } | null;
-  billing_type?: { name?: string | null; color?: string | null } | null;
+  /** Joined billing leaf + parent family (color/display). */
+  billing_variant?: {
+    id?: string;
+    name?: string | null;
+    code?: string | null;
+    billing_types?: { name?: string | null; color?: string | null } | null;
+  } | null;
   driver?: { name?: string | null } | null;
   group_id?: string | null;
   stop_order?: number | null;

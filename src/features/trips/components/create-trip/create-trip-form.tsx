@@ -39,7 +39,7 @@ import {
 
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
-  billing_type_id: 'payer',
+  billing_variant_id: 'payer',
   scheduled_at: 'schedule',
   return_mode: 'schedule',
   return_date: 'schedule',
@@ -110,7 +110,7 @@ export function CreateTripForm({
     resolver: zodResolver(tripFormSchema) as any,
     defaultValues: {
       payer_id: '',
-      billing_type_id: '',
+      billing_variant_id: '',
       scheduled_at: new Date(),
       return_mode: 'none',
       return_date: undefined,
@@ -164,7 +164,7 @@ export function CreateTripForm({
     (errs: FieldErrors<TripFormValues>) => {
       const order: (keyof TripFormValues)[] = [
         'payer_id',
-        'billing_type_id',
+        'billing_variant_id',
         'scheduled_at',
         'return_mode',
         'return_date',
@@ -191,7 +191,7 @@ export function CreateTripForm({
   );
 
   const watchedPayerId = form.watch('payer_id');
-  const watchedBillingTypeId = form.watch('billing_type_id');
+  const watchedBillingVariantId = form.watch('billing_variant_id');
   const watchedIsWheelchair = form.watch('is_wheelchair');
   const watchedReturnMode = form.watch('return_mode') as ReturnMode;
   const watchedScheduledAt = form.watch('scheduled_at');
@@ -247,17 +247,17 @@ export function CreateTripForm({
 
   // Reset billing type when payer changes
   React.useEffect(() => {
-    form.setValue('billing_type_id', '');
+    form.setValue('billing_variant_id', '');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedBillingType = billingTypes.find(
-    (bt) => bt.id === watchedBillingTypeId
+    (bt) => bt.id === watchedBillingVariantId
   );
 
   // When Abrechnungsart changes, clear address rows (then the next effect applies new defaults).
   // Passengers, schedule, notes, etc. stay; station strings reset with addresses.
   React.useEffect(() => {
-    const current = watchedBillingTypeId || '';
+    const current = watchedBillingVariantId || '';
     const prev = prevBillingTypeIdRef.current;
 
     if (prev !== undefined && prev !== current) {
@@ -287,7 +287,7 @@ export function CreateTripForm({
     }
 
     prevBillingTypeIdRef.current = current;
-  }, [watchedBillingTypeId]);
+  }, [watchedBillingVariantId]);
 
   // Apply all behavior profile rules when billing type changes
   React.useEffect(() => {
@@ -913,7 +913,7 @@ export function CreateTripForm({
 
       const baseTrip = {
         payer_id: values.payer_id,
-        billing_type_id: values.billing_type_id || null,
+        billing_variant_id: values.billing_variant_id || null,
         driver_id: driverId,
         notes: values.notes || null,
         status: (getStatusWhenDriverChanges('pending', driverId) ??
@@ -1179,7 +1179,7 @@ export function CreateTripForm({
     onClientSelect,
     hasInitializedReturnDateRef,
     watchedPayerId,
-    watchedBillingTypeId,
+    watchedBillingVariantId,
     watchedIsWheelchair,
     watchedReturnMode,
     watchedScheduledAt,

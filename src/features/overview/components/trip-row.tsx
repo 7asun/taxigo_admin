@@ -31,8 +31,13 @@ export function TripRow({
     ? format(new Date(trip.scheduled_at), 'HH:mm')
     : '--:--';
 
-  const billingType = trip.billing_types;
-  const rowColor = billingType?.color || 'transparent';
+  const bv = trip.billing_variant;
+  const fam = bv?.billing_types;
+  const rowColor = fam?.color || 'transparent';
+  const billingLabel =
+    fam?.name && bv?.name
+      ? `${fam.name} · ${bv.name}`
+      : bv?.name || fam?.name || '';
 
   const isGrouped = !!trip.group_id;
   const tripStatus = (trip.status as TripStatus) ?? 'pending';
@@ -95,11 +100,11 @@ export function TripRow({
           <div className='text-primary leading-none font-bold tabular-nums'>
             {scheduledTime}
           </div>
-          {billingType?.name && (
+          {billingLabel ? (
             <div className='text-muted-foreground min-w-0 truncate text-[10px] font-medium uppercase'>
-              {billingType.name}
+              {billingLabel}
             </div>
-          )}
+          ) : null}
           {showDate && trip.scheduled_at && (
             <div className='text-muted-foreground text-[10px] font-medium'>
               {format(new Date(trip.scheduled_at), 'dd.MM.yy')}

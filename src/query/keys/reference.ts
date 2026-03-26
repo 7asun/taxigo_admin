@@ -20,9 +20,10 @@ export const referenceKeys = {
   payers: () => [...referenceKeys.root, 'payers'] as const,
 
   /**
-   * Billing types for one real payer UUID. Never call with URL sentinels like `'all'`;
-   * use `enabled: false` in `useQuery` when the payer filter is not a concrete id.
+   * Flat billing variant list for trip create + filters (`fetchBillingVariantsForPayer` in
+   * `trip-reference-data.ts`): each row includes `billing_type_id`, `code`, and family `behavior_profile`.
+   * Invalidate via `useBillingTypes` after Kostenträger admin edits families/variants.
    */
-  billingTypes: (payerId: string) =>
-    [...referenceKeys.root, 'billingTypes', payerId] as const
+  billingVariants: (payerId: string) =>
+    [...referenceKeys.root, 'billingVariants', payerId] as const
 };

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { referenceKeys } from '@/query/keys';
 import {
   fetchActiveDrivers,
-  fetchBillingTypesForPayer,
+  fetchBillingVariantsForPayer,
   fetchPayers
 } from '@/features/trips/api/trip-reference-data';
 
@@ -15,8 +15,7 @@ import {
 export const TRIP_REFERENCE_STALE_TIME_MS = 10 * 60 * 1000;
 
 /**
- * Active drivers — shared across `DriverSelectCell` rows, filters bar, Kanban, forms.
- * TanStack Query dedupes by `referenceKeys.drivers()` so one network round-trip per session.
+ * Active drivers — shared across `DriverSelectCell` rows, filters bar, Kanban, trip form.
  */
 export function useDriversQuery() {
   return useQuery({
@@ -35,17 +34,17 @@ export function usePayersQuery() {
 }
 
 /**
- * Billing types for one payer. Disabled when `payerId` is missing or the URL sentinel `'all'`.
+ * Billing variants for one payer. Disabled when `payerId` is missing or the URL sentinel `'all'`.
  */
-export function useBillingTypesForPayerQuery(
+export function useBillingVariantsForPayerQuery(
   payerId: string | null | undefined
 ) {
   const isRealPayer =
     typeof payerId === 'string' && payerId.length > 0 && payerId !== 'all';
 
   return useQuery({
-    queryKey: referenceKeys.billingTypes(isRealPayer ? payerId : '__none__'),
-    queryFn: () => fetchBillingTypesForPayer(payerId!),
+    queryKey: referenceKeys.billingVariants(isRealPayer ? payerId : '__none__'),
+    queryFn: () => fetchBillingVariantsForPayer(payerId!),
     enabled: isRealPayer,
     staleTime: TRIP_REFERENCE_STALE_TIME_MS
   });

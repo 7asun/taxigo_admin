@@ -24,9 +24,10 @@ export interface TripData {
   notes: string | null;
   is_wheelchair: boolean;
   driver?: { name: string } | null;
-  billing_types?: {
+  billing_variant?: {
     name: string;
-    color: string | null;
+    code?: string | null;
+    billing_types?: { name: string; color: string | null } | null;
   } | null;
 }
 

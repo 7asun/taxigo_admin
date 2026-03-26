@@ -6,6 +6,7 @@
  */
 import { searchParamsCache } from '@/lib/searchparams';
 import { createClient } from '@/lib/supabase/server';
+import { toQueryError } from '@/lib/supabase/to-query-error';
 import { TripsTable, columns } from './trips-tables/index';
 import { Trip } from '../api/trips.service';
 import { getSortingStateParser } from '@/lib/parsers';
@@ -38,7 +39,7 @@ export default async function TripsListingPage({
   const status = searchParamsCache.get('status');
   const driverId = searchParamsCache.get('driver_id');
   const payerId = searchParamsCache.get('payer_id');
-  const billingTypeId = searchParamsCache.get('billing_type_id');
+  const billingVariantId = searchParamsCache.get('billing_variant_id');
   const search = searchParamsCache.get('search');
   const scheduledAt = searchParamsCache.get('scheduled_at');
 
@@ -47,7 +48,7 @@ export default async function TripsListingPage({
     `
     *,
     payer:payers(name),
-    billing_type:billing_types(name, color),
+    billing_variant:billing_variants(name, code, billing_types(name, color)),
     driver:accounts!trips_driver_id_fkey(name)
   `,
     { count: 'exact' }
@@ -71,8 +72,8 @@ export default async function TripsListingPage({
   if (payerId && payerId !== 'all') {
     query = query.eq('payer_id', payerId);
   }
-  if (billingTypeId) {
-    query = query.eq('billing_type_id', billingTypeId);
+  if (billingVariantId) {
+    query = query.eq('billing_variant_id', billingVariantId);
   }
   if (search) {
     const term = search.replace(/'/g, "''");
@@ -191,7 +192,7 @@ export default async function TripsListingPage({
         });
       } else if (sortRule.id === 'billing_type') {
         query = query.order('name', {
-          foreignTable: 'billing_type',
+          foreignTable: 'billing_variant',
           ascending: !isDesc
         });
       } else {
@@ -212,7 +213,7 @@ export default async function TripsListingPage({
   }
 
   const { data, count, error } = await query;
-  if (error) throw error;
+  if (error) throw toQueryError(error);
 
   const trips = data as any[];
   const totalTrips = count || 0;
@@ -229,7 +230,7 @@ export default async function TripsListingPage({
     payerId ?? '',
     status ?? '',
     search ?? '',
-    billingTypeId ?? ''
+    billingVariantId ?? ''
   ].join('|');
 
   return (

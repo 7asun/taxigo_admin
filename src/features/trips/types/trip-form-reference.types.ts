@@ -1,5 +1,5 @@
 /**
- * Shared shapes for trip forms and filter bars (payers, drivers, billing types).
+ * Shared shapes for trip forms and filter bars (payers, drivers, billing variants).
  * Kept separate from hooks so API modules and TanStack Query layers can import safely.
  */
 
@@ -8,11 +8,19 @@ export interface PayerOption {
   name: string;
 }
 
-export interface BillingTypeOption {
+/**
+ * One billing variant for trip UI; behavior + color come from the parent `billing_types` row
+ * (same trip defaults as the Kostenträger behavior dialog).
+ */
+export interface BillingVariantOption {
   id: string;
   name: string;
+  /** Stable CSV / export key; unique per family — see `docs/billing-families-variants.md`. */
+  code: string;
+  sort_order: number;
+  billing_type_id: string;
+  billing_type_name: string;
   color: string;
-  payer_id: string;
   behavior_profile?: unknown;
 }
 

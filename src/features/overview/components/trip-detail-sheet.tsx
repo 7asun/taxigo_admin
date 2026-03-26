@@ -235,7 +235,7 @@ export function TripDetailSheet({
     ? shouldShowCreateReturnTripButton(
         trip as Trip,
         !!linkedPartner,
-        trip.billing_types
+        trip.billing_variant
       )
     : false;
 
@@ -339,15 +339,18 @@ export function TripDetailSheet({
             <div
               className='relative overflow-hidden border-b p-6 pb-4'
               style={{
-                backgroundColor: trip.billing_types?.color
-                  ? `color-mix(in srgb, ${trip.billing_types.color}, var(--background) 90%)`
+                backgroundColor: trip.billing_variant?.billing_types?.color
+                  ? `color-mix(in srgb, ${trip.billing_variant.billing_types.color}, var(--background) 90%)`
                   : 'transparent',
-                borderBottomColor: trip.billing_types?.color || '#e2e8f0'
+                borderBottomColor:
+                  trip.billing_variant?.billing_types?.color || '#e2e8f0'
               }}
             >
               <div
                 className='absolute inset-y-0 left-0 w-1.5'
-                style={{ backgroundColor: trip.billing_types?.color }}
+                style={{
+                  backgroundColor: trip.billing_variant?.billing_types?.color
+                }}
               />
               <div className='mb-2 flex flex-wrap items-center gap-2'>
                 <Badge className={getStatusInfo(trip.status).class}>
@@ -642,9 +645,13 @@ export function TripDetailSheet({
                     icon={<CreditCard className='h-3.5 w-3.5' />}
                     label='Abrechnung'
                     value={
-                      trip.billing_types?.name?.trim()
-                        ? trip.billing_types.name.trim()
-                        : '-'
+                      (trip.billing_variant?.billing_types?.name &&
+                      trip.billing_variant?.name
+                        ? `${trip.billing_variant.billing_types.name} · ${trip.billing_variant.name}`
+                        : trip.billing_variant?.name ||
+                          trip.billing_variant?.billing_types?.name ||
+                          ''
+                      ).trim() || '-'
                     }
                   />
                   <DetailItem

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { toQueryError } from '@/lib/supabase/to-query-error';
 import type { Database } from '@/types/database.types';
 
 export type Trip = Database['public']['Tables']['trips']['Row'];
@@ -13,7 +14,7 @@ export const tripsService = {
       .select('*')
       .order('scheduled_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   },
 
@@ -22,12 +23,12 @@ export const tripsService = {
     const { data, error } = await supabase
       .from('trips')
       .select(
-        '*, billing_types(*), clients(*), payers(*), driver:accounts!trips_driver_id_fkey(name)'
+        '*, billing_variant:billing_variants(*, billing_types(name, color, behavior_profile)), clients(*), payers(*), driver:accounts!trips_driver_id_fkey(name)'
       )
       .eq('id', id)
       .single();
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   },
 
@@ -39,7 +40,7 @@ export const tripsService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   },
 
@@ -47,7 +48,7 @@ export const tripsService = {
     const supabase = createClient();
     const { data, error } = await supabase.from('trips').insert(trips).select();
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   },
 
@@ -60,7 +61,7 @@ export const tripsService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   },
 
@@ -68,7 +69,7 @@ export const tripsService = {
     const supabase = createClient();
     const { error } = await supabase.from('trips').delete().eq('id', id);
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
   },
 
   /**
@@ -96,13 +97,13 @@ export const tripsService = {
     const { data, error } = await supabase
       .from('trips')
       .select(
-        '*, driver:accounts!trips_driver_id_fkey(name), billing_types(name, color)'
+        '*, driver:accounts!trips_driver_id_fkey(name), billing_variant:billing_variants(name, code, billing_types(name, color))'
       )
       .gte('scheduled_at', startDate)
       .lte('scheduled_at', endDate)
       .order('scheduled_at', { ascending: true });
 
-    if (error) throw error;
+    if (error) throw toQueryError(error);
     return data;
   }
 };
