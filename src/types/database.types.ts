@@ -431,6 +431,8 @@ export type Database = {
           end_date: string | null;
           is_active: boolean;
           created_at: string;
+          payer_id: string | null;
+          billing_variant_id: string | null;
         };
         Insert: {
           id?: string;
@@ -445,6 +447,8 @@ export type Database = {
           end_date?: string | null;
           is_active?: boolean;
           created_at?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
         };
         Update: {
           id?: string;
@@ -459,13 +463,29 @@ export type Database = {
           end_date?: string | null;
           is_active?: boolean;
           created_at?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: 'recurring_rules_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          },
           {
             foreignKeyName: 'recurring_rules_client_id_fkey';
             columns: ['client_id'];
             isOneToOne: false;
             referencedRelation: 'clients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'recurring_rules_payer_id_fkey';
+            columns: ['payer_id'];
+            isOneToOne: false;
+            referencedRelation: 'payers';
             referencedColumns: ['id'];
           }
         ];

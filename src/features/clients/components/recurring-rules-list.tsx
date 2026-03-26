@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { RecurringRule } from '@/features/trips/api/recurring-rules.service';
+import { RecurringRuleWithBillingEmbed } from '@/features/trips/api/recurring-rules.service';
+import { formatBillingDisplayLabel } from '@/features/trips/lib/format-billing-display-label';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,19 +12,45 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { de } from 'date-fns/locale';
 import { RecurringRuleSheet } from './recurring-rule-sheet';
 
+function RecurringRuleBillingCaption({
+  rule
+}: {
+  rule: RecurringRuleWithBillingEmbed;
+}) {
+  const label = formatBillingDisplayLabel(rule.billing_variant).trim();
+  if (label) {
+    return (
+      <div className='text-muted-foreground mt-1 text-xs'>
+        Abrechnung: <span className='text-foreground font-medium'>{label}</span>
+      </div>
+    );
+  }
+  if (!rule.payer_id || !rule.billing_variant_id) {
+    return (
+      <div className='mt-1 text-xs text-amber-600/90'>
+        Abrechnung fehlt — Regel bearbeiten und speichern.
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * Rules from `getClientRules` include an optional `billing_variant` embed for labels;
+ * legacy rows without billing show a short hint until the rule is saved again.
+ */
 interface RecurringRulesListProps {
   clientId: string;
-  rules: RecurringRule[];
+  rules: RecurringRuleWithBillingEmbed[];
   onRulesChange: () => void;
   /**
    * When provided, called with the rule instead of opening the Sheet overlay.
    * Used by ClientDetailPanel in the column view — the column view opens
    * Column 3 (RecurringRulePanel) instead of a floating Sheet.
    */
-  onEditRule?: (rule: RecurringRule) => void;
+  onEditRule?: (rule: RecurringRuleWithBillingEmbed) => void;
   /**
    * When provided, called instead of opening the Sheet in create mode.
    * Used by ClientDetailPanel in the column view.
@@ -39,9 +66,10 @@ export function RecurringRulesList({
   onNewRule
 }: RecurringRulesListProps) {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [selectedRule, setSelectedRule] = useState<RecurringRule | null>(null);
+  const [selectedRule, setSelectedRule] =
+    useState<RecurringRuleWithBillingEmbed | null>(null);
 
-  const handleEdit = (rule: RecurringRule) => {
+  const handleEdit = (rule: RecurringRuleWithBillingEmbed) => {
     if (onEditRule) {
       onEditRule(rule);
       return;
@@ -124,6 +152,7 @@ export function RecurringRulesList({
                         {rule.end_date &&
                           `bis ${format(new Date(rule.end_date), 'dd.MM.yyyy')}`}
                       </div>
+                      <RecurringRuleBillingCaption rule={rule} />
                     </div>
                   </div>
 

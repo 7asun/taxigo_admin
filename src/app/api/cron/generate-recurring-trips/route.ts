@@ -10,6 +10,14 @@ import {
   isBefore
 } from 'date-fns';
 import type { Database } from '@/types/database.types';
+import {
+  geocodeAddressLineToStructured,
+  type GeocodedAddressLineResult
+} from '@/lib/google-geocoding';
+import {
+  getDrivingMetrics,
+  type DrivingMetrics
+} from '@/lib/google-directions';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +62,21 @@ export async function GET(request: Request) {
 
     const tripsToInsert: Database['public']['Tables']['trips']['Insert'][] = [];
 
+    // Dedupe Geocoding / Directions calls across rules, dates, and legs (same strings repeat often).
+    const geoCache = new Map<string, GeocodedAddressLineResult | null>();
+    const drivingMetricsCache = new Map<string, DrivingMetrics | null>();
+
+    async function resolveGeoLine(
+      line: string
+    ): Promise<GeocodedAddressLineResult | null> {
+      const key = line.trim();
+      if (!key) return null;
+      if (geoCache.has(key)) return geoCache.get(key)!;
+      const resolved = await geocodeAddressLineToStructured(key);
+      geoCache.set(key, resolved);
+      return resolved;
+    }
+
     for (const rule of rules) {
       // Fetch client details
       const { data: client, error: clientError } = await supabase
@@ -63,6 +86,15 @@ export async function GET(request: Request) {
         .single();
 
       if (clientError || !client) continue;
+
+      // Billing is mandatory for new materialized trips: copy from the rule, not the client.
+      // Legacy rules with NULL payer/variant are skipped so we never insert trips without billing.
+      if (!rule.payer_id || !rule.billing_variant_id) {
+        console.warn(
+          `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id or billing_variant_id (edit and save the rule in Admin).`
+        );
+        continue;
+      }
 
       const clientName = client.is_company
         ? client.company_name
@@ -135,8 +167,12 @@ export async function GET(request: Request) {
         // Ensure date string relies on the UTC naive date to perfectly match local date
         const dateStr = dateUTC.toISOString().split('T')[0];
 
-        // Helper to process trip (Hinfahrt or Rückfahrt)
-        const processTripInstance = (isReturnTrip: boolean) => {
+        /**
+         * Materialize one leg. Address *lines* stay as on the rule (or exception overrides);
+         * lat/lng and split columns come from server geocode (parity with Neue Fahrt inserts).
+         * Billing ids come from the rule, not the client.
+         */
+        const processTripInstance = async (isReturnTrip: boolean) => {
           const basePickupTime = isReturnTrip
             ? rule.return_time
             : rule.pickup_time;
@@ -163,6 +199,32 @@ export async function GET(request: Request) {
             exception?.modified_dropoff_address ||
             (isReturnTrip ? rule.pickup_address : rule.dropoff_address);
 
+          const pickupGeo = await resolveGeoLine(pickupAddress);
+          const dropoffGeo = await resolveGeoLine(dropoffAddress);
+          const geodataOk = !!pickupGeo && !!dropoffGeo;
+
+          let driving_distance_km: number | null = null;
+          let driving_duration_seconds: number | null = null;
+          if (pickupGeo && dropoffGeo) {
+            const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+            if (!drivingMetricsCache.has(metricsKey)) {
+              drivingMetricsCache.set(
+                metricsKey,
+                await getDrivingMetrics(
+                  pickupGeo.lat,
+                  pickupGeo.lng,
+                  dropoffGeo.lat,
+                  dropoffGeo.lng
+                )
+              );
+            }
+            const legMetrics = drivingMetricsCache.get(metricsKey);
+            if (legMetrics) {
+              driving_distance_km = legMetrics.distanceKm;
+              driving_duration_seconds = legMetrics.durationSeconds;
+            }
+          }
+
           // Recombine into an actual timestamp in local time
           const scheduledAtStr = `${dateStr}T${pickupTime}`;
           const scheduledAt = new Date(scheduledAtStr).toISOString();
@@ -172,8 +234,30 @@ export async function GET(request: Request) {
             client_id: client.id,
             client_name: clientName || '',
             client_phone: client.phone || '',
+            payer_id: rule.payer_id,
+            billing_variant_id: rule.billing_variant_id,
+            greeting_style: client.greeting_style,
+            is_wheelchair: client.is_wheelchair,
+            requested_date: dateStr,
             pickup_address: pickupAddress,
+            pickup_street: pickupGeo?.street ?? null,
+            pickup_street_number: pickupGeo?.street_number ?? null,
+            pickup_zip_code: pickupGeo?.zip_code ?? null,
+            pickup_city: pickupGeo?.city ?? null,
+            pickup_lat: pickupGeo?.lat ?? null,
+            pickup_lng: pickupGeo?.lng ?? null,
+            pickup_station: null,
             dropoff_address: dropoffAddress,
+            dropoff_street: dropoffGeo?.street ?? null,
+            dropoff_street_number: dropoffGeo?.street_number ?? null,
+            dropoff_zip_code: dropoffGeo?.zip_code ?? null,
+            dropoff_city: dropoffGeo?.city ?? null,
+            dropoff_lat: dropoffGeo?.lat ?? null,
+            dropoff_lng: dropoffGeo?.lng ?? null,
+            dropoff_station: null,
+            driving_distance_km,
+            driving_duration_seconds,
+            has_missing_geodata: !geodataOk,
             scheduled_at: scheduledAt,
             status: 'pending',
             rule_id: rule.id,
@@ -185,11 +269,11 @@ export async function GET(request: Request) {
         };
 
         // Generate Hinfahrt
-        processTripInstance(false);
+        await processTripInstance(false);
 
         // Generate Rückfahrt
         if (rule.return_trip && rule.return_time) {
-          processTripInstance(true);
+          await processTripInstance(true);
         }
       }
     }

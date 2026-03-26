@@ -72,7 +72,17 @@ Rückfahrt. `getTripDirection` handles them via the `linked_trip_id` fallback.*
 
 The cron generates trips for a 14-day rolling window from `recurring_rules`. If
 `rule.return_trip === true`, it generates both legs on the same `scheduled_at`
-calendar day. **The cron has been fixed to set `link_type`.**
+calendar day. **The cron has been fixed to set `link_type`.** It also sets
+`trips.payer_id` and `trips.billing_variant_id` from the rule; rules missing
+either are skipped (with a log line) so generated trips always carry billing.
+
+For each leg, the cron **forward-geocodes** the pickup and dropoff address lines
+(`geocodeAddressLineToStructured` in [`google-geocoding.ts`](../src/lib/google-geocoding.ts)),
+fills `pickup_*` / `dropoff_*` structured columns and **lat/lng**, sets
+`has_missing_geodata` when either side fails, computes **driving distance/duration**
+when both coordinates exist ([`getDrivingMetrics`](../src/lib/google-directions.ts)),
+and copies **`greeting_style`** / **`is_wheelchair`** from the client plus **`requested_date`**
+for the occurrence day.
 
 | Leg | `link_type` | `linked_trip_id` | `rule_id` |
 |-----|-------------|-----------------|-----------|

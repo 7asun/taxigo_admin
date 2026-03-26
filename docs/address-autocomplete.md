@@ -22,6 +22,7 @@ Address input fields across the app (trip creation, client forms, recurring rule
 | [`src/app/api/places-autocomplete/route.ts`](../src/app/api/places-autocomplete/route.ts) | Proxies queries to **Places Autocomplete** (New), `locationBias` around Oldenburg |
 | [`src/app/api/place-details/route.ts`](../src/app/api/place-details/route.ts) | Proxies **Place Details** `places.get` — lat/lng, `addressComponents`, PLZ fallback |
 | [`src/lib/google-geocoding.ts`](../src/lib/google-geocoding.ts) | Geocoding API helpers: forward geocode for address → coordinates; **reverse geocode** for PLZ fallback when Places returns an incomplete code |
+| [`src/features/clients/components/recurring-rule-form-body.tsx`](../src/features/clients/components/recurring-rule-form-body.tsx) | Wiederkehrende Fahrten: Abhol- und Zieladresse use the same component; values are stored as **one formatted line** per field on `recurring_rules`. The recurring **cron** geocodes those lines when materializing `trips` so structured columns and lat/lng match manually created trips where possible. |
 
 ---
 

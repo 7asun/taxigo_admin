@@ -8,17 +8,39 @@ export type InsertRecurringRule =
 export type UpdateRecurringRule =
   Database['public']['Tables']['recurring_rules']['Update'];
 
+/** List rows: `billing_variant` join for `formatBillingDisplayLabel` (same embed shape as trips). */
+export type RecurringRuleWithBillingEmbed = RecurringRule & {
+  billing_variant: {
+    id: string;
+    name: string;
+    code: string;
+    billing_type_id: string;
+    billing_types: unknown;
+  } | null;
+};
+
 export const recurringRulesService = {
   async getClientRules(clientId: string) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('recurring_rules')
-      .select('*')
+      .select(
+        `
+        *,
+        billing_variant:billing_variants (
+          id,
+          name,
+          code,
+          billing_type_id,
+          billing_types ( name, color )
+        )
+      `
+      )
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data as RecurringRule[];
+    return data as RecurringRuleWithBillingEmbed[];
   },
 
   async getRuleById(id: string) {

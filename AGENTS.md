@@ -72,7 +72,7 @@ The project follows a feature-based folder structure designed for scalability in
 │   │   ├── billing/       # Subscription billing
 │   │   ├── exclusive/     # Pro plan feature example
 │   │   └── profile/       # User profile
-│   ├── api/               # API routes (if any)
+│   ├── api/               # API routes (e.g. cron `generate-recurring-trips`: materializes rules → trips, copies rule billing)
 │   ├── layout.tsx         # Root layout with providers
 │   ├── page.tsx           # Landing page
 │   ├── global-error.tsx   # Sentry-integrated error boundary

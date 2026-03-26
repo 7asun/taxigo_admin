@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 import { RecurringRulesList } from './recurring-rules-list';
 import {
   recurringRulesService,
-  RecurringRule
+  RecurringRuleWithBillingEmbed
 } from '@/features/trips/api/recurring-rules.service';
 import {
   AddressAutocomplete,
@@ -120,7 +120,7 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
     const [loading, setLoading] = useState(false);
     const router = useRouter();
 
-    const [rules, setRules] = useState<RecurringRule[]>([]);
+    const [rules, setRules] = useState<RecurringRuleWithBillingEmbed[]>([]);
     const [companyFieldVisible, setCompanyFieldVisible] = useState(
       () => !!initialData?.company_name?.trim()
     );

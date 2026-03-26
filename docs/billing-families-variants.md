@@ -20,6 +20,7 @@ payer → billing_types (family) → billing_variants (variant) ← trips.billin
 | `billing_types` | Family: `payer_id`, `name`, `color`, `behavior_profile` (JSON). Unique `(payer_id, name)` for CSV family matching. |
 | `billing_variants` | Variant: `billing_type_id`, `name`, `code`, `sort_order`. Unique `(billing_type_id, name)` and `(billing_type_id, code)`. |
 | `trips.billing_variant_id` | FK to `billing_variants`; `ON DELETE SET NULL`. Legacy `trips.billing_type_id` was removed after migration. |
+| `recurring_rules.payer_id` / `billing_variant_id` | FKs (nullable for legacy); required in Admin on save; cron copies onto generated trips. |
 
 **Variant `code` (DB):** `varchar(6)`, `NOT NULL`, must satisfy `^[A-Z0-9]{2,6}$` (uppercase letters and digits only — no underscore in the current CHECK).
 
@@ -59,8 +60,15 @@ Implementation: [`create-trip-form.tsx`](../src/features/trips/components/create
 | Fahrten-Tabelle „Abrechnung“ | [`trips-tables/columns.tsx`](../src/features/trips/components/trips-tables/columns.tsx) |
 | Kanban-Karte | [`kanban-trip-card.tsx`](../src/features/trips/components/kanban/kanban-trip-card.tsx) |
 | Druck / JPEG-Übersichten | [`print-trip-groups-list.tsx`](../src/features/trips/components/print-trip-groups-list.tsx) (`tripPrintBilling`) |
+| Wiederkehrende Regeln (Kunden) | [`recurring-rules-list.tsx`](../src/features/clients/components/recurring-rules-list.tsx) |
 
 Neue Stellen mit eingebettetem `billing_variant` → dieselben Helfer verwenden, damit **Standard**- und Embed-Verhalten konsistent bleiben.
+
+## Recurring trips (clients)
+
+- **Table:** `recurring_rules` has `payer_id` (→ `payers`) and `billing_variant_id` (→ `billing_variants`). Both are **nullable** in the database for legacy rows created before billing was required on rules.
+- **Admin:** Create and edit flows require Kostenträger + Unterart (same as **Neue Fahrt**). Legacy rules without billing show a short hint in the rules list until someone opens the rule and saves.
+- **Cron:** [`generate-recurring-trips`](../src/app/api/cron/generate-recurring-trips/route.ts) copies `payer_id` and `billing_variant_id` from the rule onto each generated trip (Hinfahrt and Rückfahrt), **geocodes** address lines into structured fields + coordinates, and fills driving metrics when geocoding succeeds. Rules that still have NULL billing are **skipped** (logged) so trips are not created without billing.
 
 ## CSV contract (bulk upload)
 

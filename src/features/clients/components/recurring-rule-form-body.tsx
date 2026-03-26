@@ -11,12 +11,17 @@
  * component as their form body. The visual result is identical in both contexts:
  * same fields, same layout, same validation messages.
  *
+ * **Billing:** `payer_id` and `billing_variant_id` are required on submit (parity with
+ * Neue Fahrt). The cron copies them onto each generated trip; DB columns stay nullable
+ * for legacy rules until an admin saves the form once.
+ *
  * Structure (top to bottom):
  *   1. Wochentage (Mon–Sun checkboxes, 2-column grid)
  *   2. Gültig ab / Gültig bis (date range, side-by-side)
- *   3. Hinfahrt Details (time + pickup address + dropoff address)
- *   4. Rückfahrt toggle + conditional return time input
- *   5. Regel Aktiv toggle (edit mode only)
+ *   3. Kostenträger / Abrechnung (before trip address block, same order as Neue Fahrt)
+ *   4. Hinfahrt Details (time + Abholadresse / Zieladresse via `AddressAutocomplete`, same Places flow as Neue Fahrt)
+ *   5. Rückfahrt toggle + conditional return time input
+ *   6. Regel Aktiv toggle (edit mode only)
  *
  * Props:
  *   form         — react-hook-form instance (UseFormReturn<RuleFormValues>)
@@ -48,6 +53,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
+import {
+  AddressAutocomplete,
+  type AddressResult
+} from '@/features/trips/components/address-autocomplete';
+import { RecurringRuleBillingFields } from './recurring-rule-billing-fields';
 
 // ─── Schema (shared between Sheet and Panel) ─────────────────────────────────
 
@@ -66,6 +77,9 @@ export const ruleFormSchema = z
     days: z.array(z.string()).refine((value) => value.length > 0, {
       message: 'Sie müssen mindestens einen Wochentag auswählen.'
     }),
+    payer_id: z.string().min(1, 'Kostenträger ist erforderlich'),
+    /** Required on save like Neue Fahrt; auto-filled when the payer has a single Unterart. */
+    billing_variant_id: z.string().min(1, 'Unterart ist erforderlich'),
     pickup_time: z
       .string()
       .regex(
@@ -106,11 +120,15 @@ export function getRuleFormDefaults(
     start_date: string;
     end_date?: string | null;
     is_active: boolean;
+    payer_id?: string | null;
+    billing_variant_id?: string | null;
   } | null
 ): RuleFormValues {
   if (!initialData) {
     return {
       days: ['MO', 'TU', 'WE', 'TH', 'FR'],
+      payer_id: '',
+      billing_variant_id: '',
       pickup_time: '08:00',
       pickup_address: '',
       dropoff_address: '',
@@ -127,6 +145,8 @@ export function getRuleFormDefaults(
 
   return {
     days,
+    payer_id: initialData.payer_id ?? '',
+    billing_variant_id: initialData.billing_variant_id ?? '',
     pickup_time: initialData.pickup_time.substring(0, 5),
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,
@@ -228,6 +248,8 @@ export function RecurringRuleFormBody({
           />
         </div>
 
+        <RecurringRuleBillingFields form={form} />
+
         {/* ── Hinfahrt Details ────────────────────────────────── */}
         <div className='bg-muted/20 space-y-4 rounded-lg border p-4'>
           <h4 className='text-sm font-medium'>Hinfahrt Details</h4>
@@ -247,11 +269,23 @@ export function RecurringRuleFormBody({
           <FormField
             control={form.control}
             name='pickup_address'
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem>
                 <FormLabel>Abholadresse</FormLabel>
                 <FormControl>
-                  <Input placeholder='Musterstraße 1, 12345 Stadt' {...field} />
+                  <AddressAutocomplete
+                    value={field.value}
+                    onChange={(result: AddressResult | string) => {
+                      if (typeof result === 'string') {
+                        field.onChange(result);
+                        return;
+                      }
+                      // Single-line rule fields: use formatted line after Place Details (or typed query).
+                      field.onChange(result.address ?? '');
+                    }}
+                    placeholder='Adresse suchen…'
+                    className={cn(fieldState.error && 'border-destructive')}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -260,11 +294,22 @@ export function RecurringRuleFormBody({
           <FormField
             control={form.control}
             name='dropoff_address'
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem>
                 <FormLabel>Zieladresse</FormLabel>
                 <FormControl>
-                  <Input placeholder='Klinikweg 5, 12345 Stadt' {...field} />
+                  <AddressAutocomplete
+                    value={field.value}
+                    onChange={(result: AddressResult | string) => {
+                      if (typeof result === 'string') {
+                        field.onChange(result);
+                        return;
+                      }
+                      field.onChange(result.address ?? '');
+                    }}
+                    placeholder='Adresse suchen…'
+                    className={cn(fieldState.error && 'border-destructive')}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
