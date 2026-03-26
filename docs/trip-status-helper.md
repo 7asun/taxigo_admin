@@ -71,7 +71,7 @@ if (derivedStatus) payload.status = derivedStatus;
 |----------|--------|
 | `src/features/trips/components/trips-tables/driver-select-cell.tsx` | On driver change in the table: builds update payload with `driver_id` and optional `status` from the helper, then updates one trip or all trips in the same group. |
 | `src/features/trips/components/trips-kanban-board.tsx` | On “Speichern”: for each pending change, if only `driver_id` was set (e.g. drag to driver column), uses the helper to set `status` so assigned trips become “Zugewiesen”. |
-| `src/features/trips/components/create-trip-form.tsx` | When creating a trip: initial status is `getStatusWhenDriverChanges('pending', driverId) ?? 'pending'`, so trips created with a driver start as “Zugewiesen”. |
+| `src/features/trips/components/create-trip/create-trip-form.tsx` | When creating a trip: initial status is `getStatusWhenDriverChanges('pending', driverId) ?? 'pending'`, so trips created with a driver start as “Zugewiesen”. |
 
 ---
 

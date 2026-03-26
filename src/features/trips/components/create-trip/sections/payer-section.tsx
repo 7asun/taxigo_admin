@@ -27,10 +27,13 @@ export function CreateTripPayerSection() {
     payers,
     isLoading,
     selectedBillingType,
-    watchedBillingVariantId
+    watchedBillingVariantId,
+    billingFamilyId,
+    setBillingFamilyId
   } = useTripFormSections();
 
-  const [selectedFamilyId, setSelectedFamilyId] = React.useState('');
+  /** Multi-family Abrechnungsfamilie; single-family flows use `effectiveFamilyId` only. */
+  const selectedFamilyId = billingFamilyId;
 
   // Distinct families for the current payer’s variant list (already flattened from API).
   const families = React.useMemo(() => {
@@ -43,46 +46,39 @@ export function CreateTripPayerSection() {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [billingTypes]);
 
-  const variantsForFamily = React.useMemo(() => {
-    if (!selectedFamilyId) return billingTypes;
-    return billingTypes.filter((v) => v.billing_type_id === selectedFamilyId);
-  }, [billingTypes, selectedFamilyId]);
+  // Resolved family: explicit pick, or the only family when there is just one row in billing_types.
+  const effectiveFamilyId =
+    families.length === 1 ? (families[0]?.id ?? '') : selectedFamilyId;
 
-  // Reset family when Kostenträger changes (variant cleared in parent).
-  React.useEffect(() => {
-    setSelectedFamilyId('');
-  }, [watchedPayerId]);
+  const variantsInEffectiveFamily = React.useMemo(() => {
+    if (!effectiveFamilyId) return [];
+    return billingTypes.filter((v) => v.billing_type_id === effectiveFamilyId);
+  }, [billingTypes, effectiveFamilyId]);
 
   // Keep family dropdown aligned with the selected variant (e.g. prefilled draft).
   React.useEffect(() => {
     if (!watchedBillingVariantId) return;
     const v = billingTypes.find((b) => b.id === watchedBillingVariantId);
-    if (v) setSelectedFamilyId(v.billing_type_id);
-  }, [watchedBillingVariantId, billingTypes]);
+    if (v) setBillingFamilyId(v.billing_type_id);
+  }, [watchedBillingVariantId, billingTypes, setBillingFamilyId]);
 
-  // Exactly one variant under payer → pick it automatically (no extra clicks).
+  // One Unterart under the effective family → set billing_variant_id; no dropdown needed.
   React.useEffect(() => {
-    if (!watchedPayerId || billingTypes.length !== 1) return;
-    const only = billingTypes[0];
+    if (!watchedPayerId || !effectiveFamilyId) return;
+    if (variantsInEffectiveFamily.length !== 1) return;
+    const only = variantsInEffectiveFamily[0];
     form.setValue('billing_variant_id', only.id);
-    setSelectedFamilyId(only.billing_type_id);
-  }, [watchedPayerId, billingTypes, form]);
-
-  // Single family, multiple variants → lock family id so only Unterart select shows.
-  React.useEffect(() => {
-    if (families.length === 1) {
-      setSelectedFamilyId(families[0].id);
-    }
-  }, [families]);
+  }, [watchedPayerId, effectiveFamilyId, variantsInEffectiveFamily, form]);
 
   const showFamilySelect = families.length > 1;
-  // If exactly one variant total, we auto-set above — no variant dropdown.
   const needVariantDropdown =
-    billingTypes.length > 1 ||
-    (families.length > 1 && !!selectedFamilyId && variantsForFamily.length > 0);
+    !!watchedPayerId &&
+    billingTypes.length > 0 &&
+    variantsInEffectiveFamily.length > 1 &&
+    (families.length === 1 || !!selectedFamilyId);
 
   const handleFamilyChange = (familyId: string) => {
-    setSelectedFamilyId(familyId);
+    setBillingFamilyId(familyId);
     const currentVid = form.getValues('billing_variant_id');
     const stillOk = billingTypes.some(
       (v) => v.id === currentVid && v.billing_type_id === familyId
@@ -93,7 +89,10 @@ export function CreateTripPayerSection() {
   const payerSpansFull =
     !watchedPayerId ||
     billingTypes.length === 0 ||
-    (billingTypes.length === 1 && families.length === 1);
+    (!showFamilySelect && !needVariantDropdown);
+
+  const singleVariantInScope =
+    !!effectiveFamilyId && variantsInEffectiveFamily.length === 1;
 
   const summaryLabel = selectedBillingType
     ? `${selectedBillingType.billing_type_name} · ${selectedBillingType.name}`
@@ -184,10 +183,7 @@ export function CreateTripPayerSection() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {(showFamilySelect
-                        ? variantsForFamily
-                        : billingTypes
-                      ).map((bt) => (
+                      {variantsInEffectiveFamily.map((bt) => (
                         <SelectItem key={bt.id} value={bt.id}>
                           <span className='flex flex-col gap-0 leading-tight'>
                             <span className='flex items-center gap-2'>
@@ -227,9 +223,11 @@ export function CreateTripPayerSection() {
               className='inline-block h-1.5 w-1.5 rounded-full'
               style={{ backgroundColor: selectedBillingType.color }}
             />
-            {summaryLabel}
+            {singleVariantInScope
+              ? selectedBillingType.billing_type_name
+              : summaryLabel}
           </div>
-          {summaryCode ? (
+          {!singleVariantInScope && summaryCode ? (
             <span className='text-muted-foreground font-mono text-[10px]'>
               CSV-Code: {summaryCode}
             </span>

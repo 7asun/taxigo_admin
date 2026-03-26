@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -28,12 +28,12 @@ import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import { cn } from '@/lib/utils';
 import type { BillingFamilyWithVariants } from '../types/payer.types';
-import { suggestVariantCodeFromLabel } from '../api/payers.service';
 import {
   BILLING_VARIANT_CODE_HINT,
-  isValidBillingVariantCode,
-  normalizeBillingVariantCodeInput
+  pickUniqueBillingVariantCode,
+  suggestBillingVariantCode
 } from '../lib/billing-variant-code';
+import { Badge } from '@/components/ui/badge';
 import { BILLING_FAMILY_PRESET_COLORS } from '../lib/billing-family-preset-colors';
 
 const PRESET_COLORS = [...BILLING_FAMILY_PRESET_COLORS];
@@ -43,16 +43,7 @@ const formSchema = z.object({
   color: z.string(),
   initialVariantName: z
     .string()
-    .min(1, { message: 'Unterart-Name erforderlich' }),
-  initialVariantCode: z
-    .string()
-    .min(1, { message: 'CSV-Code erforderlich' })
-    .refine(
-      (v) => isValidBillingVariantCode(normalizeBillingVariantCodeInput(v)),
-      {
-        message: BILLING_VARIANT_CODE_HINT
-      }
-    )
+    .min(1, { message: 'Unterart-Name erforderlich' })
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -85,22 +76,20 @@ export function AddBillingFamilyDialog({
     defaultValues: {
       familyName: '',
       color: defaultColor,
-      initialVariantName: 'Standard',
-      initialVariantCode: ''
+      initialVariantName: 'Standard'
     }
   });
 
   const familyNameWatch = form.watch('familyName');
+  const initialVariantNameWatch = form.watch('initialVariantName');
 
-  // Suggest a code when the user types a family name and code is still empty (bulk CSV helper).
-  useEffect(() => {
-    const codeField = form.getValues('initialVariantCode');
-    if (!open || (codeField && codeField.trim().length > 0)) return;
-    const s = suggestVariantCodeFromLabel(familyNameWatch);
-    if (isValidBillingVariantCode(s)) {
-      form.setValue('initialVariantCode', s, { shouldValidate: true });
-    }
-  }, [familyNameWatch, open, form]);
+  const previewCode = React.useMemo(() => {
+    const base = suggestBillingVariantCode(
+      initialVariantNameWatch || 'Standard',
+      familyNameWatch || ''
+    );
+    return pickUniqueBillingVariantCode(base, []);
+  }, [familyNameWatch, initialVariantNameWatch]);
 
   const handleOpenChange = (newOpen: boolean) => {
     if (newOpen) {
@@ -108,8 +97,7 @@ export function AddBillingFamilyDialog({
       form.reset({
         familyName: '',
         color: avail.length > 0 ? avail[0] : PRESET_COLORS[0],
-        initialVariantName: 'Standard',
-        initialVariantCode: ''
+        initialVariantName: 'Standard'
       });
     }
     onOpenChange(newOpen);
@@ -120,10 +108,7 @@ export function AddBillingFamilyDialog({
       await createBillingFamily({
         familyName: data.familyName,
         color: data.color,
-        initialVariantName: data.initialVariantName.trim(),
-        initialVariantCode: normalizeBillingVariantCodeInput(
-          data.initialVariantCode
-        )
+        initialVariantName: data.initialVariantName.trim()
       });
       toast.success('Abrechnungsfamilie erstellt');
       handleOpenChange(false);
@@ -187,29 +172,18 @@ export function AddBillingFamilyDialog({
             )}
           />
 
-          <FormField
-            control={form.control}
-            name='initialVariantCode'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>CSV-Code</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='z. B. DIAL1'
-                    className='font-mono uppercase'
-                    {...field}
-                    onChange={(e) =>
-                      field.onChange(
-                        normalizeBillingVariantCodeInput(e.target.value)
-                      )
-                    }
-                  />
-                </FormControl>
-                <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <div className='space-y-1.5'>
+            <p className='text-sm font-medium'>CSV-Code (Vorschau)</p>
+            <div className='flex items-center gap-2'>
+              <Badge
+                variant='secondary'
+                className='font-mono text-xs tracking-wide uppercase'
+              >
+                {previewCode}
+              </Badge>
+            </div>
+            <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
+          </div>
 
           <FormField
             control={form.control}

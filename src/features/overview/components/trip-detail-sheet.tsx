@@ -81,6 +81,10 @@ import {
   tripStatusLabels,
   type TripStatus
 } from '@/lib/trip-status';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 
 interface TripDetailSheetProps {
   tripId: string | null;
@@ -114,6 +118,16 @@ export function TripDetailSheet({
   const [notesDraft, setNotesDraft] = useState('');
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const { cancelTrip, isLoading: isCancelling } = useTripCancellation();
+
+  const billingFamEmbed = trip
+    ? billingFamilyFromEmbed(trip.billing_variant?.billing_types)
+    : null;
+  const billingAccentColor = billingFamEmbed?.color;
+  /** Detail „Abrechnung“: shared formatter — Standard-Unterart nicht anzeigen. */
+  const abrechnungDisplayLabel =
+    trip != null
+      ? formatBillingDisplayLabel(trip.billing_variant).trim() || '-'
+      : '-';
 
   // Time draft: only treat as "live" while the sheet is open. Closing discards
   // unsaved edits by resetting from `trip.scheduled_at` (server / cache).
@@ -339,17 +353,16 @@ export function TripDetailSheet({
             <div
               className='relative overflow-hidden border-b p-6 pb-4'
               style={{
-                backgroundColor: trip.billing_variant?.billing_types?.color
-                  ? `color-mix(in srgb, ${trip.billing_variant.billing_types.color}, var(--background) 90%)`
+                backgroundColor: billingAccentColor
+                  ? `color-mix(in srgb, ${billingAccentColor}, var(--background) 90%)`
                   : 'transparent',
-                borderBottomColor:
-                  trip.billing_variant?.billing_types?.color || '#e2e8f0'
+                borderBottomColor: billingAccentColor || '#e2e8f0'
               }}
             >
               <div
                 className='absolute inset-y-0 left-0 w-1.5'
                 style={{
-                  backgroundColor: trip.billing_variant?.billing_types?.color
+                  backgroundColor: billingAccentColor ?? undefined
                 }}
               />
               <div className='mb-2 flex flex-wrap items-center gap-2'>
@@ -644,15 +657,7 @@ export function TripDetailSheet({
                   <DetailItem
                     icon={<CreditCard className='h-3.5 w-3.5' />}
                     label='Abrechnung'
-                    value={
-                      (trip.billing_variant?.billing_types?.name &&
-                      trip.billing_variant?.name
-                        ? `${trip.billing_variant.billing_types.name} · ${trip.billing_variant.name}`
-                        : trip.billing_variant?.name ||
-                          trip.billing_variant?.billing_types?.name ||
-                          ''
-                      ).trim() || '-'
-                    }
+                    value={abrechnungDisplayLabel}
                   />
                   <DetailItem
                     icon={<Phone className='h-3.5 w-3.5' />}

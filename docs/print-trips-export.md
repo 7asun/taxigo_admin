@@ -27,7 +27,7 @@ Overviews include only **assigned** drivers with at least one trip that day (**n
 Trip cards in both JPEG overviews use **`PrintTripGroupsList`** (`src/features/trips/components/print-trip-groups-list.tsx`), aligned with **`MobilePrintTemplate`** / PDF:
 
 - **Grouping** by `group_id` (merged **Gruppe** cards, multi Start/Ziel, shared Hinweis).
-- **Billing:** `color-mix` background, left accent, coloured time chip, billing name.
+- **Billing:** `color-mix` background, left accent, coloured time chip, billing caption via `tripPrintBilling` → [`formatBillingDisplayLabel`](../src/features/trips/lib/format-billing-display-label.ts) (Unterart **Standard** omitted; same rules as list/overview). See [billing-families-variants.md](./billing-families-variants.md).
 - **Wheelchair** icon next to names when `is_wheelchair`.
 - **Start / Ziel** with street + optional station chip + city suffix (incl. **Oldenburg** hide rule).
 - **Hinweis** amber block for notes.

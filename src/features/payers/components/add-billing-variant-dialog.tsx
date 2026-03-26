@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -27,21 +28,13 @@ import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import {
   BILLING_VARIANT_CODE_HINT,
-  isValidBillingVariantCode,
-  normalizeBillingVariantCodeInput
+  pickUniqueBillingVariantCode,
+  suggestBillingVariantCode
 } from '../lib/billing-variant-code';
+import { Badge } from '@/components/ui/badge';
 
 const formSchema = z.object({
-  name: z.string().min(1, { message: 'Name erforderlich' }),
-  code: z
-    .string()
-    .min(1, { message: 'CSV-Code erforderlich' })
-    .refine(
-      (v) => isValidBillingVariantCode(normalizeBillingVariantCodeInput(v)),
-      {
-        message: BILLING_VARIANT_CODE_HINT
-      }
-    )
+  name: z.string().min(1, { message: 'Name erforderlich' })
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -50,6 +43,8 @@ interface AddBillingVariantDialogProps {
   payerId: string;
   familyId: string;
   familyName: string;
+  /** Codes already used in this family — avoids duplicate CSV keys. */
+  existingVariantCodes: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Next sort_order = max existing + 1 (optional; 0 is fine for MVP). */
@@ -60,6 +55,7 @@ export function AddBillingVariantDialog({
   payerId,
   familyId,
   familyName,
+  existingVariantCodes,
   open,
   onOpenChange,
   nextSortOrder = 0
@@ -68,11 +64,18 @@ export function AddBillingVariantDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: '', code: '' }
+    defaultValues: { name: '' }
   });
 
+  const nameWatch = form.watch('name');
+
+  const previewCode = React.useMemo(() => {
+    const base = suggestBillingVariantCode(nameWatch || '', familyName);
+    return pickUniqueBillingVariantCode(base, existingVariantCodes);
+  }, [nameWatch, familyName, existingVariantCodes]);
+
   const handleOpenChange = (newOpen: boolean) => {
-    if (newOpen) form.reset({ name: '', code: '' });
+    if (newOpen) form.reset({ name: '' });
     onOpenChange(newOpen);
   };
 
@@ -81,7 +84,6 @@ export function AddBillingVariantDialog({
       await createBillingVariant({
         familyId,
         name: data.name.trim(),
-        code: normalizeBillingVariantCodeInput(data.code),
         sortOrder: nextSortOrder
       });
       toast.success('Unterart erstellt');
@@ -103,8 +105,7 @@ export function AddBillingVariantDialog({
           <DialogDescription>
             Familie:{' '}
             <span className='text-foreground font-medium'>{familyName}</span>.
-            Code für CSV-Spalte{' '}
-            <code className='text-xs'>abrechnungsvariante</code>.
+            CSV-Code wird aus dem Anzeigenamen (sonst aus der Familie) erzeugt.
           </DialogDescription>
         </DialogHeader>
         <Form
@@ -126,29 +127,21 @@ export function AddBillingVariantDialog({
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name='code'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>CSV-Code</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder='z. B. KTS'
-                    className='font-mono uppercase'
-                    {...field}
-                    onChange={(e) =>
-                      field.onChange(
-                        normalizeBillingVariantCodeInput(e.target.value)
-                      )
-                    }
-                  />
-                </FormControl>
-                <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <div className='space-y-1.5'>
+            <p className='text-sm font-medium'>CSV-Code (Vorschau)</p>
+            <div className='flex items-center gap-2'>
+              <Badge
+                variant='secondary'
+                className='font-mono text-xs tracking-wide uppercase'
+              >
+                {previewCode}
+              </Badge>
+              <span className='text-muted-foreground text-xs'>
+                Spalte <code className='text-[10px]'>abrechnungsvariante</code>
+              </span>
+            </div>
+            <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
+          </div>
           <DialogFooter>
             <Button
               type='button'

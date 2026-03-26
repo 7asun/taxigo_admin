@@ -56,7 +56,8 @@ export function useBillingTypes(payerId: string | undefined | null) {
     mutationFn: (args: {
       familyId: string;
       name: string;
-      code: string;
+      /** Omit to auto-generate from Unterart + Familie (unique in family). */
+      code?: string;
       sortOrder?: number;
     }) =>
       PayersService.createBillingVariant(

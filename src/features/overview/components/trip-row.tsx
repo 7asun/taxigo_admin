@@ -3,7 +3,7 @@
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { Users, Share2, AlertTriangle } from 'lucide-react';
+import { Accessibility, AlertTriangle, Share2, Users } from 'lucide-react';
 import { copyTripToClipboard } from '@/features/trips/lib/share-utils';
 import { getCancelledPartnerLabel } from '@/features/trips/lib/trip-direction';
 import { toast } from 'sonner';
@@ -13,6 +13,10 @@ import {
   type TripStatus
 } from '@/lib/trip-status';
 import { UrgencyIndicator } from '@/features/trips/components/urgency-indicator';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 
 interface TripRowProps {
   trip: any;
@@ -32,15 +36,23 @@ export function TripRow({
     : '--:--';
 
   const bv = trip.billing_variant;
-  const fam = bv?.billing_types;
+  const fam = billingFamilyFromEmbed(bv?.billing_types);
   const rowColor = fam?.color || 'transparent';
-  const billingLabel =
-    fam?.name && bv?.name
-      ? `${fam.name} · ${bv.name}`
-      : bv?.name || fam?.name || '';
+  /** Same rules as Fahrten-Tabelle / Sheet: Standard-Unterart → nur Familienname. */
+  const billingLabel = formatBillingDisplayLabel(bv);
+  const payerName =
+    trip.payer?.name?.trim() ||
+    (
+      trip.payers as { name?: string | null } | null | undefined
+    )?.name?.trim() ||
+    '';
+  const lineBelowTime = billingLabel || payerName;
 
   const isGrouped = !!trip.group_id;
   const tripStatus = (trip.status as TripStatus) ?? 'pending';
+  const partnerCancelled = trip.linked_partner_status === 'cancelled';
+  const selfCancelled = tripStatus === 'cancelled';
+  const bothLegsCancelled = partnerCancelled && selfCancelled;
 
   const formatDropoffAddress = (address: string | null | undefined) => {
     if (!address) return 'Keine Zieladresse';
@@ -90,19 +102,31 @@ export function TripRow({
             variant='dot'
           />
         </div>
-        {/* Time + billing share one column; ch width uses same font size as the clock line */}
+        {/* Time first; Abrechnung (or Kostenträger if empty) directly underneath. */}
         <div
           className={cn(
-            'flex w-[5.5ch] min-w-[5.5ch] shrink-0 flex-col gap-0.5',
+            'flex min-w-0 shrink-0 flex-col gap-0.5',
             compact ? 'text-sm' : 'text-lg'
           )}
         >
-          <div className='text-primary leading-none font-bold tabular-nums'>
+          <div
+            className={cn(
+              'text-primary w-[4.5ch] leading-none font-bold tabular-nums sm:w-[5ch]',
+              compact ? 'text-sm' : 'text-lg'
+            )}
+          >
             {scheduledTime}
           </div>
-          {billingLabel ? (
-            <div className='text-muted-foreground min-w-0 truncate text-[10px] font-medium uppercase'>
-              {billingLabel}
+          {lineBelowTime ? (
+            <div
+              className={cn(
+                'text-muted-foreground max-w-full text-[10px] leading-snug font-medium wrap-break-word',
+                compact
+                  ? 'max-w-[min(52vw,11rem)] sm:max-w-[13rem]'
+                  : 'max-w-[min(56vw,12rem)] sm:max-w-[14rem]'
+              )}
+            >
+              {lineBelowTime}
             </div>
           ) : null}
           {showDate && trip.scheduled_at && (
@@ -125,12 +149,15 @@ export function TripRow({
           {trip.is_wheelchair && (
             <Badge
               variant='outline'
+              title='Rollstuhl'
+              aria-label='Rollstuhl'
               className={cn(
-                'shrink-0 border-rose-200 bg-rose-50 px-1.5 py-0 text-[10px] font-bold text-rose-700 uppercase dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400',
-                compact ? 'h-4' : 'h-5'
+                'shrink-0 border-rose-200 bg-rose-50 px-1 py-0 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400',
+                'inline-flex size-4 items-center justify-center p-0 [&>svg]:size-2.5',
+                !compact && 'size-5 [&>svg]:size-3'
               )}
             >
-              Rollstuhl
+              <Accessibility aria-hidden />
             </Badge>
           )}
           {isGrouped && (
@@ -145,26 +172,41 @@ export function TripRow({
       </div>
       <div className='ml-4 flex flex-col items-end gap-1.5'>
         <div className='flex items-center gap-1.5'>
-          {trip.linked_partner_status === 'cancelled' && (
-            <div
+          {bothLegsCancelled ? (
+            <Badge
               className={cn(
                 tripStatusBadge({ status: 'cancelled' }),
-                'flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap'
+                'flex items-center gap-0.5 px-2 py-0 whitespace-nowrap',
+                compact ? 'h-4 text-[9px]' : 'h-5 text-[10px]'
               )}
             >
-              <AlertTriangle className='h-2.5 w-2.5' />
-              {getCancelledPartnerLabel(trip)}
-            </div>
+              <AlertTriangle className='h-2.5 w-2.5 shrink-0' aria-hidden />
+              Beides storniert
+            </Badge>
+          ) : (
+            <>
+              {partnerCancelled && (
+                <div
+                  className={cn(
+                    tripStatusBadge({ status: 'cancelled' }),
+                    'flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold whitespace-nowrap'
+                  )}
+                >
+                  <AlertTriangle className='h-2.5 w-2.5 shrink-0' aria-hidden />
+                  {getCancelledPartnerLabel(trip)}
+                </div>
+              )}
+              <Badge
+                className={cn(
+                  tripStatusBadge({ status: tripStatus }),
+                  'px-2 py-0 whitespace-nowrap',
+                  compact ? 'h-4 text-[9px]' : 'h-5 text-[10px]'
+                )}
+              >
+                {tripStatusLabels[tripStatus] ?? trip.status}
+              </Badge>
+            </>
           )}
-          <Badge
-            className={cn(
-              tripStatusBadge({ status: tripStatus }),
-              'px-2 py-0 whitespace-nowrap',
-              compact ? 'h-4 text-[9px]' : 'h-5 text-[10px]'
-            )}
-          >
-            {tripStatusLabels[tripStatus] ?? trip.status}
-          </Badge>
           <button
             onClick={async (e) => {
               e.stopPropagation();

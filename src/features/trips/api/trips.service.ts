@@ -97,7 +97,7 @@ export const tripsService = {
     const { data, error } = await supabase
       .from('trips')
       .select(
-        '*, driver:accounts!trips_driver_id_fkey(name), billing_variant:billing_variants(name, code, billing_types(name, color))'
+        '*, driver:accounts!trips_driver_id_fkey(name), payer:payers(name), billing_variant:billing_variants!trips_billing_variant_id_fkey(name, code, billing_types!billing_variants_billing_type_id_fkey(name, color))'
       )
       .gte('scheduled_at', startDate)
       .lte('scheduled_at', endDate)

@@ -51,10 +51,12 @@ form-created rows, where only the Rückfahrt ever received `linked_trip_id`.
 
 ## 3. Creation Paths — State of Each Field
 
-### 3a. Create-Trip Form (`src/features/trips/components/create-trip-form.tsx`)
+### 3a. Create-Trip Form (`src/features/trips/components/create-trip/create-trip-form.tsx`)
 
 Two sub-paths exist (group mode and passenger mode) but both follow the same
-pattern. **Both have been fixed to set `link_type`.**
+pattern. **Both have been fixed to set `link_type`.** Outbound legs also set
+`requested_date` from the chosen Abfahrt calendar day (and `scheduled_at` when a
+time is set), aligned with bulk CSV — see [`billing-families-variants.md`](billing-families-variants.md).
 
 | Leg | `link_type` | `linked_trip_id` |
 |-----|-------------|-----------------|

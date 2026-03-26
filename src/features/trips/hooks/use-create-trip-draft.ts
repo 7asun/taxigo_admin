@@ -26,7 +26,8 @@ function serializeDraftPayload(
     values: {
       payer_id: values.payer_id,
       billing_variant_id: values.billing_variant_id ?? '',
-      scheduled_at: values.scheduled_at.toISOString(),
+      departure_date: values.departure_date,
+      departure_time: values.departure_time ?? '',
       return_mode: values.return_mode,
       return_date: values.return_date ? values.return_date.toISOString() : null,
       return_time: values.return_time ?? '',

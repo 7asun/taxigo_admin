@@ -66,6 +66,8 @@ Each trip card displays an inline time input inside a chip whose **background an
 
 **Flow:** User changes time → staged in `pendingChanges` → "Speichern" persists via `tripsService.updateTrip`.
 
+**Abrechnung on the card:** Caption uses [`formatBillingDisplayLabel`](../src/features/trips/lib/format-billing-display-label.ts) (same as trips table and overview): **Standard** Unterart is hidden so only the family name shows. See [billing-families-variants.md](./billing-families-variants.md) („Abrechnung-Anzeige“).
+
 ---
 
 ## 3. Stop-Order (Grouped Trips)

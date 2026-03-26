@@ -50,6 +50,7 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
     Beispiele: `08:30`, `14:05`
   - Wenn angegeben, wird `date + time` zu `scheduled_at` kombiniert.
   - Wenn leer: Die Fahrt wird mit `scheduled_at = NULL` und `requested_date = date` angelegt. Sie erscheint automatisch im **Offene Touren**-Widget, wo die Abholzeit nachträglich eingetragen werden kann. Das Datum wird im Widget vorausgefüllt.
+  - **Neue Fahrt (manuell):** dieselbe Logik — Abfahrt-Datum plus optionale Uhrzeit; siehe [`billing-families-variants.md`](billing-families-variants.md) („Neue Fahrt“).
   - Ungültiges `date`-Format führt weiterhin zu `invalid_datetime` und die Zeile wird abgelehnt.
 
 - **firstname** (optional)  
