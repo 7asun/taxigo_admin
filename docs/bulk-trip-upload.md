@@ -89,6 +89,8 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 - **dropoff_station** (optional)  
   Optionale Station / Zusatzinfo zur Zieladresse.
 
+  Wenn die **Abrechnungsart** im Kostenträger so konfiguriert ist, dass Abhol- bzw. Ziel-Station verpflichtend sind, fehlende Werte beim Import **keinen** Zeilenabbruch aus: Es erscheint eine Hinweis-Meldung, die Fahrt wird trotzdem angelegt. Siehe [Bulk Upload: Behavior Rules](bulk-upload-behavior-rules.md), Abschnitt *3c. Mandatory station (CSV warnings)*.
+
 - **is_wheelchair** (optional)  
   Kennzeichnet, ob ein rollstuhlgerechtes Fahrzeug benötigt wird.
   - Der Wert wird uppercased und mit `TRUE` verglichen.

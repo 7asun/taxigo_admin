@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
+import { tripKeys } from '@/query/keys';
 
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
@@ -15,6 +18,8 @@ import {
 
 export function useTripCancellation() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const optionalRscRefresh = useOptionalTripsRscRefresh();
   const [isLoading, setIsLoading] = useState(false);
 
   const cancelTrip = async (
@@ -80,7 +85,12 @@ export function useTripCancellation() {
           toast.success('Fahrt wurde erfolgreich storniert.');
       }
 
-      router.refresh();
+      if (optionalRscRefresh) {
+        await optionalRscRefresh.refreshTripsPage();
+      } else {
+        await router.refresh();
+        await queryClient.invalidateQueries({ queryKey: tripKeys.all });
+      }
     } finally {
       setIsLoading(false);
     }

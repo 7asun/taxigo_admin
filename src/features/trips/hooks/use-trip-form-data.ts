@@ -1,85 +1,52 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type {
+  BillingVariantOption,
+  ClientOption,
+  DriverOption,
+  PayerOption
+} from '@/features/trips/types/trip-form-reference.types';
+import {
+  useBillingVariantsForPayerQuery,
+  useDriversQuery,
+  usePayersQuery
+} from '@/features/trips/hooks/use-trip-reference-queries';
 
-export interface PayerOption {
-  id: string;
-  name: string;
-}
+export type {
+  PayerOption,
+  BillingVariantOption,
+  ClientOption,
+  DriverOption
+} from '@/features/trips/types/trip-form-reference.types';
 
-export interface BillingTypeOption {
-  id: string;
-  name: string;
-  color: string;
-  payer_id: string;
-  behavior_profile?: any;
-}
+/** @deprecated use BillingVariantOption — same shape as former billing type row for forms */
+export type BillingTypeOption = BillingVariantOption;
 
-export interface ClientOption {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  company_name: string | null;
-  is_company: boolean;
-  phone: string | null;
-  street: string;
-  street_number: string;
-  zip_code: string;
-  city: string;
-}
-
-export interface DriverOption {
-  id: string;
-  name: string;
-}
-
+/**
+ * Trip create/edit form and Fahrten filter bar: payers, drivers, billing variants, client search.
+ *
+ * Payers and drivers are loaded via TanStack Query (`referenceKeys` in `src/query/keys/reference.ts`)
+ * so every `DriverSelectCell` and the filters bar share one cache entry instead of N `useEffect` fetches.
+ *
+ * Billing variants depend on the selected payer UUID; never pass URL sentinels (`'all'`) into the query.
+ */
 export function useTripFormData(payerId?: string | null) {
-  const [payers, setPayers] = useState<PayerOption[]>([]);
-  const [billingTypes, setBillingTypes] = useState<BillingTypeOption[]>([]);
-  const [drivers, setDrivers] = useState<DriverOption[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const payersQuery = usePayersQuery();
+  const driversQuery = useDriversQuery();
+  const billingVariantsQuery = useBillingVariantsForPayerQuery(payerId);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const supabase = createClient();
-        const [payersRes, driversRes] = await Promise.all([
-          supabase.from('payers').select('id, name').order('name'),
-          supabase
-            .from('accounts')
-            .select('id, name')
-            .eq('role', 'driver')
-            .eq('is_active', true)
-            .order('name')
-        ]);
-        if (payersRes.data) setPayers(payersRes.data);
-        if (driversRes.data) setDrivers(driversRes.data);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const payers: PayerOption[] = payersQuery.data ?? [];
+  const drivers: DriverOption[] = driversQuery.data ?? [];
+  const billingVariants: BillingVariantOption[] =
+    billingVariantsQuery.data ?? [];
 
-  useEffect(() => {
-    // 'all' is the URL sentinel for “every payer”, not a real UUID — never query eq('payer_id', 'all').
-    if (!payerId || payerId === 'all') {
-      setBillingTypes([]);
-      return;
-    }
-    const fetchBillingTypes = async () => {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('billing_types')
-        .select('id, name, color, payer_id, behavior_profile')
-        .eq('payer_id', payerId)
-        .order('name');
-      if (data) setBillingTypes(data);
-    };
-    fetchBillingTypes();
-  }, [payerId]);
+  const payerIsConcrete =
+    typeof payerId === 'string' && payerId.length > 0 && payerId !== 'all';
+  const isLoading =
+    payersQuery.isPending ||
+    driversQuery.isPending ||
+    (payerIsConcrete && billingVariantsQuery.isPending);
 
   const searchClients = async (query: string): Promise<ClientOption[]> => {
     if (!query || query.length < 2) return [];
@@ -87,10 +54,10 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
       .or(
-        `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%`
+        `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
       )
       .limit(8);
     return data || [];
@@ -104,9 +71,11 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
-      .or(`first_name.ilike.%${query}%,company_name.ilike.%${query}%`)
+      .or(
+        `first_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+      )
       .order('first_name')
       .limit(8);
     return data || [];
@@ -120,9 +89,11 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
-      .or(`last_name.ilike.%${query}%,company_name.ilike.%${query}%`)
+      .or(
+        `last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+      )
       .order('last_name')
       .limit(8);
     return data || [];
@@ -136,7 +107,7 @@ export function useTripFormData(payerId?: string | null) {
     const { data } = await supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, is_company, phone, street, street_number, zip_code, city'
+        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
       )
       .eq('id', id)
       .single();
@@ -145,7 +116,10 @@ export function useTripFormData(payerId?: string | null) {
 
   return {
     payers,
-    billingTypes,
+    /** Flat variant list (includes `billing_type_name`, `code`, `behavior_profile` from `billing_types`). */
+    billingVariants,
+    /** @deprecated alias for billingVariants — same rows as former billing_types leaf concept */
+    billingTypes: billingVariants,
     drivers,
     isLoading,
     searchClients,

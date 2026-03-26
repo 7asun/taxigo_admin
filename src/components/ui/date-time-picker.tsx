@@ -1,5 +1,25 @@
 'use client';
 
+/**
+ * @fileoverview Admin UI for choosing calendar days (and optionally clock times) for trips.
+ *
+ * **Module:** `src/components/ui/date-time-picker.tsx` — exports both components from one file
+ * so they always share styling and behaviour.
+ *
+ * | Export | Use when |
+ * |--------|----------|
+ * | `DateTimePicker` | One `Date` = full instant (e.g. create-trip `scheduled_at`). |
+ * | `DatePicker` | Day as `yyyy-MM-dd` string; time comes from elsewhere (e.g. `<input type="time">`, Verschieben / Zeitabsprache). |
+ *
+ * **Shared:** `dateTimePickerCalendarClassNames` (touch-friendly `Calendar` cells, works inside nested `Dialog`s).
+ * **Narrow screens:** both use `useIsNarrowScreen(768)` and `MobileDateTimeSheet` for the date (and `DateTimePicker` also for time).
+ *
+ * **Calendar clearing:** `DatePicker` sets `required={false}` so the user can deselect the day (tap again). `DateTimePicker`
+ * uses the default single-day behaviour and clears via clearing the whole value from the parent.
+ *
+ * @see `docs/date-picker.md` — product-level “when to use which” and examples.
+ */
+
 import * as React from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -17,7 +37,10 @@ import { cn } from '@/lib/utils';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { MobileDateTimeSheet } from '@/features/trips/components/create-trip/mobile-datetime-sheet';
 
-/** Larger cells + touch-manipulation so the calendar works on phones (e.g. inside Drawer/Dialog). */
+/**
+ * Passed to `Calendar`’s `classNames` for both pickers so date popovers look identical
+ * (larger hit targets on small screens, consistent with trip create flows).
+ */
 const dateTimePickerCalendarClassNames = {
   day: cn(
     buttonVariants({ variant: 'ghost' }),
@@ -31,14 +54,20 @@ const dateTimePickerCalendarClassNames = {
   )
 };
 
-interface DateTimePickerProps {
+export interface DateTimePickerProps {
+  /** Full instant; `undefined` clears both date and time in the UI. */
   value?: Date;
   onChange?: (date: Date | undefined) => void;
+  /** Optional label; when set, desktop shows one label spanning the date column (time column uses a spacer label). */
   label?: string;
   disabled?: boolean;
   id?: string;
 }
 
+/**
+ * Single control for **both** calendar day and clock time as one `Date` (`undefined` clears).
+ * For split “Datum + optional Uhrzeit” (same file): use **`DatePicker`** + your own time input.
+ */
 export function DateTimePicker({
   value,
   onChange,
@@ -46,7 +75,7 @@ export function DateTimePicker({
   disabled,
   id = 'date-time-picker'
 }: DateTimePickerProps) {
-  const narrow = useIsNarrowScreen(768);
+  const narrow = useIsNarrowScreen(768); // matches trip forms: sheet pickers below `md`
   const [popoverOpen, setPopoverOpen] = React.useState(false);
   const [dateSheetOpen, setDateSheetOpen] = React.useState(false);
   const [timeSheetOpen, setTimeSheetOpen] = React.useState(false);
@@ -60,6 +89,8 @@ export function DateTimePicker({
   React.useEffect(() => {
     if (value) {
       setTimeValue(format(value, 'HH:mm'));
+    } else {
+      setTimeValue('');
     }
   }, [value]);
 
@@ -70,6 +101,7 @@ export function DateTimePicker({
       onChange?.(undefined);
       return;
     }
+    // Preserve current time (or midnight) when only the calendar day changes.
     const [hours, minutes] = timeValue
       ? timeValue.split(':').map(Number)
       : [0, 0];
@@ -82,6 +114,7 @@ export function DateTimePicker({
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = e.target.value;
     setTimeValue(time);
+    // Clearing time does not clear the parent `Date` — only typing a time with a selected day updates.
     if (selectedDate && time) {
       const [hours, minutes] = time.split(':').map(Number);
       const newDate = new Date(selectedDate);
@@ -190,6 +223,7 @@ export function DateTimePicker({
             {label}
           </Label>
         )}
+        {/* modal={false}: allow interaction with parent Dialog / other layers */}
         <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -214,6 +248,7 @@ export function DateTimePicker({
             side='bottom'
             sideOffset={4}
             collisionPadding={16}
+            // Keep focus on the trigger so nested modals don’t trap focus awkwardly.
             onOpenAutoFocus={(event) => event.preventDefault()}
             className={cn(
               'z-[100] w-[min(100vw-1rem,20rem)] max-w-[calc(100vw-1rem)] touch-manipulation overflow-y-auto overscroll-contain p-0 sm:w-auto sm:max-w-none',
@@ -250,5 +285,153 @@ export function DateTimePicker({
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Date-only picker (import as `DatePicker`; used when time is not part of the same `Date`)
+
+/** Parses `yyyy-MM-dd` to a local calendar `Date` (no UTC shift) for `Calendar`’s `selected`. */
+function parseYmdToLocalDate(ymd: string): Date | undefined {
+  const t = ymd.trim();
+  if (!t) return undefined;
+  const [y, m, d] = t.split('-').map(Number);
+  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return undefined;
+  return new Date(y, m - 1, d);
+}
+
+export interface DatePickerProps {
+  /** Calendar day as `yyyy-MM-dd`, or `''` when no day is chosen. */
+  value: string;
+  /** Emits `yyyy-MM-dd` or `''` when the user clears the selection. */
+  onChange: (ymd: string) => void;
+  disabled?: boolean;
+  /** Forwarded to the trigger `Button` (`htmlFor` on the external `Label`). */
+  id?: string;
+}
+
+/**
+ * Date-only: German label (`dd. MMMM yyyy`), same Popover + `Calendar` + mobile sheet as the
+ * **date column** of `DateTimePicker`. Value is a string so the parent can pair it with an
+ * empty time (Zeitabsprache) without fighting a single `Date` object.
+ *
+ * @see `docs/date-picker.md`
+ */
+export function DatePicker({
+  value,
+  onChange,
+  disabled,
+  id = 'date-picker'
+}: DatePickerProps) {
+  const narrow = useIsNarrowScreen(768);
+  const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const [dateSheetOpen, setDateSheetOpen] = React.useState(false);
+
+  const selectedDate = React.useMemo(() => parseYmdToLocalDate(value), [value]);
+
+  const handleDaySelect = (day: Date | undefined) => {
+    if (!day) {
+      onChange('');
+      return;
+    }
+    // Strip time so we never emit timezone-shifted strings vs. `yyyy-MM-dd`.
+    const normalized = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate()
+    );
+    onChange(format(normalized, 'yyyy-MM-dd'));
+    setPopoverOpen(false);
+  };
+
+  const displayDate = selectedDate
+    ? format(selectedDate, 'dd. MMMM yyyy', { locale: de })
+    : 'Datum wählen';
+
+  // Sheet must be a sibling of the Button, not a child — invalid HTML and Radix focus.
+  if (narrow) {
+    return (
+      <>
+        <Button
+          type='button'
+          id={id}
+          variant='outline'
+          disabled={disabled}
+          onClick={() => setDateSheetOpen(true)}
+          className={cn(
+            'h-10 min-h-10 w-full touch-manipulation justify-between text-left text-base font-normal md:h-9 md:min-h-0',
+            !selectedDate && 'text-muted-foreground'
+          )}
+        >
+          <span className='flex min-w-0 items-center gap-2'>
+            <CalendarIcon className='h-4 w-4 shrink-0 opacity-60' />
+            <span className='min-w-0 truncate'>{displayDate}</span>
+          </span>
+          <ChevronDownIcon className='h-4 w-4 shrink-0 opacity-50' />
+        </Button>
+        <MobileDateTimeSheet
+          open={dateSheetOpen}
+          onOpenChange={setDateSheetOpen}
+          value={selectedDate}
+          title='Datum wählen'
+          mode='date'
+          onConfirm={(d) => {
+            const normalized = new Date(
+              d.getFullYear(),
+              d.getMonth(),
+              d.getDate()
+            );
+            onChange(format(normalized, 'yyyy-MM-dd'));
+          }}
+        />
+      </>
+    );
+  }
+
+  // `modal={false}` lets nested Dialogs/Drawers receive pointer events; matches DateTimePicker.
+  return (
+    <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type='button'
+          id={id}
+          variant='outline'
+          disabled={disabled}
+          className={cn(
+            'h-10 min-h-10 w-full touch-manipulation justify-between text-left font-normal md:h-9 md:min-h-0',
+            !selectedDate && 'text-muted-foreground'
+          )}
+        >
+          <span className='flex min-w-0 items-center gap-2'>
+            <CalendarIcon className='h-4 w-4 shrink-0 opacity-60' />
+            <span className='truncate'>{displayDate}</span>
+          </span>
+          <ChevronDownIcon className='h-4 w-4 shrink-0 opacity-50' />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align='start'
+        side='bottom'
+        sideOffset={4}
+        collisionPadding={16}
+        // Avoid stealing focus on open (calendar still works; matches DateTimePicker).
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn(
+          'z-[100] w-[min(100vw-1rem,20rem)] max-w-[calc(100vw-1rem)] touch-manipulation overflow-y-auto overscroll-contain p-0 sm:w-auto sm:max-w-none',
+          'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]'
+        )}
+      >
+        <Calendar
+          mode='single'
+          // Allow clearing by tapping the selected day again (react-day-picker v8).
+          required={false}
+          selected={selectedDate}
+          onSelect={handleDaySelect}
+          defaultMonth={selectedDate}
+          initialFocus={false}
+          className='w-full max-w-full'
+          classNames={dateTimePickerCalendarClassNames}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -25,6 +25,7 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { useDebounce } from '@/hooks/use-debounce';
+import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 export interface AddressResult {
   address: string;
@@ -235,19 +236,30 @@ export function AddressAutocomplete({
         );
         const details = await res.json();
 
-        // Merge server-resolved geometry + address; establishment rows still use `name` for the input label.
+        const mergedStreet = details.street || result.street;
+        const mergedStreetNumber = details.street_number;
+        const mergedZip = details.zip_code;
+        const mergedCity = details.city || result.city;
+
+        // Merge server-resolved geometry + address. Build `address` from structured
+        // fields (same as manual PLZ/Stadt edits) so DB line matches `pickup_*` columns
+        // and always includes PLZ when Place Details / geocode provides it — unlike
+        // the raw Autocomplete suggestion string (often Ortsteil + no PLZ).
         const finalResult = {
           ...result,
-          // For establishments the input should show the place name, not the
-          // raw Google address string. For regular addresses keep the full text.
-          address: result.name ?? result.address,
+          address: formatTripAddressDisplayLine({
+            street: mergedStreet,
+            street_number: mergedStreetNumber,
+            zip_code: mergedZip,
+            city: mergedCity,
+            placeName: result.name
+          }),
           lat: details.lat,
           lng: details.lng,
-          zip_code: details.zip_code,
-          // place-details resolves the actual street for establishments
-          street: details.street || result.street,
-          street_number: details.street_number,
-          city: details.city || result.city
+          zip_code: mergedZip,
+          street: mergedStreet,
+          street_number: mergedStreetNumber,
+          city: mergedCity
         };
 
         onChange(finalResult);

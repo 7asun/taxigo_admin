@@ -70,6 +70,8 @@ interface AddressGroupCardProps {
   applyClientAddressDropoffLocked?: boolean;
   groupLabel?: string;
   hasError?: boolean;
+  /** Marks station input when billing requires non-empty station for this leg. */
+  stationErrorForPassenger?: (passengerUid: string) => boolean;
 }
 
 export function AddressGroupCard({
@@ -93,7 +95,8 @@ export function AddressGroupCard({
   applyClientAddressPickupLocked,
   applyClientAddressDropoffLocked,
   groupLabel,
-  hasError = false
+  hasError = false,
+  stationErrorForPassenger
 }: AddressGroupCardProps) {
   const isPickup = mode === 'pickup';
   const stationField = isPickup
@@ -153,6 +156,7 @@ export function AddressGroupCard({
                   key={p.uid}
                   passenger={p}
                   stationField={stationField}
+                  stationInputError={stationErrorForPassenger?.(p.uid)}
                   onRemove={() => onRemovePassenger(p.uid)}
                   onStationChange={(value) =>
                     onStationChange(p.uid, stationField, value)
@@ -210,6 +214,7 @@ export function AddressGroupCard({
                 key={p.uid}
                 passenger={p}
                 stationField={stationField}
+                stationInputError={stationErrorForPassenger?.(p.uid)}
                 onRemove={() => onRemovePassenger(p.uid)}
                 onStationChange={(value) =>
                   onStationChange(p.uid, stationField, value)

@@ -30,6 +30,7 @@ import {
   normalizeBillingTypeBehavior,
   parseBehaviorProfileRaw
 } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 import { useCreateTripDraft } from '@/features/trips/hooks/use-create-trip-draft';
 import {
   buildTripFormValuesFromDraft,
@@ -38,7 +39,7 @@ import {
 
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
-  billing_type_id: 'payer',
+  billing_variant_id: 'payer',
   scheduled_at: 'schedule',
   return_mode: 'schedule',
   return_date: 'schedule',
@@ -99,13 +100,17 @@ export function CreateTripForm({
     pickupGroups?: Record<string, boolean>;
     dropoffGroups?: Record<string, boolean>;
     unassigned?: boolean;
+    passengerStationErrors?: Record<
+      string,
+      { pickup?: boolean; dropoff?: boolean }
+    >;
   }>({});
 
   const form = useForm<TripFormValues>({
     resolver: zodResolver(tripFormSchema) as any,
     defaultValues: {
       payer_id: '',
-      billing_type_id: '',
+      billing_variant_id: '',
       scheduled_at: new Date(),
       return_mode: 'none',
       return_date: undefined,
@@ -159,7 +164,7 @@ export function CreateTripForm({
     (errs: FieldErrors<TripFormValues>) => {
       const order: (keyof TripFormValues)[] = [
         'payer_id',
-        'billing_type_id',
+        'billing_variant_id',
         'scheduled_at',
         'return_mode',
         'return_date',
@@ -186,7 +191,7 @@ export function CreateTripForm({
   );
 
   const watchedPayerId = form.watch('payer_id');
-  const watchedBillingTypeId = form.watch('billing_type_id');
+  const watchedBillingVariantId = form.watch('billing_variant_id');
   const watchedIsWheelchair = form.watch('is_wheelchair');
   const watchedReturnMode = form.watch('return_mode') as ReturnMode;
   const watchedScheduledAt = form.watch('scheduled_at');
@@ -242,17 +247,17 @@ export function CreateTripForm({
 
   // Reset billing type when payer changes
   React.useEffect(() => {
-    form.setValue('billing_type_id', '');
+    form.setValue('billing_variant_id', '');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedBillingType = billingTypes.find(
-    (bt) => bt.id === watchedBillingTypeId
+    (bt) => bt.id === watchedBillingVariantId
   );
 
   // When Abrechnungsart changes, clear address rows (then the next effect applies new defaults).
   // Passengers, schedule, notes, etc. stay; station strings reset with addresses.
   React.useEffect(() => {
-    const current = watchedBillingTypeId || '';
+    const current = watchedBillingVariantId || '';
     const prev = prevBillingTypeIdRef.current;
 
     if (prev !== undefined && prev !== current) {
@@ -282,7 +287,7 @@ export function CreateTripForm({
     }
 
     prevBillingTypeIdRef.current = current;
-  }, [watchedBillingTypeId]);
+  }, [watchedBillingVariantId]);
 
   // Apply all behavior profile rules when billing type changes
   React.useEffect(() => {
@@ -316,14 +321,17 @@ export function CreateTripForm({
       pickupZip ||
       pickupCity
     ) {
+      // Prefer structured fields for the display line — `defaultPickup` may be an
+      // older Autocomplete string without PLZ while zip/city exist separately.
       const pickupAddress =
+        formatTripAddressDisplayLine({
+          street: pickupStreet,
+          street_number: pickupStreetNumber,
+          zip_code: pickupZip,
+          city: pickupCity
+        }) ||
         defaultPickup ||
-        [
-          [pickupStreet, pickupStreetNumber].filter(Boolean).join(' '),
-          [pickupZip, pickupCity].filter(Boolean).join(' ')
-        ]
-          .filter(Boolean)
-          .join(', ');
+        '';
 
       setPickupGroups((prev) =>
         prev.map((g, i) =>
@@ -349,13 +357,14 @@ export function CreateTripForm({
       dropoffCity
     ) {
       const dropoffAddress =
+        formatTripAddressDisplayLine({
+          street: dropoffStreet,
+          street_number: dropoffStreetNumber,
+          zip_code: dropoffZip,
+          city: dropoffCity
+        }) ||
         defaultDropoff ||
-        [
-          [dropoffStreet, dropoffStreetNumber].filter(Boolean).join(' '),
-          [dropoffZip, dropoffCity].filter(Boolean).join(' ')
-        ]
-          .filter(Boolean)
-          .join(', ');
+        '';
 
       setDropoffGroups((prev) =>
         prev.map((g, i) =>
@@ -454,6 +463,28 @@ export function CreateTripForm({
       setPassengers((prev) =>
         prev.map((p) => (p.uid === uid ? { ...p, [field]: value } : p))
       );
+      setFormErrors((e) => {
+        const errs = e.passengerStationErrors;
+        if (!errs?.[uid]) return e;
+        const leg = field === 'pickup_station' ? 'pickup' : 'dropoff';
+        if (!value.trim()) return e;
+        const prevEntry = errs[uid];
+        const nextEntry: { pickup?: boolean; dropoff?: boolean } = {
+          ...prevEntry
+        };
+        delete nextEntry[leg];
+        const rest = { ...errs };
+        if (!nextEntry.pickup && !nextEntry.dropoff) {
+          delete rest[uid];
+        } else {
+          rest[uid] = nextEntry;
+        }
+        return {
+          ...e,
+          passengerStationErrors:
+            Object.keys(rest).length > 0 ? rest : undefined
+        };
+      });
     },
     []
   );
@@ -631,12 +662,12 @@ export function CreateTripForm({
       const result: AddressResult = {
         address:
           payload.address ||
-          [
-            [payload.street, payload.street_number].filter(Boolean).join(' '),
-            [payload.zip_code, payload.city].filter(Boolean).join(' ')
-          ]
-            .filter(Boolean)
-            .join(', '),
+          formatTripAddressDisplayLine({
+            street: payload.street,
+            street_number: payload.street_number,
+            zip_code: payload.zip_code,
+            city: payload.city
+          }),
         street: payload.street,
         street_number: payload.street_number,
         zip_code: payload.zip_code,
@@ -665,14 +696,12 @@ export function CreateTripForm({
       prev.map((g) => {
         if (g.uid === uid) {
           const updated = { ...g, [field]: value };
-          // Re-construct the full address string for backward compatibility/display
-          const streetStr = [updated.street, updated.street_number]
-            .filter(Boolean)
-            .join(' ');
-          const cityStr = [updated.zip_code, updated.city]
-            .filter(Boolean)
-            .join(' ');
-          updated.address = [streetStr, cityStr].filter(Boolean).join(', ');
+          updated.address = formatTripAddressDisplayLine({
+            street: updated.street,
+            street_number: updated.street_number,
+            zip_code: updated.zip_code,
+            city: updated.city
+          });
           return updated;
         }
         return g;
@@ -776,6 +805,36 @@ export function CreateTripForm({
         errors.unassigned = true;
         hasCustomError = true;
       }
+
+      const passengerStationErrors: Record<
+        string,
+        { pickup?: boolean; dropoff?: boolean }
+      > = {};
+      if (billingBehavior.requirePickupStation) {
+        for (const p of passengers) {
+          if (!String(p.pickup_station ?? '').trim()) {
+            passengerStationErrors[p.uid] = {
+              ...passengerStationErrors[p.uid],
+              pickup: true
+            };
+            hasCustomError = true;
+          }
+        }
+      }
+      if (billingBehavior.requireDropoffStation) {
+        for (const p of passengers) {
+          if (!String(p.dropoff_station ?? '').trim()) {
+            passengerStationErrors[p.uid] = {
+              ...passengerStationErrors[p.uid],
+              dropoff: true
+            };
+            hasCustomError = true;
+          }
+        }
+      }
+      if (Object.keys(passengerStationErrors).length > 0) {
+        errors.passengerStationErrors = passengerStationErrors;
+      }
     }
 
     if (hasCustomError) {
@@ -785,6 +844,11 @@ export function CreateTripForm({
         scrollToCreateTripSection('pickup');
       } else if (errors.dropoffGroups || errors.unassigned) {
         scrollToCreateTripSection('dropoff');
+      } else if (errors.passengerStationErrors) {
+        const hasPickupErr = Object.values(errors.passengerStationErrors).some(
+          (e) => e.pickup
+        );
+        scrollToCreateTripSection(hasPickupErr ? 'pickup' : 'dropoff');
       }
       return;
     }
@@ -849,7 +913,7 @@ export function CreateTripForm({
 
       const baseTrip = {
         payer_id: values.payer_id,
-        billing_type_id: values.billing_type_id || null,
+        billing_variant_id: values.billing_variant_id || null,
         driver_id: driverId,
         notes: values.notes || null,
         status: (getStatusWhenDriverChanges('pending', driverId) ??
@@ -1115,7 +1179,7 @@ export function CreateTripForm({
     onClientSelect,
     hasInitializedReturnDateRef,
     watchedPayerId,
-    watchedBillingTypeId,
+    watchedBillingVariantId,
     watchedIsWheelchair,
     watchedReturnMode,
     watchedScheduledAt,

@@ -80,7 +80,7 @@ export function buildReturnTripInsert(
   return {
     ...route,
     payer_id: outbound.payer_id,
-    billing_type_id: outbound.billing_type_id,
+    billing_variant_id: outbound.billing_variant_id,
     client_id: outbound.client_id,
     client_name: outbound.client_name,
     client_phone: outbound.client_phone,

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsService, type Trip } from '../api/trips.service';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { tripKeys } from '@/query/keys';
+import { createDebouncedTripDetailInvalidation } from '@/query/realtime-bridge';
 
 export function useTrips() {
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -58,47 +61,32 @@ export function useTrips() {
   };
 }
 
-export function useTrip(id: string | null) {
-  const [trip, setTrip] = useState<any>(null); // Using any to reflect joined data for now
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+const TRIP_DETAIL_DISABLED_KEY = ['trips', 'detail', '__none__'] as const;
+
+/**
+ * Trip detail with TanStack Query + Supabase realtime **invalidation** (not full refetch
+ * with `setIsLoading(true)`), so the sheet does not flash the skeleton on background updates.
+ *
+ * Use **`isLoading`** for the initial skeleton — it is false when cached data exists while refetching.
+ */
+export function useTripQuery(id: string | null) {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: id ? tripKeys.detail(id) : TRIP_DETAIL_DISABLED_KEY,
+    queryFn: () => tripsService.getTripById(id!),
+    enabled: !!id,
+    /** Slightly longer than global default — detail joins are heavier. */
+    staleTime: 90_000
+  });
 
   useEffect(() => {
     if (!id) return;
 
-    const fetchTrip = async () => {
-      try {
-        setIsLoading(true);
-        const data = await tripsService.getTripById(id);
-        setTrip(data);
-        setError(null);
-      } catch (err) {
-        const error = err as Error;
-        setError(error);
-        toast.error(`Failed to fetch trip details: ${error.message}`);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchTrip();
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-
-    const fetchTrip = async () => {
-      try {
-        setIsLoading(true);
-        const data = await tripsService.getTripById(id);
-        setTrip(data);
-        setError(null);
-      } catch (err) {
-        setError(err as Error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    const { schedule, cancel } = createDebouncedTripDetailInvalidation(
+      queryClient,
+      id
+    );
 
     const supabase = createClient();
     const channel = supabase
@@ -111,21 +99,35 @@ export function useTrip(id: string | null) {
           table: 'trips',
           filter: `id=eq.${id}`
         },
-        (payload) => {
-          console.log(`Real-time update for trip ${id} received:`, payload);
-          fetchTrip();
+        () => {
+          schedule();
         }
       )
       .subscribe();
 
     return () => {
+      cancel();
       supabase.removeChannel(channel);
     };
-  }, [id]);
+  }, [id, queryClient]);
+
+  useEffect(() => {
+    if (!query.error || query.data) return;
+    toast.error(
+      `Failed to fetch trip details: ${(query.error as Error).message}`
+    );
+  }, [query.error, query.data]);
 
   return {
-    trip,
-    isLoading,
-    error
+    trip: query.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error as Error | null,
+    isFetching: query.isFetching,
+    refetch: query.refetch
   };
+}
+
+/** @deprecated Use `useTripQuery` — alias kept for call sites that still import `useTrip`. */
+export function useTrip(id: string | null) {
+  return useTripQuery(id);
 }

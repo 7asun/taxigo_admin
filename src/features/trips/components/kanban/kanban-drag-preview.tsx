@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
+import { formatKanbanTripAddressLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 interface KanbanDragPreviewProps {
   activeId: string;
@@ -65,8 +66,9 @@ export function KanbanDragPreview({
   if (!trip) return null;
 
   const payerName = trip.payer?.name;
-  const billing = trip.billing_type;
-  const cardColor = billing?.color || 'transparent';
+  const bv = trip.billing_variant;
+  const fam = bv?.billing_types;
+  const cardColor = fam?.color || 'transparent';
   const style =
     cardColor !== 'transparent'
       ? {
@@ -80,16 +82,25 @@ export function KanbanDragPreview({
       style={style}
       className='bg-background flex w-72 flex-shrink-0 flex-col gap-1 rounded-md border p-2 text-xs shadow-[0_8px_24px_rgba(0,0,0,0.18)]'
     >
-      <div className='font-semibold'>
-        {trip.scheduled_at
-          ? format(new Date(trip.scheduled_at), 'HH:mm')
-          : '--:--'}
+      <div className='flex min-w-0 items-center gap-2'>
+        <span className='shrink-0 font-semibold tabular-nums'>
+          {trip.scheduled_at
+            ? format(new Date(trip.scheduled_at), 'HH:mm')
+            : '--:--'}
+        </span>
+        <span className='min-w-0 flex-1 truncate text-[11px] font-medium'>
+          {trip.client_name || 'Unbekannter Fahrgast'}
+        </span>
       </div>
-      <div className='line-clamp-1 text-[11px] font-medium'>
-        {trip.client_name || 'Unbekannter Fahrgast'}
-      </div>
-      <div className='text-muted-foreground line-clamp-2 text-[11px]'>
-        {trip.pickup_address} → {trip.dropoff_address}
+      <div className='text-muted-foreground flex flex-col gap-0.5 text-[11px]'>
+        <p className='line-clamp-2 break-words'>
+          <span className='text-foreground font-medium'>Ab: </span>
+          {formatKanbanTripAddressLine(trip, 'pickup').trim() || '—'}
+        </p>
+        <p className='line-clamp-2 break-words'>
+          <span className='text-foreground font-medium'>Nach: </span>
+          {formatKanbanTripAddressLine(trip, 'dropoff').trim() || '—'}
+        </p>
       </div>
       {payerName && (
         <Badge variant='outline' className='mt-1 px-1.5 py-0 text-[10px]'>

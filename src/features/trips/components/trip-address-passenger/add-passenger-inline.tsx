@@ -127,6 +127,7 @@ export function AddPassengerInline({
       setFirstName(client.first_name || '');
       setLastName(client.last_name || '');
       setPhone(client.phone || '');
+      setIsWheelchair(client.is_wheelchair ?? false);
       const addr = [
         `${client.street} ${client.street_number}`.trim(),
         `${client.zip_code} ${client.city}`.trim()
@@ -136,6 +137,7 @@ export function AddPassengerInline({
       setPendingAddress(addr || null);
     } else {
       setPendingAddress(null);
+      setIsWheelchair(false);
     }
   };
 

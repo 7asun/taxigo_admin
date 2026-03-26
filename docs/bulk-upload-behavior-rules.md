@@ -92,6 +92,14 @@ Dispatch systems at scale (Uber's trip engine, Amazon same-day logistics) enforc
 - Prevents orphaned outbound trips with no return counterpart.
 - Enables the widget's linked-trip time hint immediately.
 
+#### 3c. Mandatory station (CSV warnings)
+
+Billing types can require **Abhol-Station** (`pickup_station`) and/or **Ziel-Station** (`dropoff_station`) via `behavior_profile.requirePickupStation` / `requireDropoffStation` (configured in the Kostenträger Verhalten dialog). This mirrors **manual** trip creation: in the form, empty stations block submit when the corresponding flag is on.
+
+**CSV import differs:** missing station columns do **not** reject the row. The parser attaches **non-blocking** validation issues (`severity: 'warning'`, types `missing_pickup_station` / `missing_dropoff_station`). Rows still count as **ready to import** as long as there is no **blocking** error (e.g. invalid date, unknown payer).
+
+After analysis, the upload dialog shows an **amber alert** listing affected CSV lines so dispatch can correct stations in the trip record afterward. The green “bereit zum Erstellen” count includes rows that only have station warnings.
+
 ---
 
 ### 4. Two-Pass Insert Strategy
@@ -142,6 +150,8 @@ After a successful upload, the dialog displays:
 - Number of return trips automatically created
 - Number of address fields overridden by behavior rules
 
+If any row had **station warnings** (mandatory station per billing type but empty CSV columns), an additional amber alert summarizes those lines before import proceeds.
+
 Example:
 ```
 ✓ Import abgeschlossen
@@ -162,6 +172,8 @@ The `behavior_profile` JSON column was originally written with a mix of snake_ca
 | `lock_pickup` | `lockPickup` | `false` |
 | `lock_dropoff` | `lockDropoff` | `false` |
 | `prefill_dropoff_from_pickup` | `prefillDropoffFromPickup` | `false` |
+| `require_pickup_station` | `requirePickupStation` | `false` |
+| `require_dropoff_station` | `requireDropoffStation` | `false` |
 | `create_placeholder` *(old value)* | → normalised to `time_tbd` | |
 
 This ensures all billing types — regardless of when they were configured — behave correctly during import.

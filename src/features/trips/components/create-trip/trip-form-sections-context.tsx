@@ -22,6 +22,11 @@ export interface TripFormErrorsState {
   pickupGroups?: Record<string, boolean>;
   dropoffGroups?: Record<string, boolean>;
   unassigned?: boolean;
+  /** Per-passenger station validation (Fahrgast flow). */
+  passengerStationErrors?: Record<
+    string,
+    { pickup?: boolean; dropoff?: boolean }
+  >;
 }
 
 export interface TripFormSectionsContextType {
@@ -31,8 +36,8 @@ export interface TripFormSectionsContextType {
   onClientSelect?: (client: ClientOption | null) => void;
   hasInitializedReturnDateRef: React.MutableRefObject<boolean>;
   watchedPayerId: string;
-  /** Kept for parity with form.watch; sections may use later. */
-  watchedBillingTypeId: string | undefined;
+  /** Selected billing variant id (leaf); behavior comes from nested family profile. */
+  watchedBillingVariantId: string | undefined;
   watchedIsWheelchair: boolean;
   watchedReturnMode: ReturnMode;
   watchedScheduledAt: Date | undefined;

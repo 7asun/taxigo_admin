@@ -1,65 +1,121 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PayersService } from '../api/payers.service';
-import type { BillingType, BillingTypeBehavior } from '../types/payer.types';
+import type {
+  BillingFamilyWithVariants,
+  BillingTypeBehavior
+} from '../types/payer.types';
 import { PAYERS_QUERY_KEY } from './use-payers';
+import { referenceKeys } from '@/query/keys';
 
-export const BILLING_TYPES_QUERY_KEY = 'billing_types';
+/** Kostenträger sheet + local cache; distinct from trip form reference cache. */
+export const PAYER_BILLING_TREE_QUERY_KEY = 'payer_billing_tree';
 
 export function useBillingTypes(payerId: string | undefined | null) {
   const queryClient = useQueryClient();
 
-  const query = useQuery<BillingType[]>({
-    queryKey: [BILLING_TYPES_QUERY_KEY, payerId],
-    queryFn: () => PayersService.getBillingTypes(payerId as string),
+  const query = useQuery<BillingFamilyWithVariants[]>({
+    queryKey: [PAYER_BILLING_TREE_QUERY_KEY, payerId],
+    queryFn: () =>
+      PayersService.getBillingFamiliesWithVariants(payerId as string),
     enabled: !!payerId,
-    staleTime: 1000 * 60 * 5 // 5 minutes
+    staleTime: 1000 * 60 * 5
   });
 
-  const createMutation = useMutation({
-    mutationFn: ({ name, color }: { name: string; color: string }) =>
-      PayersService.createBillingType(payerId as string, name, color),
-    onSuccess: () => {
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({
+      queryKey: [PAYER_BILLING_TREE_QUERY_KEY, payerId]
+    });
+    queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+    if (payerId) {
       queryClient.invalidateQueries({
-        queryKey: [BILLING_TYPES_QUERY_KEY, payerId]
+        queryKey: referenceKeys.billingVariants(payerId)
       });
-      // Invalidate payers to update the count
-      queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
     }
+  };
+
+  const createFamilyMutation = useMutation({
+    mutationFn: (args: {
+      familyName: string;
+      color: string;
+      initialVariantName?: string;
+      initialVariantCode?: string;
+    }) =>
+      PayersService.createBillingFamilyWithDefaultVariant(
+        payerId as string,
+        args.familyName,
+        args.color,
+        {
+          initialVariantName: args.initialVariantName,
+          initialVariantCode: args.initialVariantCode
+        }
+      ),
+    onSuccess: invalidateAll
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => PayersService.deleteBillingType(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: [BILLING_TYPES_QUERY_KEY, payerId]
-      });
-      // Invalidate payers to update the count
-      queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
-    }
+  const createVariantMutation = useMutation({
+    mutationFn: (args: {
+      familyId: string;
+      name: string;
+      code: string;
+      sortOrder?: number;
+    }) =>
+      PayersService.createBillingVariant(
+        args.familyId,
+        args.name,
+        args.code,
+        args.sortOrder
+      ),
+    onSuccess: invalidateAll
+  });
+
+  const deleteVariantMutation = useMutation({
+    mutationFn: (id: string) => PayersService.deleteBillingVariant(id),
+    onSuccess: invalidateAll
+  });
+
+  const deleteFamilyMutation = useMutation({
+    mutationFn: (id: string) => PayersService.deleteBillingFamily(id),
+    onSuccess: invalidateAll
   });
 
   const updateBehaviorMutation = useMutation({
     mutationFn: ({
-      id,
+      familyId,
       behavior
     }: {
-      id: string;
+      familyId: string;
       behavior: BillingTypeBehavior;
-    }) => PayersService.updateBillingTypeBehavior(id, behavior),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: [BILLING_TYPES_QUERY_KEY, payerId]
-      });
-    }
+    }) => PayersService.updateBillingFamilyBehavior(familyId, behavior),
+    onSuccess: invalidateAll
+  });
+
+  const updateFamilyMutation = useMutation({
+    mutationFn: (args: { familyId: string; name: string; color: string }) =>
+      PayersService.updateBillingFamily(args.familyId, args.name, args.color),
+    onSuccess: invalidateAll
+  });
+
+  const updateVariantMutation = useMutation({
+    mutationFn: (args: { variantId: string; name: string; code: string }) =>
+      PayersService.updateBillingVariant(args.variantId, args.name, args.code),
+    onSuccess: invalidateAll
   });
 
   return {
     ...query,
-    createBillingType: createMutation.mutateAsync,
-    isCreating: createMutation.isPending,
-    deleteBillingType: deleteMutation.mutateAsync,
-    isDeleting: deleteMutation.isPending,
-    updateBehavior: updateBehaviorMutation.mutateAsync,
-    isUpdatingBehavior: updateBehaviorMutation.isPending
+    createBillingFamily: createFamilyMutation.mutateAsync,
+    isCreatingFamily: createFamilyMutation.isPending,
+    createBillingVariant: createVariantMutation.mutateAsync,
+    isCreatingVariant: createVariantMutation.isPending,
+    deleteBillingVariant: deleteVariantMutation.mutateAsync,
+    deleteBillingFamily: deleteFamilyMutation.mutateAsync,
+    isDeleting:
+      deleteVariantMutation.isPending || deleteFamilyMutation.isPending,
+    updateFamilyBehavior: updateBehaviorMutation.mutateAsync,
+    isUpdatingBehavior: updateBehaviorMutation.isPending,
+    updateBillingFamily: updateFamilyMutation.mutateAsync,
+    isUpdatingFamily: updateFamilyMutation.isPending,
+    updateBillingVariant: updateVariantMutation.mutateAsync,
+    isUpdatingVariant: updateVariantMutation.isPending
   };
 }

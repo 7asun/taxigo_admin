@@ -5,6 +5,10 @@ export interface BillingTypeBehavior {
   lockDropoff: boolean;
   prefillDropoffFromPickup: boolean;
   requirePassenger: boolean;
+  /** When true (Fahrgast flow), Abhol-Station per passenger is required on create. */
+  requirePickupStation: boolean;
+  /** When true (Fahrgast flow), Ziel-Station per passenger is required on create. */
+  requireDropoffStation: boolean;
   // Legacy single-string defaults (kept for backward compatibility)
   defaultPickup?: string | null;
   defaultDropoff?: string | null;
@@ -19,13 +23,32 @@ export interface BillingTypeBehavior {
   defaultDropoffCity?: string | null;
 }
 
-export interface BillingType {
+/**
+ * One Abrechnungsfamilie — row in `billing_types` (behavior + color live here).
+ * Table name stays legacy `billing_types`; conceptually this is the family, not the CSV leaf.
+ */
+export interface BillingFamily {
   id: string;
   payer_id: string;
   name: string;
   color: string;
   behavior_profile: BillingTypeBehavior;
   created_at: string;
+}
+
+/** Unterart row under `billing_types`; `code` is stable for CSV / future invoicing. */
+export interface BillingVariant {
+  id: string;
+  billing_type_id: string;
+  name: string;
+  code: string;
+  sort_order: number;
+  created_at: string;
+}
+
+/** Admin tree: `billing_types` rows with nested variants (sorted in the service). */
+export interface BillingFamilyWithVariants extends BillingFamily {
+  billing_variants: BillingVariant[];
 }
 
 export interface Payer {
@@ -37,5 +60,6 @@ export interface Payer {
 }
 
 export interface PayerWithBillingCount extends Payer {
+  /** Count of Abrechnungsfamilien (`billing_types` rows, not individual variants). */
   billing_types: { count: number }[];
 }

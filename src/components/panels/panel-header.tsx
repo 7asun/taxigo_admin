@@ -7,6 +7,7 @@
  *
  * Props:
  *   title        — primary heading text (required)
+ *   titleAfter   — optional node rendered inline after the title (e.g. badges)
  *   description  — secondary subtitle text (optional)
  *   onClose      — if provided, renders a close button in the top-right corner
  *   actions      — arbitrary ReactNode rendered between the text block and close button
@@ -29,13 +30,17 @@ import { cn } from '@/lib/utils';
 
 interface PanelHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   title: string;
+  titleAfter?: React.ReactNode;
   description?: string;
   onClose?: () => void;
   actions?: React.ReactNode;
 }
 
 const PanelHeader = React.forwardRef<HTMLDivElement, PanelHeaderProps>(
-  ({ title, description, onClose, actions, className, ...props }, ref) => {
+  (
+    { title, titleAfter, description, onClose, actions, className, ...props },
+    ref
+  ) => {
     return (
       <div
         ref={ref}
@@ -46,9 +51,12 @@ const PanelHeader = React.forwardRef<HTMLDivElement, PanelHeaderProps>(
         {...props}
       >
         <div className='min-w-0 flex-1'>
-          <p className='truncate text-sm leading-tight font-semibold'>
-            {title}
-          </p>
+          <div className='flex min-w-0 items-center gap-2'>
+            <p className='min-w-0 flex-1 truncate text-sm leading-tight font-semibold'>
+              {title}
+            </p>
+            {titleAfter}
+          </div>
           {description && (
             <p className='text-muted-foreground mt-0.5 truncate text-xs'>
               {description}

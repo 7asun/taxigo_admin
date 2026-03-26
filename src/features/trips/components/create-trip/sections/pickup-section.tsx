@@ -212,6 +212,9 @@ export function CreateTripPickupSection() {
                 pickupGroups.length > 1 ? `Abholadresse ${idx + 1}` : undefined
               }
               hasError={!!formErrors.pickupGroups?.[group.uid]}
+              stationErrorForPassenger={(uid) =>
+                !!formErrors.passengerStationErrors?.[uid]?.pickup
+              }
             />
           ))}
 

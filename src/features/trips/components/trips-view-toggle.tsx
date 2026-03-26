@@ -3,7 +3,8 @@
 import { Button } from '@/components/ui/button';
 import { Kanban, List } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useTransition } from 'react';
+import { useCallback } from 'react';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 
 interface TripsViewToggleProps {
   currentView: string;
@@ -13,7 +14,7 @@ export function TripsViewToggle({ currentView }: TripsViewToggleProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const { refreshTripsPage } = useTripsRscRefresh();
 
   const createQueryString = useCallback(
     (name: string, value: string) => {
@@ -34,10 +35,8 @@ export function TripsViewToggle({ currentView }: TripsViewToggleProps) {
         variant={currentView === 'list' ? 'secondary' : 'ghost'}
         size='sm'
         onClick={() => {
-          startTransition(() => {
-            router.push(pathname + '?' + createQueryString('view', 'list'));
-            router.refresh();
-          });
+          router.push(pathname + '?' + createQueryString('view', 'list'));
+          void refreshTripsPage();
         }}
         className='h-10 min-h-10 flex-1 shadow-none md:h-8 md:min-h-0 md:flex-initial'
       >
@@ -48,10 +47,8 @@ export function TripsViewToggle({ currentView }: TripsViewToggleProps) {
         variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
         size='sm'
         onClick={() => {
-          startTransition(() => {
-            router.push(pathname + '?' + createQueryString('view', 'kanban'));
-            router.refresh();
-          });
+          router.push(pathname + '?' + createQueryString('view', 'kanban'));
+          void refreshTripsPage();
         }}
         className='h-10 min-h-10 flex-1 shadow-none md:h-8 md:min-h-0 md:flex-initial'
       >

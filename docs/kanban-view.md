@@ -62,7 +62,7 @@ When a date filter is active (including the default "today"), the server query i
 
 ## 2. Editable Time
 
-Each trip card displays an inline time input. Change the time directly — it is staged in `pendingChanges`. Only the time is editable; the date comes from `scheduled_at`, `requested_date`, or today.
+Each trip card displays an inline time input inside a chip whose **background and border** reflect urgency (`useUrgencyLevel` + `KANBAN_TIME_CHIP_CLASS` — no separate dot). A tooltip shows the localized urgency label when not idle. Change the time directly — it is staged in `pendingChanges`. Only the time is editable; the date comes from `scheduled_at`, `requested_date`, or today.
 
 **Flow:** User changes time → staged in `pendingChanges` → "Speichern" persists via `tripsService.updateTrip`.
 
@@ -70,7 +70,7 @@ Each trip card displays an inline time input. Change the time directly — it is
 
 ## 3. Stop-Order (Grouped Trips)
 
-When a card is inside a group, a small numeric input appears in the card header (right of the time, left of the status badge). This sets the processing sequence within the group (1, 2, 3, …). Changes are staged and saved along with other pending changes.
+When a card is inside a group, a small numeric input appears in the card header to the **right of the time+name block** (left of the status badge). This sets the processing sequence within the group (1, 2, 3, …). Changes are staged and saved along with other pending changes.
 
 ---
 

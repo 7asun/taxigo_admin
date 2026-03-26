@@ -49,19 +49,57 @@ export type Database = {
           }
         ];
       };
+      billing_variants: {
+        Row: {
+          billing_type_id: string;
+          code: string;
+          created_at: string;
+          id: string;
+          name: string;
+          sort_order: number;
+        };
+        Insert: {
+          billing_type_id: string;
+          code: string;
+          created_at?: string;
+          id?: string;
+          name: string;
+          sort_order?: number;
+        };
+        Update: {
+          billing_type_id?: string;
+          code?: string;
+          created_at?: string;
+          id?: string;
+          name?: string;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'billing_variants_billing_type_id_fkey';
+            columns: ['billing_type_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_types';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       clients: {
         Row: {
           city: string;
           company_id: string;
           company_name: string | null;
           created_at: string;
+          email: string | null;
           first_name: string | null;
           greeting_style: string | null;
           id: string;
           is_company: boolean;
+          is_wheelchair: boolean;
           last_name: string | null;
           notes: string | null;
           phone: string | null;
+          phone_secondary: string | null;
           requires_daily_scheduling: boolean | null;
           stations: string[] | null;
           street: string;
@@ -77,13 +115,16 @@ export type Database = {
           company_id: string;
           company_name?: string | null;
           created_at?: string;
+          email?: string | null;
           first_name?: string | null;
           greeting_style?: string | null;
           id?: string;
           is_company?: boolean;
+          is_wheelchair?: boolean;
           last_name?: string | null;
           notes?: string | null;
           phone?: string | null;
+          phone_secondary?: string | null;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street: string;
@@ -99,13 +140,16 @@ export type Database = {
           company_id?: string;
           company_name?: string | null;
           created_at?: string;
+          email?: string | null;
           first_name?: string | null;
           greeting_style?: string | null;
           id?: string;
           is_company?: boolean;
+          is_wheelchair?: boolean;
           last_name?: string | null;
           notes?: string | null;
           phone?: string | null;
+          phone_secondary?: string | null;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street?: string;
@@ -722,7 +766,7 @@ export type Database = {
         Row: {
           actual_dropoff_at: string | null;
           actual_pickup_at: string | null;
-          billing_type_id: string | null;
+          billing_variant_id: string | null;
           client_id: string | null;
           client_name: string | null;
           client_phone: string | null;
@@ -777,7 +821,7 @@ export type Database = {
         Insert: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
-          billing_type_id?: string | null;
+          billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -832,7 +876,7 @@ export type Database = {
         Update: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
-          billing_type_id?: string | null;
+          billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -878,10 +922,10 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: 'trips_billing_type_id_fkey';
-            columns: ['billing_type_id'];
+            foreignKeyName: 'trips_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
             isOneToOne: false;
-            referencedRelation: 'billing_types';
+            referencedRelation: 'billing_variants';
             referencedColumns: ['id'];
           },
           {

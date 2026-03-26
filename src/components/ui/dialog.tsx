@@ -15,12 +15,10 @@ function Dialog({
 function DialogTrigger({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  const defaultId = React.useId();
-  const id = props.id || defaultId;
-
-  return (
-    <DialogPrimitive.Trigger data-slot='dialog-trigger' id={id} {...props} />
-  );
+  // Do not call useId() here: Radix already wires trigger ↔ content; a second
+  // useId() shifts React’s id sequence vs SSR and causes hydration mismatches
+  // with sibling trees (e.g. Popover + Dialog on the same toolbar).
+  return <DialogPrimitive.Trigger data-slot='dialog-trigger' {...props} />;
 }
 
 function DialogPortal({

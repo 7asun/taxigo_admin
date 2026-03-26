@@ -26,10 +26,17 @@
  *   onRuleDeselect  — called to close Column 3 (clear ruleId param)
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef
+} from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Panel, PanelHeader, PanelBody } from '@/components/panels';
 import { clientsService, Client } from '../api/clients.service';
 import {
@@ -59,6 +66,8 @@ export function ClientDetailPanel({
 
   const formRef = useRef<ClientFormHandle>(null);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  /** Mirrors form `is_wheelchair` for the header switch (synced from `client` on load/save) */
+  const [headerWheelchair, setHeaderWheelchair] = useState(false);
 
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -108,6 +117,16 @@ export function ClientDetailPanel({
     fetchRules();
   }, [fetchRules]);
 
+  useLayoutEffect(() => {
+    if (isNew) {
+      setHeaderWheelchair(false);
+      return;
+    }
+    if (client && client.id === clientId) {
+      setHeaderWheelchair(client.is_wheelchair);
+    }
+  }, [isNew, client, clientId]);
+
   // Derive display name for the panel header
   const displayName = getDisplayName(client, isNew);
 
@@ -133,6 +152,27 @@ export function ClientDetailPanel({
     <Panel className='flex-1'>
       <PanelHeader
         title={displayName}
+        titleAfter={
+          !loading ? (
+            <div className='flex shrink-0 items-center gap-2'>
+              <Switch
+                id='client-detail-wheelchair'
+                checked={headerWheelchair}
+                onCheckedChange={(v) => {
+                  setHeaderWheelchair(v);
+                  formRef.current?.setWheelchair(v);
+                }}
+                aria-label='Rollstuhl'
+              />
+              <label
+                htmlFor='client-detail-wheelchair'
+                className='text-muted-foreground cursor-pointer text-xs whitespace-nowrap select-none'
+              >
+                Rollstuhl
+              </label>
+            </div>
+          ) : undefined
+        }
         description={isNew ? 'Neuen Fahrgast anlegen' : 'Fahrgast bearbeiten'}
         onClose={onClose}
         actions={
@@ -159,6 +199,7 @@ export function ClientDetailPanel({
           <div className='space-y-8'>
             {/* Client form — noCard strips the Card wrapper since Panel provides it */}
             <ClientForm
+              key={isNew ? 'new' : clientId}
               ref={formRef}
               initialData={client}
               pageTitle=''

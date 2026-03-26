@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { Accessibility } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Trip } from '@/features/trips/api/trips.service';
@@ -19,38 +20,52 @@ import {
 } from '@/lib/trip-status';
 import { UrgencyIndicator } from '@/features/trips/components/urgency-indicator';
 import { CellAction } from './cell-action';
+import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
 import { DataTablePagination } from '@/components/ui/table/data-table-pagination';
 import type { Table as TanstackTable } from '@tanstack/react-table';
+import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
 
 interface TripsMobileCardListProps<TData> {
   table: TanstackTable<TData>;
   getRowClassName?: (row: TData) => string;
-}
-
-function parseAddress(raw: string | null | undefined): {
-  street: string | null;
-  cityLine: string | null;
-} {
-  if (!raw) return { street: null, cityLine: null };
-  const match = raw.match(/^(.*?)\s*,?\s*(\d{5}\s+.+)$/);
-  if (match) {
-    return {
-      street: match[1].trim() || null,
-      cityLine: match[2].trim()
-    };
-  }
-  return { street: raw, cityLine: null };
+  totalDatasetCount: number;
+  scrollToRowId?: string | null;
 }
 
 export function TripsMobileCardList<TData>({
   table,
-  getRowClassName
+  getRowClassName,
+  totalDatasetCount,
+  scrollToRowId
 }: TripsMobileCardListProps<TData>) {
   const rows = table.getRowModel().rows;
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const rowIdsSignature = rows.map((r) => r.id).join('|');
+
+  React.useEffect(() => {
+    if (scrollToRowId == null || scrollToRowId === '') return;
+    const raf = window.requestAnimationFrame(() => {
+      const root = scrollContainerRef.current;
+      if (!root) return;
+      const row = root.querySelector(
+        `[data-table-row-id="${scrollToRowId}"]`
+      ) as HTMLElement | null;
+      const behavior: ScrollBehavior = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches
+        ? 'auto'
+        : 'smooth';
+      row?.scrollIntoView({ block: 'center', behavior });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [scrollToRowId, rowIdsSignature]);
 
   return (
     <div className='flex min-h-0 flex-1 flex-col gap-3'>
-      <div className='flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-2'>
+      <div
+        ref={scrollContainerRef}
+        className='flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-2'
+      >
         {rows.map((tableRow) => {
           const trip = tableRow.original as unknown as Trip;
           const scheduled = trip.scheduled_at
@@ -60,14 +75,15 @@ export function TripsMobileCardList<TData>({
             scheduled &&
             !Number.isNaN(scheduled.getTime()) &&
             scheduled.getTime() > 0;
-          const pickup = parseAddress(trip.pickup_address);
-          const dropoff = parseAddress(trip.dropoff_address);
+          const pickup = parseTripAddressForDisplay(trip.pickup_address);
+          const dropoff = parseTripAddressForDisplay(trip.dropoff_address);
           const status = trip.status as TripStatus;
           const rowClass = getRowClassName?.(tableRow.original) ?? '';
 
           return (
             <Card
               key={trip.id}
+              data-table-row-id={trip.id}
               className={cn(
                 // shrink-0: scroll column is flex; default shrink would clip card content at the bottom.
                 'shrink-0 gap-0 py-0 shadow-sm',
@@ -77,6 +93,15 @@ export function TripsMobileCardList<TData>({
               <CardContent className='flex flex-col gap-3 px-3 pt-3 pb-4'>
                 {/* Title block: time + dot, then date under time + greeting + name */}
                 <div className='flex min-w-0 items-start justify-between gap-2'>
+                  <div className='flex shrink-0 pt-0.5'>
+                    <Checkbox
+                      checked={tableRow.getIsSelected()}
+                      onCheckedChange={(value) =>
+                        tableRow.toggleSelected(!!value)
+                      }
+                      aria-label='Fahrt auswählen'
+                    />
+                  </div>
                   <div className='flex min-w-0 flex-1 items-start gap-1.5 sm:gap-2'>
                     <div className='flex min-w-0 shrink-0 flex-col gap-0.5'>
                       <div className='flex items-center gap-1.5'>
@@ -149,7 +174,13 @@ export function TripsMobileCardList<TData>({
           );
         })}
       </div>
-      <DataTablePagination table={table} className='pb-1' />
+      <DataTablePagination
+        table={table}
+        className='pb-1'
+        totalDatasetCount={totalDatasetCount}
+        datasetNounPlural='Fahrten'
+        bulkActions={<TripsPaginationBulkActions table={table} />}
+      />
     </div>
   );
 }

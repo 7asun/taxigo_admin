@@ -1,5 +1,6 @@
 import type { Table } from '@tanstack/react-table';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
+import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -12,48 +13,109 @@ import {
 import { cn } from '@/lib/utils';
 import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 
-interface DataTablePaginationProps<TData> extends React.ComponentProps<'div'> {
+export interface DataTablePaginationProps<TData>
+  extends React.ComponentProps<'div'> {
   table: Table<TData>;
   pageSizeOptions?: number[];
+  /**
+   * Total rows in the dataset (e.g. server-side count). When set, the left
+   * summary uses this plus `getSelectedRowModel()` instead of filtered/page-only counts.
+   */
+  totalDatasetCount?: number;
+  /** Plural label for `totalDatasetCount` summaries, e.g. "Fahrten". */
+  datasetNounPlural?: string;
+  /** Rendered in the center when at least one row is selected (e.g. bulk actions). */
+  bulkActions?: React.ReactNode;
 }
 
 export function DataTablePagination<TData>({
   table,
   pageSizeOptions = [10, 20, 30, 40, 50],
   className,
+  totalDatasetCount,
+  datasetNounPlural = 'Zeilen',
+  bulkActions,
   ...props
 }: DataTablePaginationProps<TData>) {
   const pageIndex = table.getState().pagination.pageIndex;
   const pageSize = table.getState().pagination.pageSize;
 
+  const selectedCount = table.getSelectedRowModel().rows.length;
+  const showBulk = selectedCount > 0 && bulkActions != null;
+
+  const leftSummary = (() => {
+    if (totalDatasetCount != null) {
+      if (selectedCount > 0) {
+        return (
+          <>
+            {selectedCount} von {totalDatasetCount} {datasetNounPlural}{' '}
+            ausgewählt
+          </>
+        );
+      }
+      return (
+        <>
+          {totalDatasetCount} {datasetNounPlural} gesamt
+        </>
+      );
+    }
+
+    if (table.getFilteredSelectedRowModel().rows.length > 0) {
+      return (
+        <>
+          {table.getFilteredSelectedRowModel().rows.length} of{' '}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
+        </>
+      );
+    }
+    return <>{table.getFilteredRowModel().rows.length} row(s) total.</>;
+  })();
+
   return (
     <div
       className={cn(
-        'flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto p-1 sm:gap-4',
+        'flex w-full min-w-0 flex-col gap-2 p-1 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:gap-x-4 md:gap-y-0',
         className
       )}
       {...props}
     >
-      {/* Row counter — hidden on small viewports (Fahrten list / table on phone) */}
-      <div className='text-muted-foreground hidden shrink-0 text-xs whitespace-nowrap sm:text-sm md:block'>
-        {table.getFilteredSelectedRowModel().rows.length > 0 ? (
-          <>
-            {table.getFilteredSelectedRowModel().rows.length} of{' '}
-            {table.getFilteredRowModel().rows.length} row(s) selected.
-          </>
-        ) : (
-          <>{table.getFilteredRowModel().rows.length} row(s) total.</>
-        )}
-      </div>
-
-      {/*
-        Mobile: flex-row-reverse + justify-between → page + arrows on the left,
-        rows per page on the right. md+: normal row, end-aligned (rows, page, nav).
-      */}
       <div
         className={cn(
-          'flex min-w-0 flex-1 items-center justify-between gap-2',
-          'flex-row-reverse md:flex-row md:justify-end md:gap-6'
+          'text-muted-foreground text-xs whitespace-nowrap sm:text-sm',
+          'md:justify-self-start'
+        )}
+      >
+        <span className='hidden sm:inline'>{leftSummary}</span>
+        <span className='sm:hidden'>
+          {totalDatasetCount != null ? (
+            selectedCount > 0 ? (
+              <>
+                {selectedCount}/{totalDatasetCount} ausgewählt
+              </>
+            ) : (
+              <>{totalDatasetCount} gesamt</>
+            )
+          ) : (
+            leftSummary
+          )}
+        </span>
+      </div>
+
+      {showBulk ? (
+        <div className='flex justify-center md:justify-self-center'>
+          {bulkActions}
+        </div>
+      ) : (
+        <div
+          className='hidden min-h-0 md:mx-auto md:block md:min-w-0'
+          aria-hidden
+        />
+      )}
+
+      <div
+        className={cn(
+          'flex min-w-0 flex-nowrap items-center gap-2',
+          'flex-row-reverse justify-between md:flex-row md:flex-wrap md:justify-end md:gap-x-4 md:justify-self-end'
         )}
       >
         <div className='flex shrink-0 items-center gap-1.5 sm:gap-2'>

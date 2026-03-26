@@ -33,11 +33,12 @@ import {
 } from '@/components/ui/form';
 import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
-import type { BillingType, BillingTypeBehavior } from '../types/payer.types';
+import type { BillingFamily, BillingTypeBehavior } from '../types/payer.types';
 import {
   AddressAutocomplete,
   type AddressResult
 } from '@/features/trips/components/address-autocomplete';
+import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 const formSchema = z.object({
   returnPolicy: z.enum(['none', 'time_tbd', 'exact']),
@@ -46,6 +47,8 @@ const formSchema = z.object({
   lockDropoff: z.boolean(),
   prefillDropoffFromPickup: z.boolean(),
   requirePassenger: z.boolean(),
+  requirePickupStation: z.boolean(),
+  requireDropoffStation: z.boolean(),
   defaultPickup: z.string().optional().nullable(),
   defaultPickupStreet: z.string().optional().nullable(),
   defaultPickupStreetNumber: z.string().optional().nullable(),
@@ -90,6 +93,16 @@ function normaliseBehavior(b: any): FormValues {
       false
     ),
     requirePassenger,
+    requirePickupStation: !!(
+      b.requirePickupStation ??
+      b.require_pickup_station ??
+      false
+    ),
+    requireDropoffStation: !!(
+      b.requireDropoffStation ??
+      b.require_dropoff_station ??
+      false
+    ),
     defaultPickup: b.defaultPickup ?? b.default_pickup ?? '',
     defaultPickupStreet: b.defaultPickupStreet ?? b.default_pickup_street ?? '',
     defaultPickupStreetNumber:
@@ -108,18 +121,19 @@ function normaliseBehavior(b: any): FormValues {
 
 interface BillingTypeBehaviorDialogProps {
   payerId: string;
-  billingType: BillingType | null;
+  /** Behavior lives on the family (all variants share it). */
+  billingFamily: BillingFamily | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export function BillingTypeBehaviorDialog({
   payerId,
-  billingType,
+  billingFamily,
   open,
   onOpenChange
 }: BillingTypeBehaviorDialogProps) {
-  const { updateBehavior, isUpdatingBehavior } = useBillingTypes(payerId);
+  const { updateFamilyBehavior, isUpdatingBehavior } = useBillingTypes(payerId);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -130,6 +144,8 @@ export function BillingTypeBehaviorDialog({
       lockDropoff: false,
       prefillDropoffFromPickup: false,
       requirePassenger: true,
+      requirePickupStation: false,
+      requireDropoffStation: false,
       defaultPickup: '',
       defaultPickupStreet: '',
       defaultPickupStreetNumber: '',
@@ -146,13 +162,13 @@ export function BillingTypeBehaviorDialog({
   const watchedReturnPolicy = form.watch('returnPolicy');
 
   useEffect(() => {
-    if (billingType?.behavior_profile) {
-      form.reset(normaliseBehavior(billingType.behavior_profile));
+    if (billingFamily?.behavior_profile) {
+      form.reset(normaliseBehavior(billingFamily.behavior_profile));
     }
-  }, [billingType, form]);
+  }, [billingFamily, form]);
 
   async function onSubmit(data: FormValues) {
-    if (!billingType) return;
+    if (!billingFamily) return;
     try {
       const processedData: BillingTypeBehavior = {
         ...data,
@@ -169,7 +185,10 @@ export function BillingTypeBehaviorDialog({
         defaultDropoffZip: data.defaultDropoffZip?.trim() || null,
         defaultDropoffCity: data.defaultDropoffCity?.trim() || null
       };
-      await updateBehavior({ id: billingType.id, behavior: processedData });
+      await updateFamilyBehavior({
+        familyId: billingFamily.id,
+        behavior: processedData
+      });
       toast.success('Verhalten aktualisiert');
       onOpenChange(false);
     } catch (error) {
@@ -177,7 +196,7 @@ export function BillingTypeBehaviorDialog({
     }
   }
 
-  if (!billingType) return null;
+  if (!billingFamily) return null;
 
   return (
     <Dialog
@@ -186,7 +205,7 @@ export function BillingTypeBehaviorDialog({
     >
       <DialogContent className='flex max-h-[90vh] flex-col p-0 sm:max-w-2xl'>
         <DialogHeader className='px-6 pt-6 pb-2'>
-          <DialogTitle>Verhalten: {billingType.name}</DialogTitle>
+          <DialogTitle>Verhalten: {billingFamily.name}</DialogTitle>
         </DialogHeader>
 
         <Form
@@ -280,6 +299,27 @@ export function BillingTypeBehaviorDialog({
                 />
                 <FormField
                   control={form.control}
+                  name='requirePickupStation'
+                  render={({ field }) => (
+                    <FormItem className='bg-background flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>Abhol-Station erforderlich</FormLabel>
+                        <FormDescription>
+                          Gilt bei Fahrgast-Fahrten: Station im Abholbereich
+                          muss ausgefüllt sein, sonst keine Fertigstellung.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name='defaultPickup'
                   render={({ field }) => (
                     <FormItem>
@@ -291,21 +331,14 @@ export function BillingTypeBehaviorDialog({
                             if (typeof result === 'string') {
                               field.onChange(result);
                             } else {
-                              // Use the full formatted address, but prefer structured pieces when available
-                              const streetPart = [
-                                result.street,
-                                result.street_number
-                              ]
-                                .filter(Boolean)
-                                .join(' ');
-                              const cityPart = [result.zip_code, result.city]
-                                .filter(Boolean)
-                                .join(' ');
                               const full =
-                                result.address ||
-                                [streetPart, cityPart]
-                                  .filter(Boolean)
-                                  .join(', ');
+                                formatTripAddressDisplayLine({
+                                  street: result.street,
+                                  street_number: result.street_number,
+                                  zip_code: result.zip_code,
+                                  city: result.city,
+                                  placeName: result.name
+                                }) || result.address;
                               field.onChange(full);
                               form.setValue(
                                 'defaultPickupStreet',
@@ -458,6 +491,27 @@ export function BillingTypeBehaviorDialog({
                 />
                 <FormField
                   control={form.control}
+                  name='requireDropoffStation'
+                  render={({ field }) => (
+                    <FormItem className='bg-background flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>Ziel-Station erforderlich</FormLabel>
+                        <FormDescription>
+                          Gilt bei Fahrgast-Fahrten: Station im Zielbereich muss
+                          ausgefüllt sein, sonst keine Fertigstellung.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name='defaultDropoff'
                   render={({ field }) => (
                     <FormItem>
@@ -469,20 +523,14 @@ export function BillingTypeBehaviorDialog({
                             if (typeof result === 'string') {
                               field.onChange(result);
                             } else {
-                              const streetPart = [
-                                result.street,
-                                result.street_number
-                              ]
-                                .filter(Boolean)
-                                .join(' ');
-                              const cityPart = [result.zip_code, result.city]
-                                .filter(Boolean)
-                                .join(' ');
                               const full =
-                                result.address ||
-                                [streetPart, cityPart]
-                                  .filter(Boolean)
-                                  .join(', ');
+                                formatTripAddressDisplayLine({
+                                  street: result.street,
+                                  street_number: result.street_number,
+                                  zip_code: result.zip_code,
+                                  city: result.city,
+                                  placeName: result.name
+                                }) || result.address;
                               field.onChange(full);
                               form.setValue(
                                 'defaultDropoffStreet',

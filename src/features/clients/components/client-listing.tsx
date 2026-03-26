@@ -21,7 +21,7 @@ export default async function ClientListingPage({
 
   if (search) {
     query = query.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,company_name.ilike.%${search}%`
+      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,company_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%,phone_secondary.ilike.%${search}%`
     );
   }
 

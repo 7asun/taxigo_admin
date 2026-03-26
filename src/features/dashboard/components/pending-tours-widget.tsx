@@ -15,6 +15,8 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { useQueryClient } from '@tanstack/react-query';
+import { tripKeys } from '@/query/keys';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { set } from 'date-fns';
@@ -52,7 +54,7 @@ const FILTER_TABS: { value: UnplannedFilter; label: string }[] = [
 
 export function PendingToursWidget() {
   const [filter, setFilter] = useState<UnplannedFilter>('today');
-  const { trips, isLoading, refresh } = useUnplannedTrips(filter);
+  const { trips, isLoading } = useUnplannedTrips(filter);
   const [drivers, setDrivers] = useState<any[]>([]);
 
   useEffect(() => {
@@ -129,7 +131,6 @@ export function PendingToursWidget() {
                     key={trip.id}
                     trip={trip}
                     drivers={drivers}
-                    onScheduled={refresh}
                   />
                 ))}
               </div>
@@ -143,13 +144,12 @@ export function PendingToursWidget() {
 
 function UnplannedTripRow({
   trip,
-  drivers,
-  onScheduled
+  drivers
 }: {
   trip: UnplannedTrip;
   drivers: any[];
-  onScheduled: () => void;
 }) {
+  const queryClient = useQueryClient();
   // Use the direction utility so legacy rows without link_type are handled via
   // the linked_trip_id fallback (see src/features/trips/lib/trip-direction.ts).
   const isReturnTrip = getTripDirection(trip) === 'rueckfahrt';
@@ -204,11 +204,15 @@ function UnplannedTripRow({
 
       await tripsService.updateTrip(trip.id, updatePayload);
 
+      void queryClient.invalidateQueries({ queryKey: tripKeys.unplannedRoot });
+      void queryClient.invalidateQueries({
+        queryKey: tripKeys.detail(trip.id)
+      });
+
       toast.success(
         `Abholzeit ${driverId ? 'und Fahrer ' : ''}für ${trip.client_name || 'Fahrt'} gesetzt.`
       );
       setTime('');
-      onScheduled();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`Fehler: ${message}`);

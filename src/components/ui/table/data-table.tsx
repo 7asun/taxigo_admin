@@ -17,7 +17,10 @@ import {
   horizontalListSortingStrategy
 } from '@dnd-kit/sortable';
 
-import { DataTablePagination } from '@/components/ui/table/data-table-pagination';
+import {
+  DataTablePagination,
+  type DataTablePaginationProps
+} from '@/components/ui/table/data-table-pagination';
 import {
   Table,
   TableBody,
@@ -36,6 +39,13 @@ interface DataTableProps<TData> extends React.ComponentProps<'div'> {
   getRowClassName?: (row: any) => string;
   /** Applied to the inner `<table>` (e.g. `min-w-[720px]` for horizontal scroll). */
   tableClassName?: string;
+  /** Passed to `DataTablePagination` (except `table`). */
+  paginationProps?: Omit<DataTablePaginationProps<TData>, 'table'>;
+  /**
+   * When set, scrolls this row into view inside the table’s vertical scroll area
+   * (e.g. “now − 15 minutes” anchor). No-op if the row is not rendered.
+   */
+  scrollToRowId?: string | null;
 }
 
 export function DataTable<TData>({
@@ -43,9 +53,48 @@ export function DataTable<TData>({
   actionBar,
   getRowClassName,
   tableClassName,
+  paginationProps,
+  scrollToRowId,
   children
 }: DataTableProps<TData>) {
   const dndId = React.useId();
+  const scrollWrapRef = React.useRef<HTMLDivElement>(null);
+
+  const rowIdsSignature = table
+    .getRowModel()
+    .rows.map((r) => r.id)
+    .join('|');
+
+  React.useEffect(() => {
+    if (scrollToRowId == null || scrollToRowId === '') return;
+    const raf = window.requestAnimationFrame(() => {
+      const wrap = scrollWrapRef.current;
+      if (!wrap) return;
+      const viewport = wrap.querySelector(
+        '[data-slot="scroll-area-viewport"]'
+      ) as HTMLElement | null;
+      if (!viewport) return;
+      const row = viewport.querySelector(
+        `[data-table-row-id="${scrollToRowId}"]`
+      ) as HTMLElement | null;
+      if (!row) return;
+      // Radix ScrollArea scrolls the viewport, not the table; use geometry not scrollIntoView.
+      const vp = viewport.getBoundingClientRect();
+      const rr = row.getBoundingClientRect();
+      const nextTop =
+        viewport.scrollTop + (rr.top - vp.top) - vp.height / 2 + rr.height / 2;
+      const behavior: ScrollBehavior = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches
+        ? 'auto'
+        : 'smooth';
+      viewport.scrollTo({
+        top: Math.max(0, nextTop),
+        behavior
+      });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [scrollToRowId, rowIdsSignature]);
 
   const sensors = useSensors(
     useSensor(MouseSensor),
@@ -67,7 +116,10 @@ export function DataTable<TData>({
     <div className='flex flex-1 flex-col space-y-4'>
       {children}
       <div className='relative flex flex-1'>
-        <div className='absolute inset-0 flex overflow-hidden rounded-lg border'>
+        <div
+          ref={scrollWrapRef}
+          className='absolute inset-0 flex overflow-hidden rounded-lg border'
+        >
           <ScrollArea className='h-full w-full'>
             <DndContext
               id={dndId}
@@ -77,7 +129,7 @@ export function DataTable<TData>({
               sensors={sensors}
             >
               <Table className={tableClassName}>
-                <TableHeader className='bg-muted sticky top-0 z-10'>
+                <TableHeader>
                   {table.getHeaderGroups().map((headerGroup) => (
                     <TableRow key={headerGroup.id}>
                       <SortableContext
@@ -99,6 +151,7 @@ export function DataTable<TData>({
                     table.getRowModel().rows.map((row) => (
                       <TableRow
                         key={row.id}
+                        data-table-row-id={row.id}
                         data-state={row.getIsSelected() && 'selected'}
                         className={getRowClassName?.(row.original)}
                       >
@@ -131,7 +184,7 @@ export function DataTable<TData>({
         </div>
       </div>
       <div className='flex flex-col gap-2.5'>
-        <DataTablePagination table={table} />
+        <DataTablePagination table={table} {...paginationProps} />
         {actionBar &&
           table.getFilteredSelectedRowModel().rows.length > 0 &&
           actionBar}

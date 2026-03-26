@@ -5,7 +5,7 @@ export type ReturnMode = 'none' | 'time_tbd' | 'exact';
 export const tripFormSchema = z
   .object({
     payer_id: z.string().min(1, 'Kostenträger ist erforderlich'),
-    billing_type_id: z.string().optional(),
+    billing_variant_id: z.string().optional(),
     scheduled_at: z.date({ error: 'Datum und Uhrzeit sind erforderlich' }),
     return_mode: z.enum(['none', 'time_tbd', 'exact']).default('none'),
     return_date: z.date().optional(),

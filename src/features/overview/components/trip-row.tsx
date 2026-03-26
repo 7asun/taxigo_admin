@@ -31,8 +31,13 @@ export function TripRow({
     ? format(new Date(trip.scheduled_at), 'HH:mm')
     : '--:--';
 
-  const billingType = trip.billing_types;
-  const rowColor = billingType?.color || 'transparent';
+  const bv = trip.billing_variant;
+  const fam = bv?.billing_types;
+  const rowColor = fam?.color || 'transparent';
+  const billingLabel =
+    fam?.name && bv?.name
+      ? `${fam.name} · ${bv.name}`
+      : bv?.name || fam?.name || '';
 
   const isGrouped = !!trip.group_id;
   const tripStatus = (trip.status as TripStatus) ?? 'pending';
@@ -72,57 +77,64 @@ export function TripRow({
         borderLeft: `4px solid ${rowColor === 'transparent' ? 'transparent' : rowColor}`
       }}
     >
-      <div className='flex min-w-[3.5rem] flex-col'>
+      <div
+        className={cn(
+          'flex min-w-0 shrink-0 items-start gap-1.5',
+          compact ? 'min-h-8' : 'min-h-10'
+        )}
+      >
+        <div className='flex w-4 shrink-0 justify-center pt-0.5'>
+          <UrgencyIndicator
+            scheduledAt={trip.scheduled_at}
+            status={trip.status}
+            variant='dot'
+          />
+        </div>
+        {/* Time + billing share one column; ch width uses same font size as the clock line */}
         <div
           className={cn(
-            'flex items-center gap-1.5',
-            compact ? 'min-h-8' : 'min-h-10'
+            'flex w-[5.5ch] min-w-[5.5ch] shrink-0 flex-col gap-0.5',
+            compact ? 'text-sm' : 'text-lg'
           )}
         >
-          <div className='flex w-4 shrink-0 items-center justify-center'>
-            <UrgencyIndicator
-              scheduledAt={trip.scheduled_at}
-              status={trip.status}
-              variant='dot'
-            />
-          </div>
-          <div
-            className={cn(
-              'text-primary leading-none font-bold tabular-nums',
-              compact ? 'text-sm' : 'text-lg'
-            )}
-          >
+          <div className='text-primary leading-none font-bold tabular-nums'>
             {scheduledTime}
           </div>
+          {billingLabel ? (
+            <div className='text-muted-foreground min-w-0 truncate text-[10px] font-medium uppercase'>
+              {billingLabel}
+            </div>
+          ) : null}
+          {showDate && trip.scheduled_at && (
+            <div className='text-muted-foreground text-[10px] font-medium'>
+              {format(new Date(trip.scheduled_at), 'dd.MM.yy')}
+            </div>
+          )}
         </div>
-        {showDate && trip.scheduled_at && (
-          <div className='text-muted-foreground mt-0.5 pl-4 text-[10px] font-medium'>
-            {format(new Date(trip.scheduled_at), 'dd.MM.yy')}
-          </div>
-        )}
-        {billingType?.name && (
-          <span className='text-muted-foreground truncate pl-4 text-[10px] font-medium uppercase'>
-            {billingType.name}
-          </span>
-        )}
-        {trip.is_wheelchair && (
-          <span className='truncate pl-4 text-[10px] font-bold text-rose-600 uppercase dark:text-rose-400'>
-            Rollstuhl
-          </span>
-        )}
       </div>
-      <div className='ml-4 flex-1 space-y-1'>
-        <div className='flex items-center gap-2'>
+      <div className='ml-4 min-w-0 flex-1 space-y-1'>
+        <div className='flex flex-wrap items-start gap-2'>
           <p
             className={cn(
-              'group-hover:text-primary leading-none font-semibold transition-colors',
+              'group-hover:text-primary min-w-0 leading-none font-semibold transition-colors',
               compact ? 'text-xs' : 'text-sm'
             )}
           >
             {trip.client_name || 'Unbekannter Kunde'}
           </p>
+          {trip.is_wheelchair && (
+            <Badge
+              variant='outline'
+              className={cn(
+                'shrink-0 border-rose-200 bg-rose-50 px-1.5 py-0 text-[10px] font-bold text-rose-700 uppercase dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400',
+                compact ? 'h-4' : 'h-5'
+              )}
+            >
+              Rollstuhl
+            </Badge>
+          )}
           {isGrouped && (
-            <div className='flex items-center gap-0.5 rounded-full border border-sky-200 bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-400'>
+            <div className='flex shrink-0 items-center gap-0.5 rounded-full border border-sky-200 bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-400'>
               <Users className='h-2.5 w-2.5' /> Gruppe
             </div>
           )}

@@ -1,6 +1,13 @@
 export type ParsedCsvRow = {
   kostentraeger: string;
+  /** Matches `billing_types.name` for the payer (Abrechnungsfamilie / „Abrechnungsart“). */
   abrechnungsart?: string;
+  /**
+   * Variant: CSV column `abrechnungsvariante` or alias `unterart`.
+   * Matched by `billing_variants.code` first, then `name` (within the family).
+   */
+  abrechnungsvariante?: string;
+  unterart?: string;
   date: string;
   /** Optional — if omitted the trip is created with scheduled_at = NULL and requested_date set. */
   time?: string;
@@ -44,6 +51,9 @@ export type ParsedCsvRow = {
 export type ValidationIssueType =
   | 'payer_not_found'
   | 'billing_type_not_found'
+  | 'billing_variant_not_found'
+  /** Family has multiple variants but CSV did not specify which (blocking until resolved in UI). */
+  | 'billing_variant_missing'
   | 'invalid_datetime'
   | 'client_unresolved'
   | 'ambiguous_client'
@@ -52,11 +62,15 @@ export type ValidationIssueType =
    * Three or more rows share the same pair_id. Only the first two (by time / row
    * order) are linked; extra rows are created as standalone trips.
    */
-  | 'pair_id_ambiguous';
+  | 'pair_id_ambiguous'
+  | 'missing_pickup_station'
+  | 'missing_dropoff_station';
 
 export interface ValidationIssue {
   type: ValidationIssueType;
   message: string;
+  /** When `'warning'`, row may still be imported; omitted/`'error'` blocks import. */
+  severity?: 'error' | 'warning';
 }
 
 export interface ValidatedTripRow<TripShape = unknown> {
@@ -65,6 +79,12 @@ export interface ValidatedTripRow<TripShape = unknown> {
   trip: TripShape | null;
   issues: ValidationIssue[];
   clientId?: string | null;
+  /** When Unterart was missing, wizard fills this so Pass 2 can continue. */
+  variantResolution?: {
+    payerId: string;
+    familyName: string;
+    variants: { id: string; name: string; code: string }[];
+  };
   /** True when the billing type's returnPolicy demands an auto-created return trip. */
   needsReturnTrip?: boolean;
   /** True when at least one address field was overridden by a behavior rule default. */

@@ -36,6 +36,22 @@ function formatCity(addr: string | null): string {
   return ` (${cityPart})`;
 }
 
+/** Accent + caption from joined billing_variant (family color + „Familie · Unterart“). */
+function tripPrintBilling(trip: TripData | undefined): {
+  color: string | null;
+  label: string | null;
+} {
+  const bv = trip?.billing_variant;
+  if (!bv) return { color: null, label: null };
+  const fam = bv.billing_types;
+  const color = fam?.color ?? null;
+  const label =
+    fam?.name && bv.name
+      ? `${fam.name} · ${bv.name}`
+      : bv.name || fam?.name || null;
+  return { color, label };
+}
+
 export function PrintTripGroupsList({
   trips,
   compact = false
@@ -91,13 +107,13 @@ export function PrintTripGroupsList({
       {tripGroups.map((group) => {
         const isGrouped = group.trips.length > 1;
         const primaryTrip = group.trips[0];
-        const billingType = primaryTrip?.billing_types;
-        const billingColor = billingType?.color || null;
+        const { color: billingColor, label: billingLabel } =
+          tripPrintBilling(primaryTrip);
 
         if (!isGrouped && primaryTrip) {
           const trip = primaryTrip;
-          const singleBillingType = trip.billing_types;
-          const singleBillingColor = singleBillingType?.color || null;
+          const { color: singleBillingColor } = tripPrintBilling(trip);
+          const singleBillingType = trip.billing_variant?.billing_types;
 
           return (
             <div
@@ -440,11 +456,11 @@ export function PrintTripGroupsList({
                     </div>
                   </div>
                   <div className='flex items-center justify-between'>
-                    {billingType?.name && (
+                    {billingLabel ? (
                       <p className='text-[9px] font-bold tracking-wider text-slate-500 uppercase'>
-                        {billingType.name}
+                        {billingLabel}
                       </p>
-                    )}
+                    ) : null}
                     {group.groupId && (
                       <p className='text-[9px] font-bold text-slate-400 uppercase'>
                         Gruppe

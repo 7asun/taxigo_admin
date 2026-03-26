@@ -16,22 +16,7 @@ import {
   type TripStatus
 } from '@/lib/trip-status';
 import { UrgencyIndicator } from '../urgency-indicator';
-
-function parseAddress(raw: string | null | undefined): {
-  street: string | null;
-  cityLine: string | null;
-} {
-  if (!raw) return { street: null, cityLine: null };
-  // Split on the first occurrence of a 5-digit German ZIP code
-  const match = raw.match(/^(.*?)\s*,?\s*(\d{5}\s+.+)$/);
-  if (match) {
-    return {
-      street: match[1].trim() || null,
-      cityLine: match[2].trim()
-    };
-  }
-  return { street: raw, cityLine: null };
-}
+import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
 
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
@@ -51,7 +36,7 @@ export const columns: ColumnDef<any>[] = [
           (table.getIsSomePageRowsSelected() && 'indeterminate')
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label='Alle auswählen'
+        aria-label='Alle auf dieser Seite auswählen'
       />
     ),
     cell: ({ row }) => (
@@ -139,10 +124,7 @@ export const columns: ColumnDef<any>[] = [
         <div className='flex flex-col'>
           <span className='font-medium'>{row.original.client_name || '-'}</span>
           {row.original.is_wheelchair && (
-            <Badge
-              variant='outline'
-              className='bg-foreground text-background hover:bg-foreground/90 w-fit origin-left scale-75'
-            >
+            <Badge variant='destructive' className='w-fit origin-left scale-75'>
               <Accessibility className='mr-1 h-3 w-3' />
               Rollstuhl
             </Badge>
@@ -162,7 +144,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Abholung' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseAddress(row.original.pickup_address);
+      const { street, cityLine } = parseTripAddressForDisplay(
+        row.original.pickup_address
+      );
       const station = row.original.pickup_station as string | undefined;
       return (
         <div
@@ -193,7 +177,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Ziel' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseAddress(row.original.dropoff_address);
+      const { street, cityLine } = parseTripAddressForDisplay(
+        row.original.dropoff_address
+      );
       const station = row.original.dropoff_station as string | undefined;
       return (
         <div
@@ -260,24 +246,45 @@ export const columns: ColumnDef<any>[] = [
   },
   {
     id: 'billing_type',
-    accessorKey: 'billing_type.name',
+    accessorKey: 'billing_variant.name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Abrechnung' />
     ),
     cell: ({ row }) => {
-      const bt = row.original.billing_type;
-      if (!bt) return '-';
+      const bv = row.original.billing_variant as
+        | {
+            name?: string | null;
+            code?: string | null;
+            billing_types?: { name?: string | null; color?: string | null };
+          }
+        | null
+        | undefined;
+      const fam = bv?.billing_types;
+      const color = fam?.color ?? '#64748b';
+      const label =
+        fam?.name && bv?.name
+          ? `${fam.name} · ${bv.name}`
+          : bv?.name || fam?.name || '-';
+      if (!bv && !fam) return '-';
       return (
-        <Badge
-          variant='outline'
-          style={{
-            borderColor: bt.color,
-            color: bt.color,
-            backgroundColor: `color-mix(in srgb, ${bt.color}, var(--background) 90%)`
-          }}
-        >
-          {bt.name}
-        </Badge>
+        <div className='flex min-w-0 flex-col gap-0.5'>
+          <Badge
+            variant='outline'
+            className='w-fit max-w-full truncate font-normal'
+            style={{
+              borderColor: color,
+              color,
+              backgroundColor: `color-mix(in srgb, ${color}, var(--background) 90%)`
+            }}
+          >
+            {label}
+          </Badge>
+          {bv?.code ? (
+            <span className='text-muted-foreground font-mono text-[10px]'>
+              {bv.code}
+            </span>
+          ) : null}
+        </div>
       );
     }
   },

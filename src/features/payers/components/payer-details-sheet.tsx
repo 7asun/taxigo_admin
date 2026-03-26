@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -12,11 +12,19 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import { usePayers } from '../hooks/use-payers';
-import { AddBillingTypeDialog } from './add-billing-type-dialog';
+import { AddBillingFamilyDialog } from './add-billing-family-dialog';
+import { AddBillingVariantDialog } from './add-billing-variant-dialog';
 import { BillingTypeBehaviorDialog } from './billing-type-behavior-dialog';
-import type { PayerWithBillingCount, BillingType } from '../types/payer.types';
+import { EditBillingFamilyDialog } from './edit-billing-family-dialog';
+import { EditBillingVariantDialog } from './edit-billing-variant-dialog';
+import type {
+  PayerWithBillingCount,
+  BillingFamilyWithVariants,
+  BillingVariant
+} from '../types/payer.types';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,21 +50,32 @@ export function PayerDetailsSheet({
   onOpenChange
 }: PayerDetailsSheetProps) {
   const {
-    data: billingTypes,
+    data: families,
     isLoading,
-    deleteBillingType,
+    deleteBillingVariant,
+    deleteBillingFamily,
     isDeleting
   } = useBillingTypes(payer?.id);
   const { updatePayer, isUpdating } = usePayers();
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [behaviorDialogItem, setBehaviorDialogItem] =
-    useState<BillingType | null>(null);
+  const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
+  const [variantDialog, setVariantDialog] = useState<{
+    familyId: string;
+    familyName: string;
+    nextSort: number;
+  } | null>(null);
+  const [behaviorFamily, setBehaviorFamily] =
+    useState<BillingFamilyWithVariants | null>(null);
+  const [editFamily, setEditFamily] =
+    useState<BillingFamilyWithVariants | null>(null);
+  const [editVariant, setEditVariant] = useState<{
+    familyName: string;
+    variant: BillingVariant;
+  } | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editNumber, setEditNumber] = useState('');
 
-  // Update edit state when payer changes or edit mode opens
   const startEditing = () => {
     if (payer) {
       setEditName(payer.name);
@@ -71,7 +90,7 @@ export function PayerDetailsSheet({
       await updatePayer({ id: payer.id, name: editName, number: editNumber });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
-    } catch (error) {
+    } catch {
       toast.error('Fehler beim Aktualisieren');
     }
   };
@@ -102,7 +121,8 @@ export function PayerDetailsSheet({
                 <SheetTitle className='text-2xl'>{payer.name}</SheetTitle>
               )}
               <SheetDescription>
-                Verwalten Sie Einstellungen und Abrechnungsarten.
+                Abrechnungsfamilien und Unterarten verwalten; CSV-Codes hier
+                ablesen.
               </SheetDescription>
             </div>
             <div className='flex gap-2'>
@@ -130,7 +150,6 @@ export function PayerDetailsSheet({
         </SheetHeader>
 
         <div className='space-y-8'>
-          {/* Payer Info Card */}
           <div className='bg-card rounded-xl border p-5 shadow-sm'>
             <div className='flex items-center gap-4'>
               <div className='bg-muted rounded-lg p-3'>
@@ -156,47 +175,62 @@ export function PayerDetailsSheet({
             </div>
           </div>
 
-          {/* Billing Types Section */}
           <div>
             <div className='mb-4 flex items-center justify-between'>
-              <h3 className='text-lg font-semibold'>Abrechnungsarten</h3>
+              <h3 className='text-lg font-semibold'>Abrechnungsfamilien</h3>
               <Button
                 size='sm'
                 className='h-8 gap-1'
-                onClick={() => setIsAddDialogOpen(true)}
+                onClick={() => setIsAddFamilyOpen(true)}
               >
                 <Plus className='h-3.5 w-3.5' />
-                Neu
+                Neue Familie
               </Button>
             </div>
 
-            <div className='space-y-3'>
+            <div className='space-y-4'>
               {isLoading ? (
                 <>
-                  <Skeleton className='h-20 w-full rounded-xl' />
-                  <Skeleton className='h-20 w-full rounded-xl' />
-                  <Skeleton className='h-20 w-full rounded-xl' />
+                  <Skeleton className='h-24 w-full rounded-xl' />
+                  <Skeleton className='h-24 w-full rounded-xl' />
                 </>
-              ) : !billingTypes?.length ? (
+              ) : !families?.length ? (
                 <div className='flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center'>
                   <div className='bg-muted mb-3 flex h-12 w-12 items-center justify-center rounded-full'>
                     <Receipt className='text-muted-foreground/50 h-6 w-6' />
                   </div>
                   <h4 className='text-muted-foreground/80 mb-1 font-medium'>
-                    Noch keine Abrechnungsarten
+                    Noch keine Familien
                   </h4>
-                  <p className='text-muted-foreground max-w-[200px] text-xs'>
-                    Klicken Sie oben auf "Neu", um eine hinzuzufügen.
+                  <p className='text-muted-foreground max-w-[240px] text-xs'>
+                    „Neue Familie“ legt die Abrechnungsart + erste Unterart
+                    inkl. CSV-Code an.
                   </p>
                 </div>
               ) : (
-                billingTypes.map((item) => (
-                  <BillingTypeCard
-                    key={item.id}
-                    item={item}
-                    onDelete={() => deleteBillingType(item.id)}
-                    onEditBehavior={() => setBehaviorDialogItem(item)}
+                families.map((family) => (
+                  <FamilyBlock
+                    key={family.id}
+                    family={family}
                     isDeleting={isDeleting}
+                    onOpenBehavior={() => setBehaviorFamily(family)}
+                    onEditFamily={() => setEditFamily(family)}
+                    onEditVariant={(v) =>
+                      setEditVariant({ familyName: family.name, variant: v })
+                    }
+                    onAddVariant={() =>
+                      setVariantDialog({
+                        familyId: family.id,
+                        familyName: family.name,
+                        nextSort:
+                          Math.max(
+                            0,
+                            ...family.billing_variants.map((v) => v.sort_order)
+                          ) + 1
+                      })
+                    }
+                    onDeleteVariant={(id) => deleteBillingVariant(id)}
+                    onDeleteFamily={() => deleteBillingFamily(family.id)}
                   />
                 ))
               )}
@@ -205,114 +239,228 @@ export function PayerDetailsSheet({
         </div>
       </SheetContent>
 
-      <AddBillingTypeDialog
+      <AddBillingFamilyDialog
         payerId={payer.id}
-        open={isAddDialogOpen}
-        onOpenChange={setIsAddDialogOpen}
-        existingBillingTypes={billingTypes || []}
+        open={isAddFamilyOpen}
+        onOpenChange={setIsAddFamilyOpen}
+        existingFamilies={families || []}
       />
+
+      {variantDialog && (
+        <AddBillingVariantDialog
+          payerId={payer.id}
+          familyId={variantDialog.familyId}
+          familyName={variantDialog.familyName}
+          open={!!variantDialog}
+          onOpenChange={(o) => !o && setVariantDialog(null)}
+          nextSortOrder={variantDialog.nextSort}
+        />
+      )}
 
       <BillingTypeBehaviorDialog
         payerId={payer.id}
-        billingType={behaviorDialogItem}
-        open={!!behaviorDialogItem}
-        onOpenChange={(isOpen) => !isOpen && setBehaviorDialogItem(null)}
+        billingFamily={behaviorFamily}
+        open={!!behaviorFamily}
+        onOpenChange={(isOpen) => !isOpen && setBehaviorFamily(null)}
+      />
+
+      <EditBillingFamilyDialog
+        payerId={payer.id}
+        family={editFamily}
+        open={!!editFamily}
+        onOpenChange={(isOpen) => !isOpen && setEditFamily(null)}
+      />
+
+      <EditBillingVariantDialog
+        payerId={payer.id}
+        familyName={editVariant?.familyName ?? ''}
+        variant={editVariant?.variant ?? null}
+        open={!!editVariant}
+        onOpenChange={(isOpen) => !isOpen && setEditVariant(null)}
       />
     </Sheet>
   );
 }
 
-function BillingTypeCard({
-  item,
-  onDelete,
-  onEditBehavior,
-  isDeleting
+function FamilyBlock({
+  family,
+  isDeleting,
+  onOpenBehavior,
+  onEditFamily,
+  onEditVariant,
+  onAddVariant,
+  onDeleteVariant,
+  onDeleteFamily
 }: {
-  item: BillingType;
-  onDelete: () => void;
-  onEditBehavior: () => void;
+  family: BillingFamilyWithVariants;
   isDeleting: boolean;
+  onOpenBehavior: () => void;
+  onEditFamily: () => void;
+  onEditVariant: (v: BillingVariant) => void;
+  onAddVariant: () => void;
+  onDeleteVariant: (id: string) => Promise<void>;
+  onDeleteFamily: () => Promise<void>;
 }) {
-  return (
-    <div className='group bg-card relative z-10 flex items-center justify-between overflow-hidden rounded-xl border p-4 transition-all hover:shadow-md'>
-      {/* Background tint based on color */}
-      <div
-        className='pointer-events-none absolute inset-0 opacity-[0.03]'
-        style={{ backgroundColor: item.color }}
-      />
+  const variantCount = family.billing_variants?.length ?? 0;
 
-      <div className='relative z-10 flex items-center gap-4'>
-        <div
-          className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full border'
-          style={{ backgroundColor: `${item.color}15` }}
-        >
+  return (
+    <div className='bg-card overflow-hidden rounded-xl border shadow-sm'>
+      <div
+        className='flex items-center justify-between border-b px-4 py-3'
+        style={{
+          borderLeftWidth: 4,
+          borderLeftColor: family.color
+        }}
+      >
+        <div className='flex min-w-0 items-center gap-3'>
           <div
-            className='h-5 w-5 rounded-full'
-            style={{ backgroundColor: item.color }}
-          />
-        </div>
-        <div>
-          <h4 className='font-semibold'>{item.name}</h4>
-          <div className='mt-1 flex flex-wrap gap-2'>
-            {item.behavior_profile?.lockPickup && (
-              <span className='bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase'>
-                Sperrt Abholung
-              </span>
-            )}
-            {(item.behavior_profile?.returnPolicy === 'time_tbd' ||
-              (item.behavior_profile?.returnPolicy as any) ===
-                'create_placeholder') && (
-              <span className='bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase'>
-                Rückfahrt Auto
-              </span>
-            )}
+            className='h-8 w-8 shrink-0 rounded-full border'
+            style={{ backgroundColor: `${family.color}22` }}
+          >
+            <div
+              className='mx-auto mt-1.5 h-5 w-5 rounded-full'
+              style={{ backgroundColor: family.color }}
+            />
+          </div>
+          <div className='min-w-0'>
+            <h4 className='truncate font-semibold'>{family.name}</h4>
+            <p className='text-muted-foreground text-xs'>
+              Abrechnungsart (Familie) · CSV-Spalte{' '}
+              <code className='text-[10px]'>abrechnungsart</code>
+            </p>
           </div>
         </div>
-      </div>
-
-      <div className='relative z-10 flex items-center gap-1'>
-        <Button
-          variant='ghost'
-          size='icon'
-          className='text-muted-foreground hover:text-foreground hover:bg-muted h-8 w-8'
-          onClick={onEditBehavior}
-          title='Verhalten konfigurieren'
-        >
-          <Settings2 className='h-4 w-4' />
-        </Button>
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant='ghost'
-              size='icon'
-              className='text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8'
-              title='Löschen'
-              disabled={isDeleting}
-            >
-              <Trash2 className='h-4 w-4' />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Abrechnungsart löschen</AlertDialogTitle>
-              <AlertDialogDescription>
-                Möchten Sie "{item.name}" wirklich löschen? Diese Aktion kann
-                nicht rückgängig gemacht werden.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={onDelete}
-                className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+        <div className='flex shrink-0 items-center gap-1'>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='text-muted-foreground hover:text-foreground h-8 w-8'
+            onClick={onEditFamily}
+            title='Name und Farbe bearbeiten'
+          >
+            <Pencil className='h-4 w-4' />
+          </Button>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='text-muted-foreground hover:text-foreground h-8 w-8'
+            onClick={onOpenBehavior}
+            title='Verhalten (gilt für alle Unterarten)'
+          >
+            <Settings2 className='h-4 w-4' />
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-8 gap-1 px-2'
+            onClick={onAddVariant}
+          >
+            <Plus className='h-3.5 w-3.5' />
+            Unterart
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant='ghost'
+                size='icon'
+                className='text-muted-foreground hover:text-destructive h-8 w-8'
+                disabled={isDeleting}
+                title='Familie löschen'
               >
-                Löschen
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                <Trash2 className='h-4 w-4' />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Familie löschen?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  „{family.name}“ und alle Unterarten werden entfernt. Fahrten
+                  behalten Kostenträger, verlieren aber die
+                  Abrechnungs-Zuordnung (Variante).
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => void onDeleteFamily()}
+                  className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                >
+                  Löschen
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
+
+      <ul className='divide-y'>
+        {(family.billing_variants || []).map((v) => (
+          <li
+            key={v.id}
+            className='flex items-center justify-between gap-2 px-4 py-2.5 text-sm'
+          >
+            <div className='min-w-0 flex-1'>
+              <span className='font-medium'>{v.name}</span>
+              <span className='text-muted-foreground ml-2 text-xs'>
+                · CSV-Code für{' '}
+                <code className='text-[10px]'>abrechnungsvariante</code>
+              </span>
+            </div>
+            <div className='flex shrink-0 items-center gap-2'>
+              <Badge
+                variant='secondary'
+                className='font-mono text-xs tracking-wide uppercase'
+              >
+                {v.code}
+              </Badge>
+              <Button
+                variant='ghost'
+                size='icon'
+                className='text-muted-foreground hover:text-foreground h-8 w-8'
+                onClick={() => onEditVariant(v)}
+                title='Unterart bearbeiten'
+              >
+                <Pencil className='h-3.5 w-3.5' />
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='text-muted-foreground hover:text-destructive h-8 w-8'
+                    disabled={isDeleting || variantCount <= 1}
+                    title={
+                      variantCount <= 1
+                        ? 'Mindestens eine Unterart behalten'
+                        : 'Unterart löschen'
+                    }
+                  >
+                    <Trash2 className='h-3.5 w-3.5' />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Unterart löschen?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      „{v.name}“ ({v.code}) — betroffene Fahrten verlieren diese
+                      Zuordnung.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void onDeleteVariant(v.id)}
+                      className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                    >
+                      Löschen
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

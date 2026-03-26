@@ -1,11 +1,18 @@
 'use client';
 
 /**
- * URL-driven trip filters for `/dashboard/trips` (shared by list + kanban queries).
- * Below `md`: compact row (search, date, “more filters”); advanced selects + Spalten expand
- * inside a collapsible. From `md` up, all controls stay in one non-wrapping row
- * (horizontal scroll if needed). State syncs
- * via `router.replace` + `router.refresh()` so the server RSC reloads with matching query params.
+ * @fileoverview Fahrten filter bar — **URL is the source of truth** for the trip grid.
+ *
+ * - `trips-listing.tsx` (RSC) reads the same search params from the URL and runs the Supabase query.
+ *   Param names and sentinels (`all`, `unassigned`, `scheduled_at` shape) must stay aligned with that
+ *   server component and `nuqs` parsers — otherwise the UI shows filters that do not match the data.
+ * - This component **never** owns trip rows locally; it only updates the URL and calls
+ *   `refreshTripsPage()` so Next.js refetches the RSC payload and TanStack trip caches invalidate.
+ * - Reference lists (Fahrer, Kostenträger, Abrechnung) come from `useTripFormData` → TanStack Query
+ *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing variants** load only when `payer_id` is a
+ *   real UUID — never treat the string `'all'` as a payer id (the hook disables that query).
+ *
+ * Layout: below `md`, compact row + collapsible “more filters”; from `md` up, one horizontal row.
  */
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -49,6 +56,7 @@ import {
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useTripsRscRefresh } from '@/features/trips/providers';
 import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { cn } from '@/lib/utils';
@@ -82,14 +90,16 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const { refreshTripsPage } = useTripsRscRefresh();
   /** One filter layout at a time so the date `Popover` (and other overlays) are not mounted twice. */
   const isNarrow = useIsNarrowScreen(768);
 
+  /** Mirrors URL — these keys must match `trips-listing.tsx` / `searchParamsCache` parsers. */
   const search = searchParams.get('search') ?? '';
   const driverId = searchParams.get('driver_id') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
   const payerId = searchParams.get('payer_id') ?? 'all';
-  const billingTypeId = searchParams.get('billing_type_id') ?? 'all';
+  const billingVariantId = searchParams.get('billing_variant_id') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
   const currentView = searchParams.get('view') ?? 'list';
 
@@ -115,7 +125,11 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     setLocalSearch(search);
   }, [search]);
 
-  // On first mount only: if no date is in the URL, default to today (business TZ).
+  /**
+   * One-time default: if the user lands without `scheduled_at`, set “today” (business TZ) + `page=1`.
+   * Intentionally empty deps — run once on mount; adding `searchParams` would re-run on every keystroke
+   * and fight the debounced search input. If `scheduled_at` is already set (e.g. shared link), we no-op.
+   */
   useEffect(() => {
     if (searchParams.get('scheduled_at')) return;
     const params = new URLSearchParams(searchParams.toString());
@@ -128,7 +142,11 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { drivers, payers, billingTypes } = useTripFormData(payerId ?? null);
+  /**
+   * Drivers/payers: shared TanStack cache (`referenceKeys`). Billing types: only when `payerId` is a
+   * concrete id (not `'all'`) — see `useBillingVariantsForPayerQuery`.
+   */
+  const { drivers, payers, billingVariants } = useTripFormData(payerId ?? null);
 
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -138,9 +156,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       driverId !== 'all' ||
       status !== 'all' ||
       payerId !== 'all' ||
-      (Boolean(billingTypeId) && billingTypeId !== 'all')
+      (Boolean(billingVariantId) && billingVariantId !== 'all')
     );
-  }, [driverId, status, payerId, billingTypeId]);
+  }, [driverId, status, payerId, billingVariantId]);
 
   const prevAdvancedRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -204,6 +222,11 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     setDatePopoverOpen(false);
   };
 
+  /**
+   * Writes filter deltas to the URL (always resets `page` to 1) and triggers a server refresh.
+   * Do not skip `refreshTripsPage()` — `router.replace` alone can briefly show a stale RSC tree for the
+   * previous params; the helper also invalidates trip-related TanStack caches (see `TripsRscRefreshProvider`).
+   */
   const updateFilters = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
 
@@ -220,9 +243,8 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     const next = `${pathname}?${params.toString()}`;
     startTransition(() => {
       router.replace(next, { scroll: false });
-      // `replace` alone can reuse a stale RSC payload; `refresh` refetches for the new URL.
-      router.refresh();
     });
+    void refreshTripsPage();
   };
 
   const handleSearchChange = (value: string) => {
@@ -412,9 +434,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         value={payerId}
         onValueChange={(val) => {
           if (val === 'all') {
-            updateFilters({ payer_id: null, billing_type_id: null });
+            updateFilters({ payer_id: null, billing_variant_id: null });
           } else {
-            updateFilters({ payer_id: val, billing_type_id: null });
+            updateFilters({ payer_id: val, billing_variant_id: null });
           }
         }}
       >
@@ -433,14 +455,14 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         </SelectContent>
       </Select>
 
-      {payerId !== 'all' && billingTypes.length > 0 && (
+      {payerId !== 'all' && billingVariants.length > 0 && (
         <Select
-          value={billingTypeId}
+          value={billingVariantId}
           onValueChange={(val) => {
             if (val === 'all') {
-              updateFilters({ billing_type_id: null });
+              updateFilters({ billing_variant_id: null });
             } else {
-              updateFilters({ billing_type_id: val });
+              updateFilters({ billing_variant_id: val });
             }
           }}
         >
@@ -451,9 +473,16 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             <SelectItem value='all' className='text-xs'>
               Alle Abrechnungen
             </SelectItem>
-            {billingTypes.map((bt) => (
-              <SelectItem key={bt.id} value={bt.id} className='text-xs'>
-                {bt.name}
+            {billingVariants.map((bv) => (
+              <SelectItem key={bv.id} value={bv.id} className='text-xs'>
+                <span className='flex flex-col gap-0 leading-tight'>
+                  <span>
+                    {bv.billing_type_name} · {bv.name}
+                  </span>
+                  <span className='text-muted-foreground font-mono text-[10px]'>
+                    {bv.code}
+                  </span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -481,7 +510,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             status: null,
             payer_id: null,
             scheduled_at: null,
-            billing_type_id: null
+            billing_variant_id: null
           });
         }}
       >

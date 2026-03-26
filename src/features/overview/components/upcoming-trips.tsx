@@ -24,9 +24,16 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TripRow } from './trip-row';
 import { TripDetailSheet } from './trip-detail-sheet';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { subMinutes } from 'date-fns';
+import { getTripListScrollAnchorId } from '@/features/trips/lib/trip-list-scroll-anchor';
 
 export function UpcomingTrips() {
   const {
@@ -43,59 +50,38 @@ export function UpcomingTrips() {
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const anchorTripRef = useRef<HTMLDivElement | null>(null);
 
-  const anchorTripId = (() => {
-    if (!trips.length) return null;
+  const anchorTripId = getTripListScrollAnchorId(trips);
 
-    const now = new Date();
-    const anchorTime = subMinutes(now, 15);
+  const scrollListToTimeAnchor = useCallback((): void => {
+    const container = scrollAreaRef.current;
+    const anchorEl = anchorTripRef.current;
+    if (!container || !anchorEl) return;
 
-    // Ensure we work on a time-sorted copy (ascending)
-    const sorted = [...trips].sort((a, b) => {
-      const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
-      const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
-      return aTime - bTime;
+    const nextTop = anchorEl.offsetTop - container.offsetTop;
+    const behavior: ScrollBehavior = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches
+      ? 'auto'
+      : 'smooth';
+    container.scrollTo({
+      top: Math.max(0, nextTop),
+      behavior
     });
-
-    // Anchor to the last trip BEFORE (or equal to) anchorTime.
-    // If none exist, fall back to the first trip after anchorTime.
-    let anchorTrip: (typeof sorted)[number] | null = null;
-
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      const trip = sorted[i];
-      if (!trip?.scheduled_at) continue;
-      const scheduled = new Date(trip.scheduled_at);
-      if (scheduled <= anchorTime) {
-        anchorTrip = trip;
-        break;
-      }
-    }
-
-    if (!anchorTrip) {
-      anchorTrip =
-        sorted.find((trip) => {
-          if (!trip?.scheduled_at) return false;
-          return new Date(trip.scheduled_at) > anchorTime;
-        }) ??
-        sorted[0] ??
-        null;
-    }
-
-    return anchorTrip?.id ?? null;
-  })();
+  }, []);
 
   useEffect(() => {
     const raf = window.requestAnimationFrame(() => {
-      const container = scrollAreaRef.current;
-      const anchorEl = anchorTripRef.current;
-      if (!container || !anchorEl) return;
-
-      // Scroll ONLY within the trips list container (no page scroll)
-      const nextTop = anchorEl.offsetTop - container.offsetTop;
-      container.scrollTop = Math.max(0, nextTop);
+      scrollListToTimeAnchor();
     });
 
     return () => window.cancelAnimationFrame(raf);
-  }, [anchorTripId, filter, statusFilter, trips.length]);
+  }, [
+    anchorTripId,
+    filter,
+    statusFilter,
+    trips.length,
+    scrollListToTimeAnchor
+  ]);
 
   const handleTripClick = (id: string) => {
     setSelectedTripId(id);
@@ -133,16 +119,43 @@ export function UpcomingTrips() {
             .
           </CardDescription>
         </div>
-        <Select value={filter} onValueChange={handleFilterChange}>
-          <SelectTrigger className='w-full shrink-0 sm:w-[120px]'>
-            <SelectValue placeholder='Zeitraum' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='today'>Heute</SelectItem>
-            <SelectItem value='tomorrow'>Morgen</SelectItem>
-            <SelectItem value='week'>Woche</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className='flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto'>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type='button'
+                variant='outline'
+                size='icon'
+                className='size-9 shrink-0'
+                disabled={
+                  isLoading || trips.length === 0 || anchorTripId == null
+                }
+                aria-label='Zur aktuellen Zeit scrollen'
+                onClick={() => {
+                  window.requestAnimationFrame(() => {
+                    scrollListToTimeAnchor();
+                  });
+                }}
+              >
+                <Clock className='size-4' />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom' className='max-w-[240px] text-center'>
+              Zur aktuellen Zeit springen (Anker wie beim Laden: etwa jetzt − 15
+              Min.)
+            </TooltipContent>
+          </Tooltip>
+          <Select value={filter} onValueChange={handleFilterChange}>
+            <SelectTrigger className='min-w-0 flex-1 sm:w-[120px] sm:flex-none'>
+              <SelectValue placeholder='Zeitraum' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='today'>Heute</SelectItem>
+              <SelectItem value='tomorrow'>Morgen</SelectItem>
+              <SelectItem value='week'>Woche</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
 
       <div className='mb-5 px-6'>
