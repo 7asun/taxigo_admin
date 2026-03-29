@@ -63,7 +63,6 @@ const formSchema = z.object({
   relation: z.string().optional(),
   greeting_style: z.string().optional(),
   notes: z.string().optional(),
-  requires_daily_scheduling: z.boolean(),
   is_wheelchair: z.boolean()
 });
 
@@ -157,8 +156,6 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       relation: initialData?.relation || '',
       greeting_style: initialData?.greeting_style || '',
       notes: initialData?.notes || '',
-      requires_daily_scheduling:
-        initialData?.requires_daily_scheduling ?? false,
       is_wheelchair: initialData?.is_wheelchair ?? false
     };
 
@@ -473,13 +470,6 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
                   <div className='bg-border/60 mx-4 h-px' />
                 </>
               )}
-              <FormSwitch
-                control={form.control}
-                name='requires_daily_scheduling'
-                label='Tägliche Zeitabsprache'
-                description='Jeden Tag eine neue Abholzeit abstimmen.'
-                className='rounded-none border-0 bg-transparent shadow-none'
-              />
             </div>
           </section>
         </div>

@@ -20,7 +20,7 @@
  *   2. Gültig ab / Gültig bis (date range, side-by-side)
  *   3. Kostenträger / Abrechnung (before trip address block, same order as Neue Fahrt)
  *   4. Hinfahrt Details (time + Abholadresse / Zieladresse via `AddressAutocomplete`, same Places flow as Neue Fahrt)
- *   5. Rückfahrt toggle + conditional return time input
+ *   5. Rückfahrt mode (none / Zeitabsprache / genaue Zeit) + billing-driven prefill/lock
  *   6. Regel Aktiv toggle (edit mode only)
  *
  * Props:
@@ -53,11 +53,24 @@ import {
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   AddressAutocomplete,
   type AddressResult
 } from '@/features/trips/components/address-autocomplete';
+import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { normalizeBillingTypeBehavior } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import {
+  recurringReturnModeFromRow,
+  type RecurringRuleReturnMode
+} from '@/features/trips/lib/recurring-return-mode';
 import { RecurringRuleBillingFields } from './recurring-rule-billing-fields';
 
 // ─── Schema (shared between Sheet and Panel) ─────────────────────────────────
@@ -88,20 +101,23 @@ export const ruleFormSchema = z
       ),
     pickup_address: z.string().min(1, 'Abholadresse ist erforderlich'),
     dropoff_address: z.string().min(1, 'Zieladresse ist erforderlich'),
-    return_trip: z.boolean(),
+    return_mode: z.enum(['none', 'time_tbd', 'exact']),
     return_time: z.string().optional(),
     start_date: z.string().min(1, 'Startdatum ist erforderlich'),
     end_date: z.string().optional(),
     is_active: z.boolean()
   })
   .superRefine((data, ctx) => {
-    if (data.return_trip && !data.return_time) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'Rückfahrtzeit ist erforderlich, wenn Rückfahrt aktiviert ist.',
-        path: ['return_time']
-      });
+    if (data.return_mode === 'exact') {
+      const t = data.return_time?.trim() ?? '';
+      if (!t) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'Rückfahrtzeit ist erforderlich bei „Rückfahrt mit genauer Zeit“.',
+          path: ['return_time']
+        });
+      }
     }
   });
 
@@ -115,6 +131,7 @@ export function getRuleFormDefaults(
     pickup_time: string;
     pickup_address: string;
     dropoff_address: string;
+    return_mode?: string | null;
     return_trip: boolean;
     return_time?: string | null;
     start_date: string;
@@ -132,7 +149,7 @@ export function getRuleFormDefaults(
       pickup_time: '08:00',
       pickup_address: '',
       dropoff_address: '',
-      return_trip: true,
+      return_mode: 'exact',
       return_time: '15:00',
       start_date: format(new Date(), 'yyyy-MM-dd'),
       end_date: '',
@@ -142,6 +159,7 @@ export function getRuleFormDefaults(
 
   const match = initialData.rrule_string.match(/BYDAY=([^;]+)/);
   const days = match ? match[1].split(',') : ['MO', 'TU', 'WE', 'TH', 'FR'];
+  const returnMode = recurringReturnModeFromRow(initialData);
 
   return {
     days,
@@ -150,8 +168,11 @@ export function getRuleFormDefaults(
     pickup_time: initialData.pickup_time.substring(0, 5),
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,
-    return_trip: initialData.return_trip ?? true,
-    return_time: initialData.return_time?.substring(0, 5) ?? '15:00',
+    return_mode: returnMode,
+    return_time:
+      returnMode === 'exact'
+        ? (initialData.return_time?.substring(0, 5) ?? '15:00')
+        : '',
     start_date: initialData.start_date,
     end_date: initialData.end_date ?? '',
     is_active: initialData.is_active ?? true
@@ -170,7 +191,48 @@ export function RecurringRuleFormBody({
   form,
   showIsActive = false
 }: RecurringRuleFormBodyProps) {
-  const watchedReturnTrip = form.watch('return_trip');
+  const watchedPayerId = form.watch('payer_id');
+  const watchedBillingVariantId = form.watch('billing_variant_id');
+  const watchedReturnMode = form.watch(
+    'return_mode'
+  ) as RecurringRuleReturnMode;
+  const { billingTypes } = useTripFormData(watchedPayerId);
+
+  const billingBehavior = React.useMemo(() => {
+    const v = billingTypes.find((b) => b.id === watchedBillingVariantId);
+    if (!v) return null;
+    return normalizeBillingTypeBehavior(v.behavior_profile);
+  }, [billingTypes, watchedBillingVariantId]);
+
+  const isReturnModeLocked = Boolean(
+    billingBehavior &&
+      (billingBehavior.lockReturnMode ||
+        billingBehavior.returnPolicy === 'none')
+  );
+
+  React.useEffect(() => {
+    if (!watchedBillingVariantId || !billingBehavior) return;
+    const rp = billingBehavior.returnPolicy as string | null | undefined;
+    const lockedNone = billingBehavior.lockReturnMode || rp === 'none';
+    if (lockedNone) {
+      const rawPolicy = rp ?? 'none';
+      let mode: RecurringRuleReturnMode = 'none';
+      if (rawPolicy === 'time_tbd' || rawPolicy === 'create_placeholder') {
+        mode = 'time_tbd';
+      } else if (rawPolicy === 'exact') {
+        mode = 'exact';
+      }
+      form.setValue('return_mode', mode, { shouldValidate: true });
+      return;
+    }
+    if (rp === 'time_tbd' || rp === 'create_placeholder') {
+      form.setValue('return_mode', 'time_tbd', { shouldValidate: true });
+      return;
+    }
+    if (rp === 'exact') {
+      form.setValue('return_mode', 'exact', { shouldValidate: true });
+    }
+  }, [watchedBillingVariantId, billingBehavior, form]);
 
   return (
     <FormProvider {...form}>
@@ -317,32 +379,56 @@ export function RecurringRuleFormBody({
           />
         </div>
 
-        {/* ── Rückfahrt ────────────────────────────────────────── */}
+        {/* ── Rückfahrt (parity with Neue Fahrt) ───────────────── */}
         <div className='bg-muted/20 space-y-4 rounded-lg border p-4'>
+          <div className='mb-1 flex items-center gap-2'>
+            <span className='text-muted-foreground text-xs font-semibold tracking-wider uppercase'>
+              Rückfahrt
+            </span>
+            {isReturnModeLocked ? (
+              <span className='text-muted-foreground text-[10px] font-medium'>
+                (Abrechnung)
+              </span>
+            ) : null}
+          </div>
           <FormField
             control={form.control}
-            name='return_trip'
+            name='return_mode'
             render={({ field }) => (
-              <FormItem className='flex flex-row items-center justify-between rounded-lg p-2'>
-                <div className='space-y-0.5'>
-                  <FormLabel className='text-base'>
-                    Zugehörige Rückfahrt
-                  </FormLabel>
-                  <p className='text-muted-foreground text-sm'>
-                    Automatisch eine zweite Fahrt in umgekehrter Richtung
-                    anlegen.
-                  </p>
-                </div>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
+              <FormItem>
+                <FormLabel>Rückfahrt</FormLabel>
+                <Select
+                  onValueChange={(v) => {
+                    field.onChange(v as RecurringRuleReturnMode);
+                    if (v !== 'exact') {
+                      form.setValue('return_time', '', {
+                        shouldValidate: true
+                      });
+                    }
+                  }}
+                  value={field.value}
+                  disabled={isReturnModeLocked}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder='Wählen…' />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='none'>Keine Rückfahrt</SelectItem>
+                    <SelectItem value='time_tbd'>
+                      Rückfahrt mit Zeitabsprache
+                    </SelectItem>
+                    <SelectItem value='exact'>
+                      Rückfahrt mit genauer Zeit
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
               </FormItem>
             )}
           />
-          {watchedReturnTrip && (
+          {watchedReturnMode === 'exact' && (
             <FormField
               control={form.control}
               name='return_time'
@@ -350,12 +436,22 @@ export function RecurringRuleFormBody({
                 <FormItem>
                   <FormLabel>Rückfahrt Abholzeit</FormLabel>
                   <FormControl>
-                    <Input type='time' {...field} />
+                    <Input
+                      type='time'
+                      {...field}
+                      disabled={isReturnModeLocked}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+          )}
+          {watchedReturnMode === 'time_tbd' && (
+            <p className='text-muted-foreground text-xs'>
+              Die Rückfahrt wird ohne feste Uhrzeit angelegt; die Zeit kann
+              später gesetzt werden (wie bei Neue Fahrt).
+            </p>
           )}
         </div>
 

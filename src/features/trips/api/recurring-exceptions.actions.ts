@@ -1,5 +1,7 @@
+import { format } from 'date-fns';
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
+import { RECURRING_RETURN_TBD_EXCEPTION_PICKUP_TIME } from '@/features/trips/lib/recurring-return-mode';
 
 export type TripCancelMode =
   | 'single-nonrecurring'
@@ -18,14 +20,30 @@ type OccurrenceKey = {
   timeStr: string;
 };
 
-function deriveOccurrenceKey(trip: Trip): OccurrenceKey | null {
-  if (!trip.scheduled_at) return null;
-  const scheduledDate = new Date(trip.scheduled_at);
-  const iso = scheduledDate.toISOString();
-  const [dateStr, timeWithMs] = iso.split('T');
-  const timeStr = timeWithMs.substring(0, 8); // HH:mm:ss
+/**
+ * Maps a materialized recurring trip to `recurring_rule_exceptions` lookup fields.
+ * Zeitabsprache-Rückfahrt legs use `scheduled_at = null` and match exceptions via
+ * {@link RECURRING_RETURN_TBD_EXCEPTION_PICKUP_TIME} (same sentinel as the cron).
+ */
+function deriveRecurringExceptionOccurrenceKey(
+  trip: Trip
+): OccurrenceKey | null {
+  if (trip.scheduled_at) {
+    const scheduledDate = new Date(trip.scheduled_at);
+    const iso = scheduledDate.toISOString();
+    const [dateStr, timeWithMs] = iso.split('T');
+    const timeStr = timeWithMs.substring(0, 8);
+    return { dateStr, timeStr };
+  }
 
-  return { dateStr, timeStr };
+  if (trip.rule_id && trip.requested_date && trip.link_type === 'return') {
+    return {
+      dateStr: trip.requested_date,
+      timeStr: RECURRING_RETURN_TBD_EXCEPTION_PICKUP_TIME
+    };
+  }
+
+  return null;
 }
 
 export async function findPairedTrip(trip: Trip): Promise<Trip | null> {
@@ -136,9 +154,13 @@ export async function skipRecurringOccurrence(
     };
   }
 
-  const occurrenceKey = deriveOccurrenceKey(trip);
+  const occurrenceKey = deriveRecurringExceptionOccurrenceKey(trip);
   if (!occurrenceKey) {
-    return { ok: false, error: 'Trip has no scheduled_at timestamp.' };
+    return {
+      ok: false,
+      error:
+        'Trip has no occurrence key (needs scheduled_at, or recurring return with requested_date).'
+    };
   }
 
   const { dateStr, timeStr } = occurrenceKey;
@@ -193,7 +215,7 @@ export async function skipRecurringOccurrenceAndPaired(
 
   // For paired leg: if it belongs to the same rule, create its own exception.
   if (pairedTrip.rule_id) {
-    const occurrenceKey = deriveOccurrenceKey(pairedTrip);
+    const occurrenceKey = deriveRecurringExceptionOccurrenceKey(pairedTrip);
     if (occurrenceKey) {
       const { dateStr, timeStr } = occurrenceKey;
 
@@ -250,8 +272,8 @@ export async function cancelRecurringSeries(
     return { ok: false, error: ruleError.message };
   }
 
-  // Mark all future pending trips for this rule as cancelled, instead of deleting them.
-  const { error: tripsError } = await supabase
+  // Timed legs: future `scheduled_at`
+  const { error: timedError } = await supabase
     .from('trips')
     .update({
       status: 'cancelled',
@@ -261,8 +283,24 @@ export async function cancelRecurringSeries(
     .gte('scheduled_at', new Date().toISOString())
     .eq('status', 'pending');
 
-  if (tripsError) {
-    return { ok: false, error: tripsError.message };
+  if (timedError) {
+    return { ok: false, error: timedError.message };
+  }
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const { error: tbdError } = await supabase
+    .from('trips')
+    .update({
+      status: 'cancelled',
+      canceled_reason_notes: reason ?? null
+    })
+    .eq('rule_id', trip.rule_id)
+    .is('scheduled_at', null)
+    .gte('requested_date', todayStr)
+    .eq('status', 'pending');
+
+  if (tbdError) {
+    return { ok: false, error: tbdError.message };
   }
 
   return { ok: true };

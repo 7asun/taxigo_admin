@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { RecurringRuleSheet } from './recurring-rule-sheet';
+import { recurringReturnModeFromRow } from '@/features/trips/lib/recurring-return-mode';
 
 function RecurringRuleBillingCaption({
   rule
@@ -183,35 +184,48 @@ export function RecurringRulesList({
                     </div>
 
                     {/* Rückfahrt */}
-                    {rule.return_trip && rule.return_time ? (
-                      <div className='bg-muted/30 space-y-2 rounded-lg p-3 text-sm'>
-                        <div className='mb-2 flex items-center gap-2 font-medium text-rose-500'>
-                          <Navigation className='h-3.5 w-3.5' /> Rückfahrt
+                    {(() => {
+                      const rm = recurringReturnModeFromRow(rule);
+                      if (rm === 'none') {
+                        return (
+                          <div className='bg-muted/10 text-muted-foreground flex items-center justify-center rounded-lg border border-dashed p-3 text-sm italic'>
+                            Keine Rückfahrt
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className='bg-muted/30 space-y-2 rounded-lg p-3 text-sm'>
+                          <div className='mb-2 flex items-center gap-2 font-medium text-rose-500'>
+                            <Navigation className='h-3.5 w-3.5' /> Rückfahrt
+                          </div>
+                          {rm === 'exact' && rule.return_time ? (
+                            <div className='flex gap-2'>
+                              <Clock className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
+                              <span className='font-mono'>
+                                {rule.return_time.substring(0, 5)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className='text-muted-foreground flex gap-2 text-xs italic'>
+                              <Clock className='mt-0.5 h-3.5 w-3.5 shrink-0' />
+                              Zeitabsprache — keine feste Uhrzeit in der Regel
+                            </div>
+                          )}
+                          <div className='flex gap-2'>
+                            <MapPin className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
+                            <span className='line-clamp-2'>
+                              {rule.dropoff_address}
+                            </span>
+                          </div>
+                          <div className='flex gap-2'>
+                            <Navigation className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
+                            <span className='line-clamp-2'>
+                              {rule.pickup_address}
+                            </span>
+                          </div>
                         </div>
-                        <div className='flex gap-2'>
-                          <Clock className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
-                          <span className='font-mono'>
-                            {rule.return_time.substring(0, 5)}
-                          </span>
-                        </div>
-                        <div className='flex gap-2'>
-                          <MapPin className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
-                          <span className='line-clamp-2'>
-                            {rule.dropoff_address}
-                          </span>
-                        </div>
-                        <div className='flex gap-2'>
-                          <Navigation className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
-                          <span className='line-clamp-2'>
-                            {rule.pickup_address}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className='bg-muted/10 text-muted-foreground flex items-center justify-center rounded-lg border border-dashed p-3 text-sm italic'>
-                        Keine Rückfahrt
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

@@ -67,8 +67,9 @@ Neue Stellen mit eingebettetem `billing_variant` → dieselben Helfer verwenden,
 ## Recurring trips (clients)
 
 - **Table:** `recurring_rules` has `payer_id` (→ `payers`) and `billing_variant_id` (→ `billing_variants`). Both are **nullable** in the database for legacy rows created before billing was required on rules.
+- **`return_mode`:** `none` | `time_tbd` | `exact` — same semantics as **Neue Fahrt** `return_mode` and family **`returnPolicy`** in `behavior_profile`. The rule form **prefills** Rückfahrt mode from the selected Unterart’s family behavior and **locks** the control when `lockReturnMode` is true or when `returnPolicy === 'none'` (mirrors create-trip).
 - **Admin:** Create and edit flows require Kostenträger + Unterart (same as **Neue Fahrt**). Legacy rules without billing show a short hint in the rules list until someone opens the rule and saves.
-- **Cron:** [`generate-recurring-trips`](../src/app/api/cron/generate-recurring-trips/route.ts) copies `payer_id` and `billing_variant_id` from the rule onto each generated trip (Hinfahrt and Rückfahrt), **geocodes** address lines into structured fields + coordinates, and fills driving metrics when geocoding succeeds. Rules that still have NULL billing are **skipped** (logged) so trips are not created without billing.
+- **Cron:** [`generate-recurring-trips`](../src/app/api/cron/generate-recurring-trips/route.ts) branches on `return_mode`, links Hin-/Rückfahrt with **bidirectional** `linked_trip_id`, and copies `payer_id` / `billing_variant_id` onto each generated trip. It **geocodes** address lines, fills structured fields + coordinates, and fills driving metrics when geocoding succeeds. Rules that still have NULL billing are **skipped** (logged) so trips are not created without billing.
 
 ## CSV contract (bulk upload)
 

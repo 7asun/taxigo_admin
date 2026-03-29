@@ -70,29 +70,43 @@ Rückfahrt. `getTripDirection` handles them via the `linked_trip_id` fallback.*
 
 ### 3b. Recurring Cron (`src/app/api/cron/generate-recurring-trips/route.ts`)
 
-The cron generates trips for a 14-day rolling window from `recurring_rules`. If
-`rule.return_trip === true`, it generates both legs on the same `scheduled_at`
-calendar day. **The cron has been fixed to set `link_type`.** It also sets
-`trips.payer_id` and `trips.billing_variant_id` from the rule; rules missing
-either are skipped (with a log line) so generated trips always carry billing.
+The cron generates trips for a 14-day rolling window from `recurring_rules`. Rückfahrt
+behavior follows **`recurring_rules.return_mode`**, aligned with Neue Fahrt / billing
+`returnPolicy`: **`none`** (Hinfahrt only), **`exact`** (Hinfahrt + Rückfahrt with
+`return_time`), **`time_tbd`** (Hinfahrt timed + Rückfahrt with `scheduled_at = null`
+and `requested_date` set for that occurrence). Legacy rows without `return_mode`
+are interpreted via `return_trip` / `return_time` (see
+[`recurring-return-mode.ts`](../src/features/trips/lib/recurring-return-mode.ts)).
 
-For each leg, the cron **forward-geocodes** the pickup and dropoff address lines
-(`geocodeAddressLineToStructured` in [`google-geocoding.ts`](../src/lib/google-geocoding.ts)),
-fills `pickup_*` / `dropoff_*` structured columns and **lat/lng**, sets
-`has_missing_geodata` when either side fails, computes **driving distance/duration**
-when both coordinates exist ([`getDrivingMetrics`](../src/lib/google-directions.ts)),
-and copies **`greeting_style`** / **`is_wheelchair`** from the client plus **`requested_date`**
-for the occurrence day.
+The cron sets `trips.payer_id` and `trips.billing_variant_id` from the rule; rules
+missing either are skipped (with a log line) so generated trips always carry billing.
 
-| Leg | `link_type` | `linked_trip_id` | `rule_id` |
-|-----|-------------|-----------------|-----------|
-| Hinfahrt | `null` | `null` | → rule's `id` |
-| Rückfahrt | `'return'` ✅ | `null` | → rule's `id` |
+For each leg, the cron **forward-geocodes** address lines, fills structured columns
+and **lat/lng**, sets `has_missing_geodata` when either side fails, computes **driving
+metrics** when both coordinates exist, and copies **`greeting_style`** /
+**`is_wheelchair`** from the client plus **`requested_date`** for the occurrence day.
 
-*Note: cron-generated pairs have NO `linked_trip_id` between them — pairing is
-inferred by shared `rule_id` + same calendar day in `findPairedTrip`. Old
-cron-generated rows (before this fix) have `link_type = null` on both legs; their
-direction can only be inferred by comparing `scheduled_at` times (earlier = Hinfahrt).*
+**Linking (same pattern as bulk upload):** after inserting the Rückfahrt row with
+`linked_trip_id` → Hinfahrt, the cron **updates the Hinfahrt** with
+`linked_trip_id` → Rückfahrt and `link_type: 'outbound'`. This makes
+`findPairedTrip` work for **Zeitabsprache** returns (`scheduled_at` null), which
+cannot fall back to “same rule + same day” by time.
+
+| Leg | `link_type` | `linked_trip_id` | `scheduled_at` / `requested_date` |
+|-----|-------------|------------------|-----------------------------------|
+| Hinfahrt | `null` then **`'outbound'`** after pair | → Rückfahrt `id` when paired | `scheduled_at` set from rule pickup time |
+| Rückfahrt `exact` | `'return'` | → Hinfahrt `id` | `scheduled_at` set from `return_time` |
+| Rückfahrt `time_tbd` | `'return'` | → Hinfahrt `id` | `scheduled_at` **null**, `requested_date` = day |
+
+**Exceptions:** For `time_tbd` return legs, `recurring_rule_exceptions.original_pickup_time`
+uses the sentinel **`00:00:00`** (not a real clock time). Skip-occurrence and cron
+both use this key; see
+[`recurring-exceptions.actions.ts`](../src/features/trips/api/recurring-exceptions.actions.ts).
+
+**Idempotency:** Dedup keys use `rule_id`, `client_id`, `requested_date`, leg role
+(outbound vs return), `scheduled_at` (including **null** for TBD returns), and
+`link_type`. Outbound dedup matches `link_type` **null or `outbound`** so re-runs
+after the outbound row was stamped `outbound` do not insert duplicates.
 
 ---
 

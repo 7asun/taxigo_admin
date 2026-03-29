@@ -425,6 +425,7 @@ export type Database = {
           pickup_address: string;
           dropoff_address: string;
           pickup_time: string;
+          return_mode: string;
           return_trip: boolean;
           return_time: string | null;
           start_date: string;
@@ -441,6 +442,7 @@ export type Database = {
           pickup_address: string;
           dropoff_address: string;
           pickup_time: string;
+          return_mode: string;
           return_trip?: boolean;
           return_time?: string | null;
           start_date: string;
@@ -457,6 +459,7 @@ export type Database = {
           pickup_address?: string;
           dropoff_address?: string;
           pickup_time?: string;
+          return_mode?: string;
           return_trip?: boolean;
           return_time?: string | null;
           start_date?: string;

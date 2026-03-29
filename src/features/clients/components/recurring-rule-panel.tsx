@@ -113,9 +113,10 @@ export function RecurringRulePanel({
         pickup_time: `${values.pickup_time}:00`,
         pickup_address: values.pickup_address,
         dropoff_address: values.dropoff_address,
-        return_trip: values.return_trip,
+        return_mode: values.return_mode,
+        return_trip: values.return_mode !== 'none',
         return_time:
-          values.return_trip && values.return_time
+          values.return_mode === 'exact' && values.return_time
             ? `${values.return_time}:00`
             : null,
         start_date: values.start_date,
