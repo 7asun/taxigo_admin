@@ -131,6 +131,7 @@ The project follows a feature-based folder structure designed for scalability in
 │   ├── trips-date-filter.md # Fahrten date query + “stuck cards” fix
 │   ├── date-picker.md       # DatePicker + DateTimePicker (one module: date-time-picker.tsx)
 │   ├── trip-reschedule-v1.md # Verschieben — implementation: `src/features/trips/trip-reschedule/`
+│   ├── driving-metrics-api.md # Google Directions proxy + env (driving_distance_km / duration)
 │   └── trips-rueckfahrt-detail-sheet.md # Rückfahrt-Button in Trip-Detailansicht
 
 /__CLEANUP__               # Feature removal scripts
@@ -195,6 +196,14 @@ NEXT_PUBLIC_SENTRY_ORG=your-org
 NEXT_PUBLIC_SENTRY_PROJECT=your-project
 SENTRY_AUTH_TOKEN=sntrys_...
 NEXT_PUBLIC_SENTRY_DISABLED="false"  # Set to "true" to disable in dev
+```
+
+### Optional: Google Maps (Geocoding + Directions)
+
+Set on the server (never `NEXT_PUBLIC_`). Used for address geocoding, reverse PLZ fallback, and driving distance/duration via `POST /api/trips/driving-metrics`. Enable **Geocoding API** and **Directions API** on the GCP key. See [docs/driving-metrics-api.md](docs/driving-metrics-api.md) and [docs/address-autocomplete.md](docs/address-autocomplete.md).
+
+```env
+GOOGLE_MAPS_API_KEY=...
 ```
 
 **Note**: Clerk supports "keyless mode" - the app works without API keys for initial development.

@@ -13,7 +13,7 @@
 
 import type { Trip } from '@/features/trips/api/trips.service';
 import type { AddressResult } from '@/features/trips/components/trip-address-passenger';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 /**
  * Supabase column names that (1) make “Trip aktualisieren” offer the paired dialog
@@ -265,7 +265,7 @@ export async function finalizePartnerPatchWithDrivingMetrics(
     typeof dlat === 'number' &&
     typeof dlng === 'number'
   ) {
-    const metrics = await getDrivingMetrics(plat, plng, dlat, dlng);
+    const metrics = await fetchDrivingMetrics(plat, plng, dlat, dlng);
     if (metrics) {
       return {
         ...patch,

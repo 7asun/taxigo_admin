@@ -42,7 +42,7 @@ By default, edits apply **only** to the opened `trips.id`. Other rows sharing `g
 
 - **Stammdaten / Abrechnung / Hinweise:** Same values as on the open trip: `client_id`, `client_name`, `client_phone`, `is_wheelchair`, `payer_id`, `billing_variant_id`, `billing_calling_station`, `billing_betreuer`, `notes` (merged from the notes textarea when that flow runs with dirty notes).
 - **Route on the partner leg** uses the same **endpoint swap** as [`swapRouteEndpoints`](../src/features/trips/lib/build-return-trip-insert.ts) / a new Rückfahrt: this leg’s **dropoff** drafts (address, structured fields, coordinates, `dropoff_location`) become the partner’s **pickup** side; this leg’s **pickup** drafts become the partner’s **dropoff** side. **Stations** follow the same swap: partner `pickup_station` ← this leg’s dropoff station draft, partner `dropoff_station` ← this leg’s pickup station draft.
-- **Driving metrics** on the partner row (`driving_distance_km`, `driving_duration_seconds`) are recomputed via Google Directions when all four coordinates are present ([`finalizePartnerPatchWithDrivingMetrics`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts)).
+- **Driving metrics** on the partner row (`driving_distance_km`, `driving_duration_seconds`) are recomputed via Google Directions when all four coordinates are present ([`finalizePartnerPatchWithDrivingMetrics`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts)). The browser calls **`POST /api/trips/driving-metrics`** so the Maps API key stays server-only (see [driving-metrics-api.md](./driving-metrics-api.md)).
 
 **Not mirrored** (each leg stays independent): **date/time** (`scheduled_at` / `requested_date` are not paired keys), **driver**, and other columns outside the allowlist.
 
@@ -76,6 +76,7 @@ Before persisting changes (including the path that leads to the paired dialog), 
 
 ## Related
 
+- [driving-metrics-api.md](./driving-metrics-api.md) — Directions proxy, env, auth for `driving_distance_km` / `driving_duration_seconds`.
 - [trips-duplicate.md](trips-duplicate.md) — Duplizieren aus Liste und Detail-Blatt, `includeLinkedLeg`, `explicitPerLegUnifiedTimes`, „Kopie“-Badge.
 - [trips-rueckfahrt-detail-sheet.md](trips-rueckfahrt-detail-sheet.md) — creating a linked return from the sheet (create-time symmetry with `buildReturnTripInsert`).
 - [trip-linking-and-cancellation.md](trip-linking-and-cancellation.md) — pairing and cancel flows.

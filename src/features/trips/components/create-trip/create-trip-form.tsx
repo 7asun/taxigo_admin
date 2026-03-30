@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { tripsService } from '@/features/trips/api/trips.service';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import type { PassengerEntry, AddressGroupEntry } from '@/features/trips/types';
@@ -1027,7 +1027,7 @@ export function CreateTripForm({
         let outboundDrivingDurationSeconds: number | null = null;
 
         if (pickupHasCoords && dropoffHasCoords) {
-          const metrics = await getDrivingMetrics(
+          const metrics = await fetchDrivingMetrics(
             pickupGroup.lat as number,
             pickupGroup.lng as number,
             dropoffGroup.lat as number,
@@ -1076,7 +1076,7 @@ export function CreateTripForm({
           let returnDrivingDurationSeconds: number | null = null;
 
           if (pickupHasCoords && dropoffHasCoords) {
-            const metrics = await getDrivingMetrics(
+            const metrics = await fetchDrivingMetrics(
               dropoffGroup.lat as number,
               dropoffGroup.lng as number,
               pickupGroup.lat as number,
@@ -1192,7 +1192,7 @@ export function CreateTripForm({
                 let drivingDurationSeconds: number | null = null;
 
                 if (pickupHasCoords && dropoffHasCoords) {
-                  const metrics = await getDrivingMetrics(
+                  const metrics = await fetchDrivingMetrics(
                     dropoffGroup!.lat as number,
                     dropoffGroup!.lng as number,
                     pickupGroup!.lat as number,

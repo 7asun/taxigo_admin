@@ -160,9 +160,9 @@ interface AddressResult {
 | Variable                | Used in                                      | Purpose                                                                                                                                          |
 | ----------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GOOGLE_PLACES_API_KEY` | `places-autocomplete`, `place-details`       | Server-side only — Autocomplete + Place Details (New). Never expose to the client.                                                               |
-| `GOOGLE_MAPS_API_KEY`   | `google-geocoding.ts` (reverse PLZ fallback) | Geocoding API for reverse lookup when Place Details PLZ is incomplete. Same GCP project as Places is typical; **Geocoding API** must be enabled. |
+| `GOOGLE_MAPS_API_KEY`   | [`google-geocoding.ts`](../src/lib/google-geocoding.ts) (reverse PLZ fallback), [`google-directions.ts`](../src/lib/google-directions.ts) / **`POST /api/trips/driving-metrics`** | **Geocoding API** when Place Details PLZ is incomplete; **Directions API** for driving distance/duration (`driving_distance_km`, `driving_duration_seconds`). Enable both on the GCP key. Details: [driving-metrics-api.md](./driving-metrics-api.md). |
 
-The frontend calls only `/api/places-autocomplete` and `/api/place-details`, never Google directly.
+The frontend calls only `/api/places-autocomplete` and `/api/place-details`, never Google directly. Driving metrics use **`POST /api/trips/driving-metrics`** (not the Places routes).
 
 ---
 

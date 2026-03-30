@@ -1,5 +1,5 @@
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 import { buildReturnTripInsert } from '@/features/trips/lib/build-return-trip-insert';
 
 export interface CreateLinkedReturnOptions {
@@ -31,7 +31,7 @@ export async function createLinkedReturnForOutbound(
   let drivingDurationSeconds: number | null = null;
 
   if (pickupHasCoords && dropoffHasCoords) {
-    const metrics = await getDrivingMetrics(
+    const metrics = await fetchDrivingMetrics(
       outbound.dropoff_lat as number,
       outbound.dropoff_lng as number,
       outbound.pickup_lat as number,

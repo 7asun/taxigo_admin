@@ -15,7 +15,7 @@ import {
   applyTimeToScheduledDate,
   buildScheduledAtFromYmdAndHm
 } from '@/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 export function clientDisplayNameFromParts(
   first: string,
@@ -228,7 +228,7 @@ export async function buildTripDetailsPatch(
     typeof dropLng === 'number' &&
     (patch.pickup_lat !== undefined || patch.dropoff_lat !== undefined)
   ) {
-    const metrics = await getDrivingMetrics(
+    const metrics = await fetchDrivingMetrics(
       pickupLat,
       pickupLng,
       dropLat,

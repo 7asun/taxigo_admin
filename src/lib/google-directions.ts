@@ -1,3 +1,11 @@
+/**
+ * Google Maps Directions API (server-side only).
+ *
+ * `GOOGLE_MAPS_API_KEY` is not exposed to the browser. Do **not** import this module from
+ * `'use client'` components — use `@/features/trips/lib/fetch-driving-metrics` (POST
+ * `/api/trips/driving-metrics`) instead. Route Handlers, cron jobs, and Node scripts may
+ * call `getDrivingMetrics` directly.
+ */
 const DIRECTIONS_ENDPOINT =
   'https://maps.googleapis.com/maps/api/directions/json';
 
@@ -30,6 +38,7 @@ export interface DrivingMetrics {
   durationSeconds: number;
 }
 
+/** Calls the Directions API; safe only where `process.env` includes the Maps key (server / scripts). */
 export async function getDrivingMetrics(
   originLat: number,
   originLng: number,
@@ -54,7 +63,9 @@ export async function getDrivingMetrics(
   url.searchParams.set('key', apiKey);
 
   try {
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(15_000)
+    });
     if (!res.ok) {
       console.error('Directions API HTTP error', res.status, res.statusText);
       return null;
