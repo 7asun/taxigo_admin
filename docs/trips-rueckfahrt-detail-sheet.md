@@ -12,7 +12,7 @@ Passengers sometimes book **only the outbound** leg. Later they call and ask for
 
 ## Entry point (current scope)
 
-- **Trip detail sheet** only: [`src/features/overview/components/trip-detail-sheet.tsx`](../src/features/overview/components/trip-detail-sheet.tsx)
+- **Trip detail sheet** only: [`src/features/trips/trip-detail-sheet/`](../src/features/trips/trip-detail-sheet/) (re-exported from [`trip-detail-sheet.tsx`](../src/features/overview/components/trip-detail-sheet.tsx)); editing behaviour: [trip-detail-sheet-editing.md](trip-detail-sheet-editing.md)
 - Footer action **“Rückfahrt”** (only when the rules below allow it — otherwise the button is **not rendered**).
 
 There is intentionally **no** Kanban / Cmd+K entry in this version.
@@ -72,6 +72,10 @@ Implementation:
 2. **Update** the outbound row with `linked_trip_id` + `link_type: 'outbound'`.
 
 Code: [`createLinkedReturnForOutbound`](../src/features/trips/lib/create-linked-return.ts).
+
+### Editing both legs later (Stammdaten, Route, Rollstuhl)
+
+Creation copies passenger, billing, wheelchair, and notes from the outbound into the new return row (see below). **Editing** in the trip detail sheet used to affect only the row you had open. The app now offers **“Diese Fahrt + Gegenfahrt”** when you save **Details** or **Notizen**: you can align **Stammdaten, Abrechnung, Rollstuhl, Hinweise**, and—on **Details**—the **full route** on the partner leg using the same **pickup/dropoff swap** as at create time (`buildReturnTripInsert`). **Schedule and driver** are not copied between legs. Full behaviour, dialog order, driving-metrics recomputation, and file map: [trip-detail-sheet-editing.md](trip-detail-sheet-editing.md) (section **Verknüpfte Gegenfahrt: Spiegeln auf die Gegenfahrt**).
 
 ---
 

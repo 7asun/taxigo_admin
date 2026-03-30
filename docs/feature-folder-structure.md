@@ -12,13 +12,14 @@ Features are organized under `src/features/`. Each feature owns a **domain** and
 
 ## Naming Convention
 
-| Pattern | Purpose | Example |
-|--------|---------|---------|
-| `{resource}-management` | Admin CRUD, roster management | `driver-management` |
-| `{resource}-portal` | End-user self-service app | `driver-portal` |
-| `{domain}` | Single-audience or shared domain | `trips`, `clients`, `payers` |
+| Pattern                 | Purpose                          | Example                      |
+| ----------------------- | -------------------------------- | ---------------------------- |
+| `{resource}-management` | Admin CRUD, roster management    | `driver-management`          |
+| `{resource}-portal`     | End-user self-service app        | `driver-portal`              |
+| `{domain}`              | Single-audience or shared domain | `trips`, `clients`, `payers` |
 
 **Routes:**
+
 - `/dashboard/{resource}` — Admin (e.g. `/dashboard/drivers`)
 - `/{resource}/*` — End-user app (e.g. `/driver/shift`)
 
@@ -28,10 +29,10 @@ Features are organized under `src/features/`. Each feature owns a **domain** and
 
 We have two driver-related flows:
 
-| Audience | Route | Feature | Purpose |
-|----------|-------|---------|---------|
-| Admin | `/dashboard/drivers` | `driver-management` | CRUD drivers (Fahrer), assign to trips |
-| Driver | `/driver/*` | `driver-portal` | Shift tracker, driver self-service |
+| Audience | Route                | Feature             | Purpose                                |
+| -------- | -------------------- | ------------------- | -------------------------------------- |
+| Admin    | `/dashboard/drivers` | `driver-management` | CRUD drivers (Fahrer), assign to trips |
+| Driver   | `/driver/*`          | `driver-portal`     | Shift tracker, driver self-service     |
 
 ### driver-management (Admin)
 
@@ -74,12 +75,14 @@ src/features/driver-portal/
 ## When to Split vs Keep Single
 
 ### Split when:
+
 - Two distinct audiences (admin vs end-user)
 - Different layouts (sidebar vs mobile-first)
 - Different data flows (CRUD vs self-service)
 - Naming confusion if combined ("which drivers?")
 
 ### Keep single when:
+
 - Only admin uses the feature
 - Or only one end-user flow exists
 - No ambiguity about who the user is

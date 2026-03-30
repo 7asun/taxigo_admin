@@ -10,10 +10,10 @@ at every cancellation path.
 
 Every `trips` row has two fields that describe its role in a paired journey:
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `link_type` | `text \| null` | **Direction signal.** `'return'` = this trip is the Rückfahrt. `null` = Hinfahrt (or standalone). |
-| `linked_trip_id` | `uuid \| null` | **Pairing signal.** FK → `trips.id` of the partner leg. |
+| Column           | Type           | Purpose                                                                                           |
+| ---------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `link_type`      | `text \| null` | **Direction signal.** `'return'` = this trip is the Rückfahrt. `null` = Hinfahrt (or standalone). |
+| `linked_trip_id` | `uuid \| null` | **Pairing signal.** FK → `trips.id` of the partner leg.                                           |
 
 `link_type` is the **canonical and authoritative** way to tell which leg is which.
 Do not derive direction from address, time, or any other heuristic when `link_type`
@@ -26,7 +26,10 @@ is set.
 Use the utility in `src/features/trips/lib/trip-direction.ts`:
 
 ```typescript
-import { getTripDirection, getCancelledPartnerLabel } from '@/features/trips/lib/trip-direction';
+import {
+  getTripDirection,
+  getCancelledPartnerLabel
+} from '@/features/trips/lib/trip-direction';
 
 const direction = getTripDirection(trip);
 // → 'hinfahrt' | 'rueckfahrt' | 'standalone'
@@ -34,10 +37,10 @@ const direction = getTripDirection(trip);
 
 ### Resolution order inside `getTripDirection`
 
-1. **`link_type === 'return'`** → `'rueckfahrt'` *(primary signal, always set on the Rückfahrt)*
-2. **`link_type === 'outbound'`** → `'hinfahrt'` *(explicit Hinfahrt signal, set by bulk-upload on both auto-return and pair_id outbound legs)*
-3. **`linked_trip_id` is set** → `'rueckfahrt'` *(legacy fallback — only reached by form-created rows created before the link_type fix landed)*
-4. **None of the above** → `'hinfahrt'` *(Hinfahrt or standalone)*
+1. **`link_type === 'return'`** → `'rueckfahrt'` _(primary signal, always set on the Rückfahrt)_
+2. **`link_type === 'outbound'`** → `'hinfahrt'` _(explicit Hinfahrt signal, set by bulk-upload on both auto-return and pair_id outbound legs)_
+3. **`linked_trip_id` is set** → `'rueckfahrt'` _(legacy fallback — only reached by form-created rows created before the link_type fix landed)_
+4. **None of the above** → `'hinfahrt'` _(Hinfahrt or standalone)_
 
 ### Why the legacy fallback is safe (and limited)
 
@@ -58,13 +61,13 @@ pattern. **Both have been fixed to set `link_type`.** Outbound legs also set
 `requested_date` from the chosen Abfahrt calendar day (and `scheduled_at` when a
 time is set), aligned with bulk CSV — see [`billing-families-variants.md`](billing-families-variants.md).
 
-| Leg | `link_type` | `linked_trip_id` |
-|-----|-------------|-----------------|
-| Hinfahrt (outbound) | `null` | `null` |
-| Rückfahrt (return) | `'return'` ✅ | → outbound's `id` |
+| Leg                 | `link_type`   | `linked_trip_id`  |
+| ------------------- | ------------- | ----------------- |
+| Hinfahrt (outbound) | `null`        | `null`            |
+| Rückfahrt (return)  | `'return'` ✅ | → outbound's `id` |
 
-*Note: legacy rows created before this fix have `link_type = null` on the
-Rückfahrt. `getTripDirection` handles them via the `linked_trip_id` fallback.*
+_Note: legacy rows created before this fix have `link_type = null` on the
+Rückfahrt. `getTripDirection` handles them via the `linked_trip_id` fallback._
 
 ---
 
@@ -92,11 +95,11 @@ metrics** when both coordinates exist, and copies **`greeting_style`** /
 `findPairedTrip` work for **Zeitabsprache** returns (`scheduled_at` null), which
 cannot fall back to “same rule + same day” by time.
 
-| Leg | `link_type` | `linked_trip_id` | `scheduled_at` / `requested_date` |
-|-----|-------------|------------------|-----------------------------------|
-| Hinfahrt | `null` then **`'outbound'`** after pair | → Rückfahrt `id` when paired | `scheduled_at` set from rule pickup time |
-| Rückfahrt `exact` | `'return'` | → Hinfahrt `id` | `scheduled_at` set from `return_time` |
-| Rückfahrt `time_tbd` | `'return'` | → Hinfahrt `id` | `scheduled_at` **null**, `requested_date` = day |
+| Leg                  | `link_type`                             | `linked_trip_id`             | `scheduled_at` / `requested_date`               |
+| -------------------- | --------------------------------------- | ---------------------------- | ----------------------------------------------- |
+| Hinfahrt             | `null` then **`'outbound'`** after pair | → Rückfahrt `id` when paired | `scheduled_at` set from rule pickup time        |
+| Rückfahrt `exact`    | `'return'`                              | → Hinfahrt `id`              | `scheduled_at` set from `return_time`           |
+| Rückfahrt `time_tbd` | `'return'`                              | → Hinfahrt `id`              | `scheduled_at` **null**, `requested_date` = day |
 
 **Exceptions:** For `time_tbd` return legs, `recurring_rule_exceptions.original_pickup_time`
 uses the sentinel **`00:00:00`** (not a real clock time). Skip-occurrence and cron
@@ -116,10 +119,10 @@ When a billing type has `returnPolicy = 'time_tbd'` or `'exact'`, the upload
 automatically generates a return trip for every outbound row. Both legs are
 linked bidirectionally.
 
-| Leg | `link_type` | `linked_trip_id` |
-|-----|-------------|-----------------|
-| Hinfahrt | `'outbound'` ✅ (stamped in pass 3) | → return's `id` |
-| Rückfahrt | `'return'` ✅ | → outbound's `id` |
+| Leg       | `link_type`                         | `linked_trip_id`  |
+| --------- | ----------------------------------- | ----------------- |
+| Hinfahrt  | `'outbound'` ✅ (stamped in pass 3) | → return's `id`   |
+| Rückfahrt | `'return'` ✅                       | → outbound's `id` |
 
 ---
 
@@ -138,10 +141,10 @@ Rechnungsfahrt,...,10.03.26,15:00,...,CH1   ← Rückfahrt
 
 After import (Pass 4 of the insert flow):
 
-| Leg | `link_type` | `linked_trip_id` |
-|-----|-------------|-----------------|
+| Leg                     | `link_type`     | `linked_trip_id`   |
+| ----------------------- | --------------- | ------------------ |
 | Hinfahrt (earlier time) | `'outbound'` ✅ | → Rückfahrt's `id` |
-| Rückfahrt (later time) | `'return'` ✅ | → Hinfahrt's `id` |
+| Rückfahrt (later time)  | `'return'` ✅   | → Hinfahrt's `id`  |
 
 #### Direction resolution order (within a pair)
 
@@ -176,10 +179,10 @@ Pass 4 the two trips are indistinguishable from any other bidirectional pair.
 
 Admins can duplicate existing rows to another calendar day from the **Fahrten** bulk bar. New rows are **one-off** materialised trips: **`rule_id` is always cleared** (same principle as the post-hoc Rückfahrt insert in [`trips-rueckfahrt-detail-sheet.md`](trips-rueckfahrt-detail-sheet.md)).
 
-| Leg | `link_type` | `linked_trip_id` |
-|-----|-------------|-----------------|
+| Leg                       | `link_type`                                  | `linked_trip_id`     |
+| ------------------------- | -------------------------------------------- | -------------------- |
 | Hinfahrt (inserted first) | `null` then **`'outbound'`** after link pass | → new Rückfahrt `id` |
-| Rückfahrt | `'return'` ✅ | → new Hinfahrt `id` |
+| Rückfahrt                 | `'return'` ✅                                | → new Hinfahrt `id`  |
 
 Selection is expanded to the paired leg via the same three-stage idea as `findPairedTrip` (implemented server-side in [`duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts)). Product copy and schedule modes: [`trips-duplicate.md`](trips-duplicate.md).
 
@@ -192,9 +195,9 @@ Selection is expanded to the paired leg via the same three-stage idea as `findPa
 Used by cancellation actions and the detail sheet to locate the partner leg.
 Three-stage resolution:
 
-1. `trip.linked_trip_id` is set → query that row directly *(fastest path)*
-2. Inverse: query for any trip where `linked_trip_id = trip.id` *(handles bulk-upload Hinfahrt and any bidirectional pair)*
-3. Fallback: same `rule_id` + same calendar day *(covers cron-generated pairs with no FK link)*
+1. `trip.linked_trip_id` is set → query that row directly _(fastest path)_
+2. Inverse: query for any trip where `linked_trip_id = trip.id` _(handles bulk-upload Hinfahrt and any bidirectional pair)_
+3. Fallback: same `rule_id` + same calendar day _(covers cron-generated pairs with no FK link)_
 
 ---
 
@@ -202,13 +205,13 @@ Three-stage resolution:
 
 Defined in `src/features/trips/api/recurring-exceptions.actions.ts` as `TripCancelMode`:
 
-| Mode | When to use | What it does |
-|------|------------|--------------|
-| `single-nonrecurring` | Non-recurring, no pair | Sets `status = 'cancelled'` on one trip |
-| `cancel-nonrecurring-and-paired` | Non-recurring with a linked partner | Cancels both legs via `findPairedTrip` |
-| `skip-occurrence` | Recurring series trip | Inserts `recurring_rule_exceptions` row + cancels this occurrence |
-| `skip-occurrence-and-paired` | Recurring with a return leg | Same as above for both legs |
-| `cancel-series` | Recurring series | Deactivates rule, bulk-cancels all future pending trips |
+| Mode                             | When to use                         | What it does                                                      |
+| -------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| `single-nonrecurring`            | Non-recurring, no pair              | Sets `status = 'cancelled'` on one trip                           |
+| `cancel-nonrecurring-and-paired` | Non-recurring with a linked partner | Cancels both legs via `findPairedTrip`                            |
+| `skip-occurrence`                | Recurring series trip               | Inserts `recurring_rule_exceptions` row + cancels this occurrence |
+| `skip-occurrence-and-paired`     | Recurring with a return leg         | Same as above for both legs                                       |
+| `cancel-series`                  | Recurring series                    | Deactivates rule, bulk-cancels all future pending trips           |
 
 ### Cancel dialog behavior
 
@@ -222,11 +225,11 @@ The `hasPairedLeg(trip)` check runs asynchronously when the dialog opens.
 
 ### Entry points
 
-| Component | Path |
-|-----------|------|
-| Trips table row | `src/features/trips/components/trips-tables/cell-action.tsx` |
-| Client detail sidebar | `src/features/trips/components/client-trips-panel.tsx` |
-| Trip detail sheet | `src/features/overview/components/trip-detail-sheet.tsx` |
+| Component             | Path                                                         |
+| --------------------- | ------------------------------------------------------------ |
+| Trips table row       | `src/features/trips/components/trips-tables/cell-action.tsx` |
+| Client detail sidebar | `src/features/trips/components/client-trips-panel.tsx`       |
+| Trip detail sheet     | `src/features/overview/components/trip-detail-sheet.tsx`     |
 
 ---
 
@@ -238,16 +241,17 @@ so the dispatcher does not have to remember the context.
 ### Badge label logic
 
 Call `getCancelledPartnerLabel(trip)` from `trip-direction.ts`:
+
 - If the current trip is the Rückfahrt → `'Hinfahrt storniert'`
 - If the current trip is the Hinfahrt → `'Rückfahrt storniert'`
 
 ### Where the badge appears
 
-| Component | How it gets the partner status |
-|-----------|-------------------------------|
-| `trip-row.tsx` (upcoming trips list) | `linked_partner_status` enriched in-memory by `use-upcoming-trips.ts` during the same fetch |
-| `UnplannedTripRow` (pending widget) | `linked_trip.status` included in the secondary fetch in `use-unplanned-trips.ts` |
-| `TripDetailSheet` (detail side-sheet) | `findPairedTrip()` called in a `useEffect` when the trip loads |
+| Component                             | How it gets the partner status                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `trip-row.tsx` (upcoming trips list)  | `linked_partner_status` enriched in-memory by `use-upcoming-trips.ts` during the same fetch |
+| `UnplannedTripRow` (pending widget)   | `linked_trip.status` included in the secondary fetch in `use-unplanned-trips.ts`            |
+| `TripDetailSheet` (detail side-sheet) | `findPairedTrip()` called in a `useEffect` when the trip loads                              |
 
 ---
 
@@ -255,12 +259,12 @@ Call `getCancelledPartnerLabel(trip)` from `trip-direction.ts`:
 
 Legacy rows in the database that predate the `link_type` fix:
 
-| Creation path | Legacy behavior | Handled by |
-|---|---|---|
-| Create-trip form | `link_type = null` on Rückfahrt | `getTripDirection` fallback (rule 2: `linked_trip_id`) |
-| Cron | `link_type = null` on both legs | Direction unknown from trip row alone; badge conservatively shows "Rückfahrt storniert" for trips without `linked_trip_id` (i.e., the Hinfahrt). Cancellation still works via the rule_id + same-day fallback. |
-| Bulk upload — auto-return | Always had `link_type = 'return'` | No migration needed |
-| Bulk upload — `pair_id` | New feature (no legacy rows) | N/A |
+| Creation path             | Legacy behavior                   | Handled by                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create-trip form          | `link_type = null` on Rückfahrt   | `getTripDirection` fallback (rule 2: `linked_trip_id`)                                                                                                                                                         |
+| Cron                      | `link_type = null` on both legs   | Direction unknown from trip row alone; badge conservatively shows "Rückfahrt storniert" for trips without `linked_trip_id` (i.e., the Hinfahrt). Cancellation still works via the rule_id + same-day fallback. |
+| Bulk upload — auto-return | Always had `link_type = 'return'` | No migration needed                                                                                                                                                                                            |
+| Bulk upload — `pair_id`   | New feature (no legacy rows)      | N/A                                                                                                                                                                                                            |
 
 If you want to retroactively fix rows imported before the `link_type = 'outbound'`
 fix landed, run these two statements in order:
@@ -299,4 +303,4 @@ WHERE linked_trip_id IS NOT NULL
 > **Important**: Step 1 MUST run before Step 2. Running Step 2 first (as the old
 > version of this doc suggested) would incorrectly mark bulk-upload Hinfahrt legs
 > as `'return'`, because they share the same predicate (`linked_trip_id IS NOT NULL,
-> link_type IS NULL, rule_id IS NULL`) as legacy form Rückfahrts.
+link_type IS NULL, rule_id IS NULL`) as legacy form Rückfahrts.

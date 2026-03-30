@@ -10,10 +10,10 @@ This document describes the **Fahrten drucken** flow on the trips dashboard: wha
 
 The user picks a **calendar day** and clicks **ZIP generieren**. The client loads trips for that local day from Supabase, then builds a **ZIP** download:
 
-| Content | Description |
-|--------|-------------|
-| **Per-driver PDFs** | One PDF per driver name (including **Nicht zugewiesen** when applicable), same visual pipeline as before: offscreen `MobilePrintTemplate` → JPEG snapshot → jsPDF with map/phone links. |
-| **`fahrtenplan_uebersicht.jpg`** | **Hochformat** overview: one horizontal row of **narrow columns** (Kanban-style), one column per assigned driver with trips. |
+| Content                                           | Description                                                                                                                                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-driver PDFs**                               | One PDF per driver name (including **Nicht zugewiesen** when applicable), same visual pipeline as before: offscreen `MobilePrintTemplate` → JPEG snapshot → jsPDF with map/phone links.                 |
+| **`fahrtenplan_uebersicht.jpg`**                  | **Hochformat** overview: one horizontal row of **narrow columns** (Kanban-style), one column per assigned driver with trips.                                                                            |
 | **`fahrtenplan_uebersicht_handy_querformat.jpg`** | **Querformat** overview: same **column** layout and same **card rules** as PDFs, but a fixed **1280px** wide canvas; driver columns **share width equally** (`flex: 1`) so the row uses the full width. |
 
 Overviews include only **assigned** drivers with at least one trip that day (**no** empty columns, **no** „Nicht zugewiesen“ column).
@@ -47,13 +47,13 @@ Column list and per-column trips come from the same helpers as the Kanban **grou
 
 ## Implementation files
 
-| File | Role |
-|------|------|
-| `print-trips-button.tsx` | Fetch trips + drivers, ZIP assembly, `toJpeg` → `JSZip`, PDF loop. |
-| `mobile-print-template.tsx` | Per-driver print page; delegates cards to `PrintTripGroupsList`. |
-| `print-trip-groups-list.tsx` | Shared PDF-style trip/group cards (`compact` optional). |
-| `board-overview-print-template.tsx` | Hochformat overview layout + columns. |
-| `board-landscape-only-print-template.tsx` | Querformat overview: 1280px root, `flex-1` columns. |
+| File                                      | Role                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------ |
+| `print-trips-button.tsx`                  | Fetch trips + drivers, ZIP assembly, `toJpeg` → `JSZip`, PDF loop. |
+| `mobile-print-template.tsx`               | Per-driver print page; delegates cards to `PrintTripGroupsList`.   |
+| `print-trip-groups-list.tsx`              | Shared PDF-style trip/group cards (`compact` optional).            |
+| `board-overview-print-template.tsx`       | Hochformat overview layout + columns.                              |
+| `board-landscape-only-print-template.tsx` | Querformat overview: 1280px root, `flex-1` columns.                |
 
 **Libraries:** `html-to-image` (`toJpeg`), `jspdf`, `jszip`.
 

@@ -290,6 +290,47 @@ export const columns: ColumnDef<any>[] = [
     }
   },
   {
+    id: 'billing_calling_station',
+    accessorFn: (row) => row.billing_calling_station ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Anrufstation' />
+    ),
+    cell: ({ row }) => {
+      const v = row.original.billing_calling_station as
+        | string
+        | null
+        | undefined;
+      const t = v?.trim();
+      if (!t) return <span className='text-muted-foreground'>—</span>;
+      return (
+        <span className='max-w-[140px] truncate text-sm' title={t}>
+          {t}
+        </span>
+      );
+    },
+    meta: { label: 'Anrufstation', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
+    id: 'billing_betreuer',
+    accessorFn: (row) => row.billing_betreuer ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Betreuer' />
+    ),
+    cell: ({ row }) => {
+      const v = row.original.billing_betreuer as string | null | undefined;
+      const t = v?.trim();
+      if (!t) return <span className='text-muted-foreground'>—</span>;
+      return (
+        <span className='max-w-[140px] truncate text-sm' title={t}>
+          {t}
+        </span>
+      );
+    },
+    meta: { label: 'Betreuer', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
     id: 'actions',
     cell: ({ row }) => <CellAction data={row.original} />
   }

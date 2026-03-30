@@ -38,7 +38,13 @@ export const tripFormSchema = z
       .optional(),
     driver_id: z.string().optional(),
     is_wheelchair: z.boolean(),
-    notes: z.string().optional()
+    notes: z.string().optional(),
+    /**
+     * Billing metadata when family has `askCallingStationAndBetreuer`; persisted as
+     * `trips.billing_calling_station` / `trips.billing_betreuer` (not route stations).
+     */
+    billing_calling_station: z.string().optional(),
+    billing_betreuer: z.string().optional()
   })
   .superRefine((data, ctx) => {
     if (data.return_mode === 'exact') {

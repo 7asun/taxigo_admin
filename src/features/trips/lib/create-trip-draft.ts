@@ -16,7 +16,9 @@ const draftValuesSchemaV3 = z.object({
   return_time: z.string().optional(),
   driver_id: z.string().optional(),
   is_wheelchair: z.boolean(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  billing_calling_station: z.string().optional(),
+  billing_betreuer: z.string().optional()
 });
 
 const draftValuesSchemaV2 = z.object({
@@ -118,6 +120,8 @@ export function buildTripFormValuesFromDraft(
   driver_id: string;
   is_wheelchair: boolean;
   notes: string;
+  billing_calling_station: string;
+  billing_betreuer: string;
 } {
   if ('departure_date' in d) {
     return {
@@ -130,7 +134,9 @@ export function buildTripFormValuesFromDraft(
       return_time: d.return_time ?? '',
       driver_id: d.driver_id ?? '__none__',
       is_wheelchair: d.is_wheelchair,
-      notes: d.notes ?? ''
+      notes: d.notes ?? '',
+      billing_calling_station: d.billing_calling_station ?? '',
+      billing_betreuer: d.billing_betreuer ?? ''
     };
   }
 
@@ -148,7 +154,9 @@ export function buildTripFormValuesFromDraft(
       return_time: d.return_time ?? '',
       driver_id: d.driver_id ?? '__none__',
       is_wheelchair: d.is_wheelchair,
-      notes: d.notes ?? ''
+      notes: d.notes ?? '',
+      billing_calling_station: '',
+      billing_betreuer: ''
     };
   }
 
@@ -165,6 +173,8 @@ export function buildTripFormValuesFromDraft(
     return_time: d.return_time ?? '',
     driver_id: d.driver_id ?? '__none__',
     is_wheelchair: d.is_wheelchair,
-    notes: d.notes ?? ''
+    notes: d.notes ?? '',
+    billing_calling_station: '',
+    billing_betreuer: ''
   };
 }

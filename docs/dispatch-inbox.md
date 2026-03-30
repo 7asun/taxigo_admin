@@ -19,7 +19,7 @@ The Dispatch Inbox is a centralized notification and assignment tool located in 
    `Own scheduled_at` → `Requested Date` → `Linked Outbound Trip scheduled_at` → `Today as fallback`.
    This ensures "Heute" catches trips properly even if they rely on linked trip data.
 6. **Inline Time Edits**: For all trips, the localized time input lets dispatchers assign or modify a departure time instantly without fully entering the edit dialogue.
-7. **Time-Only Saves**: If a dispatcher types a new time but does *not* select a driver, they can still save the trip. The application parses the local time with the fallback date into a valid, timezone-aware ISO string, saves the time, and gracefully reloads the inbox to place the trip into its newly appropriate column.
+7. **Time-Only Saves**: If a dispatcher types a new time but does _not_ select a driver, they can still save the trip. The application parses the local time with the fallback date into a valid, timezone-aware ISO string, saves the time, and gracefully reloads the inbox to place the trip into its newly appropriate column.
 8. **Greeting Style Parsing**: Matches the Driver App style, parsing explicit greeting styles (Herr, Frau, Firma) neatly before the client name.
 
 ## Code Structure

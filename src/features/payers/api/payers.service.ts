@@ -22,6 +22,7 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requirePassenger: true,
   requirePickupStation: false,
   requireDropoffStation: false,
+  askCallingStationAndBetreuer: false,
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,

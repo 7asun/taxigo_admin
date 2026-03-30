@@ -23,34 +23,40 @@ The project follows a feature-based folder structure designed for scalability in
 ## Technology Stack Details
 
 ### Core Framework & Runtime
+
 - Next.js 16.0.10 with App Router
 - React 19.2.0
 - TypeScript 5.7.2 with strict mode enabled
 
 ### Styling & UI
+
 - Tailwind CSS v4 (using `@import 'tailwindcss'` syntax)
 - PostCSS with `@tailwindcss/postcss` plugin
 - shadcn/ui component library (Radix UI primitives)
 - CSS custom properties for theming (OKLCH color format)
 
 ### State Management
+
 - Zustand 5.x for global state
 - Nuqs for URL search params state management
 - React Hook Form + Zod for form handling
 
 ### Authentication & Authorization
+
 - Clerk for authentication and user management
 - Clerk Organizations for multi-tenant workspaces
 - Clerk Billing for subscription management (B2B)
 - Client-side RBAC for navigation visibility
 
 ### Data & APIs
+
 - TanStack Table for data tables
 - TanStack Query: shared defaults and query keys in [`src/query/`](src/query/README.md); when to use `invalidateQueries` vs `router.refresh()` is documented there and in [`docs/server-state-query.md`](docs/server-state-query.md)
 - Recharts for analytics/charts
 - Mock API utilities in `src/constants/mock-api.ts`
 
 ### Development Tools
+
 - ESLint 8.x with Next.js core-web-vitals config
 - Prettier 3.x with prettier-plugin-tailwindcss
 - Husky for git hooks
@@ -169,6 +175,7 @@ bun run prepare      # Install Husky hooks
 Copy `env.example.txt` to `.env.local` and configure:
 
 ### Required for Authentication (Clerk)
+
 ```env
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 CLERK_SECRET_KEY=sk_...
@@ -181,6 +188,7 @@ NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL="/dashboard/overview"
 ```
 
 ### Optional for Error Tracking (Sentry)
+
 ```env
 NEXT_PUBLIC_SENTRY_DSN=https://...@....ingest.sentry.io/...
 NEXT_PUBLIC_SENTRY_ORG=your-org
@@ -196,12 +204,14 @@ NEXT_PUBLIC_SENTRY_DISABLED="false"  # Set to "true" to disable in dev
 ## Code Style Guidelines
 
 ### TypeScript
+
 - Strict mode enabled
 - Use explicit return types for public functions
 - Prefer interface over type for object definitions
 - Use `@/*` alias for imports from src
 
 ### Formatting (Prettier)
+
 ```json
 {
   "singleQuote": true,
@@ -214,12 +224,14 @@ NEXT_PUBLIC_SENTRY_DISABLED="false"  # Set to "true" to disable in dev
 ```
 
 ### ESLint Rules
+
 - `@typescript-eslint/no-unused-vars`: warn
 - `no-console`: warn
 - `react-hooks/exhaustive-deps`: warn
 - `import/no-unresolved`: off (handled by TypeScript)
 
 ### Component Conventions
+
 - Use function declarations for components: `function ComponentName() {}`
 - Props interface named `{ComponentName}Props`
 - shadcn/ui components use `cn()` utility for class merging
@@ -239,12 +251,14 @@ The project uses a sophisticated multi-theme system with 6 built-in themes:
 - `notebook`
 
 ### Theme Files
+
 - CSS files: `src/styles/themes/{theme-name}.css`
 - Theme registry: `src/components/themes/theme.config.ts`
 - Font config: `src/components/themes/font.config.ts`
 - Active theme provider: `src/components/themes/active-theme.tsx`
 
 ### Adding a New Theme
+
 1. Create `src/styles/themes/your-theme.css` with `[data-theme='your-theme']` selector
 2. Import in `src/styles/theme.css`
 3. Add to `THEMES` array in `src/components/themes/theme.config.ts`
@@ -258,6 +272,7 @@ See `docs/themes.md` for detailed theming guide.
 ## Navigation & RBAC System
 
 ### Navigation Configuration
+
 Navigation is defined in `src/config/nav-config.ts`:
 
 ```typescript
@@ -267,12 +282,13 @@ export const navItems: NavItem[] = [
     url: '/dashboard/overview',
     icon: 'dashboard',
     shortcut: ['d', 'd'],
-    access: { requireOrg: true }  // RBAC check
+    access: { requireOrg: true } // RBAC check
   }
 ];
 ```
 
 ### Access Control Properties
+
 - `requireOrg: boolean` - Requires active organization
 - `permission: string` - Requires specific permission
 - `role: string` - Requires specific role
@@ -280,6 +296,7 @@ export const navItems: NavItem[] = [
 - `feature: string` - Requires specific feature
 
 ### Client-Side Filtering
+
 The `useFilteredNavItems()` hook in `src/hooks/use-nav.ts` filters navigation client-side using Clerk's `useOrganization()` and `useUser()` hooks. This is for UX only - actual security checks must happen server-side.
 
 ---
@@ -287,6 +304,7 @@ The `useFilteredNavItems()` hook in `src/hooks/use-nav.ts` filters navigation cl
 ## Authentication Patterns
 
 ### Protected Routes
+
 Dashboard routes use Clerk's middleware pattern. Pages that require organization:
 
 ```tsx
@@ -301,14 +319,15 @@ export default async function Page() {
 ```
 
 ### Plan/Feature Protection
+
 Use Clerk's `<Protect>` component for client-side:
 
 ```tsx
 import { Protect } from '@clerk/nextjs';
 
-<Protect plan="pro" fallback={<UpgradePrompt />}>
+<Protect plan='pro' fallback={<UpgradePrompt />}>
   <PremiumContent />
-</Protect>
+</Protect>;
 ```
 
 Use `has()` function for server-side checks:
@@ -325,6 +344,7 @@ const hasFeature = has({ feature: 'premium_access' });
 ## Data Fetching Patterns
 
 ### Server Components (Default)
+
 Fetch data directly in async components:
 
 ```tsx
@@ -335,6 +355,7 @@ export default async function ProductPage() {
 ```
 
 ### URL State Management
+
 Use `nuqs` for search params state:
 
 ```tsx
@@ -344,7 +365,9 @@ const [search, setSearch] = useQueryState('search');
 ```
 
 ### Data Tables
+
 Tables use TanStack Table with server-side filtering:
+
 - Column definitions in `features/*/components/*-tables/columns.tsx`
 - Table component in `src/components/ui/table/data-table.tsx`
 - Filter parsers in `src/lib/parsers.ts`
@@ -354,17 +377,21 @@ Tables use TanStack Table with server-side filtering:
 ## Error Handling & Monitoring
 
 ### Sentry Integration
+
 Sentry is configured for both client and server:
+
 - Client config: `src/instrumentation-client.ts`
 - Server config: `src/instrumentation.ts`
 - Global error: `src/app/global-error.tsx`
 
 To disable Sentry in development:
+
 ```env
 NEXT_PUBLIC_SENTRY_DISABLED="true"
 ```
 
 ### Error Boundaries
+
 - `global-error.tsx` - Catches all errors, reports to Sentry
 - Parallel route `error.tsx` files for specific sections
 
@@ -379,6 +406,7 @@ NEXT_PUBLIC_SENTRY_DISABLED="true"
 - **E2E tests**: Playwright for critical user flows
 
 Recommended test locations:
+
 ```
 /src
   /__tests__           # Unit tests
@@ -391,18 +419,22 @@ Recommended test locations:
 ## Deployment
 
 ### Vercel (Recommended)
+
 1. Connect repository to Vercel
 2. Add environment variables in dashboard
 3. Deploy
 
 ### Environment Variables for Production
+
 Ensure these are set in your deployment platform:
+
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - All `NEXT_PUBLIC_*` variables for client-side access
 - `SENTRY_*` variables if using error tracking
 
 ### Build Considerations
+
 - Output: Static + Server (default Next.js)
 - Images: Configured for `api.slingacademy.com`, `img.clerk.com`, `clerk.com`
 - Sentry source maps uploaded automatically in CI
@@ -432,20 +464,24 @@ After cleanup, delete the `__CLEANUP__` folder.
 ## Common Development Tasks
 
 ### Adding a New Page
+
 1. Create route: `src/app/dashboard/new-page/page.tsx`
 2. Add navigation item in `src/config/nav-config.ts`
 3. Create feature components in `src/features/new-feature/`
 
 ### Adding a New API Route
+
 1. Create: `src/app/api/my-route/route.ts`
 2. Export HTTP method handlers: `GET`, `POST`, etc.
 
 ### Adding a shadcn Component
+
 ```bash
 npx shadcn add component-name
 ```
 
 ### Adding a New Theme
+
 See "Theming System" section above or `docs/themes.md`.
 
 ---
@@ -455,18 +491,22 @@ See "Theming System" section above or `docs/themes.md`.
 ### Common Issues
 
 **Build fails with Tailwind errors**
+
 - Ensure using Tailwind CSS v4 syntax (`@import 'tailwindcss'`)
 - Check `postcss.config.js` uses `@tailwindcss/postcss`
 
 **Clerk keyless mode popup**
+
 - Normal in development without API keys
 - Click popup to claim application or set env variables
 
 **Theme not applying**
+
 - Check theme name matches in CSS `[data-theme]` and `theme.config.ts`
 - Verify theme CSS is imported in `theme.css`
 
 **Navigation items not showing**
+
 - Check `access` property in nav config
 - Verify user has required org/permission/role
 

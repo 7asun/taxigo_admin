@@ -53,3 +53,17 @@ export function formatBillingDisplayLabel(
   if (showVariant) return variantName;
   return '';
 }
+
+/**
+ * Label for a flat billing variant option (Neue Fahrt / Trip-Detail selects).
+ * Delegates to `formatBillingDisplayLabel` so „Standard“ never replaces the Familienname.
+ */
+export function formatBillingVariantOptionLabel(opt: {
+  name: string;
+  billing_type_name: string;
+}): string {
+  return formatBillingDisplayLabel({
+    name: opt.name,
+    billing_types: { name: opt.billing_type_name }
+  });
+}

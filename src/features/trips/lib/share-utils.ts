@@ -38,6 +38,15 @@ export function formatTripForSharing(trip: Trip): string {
 
   let text = `${time} - ${passenger} - von ${from}${fromStation} - nach ${to}${toStation}`;
 
+  const anruf = trip.billing_calling_station?.trim();
+  const betr = trip.billing_betreuer?.trim();
+  if (anruf) {
+    text += `\nAnrufstation: ${anruf}`;
+  }
+  if (betr) {
+    text += `\nBetreuer: ${betr}`;
+  }
+
   if (trip.notes) {
     text += `\n\n${trip.notes}`;
   }

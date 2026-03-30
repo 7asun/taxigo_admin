@@ -8,6 +8,7 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -20,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useTripFormSections } from '../trip-form-sections-context';
 
 export function CreateTripPayerSection() {
+  // TODO: optionally replace the memoized blocks below with `useBillingUiForPayer` +
+  // `computeBillingFamilies` from `@/features/trips/hooks/use-billing-ui-for-payer` to avoid drift.
   const {
     form,
     watchedPayerId,
@@ -29,7 +32,8 @@ export function CreateTripPayerSection() {
     selectedBillingType,
     watchedBillingVariantId,
     billingFamilyId,
-    setBillingFamilyId
+    setBillingFamilyId,
+    billingBehavior
   } = useTripFormSections();
 
   /** Multi-family Abrechnungsfamilie; single-family flows use `effectiveFamilyId` only. */
@@ -209,6 +213,51 @@ export function CreateTripPayerSection() {
             />
           )}
       </div>
+
+      {/* Optional Abrechnungs-Metadaten — not `pickup_station` / `dropoff_station` (Fahrgast). */}
+      {billingBehavior.askCallingStationAndBetreuer && (
+        <div className='mt-3 flex w-full flex-row gap-2 sm:gap-3'>
+          <FormField
+            control={form.control as any}
+            name='billing_calling_station'
+            render={({ field }) => (
+              <FormItem className='min-w-0 flex-1'>
+                <FormLabel className='text-xs'>Anrufstation</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    value={field.value ?? ''}
+                    placeholder='optional'
+                    className='h-9 text-base md:text-sm'
+                    autoComplete='off'
+                  />
+                </FormControl>
+                <FormMessage className='text-xs' />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control as any}
+            name='billing_betreuer'
+            render={({ field }) => (
+              <FormItem className='min-w-0 flex-1'>
+                <FormLabel className='text-xs'>Betreuer</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    value={field.value ?? ''}
+                    placeholder='optional'
+                    className='h-9 text-base md:text-sm'
+                    autoComplete='off'
+                  />
+                </FormControl>
+                <FormMessage className='text-xs' />
+              </FormItem>
+            )}
+          />
+        </div>
+      )}
+
       {selectedBillingType && (
         <div
           className='mt-2 flex flex-col gap-0.5 rounded-md px-3 py-1.5 text-xs font-medium'

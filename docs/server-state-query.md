@@ -7,7 +7,7 @@
 
 ## Trip detail UX
 
-The trip detail sheet uses `useQuery` + `tripKeys.detail(id)` instead of manual `useState` + `setIsLoading(true)` on every refetch. That way:
+Implementation: [`src/features/trips/trip-detail-sheet/`](../src/features/trips/trip-detail-sheet/) (see [trip-detail-sheet-editing.md](trip-detail-sheet-editing.md)). The trip detail sheet uses `useQuery` + `tripKeys.detail(id)` instead of manual `useState` + `setIsLoading(true)` on every refetch. That way:
 
 - **First load:** skeleton while `isPending` and no data.
 - **Save notes / time / after realtime:** background refetch — **no** full skeleton if data already exists.

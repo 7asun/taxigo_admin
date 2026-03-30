@@ -22,30 +22,34 @@ Wichtig: **Alle gültigen Fahrten werden immer zuerst erstellt.** Der Wizard die
 Verwenden Sie diese exakte Kopfzeile (Reihenfolge ist wichtig):
 
 ```text
-kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,pickup_street,pickup_zip,pickup_city,pickup_station,dropoff_street,dropoff_zip,dropoff_city,dropoff_station,is_wheelchair,notes,group_id,driver_name,pair_id
+kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,pickup_street,pickup_zip,pickup_city,pickup_station,dropoff_street,dropoff_zip,dropoff_city,dropoff_station,is_wheelchair,notes,group_id,driver_name,pair_id,anrufstation,betreuer
 ```
 
-> **Hinweis:** `pair_id` ist neu und optional. Bestehende CSVs ohne diese Spalte funktionieren weiterhin ohne Änderungen.
+> **Hinweise:** `pair_id`, `anrufstation` und `betreuer` sind optional. Bestehende CSVs ohne diese Spalten funktionieren weiterhin ohne Änderungen.
 
 ### 3. Column Details
 
 - **kostentraeger** (required)  
   Name des Kostenträgers. Dieser wird case-insensitiv gegen `payers.name` gematcht.
+
   - Beispiel: `AOK`, `BARMER`.
   - Wenn kein Kostenträger mit diesem Namen existiert, wird die Zeile mit `payer_not_found` abgelehnt.
 
 - **abrechnungsart** (optional, aber empfohlen)  
   Name der Abrechnungsart. Diese wird case-insensitiv gegen `billing_types.name` **für den gefundenen Kostenträger** gematcht.
+
   - Beispiel: `Krankenfahrt`, `Dialyse`.
   - Wenn angegeben, aber keine passende Abrechnungsart für den Kostenträger existiert, erhält die Zeile `billing_type_not_found`.
 
 - **date** (required)  
   Datum der Fahrt im deutschen Format.
+
   - Erlaubte Formate: `DD.MM.YY` oder `DD.MM.YYYY`  
     Beispiele: `16.03.26`, `16.03.2026`
 
 - **time** (optional)  
   Uhrzeit der Fahrt.
+
   - Format: `HH:MM` (24h)  
     Beispiele: `08:30`, `14:05`
   - Wenn angegeben, wird `date + time` zu `scheduled_at` kombiniert.
@@ -67,6 +71,7 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 
 - **pickup_street** (required)  
   Straßenanteil der Abholadresse (mit oder ohne Hausnummer).
+
   - Beispiel: `Musterstraße 12` oder `Musterstraße`.
 
 - **pickup_zip** (required)  
@@ -90,10 +95,11 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 - **dropoff_station** (optional)  
   Optionale Station / Zusatzinfo zur Zieladresse.
 
-  Wenn die **Abrechnungsart** im Kostenträger so konfiguriert ist, dass Abhol- bzw. Ziel-Station verpflichtend sind, fehlende Werte beim Import **keinen** Zeilenabbruch aus: Es erscheint eine Hinweis-Meldung, die Fahrt wird trotzdem angelegt. Siehe [Bulk Upload: Behavior Rules](bulk-upload-behavior-rules.md), Abschnitt *3c. Mandatory station (CSV warnings)*.
+  Wenn die **Abrechnungsart** im Kostenträger so konfiguriert ist, dass Abhol- bzw. Ziel-Station verpflichtend sind, fehlende Werte beim Import **keinen** Zeilenabbruch aus: Es erscheint eine Hinweis-Meldung, die Fahrt wird trotzdem angelegt. Siehe [Bulk Upload: Behavior Rules](bulk-upload-behavior-rules.md), Abschnitt _3c. Mandatory station (CSV warnings)_.
 
 - **is_wheelchair** (optional)  
   Kennzeichnet, ob ein rollstuhlgerechtes Fahrzeug benötigt wird.
+
   - Der Wert wird uppercased und mit `TRUE` verglichen.
   - `TRUE` → `is_wheelchair = true`  
     Alles andere (inkl. leer) → `is_wheelchair = false`.
@@ -107,13 +113,13 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
   **Neues Format (empfohlen): `<Gruppenname>.<Stoppreihenfolge>`**  
   Der Teil nach dem letzten Punkt ist eine positive ganze Zahl und gibt die Reihenfolge innerhalb der Gruppe an.
 
-  | CSV-Wert      | Gruppe   | Stopp-Nr. | Bedeutung |
-  |---------------|----------|-----------|-----------|
-  | `1.1`         | `1`      | 1         | Stopp A (erster Halt) |
-  | `1.2`         | `1`      | 2         | Stopp B (zweiter Halt) |
-  | `1.3`         | `1`      | 3         | Stopp C (dritter Halt) |
-  | `tour-abc.1`  | `tour-abc` | 1       | Erster Stopp der Tour „tour-abc" |
-  | `tour-abc.10` | `tour-abc` | 10      | Zehnter Stopp der Tour „tour-abc" |
+  | CSV-Wert      | Gruppe     | Stopp-Nr. | Bedeutung                         |
+  | ------------- | ---------- | --------- | --------------------------------- |
+  | `1.1`         | `1`        | 1         | Stopp A (erster Halt)             |
+  | `1.2`         | `1`        | 2         | Stopp B (zweiter Halt)            |
+  | `1.3`         | `1`        | 3         | Stopp C (dritter Halt)            |
+  | `tour-abc.1`  | `tour-abc` | 1         | Erster Stopp der Tour „tour-abc"  |
+  | `tour-abc.10` | `tour-abc` | 10        | Zehnter Stopp der Tour „tour-abc" |
 
   Alle Zeilen mit demselben Gruppenanteil werden intern auf eine gemeinsame UUID gemappt. Die Stopp-Nummer (`stop_order`) wird zusätzlich an der Fahrt gespeichert und bestimmt überall die Anzeigereihenfolge – in der Fahrtendetail-Ansicht, in gedruckten Tourbüchern und im PDF.
 
@@ -123,6 +129,7 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 
 - **driver_name** (optional, empfohlen)  
   Exakter Fahrername wie in der App angezeigt, zur späteren Fahrermatching-Logik.
+
   - Gedacht zum Matchen auf `accounts.name` mit `role = 'driver'` und `is_active = true` (case-insensitiv).
   - Wenn ein Match gefunden wird, kann die Fahrt später automatisch dem richtigen Fahrer zugeordnet werden.
 
@@ -137,33 +144,43 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 
   Nach dem Import erhalten beide Fahrten eine bidirektionale Verknüpfung (`linked_trip_id`). Die frühere Fahrt wird als Hinfahrt markiert (`link_type = 'outbound'`) und die spätere als Rückfahrt (`link_type = 'return'`). Das System bestimmt automatisch, welche Fahrt die Hinfahrt und welche die Rückfahrt ist:
 
-  | Situation | Regel |
-  |---|---|
-  | Beide Zeilen haben eine Uhrzeit | Frühere Uhrzeit = Hinfahrt |
-  | Nur eine Zeile hat eine Uhrzeit | Zeile mit Uhrzeit = Hinfahrt |
-  | Keine Zeile hat eine Uhrzeit | Reihenfolge im CSV (erste Zeile = Hinfahrt) |
+  | Situation                       | Regel                                       |
+  | ------------------------------- | ------------------------------------------- |
+  | Beide Zeilen haben eine Uhrzeit | Frühere Uhrzeit = Hinfahrt                  |
+  | Nur eine Zeile hat eine Uhrzeit | Zeile mit Uhrzeit = Hinfahrt                |
+  | Keine Zeile hat eine Uhrzeit    | Reihenfolge im CSV (erste Zeile = Hinfahrt) |
 
   **Effekt in der App:**
+
   - Der Stornierungsdialog fragt bei jeder Fahrt automatisch, ob auch die zugehörige Rückfahrt storniert werden soll.
   - Wenn eine Fahrt storniert wird, zeigt die andere Fahrt ein rotes Hinweis-Badge (z. B. „Hinfahrt storniert").
 
   **Regeln & Besonderheiten:**
+
   - Der Wert ist ein lokaler CSV-Schlüssel — er wird **nicht** in der Datenbank gespeichert.
   - Genau 2 Zeilen müssen den gleichen `pair_id`-Wert haben. Wenn 3 oder mehr Zeilen denselben Wert tragen, werden nur die ersten zwei verknüpft; die restlichen erhalten eine Warnung.
   - Eine einzelne Zeile mit `pair_id` (ohne passende zweite Zeile) wird als normale Einzelfahrt erstellt.
   - Wenn die Abrechnungsart eine automatische Rückfahrt erstellt (`returnPolicy`), wird diese Automatik für Zeilen mit `pair_id` unterdrückt — da beide Fahrten bereits explizit vorhanden sind.
+
+- **anrufstation** (optional)  
+  Freitext, wird als `trips.billing_calling_station` gespeichert. Das ist **Abrechnungs-Metadaten** (z. B. anrufende Station/Einrichtung), nicht die Fahrgast-**Abholstation** (`pickup_station`).
+
+- **betreuer** (optional)  
+  Freitext, wird als `trips.billing_betreuer` gespeichert.
 
 ### 4. Validierung & Matching im Upload
 
 Während des Uploads wird jede Zeile in eine interne Struktur `ValidatedTripRow` überführt. Dabei laufen u. a. folgende Prüfungen:
 
 - **Kostenträger (kostentraeger)**
+
   - Alle Kostenträger (`id`, `name`) werden einmalig geladen.
   - Pro Zeile wird ein case-insensitiver Exact-Match gesucht:
     - `payers.find(p => p.name.toLowerCase() === kostentraeger.toLowerCase())`
   - Wenn nichts gefunden wird oder der Wert leer ist, erhält die Zeile ein `payer_not_found` Issue und wird nicht importiert.
 
 - **Abrechnungsart (abrechnungsart)**
+
   - Alle Abrechnungsarten (`id`, `name`, `payer_id`) werden einmalig geladen.
   - Wenn `abrechnungsart` gesetzt ist und ein Kostenträger gefunden wurde:
     - Es wird ein case-insensitiver Match **für genau diesen Kostenträger** gesucht:
@@ -171,6 +188,7 @@ Während des Uploads wird jede Zeile in eine interne Struktur `ValidatedTripRow`
   - Ohne Treffer erhält die Zeile `billing_type_not_found` und wird nicht importiert.
 
 - **Datum & Uhrzeit**
+
   - `date` und `time` werden über einen deutschen Parser in ein `Date`-Objekt umgewandelt.
   - Bei Fehlern erhält die Zeile `invalid_datetime` und wird nicht importiert.
 
@@ -220,17 +238,18 @@ Zusätzlich werden für alle per CSV erstellten Fahrten folgende Flags gesetzt:
 
 Wenn eine Abrechnungsart ein konfiguriertes `behavior_profile` hat, werden diese Regeln **automatisch beim Import angewendet**. Es gelten dieselben Regeln wie beim manuellen Erstellen einer Fahrt:
 
-| Regel | Wirkung beim Import |
-|---|---|
-| `lockPickup` + Standard-Abholadresse | CSV-Abholadresse wird mit der konfigurierten Standardadresse **überschrieben** |
-| `lockDropoff` + Standard-Zieladresse | CSV-Zieladresse wird mit der konfigurierten Standardadresse **überschrieben** |
-| `prefillDropoffFromPickup` | Zieladresse wird von der (ggf. überschriebenen) Abholadresse kopiert |
+| Regel                                      | Wirkung beim Import                                                                                                                                                                                                                                                                           |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lockPickup` + Standard-Abholadresse       | CSV-Abholadresse wird mit der konfigurierten Standardadresse **überschrieben**                                                                                                                                                                                                                |
+| `lockDropoff` + Standard-Zieladresse       | CSV-Zieladresse wird mit der konfigurierten Standardadresse **überschrieben**                                                                                                                                                                                                                 |
+| `prefillDropoffFromPickup`                 | Zieladresse wird von der (ggf. überschriebenen) Abholadresse kopiert                                                                                                                                                                                                                          |
 | `returnPolicy = 'time_tbd'` oder `'exact'` | Eine **Rückfahrt** wird automatisch angelegt: Adressen werden getauscht, `scheduled_at = NULL`, `link_type = 'return'`. Die Hinfahrt erhält `link_type = 'outbound'`. Beide erhalten eine bidirektionale Verknüpfung (`linked_trip_id`). Die Rückfahrt erscheint im **Offene Touren**-Widget. |
-| `returnPolicy = 'none'` | Keine Rückfahrt wird angelegt |
+| `returnPolicy = 'none'`                    | Keine Rückfahrt wird angelegt                                                                                                                                                                                                                                                                 |
 
 **Hinweis:** Bei `returnPolicy = 'exact'` kann die exakte Zeit aus einer CSV nicht ermittelt werden – die Rückfahrt wird daher analog zu `time_tbd` behandelt und muss im Widget nachgeplant werden.
 
 Die Import-Zusammenfassung im Dialog zeigt nach dem Upload:
+
 - Anzahl automatisch erstellter Rückfahrten (durch Abrechnungsart-Regel)
 - Anzahl verknüpfter Hin/Rückfahrt-Paare (durch `pair_id`)
 - Anzahl durch Regeln überschriebener Adressen
@@ -238,7 +257,6 @@ Die Import-Zusammenfassung im Dialog zeigt nach dem Upload:
 Weitere Details: siehe [`docs/bulk-upload-behavior-rules.md`](./bulk-upload-behavior-rules.md).
 
 ### 7. Client-Resolution-Wizard nach dem Upload
-
 
 Direkt nach einem erfolgreichen Upload passiert Folgendes:
 
@@ -266,12 +284,13 @@ Pro Eintrag in `unresolvedRows` sehen Sie:
 
 Für jeden ungelösten Fahrgast gibt es zwei Hauptaktionen:
 
-- **„Als Nicht-Kunde verwenden“**  
+- **„Als Nicht-Kunde verwenden“**
+
   - Die Fahrt bleibt ohne `client_id`.
   - `client_name` aus der CSV bleibt erhalten.
   - Der Wizard springt zum nächsten Eintrag (oder beendet sich, wenn es der letzte war).
 
-- **„Neuen Fahrgast anlegen & verknüpfen“**  
+- **„Neuen Fahrgast anlegen & verknüpfen“**
   - Im Dialog wird ein eingebettetes Formular geöffnet (kein neuer Modal).
   - Felder (so weit wie möglich vorbefüllt):
     - `first_name`, `last_name` – aus CSV / `client_name`.
@@ -319,4 +338,3 @@ Nach dem Upload zeigt die Oberfläche eine Zusammenfassung:
   - `Zeile 10: Ungültiges Datum/Uhrzeit Format (erwartet DD.MM.YY HH:mm): "32.13.2026 25:99"`.
 
 Nur Zeilen ohne blocking issues werden in die Datenbank geschrieben. Der anschließende Client-Wizard arbeitet **ausschließlich** mit den bereits erfolgreich erstellten Fahrten.
-

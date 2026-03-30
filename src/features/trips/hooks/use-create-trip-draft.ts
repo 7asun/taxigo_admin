@@ -33,7 +33,9 @@ function serializeDraftPayload(
       return_time: values.return_time ?? '',
       driver_id: values.driver_id,
       is_wheelchair: values.is_wheelchair,
-      notes: values.notes ?? ''
+      notes: values.notes ?? '',
+      billing_calling_station: values.billing_calling_station ?? '',
+      billing_betreuer: values.billing_betreuer ?? ''
     },
     passengers,
     pickupGroups,

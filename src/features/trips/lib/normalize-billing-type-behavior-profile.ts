@@ -13,6 +13,11 @@ export interface NormalizedBillingTypeBehavior {
   requirePassenger: boolean;
   requirePickupStation: boolean;
   requireDropoffStation: boolean;
+  /**
+   * Optional billing metadata fields on trip create (Anrufstation / Betreuer).
+   * @see trips.billing_calling_station, trips.billing_betreuer
+   */
+  askCallingStationAndBetreuer: boolean;
   /** True if `billing-type-behavior-dialog` defines any default pickup fields (same test as create-trip). */
   hasDefaultPickupAddress: boolean;
   /** True if any default dropoff fields are defined. */
@@ -137,6 +142,11 @@ export function normalizeBillingTypeBehavior(
     requireDropoffStation: !!(
       b.requireDropoffStation ??
       b.require_dropoff_station ??
+      false
+    ),
+    askCallingStationAndBetreuer: !!(
+      b.askCallingStationAndBetreuer ??
+      b.ask_calling_station_and_betreuer ??
       false
     ),
     hasDefaultPickupAddress: hasBehaviorDefaultPickup(b),

@@ -15,12 +15,13 @@ payer → billing_types (family) → billing_variants (variant) ← trips.billin
 
 ## Database shape (summary)
 
-| Table / column | Role |
-|----------------|------|
-| `billing_types` | Family: `payer_id`, `name`, `color`, `behavior_profile` (JSON). Unique `(payer_id, name)` for CSV family matching. |
-| `billing_variants` | Variant: `billing_type_id`, `name`, `code`, `sort_order`. Unique `(billing_type_id, name)` and `(billing_type_id, code)`. |
-| `trips.billing_variant_id` | FK to `billing_variants`; `ON DELETE SET NULL`. Legacy `trips.billing_type_id` was removed after migration. |
-| `recurring_rules.payer_id` / `billing_variant_id` | FKs (nullable for legacy); required in Admin on save; cron copies onto generated trips. |
+| Table / column                                    | Role                                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `billing_types`                                   | Family: `payer_id`, `name`, `color`, `behavior_profile` (JSON). Unique `(payer_id, name)` for CSV family matching.        |
+| `billing_variants`                                | Variant: `billing_type_id`, `name`, `code`, `sort_order`. Unique `(billing_type_id, name)` and `(billing_type_id, code)`. |
+| `trips.billing_variant_id`                        | FK to `billing_variants`; `ON DELETE SET NULL`. Legacy `trips.billing_type_id` was removed after migration.               |
+| `trips.billing_calling_station` / `billing_betreuer` | Optional free text when the family behavior asks for **Anrufstation** and **Betreuer** (billing metadata; not Fahrgast `pickup_station` / `dropoff_station`). |
+| `recurring_rules.payer_id` / `billing_variant_id` | FKs (nullable for legacy); required in Admin on save; cron copies onto generated trips.                                   |
 
 **Variant `code` (DB):** `varchar(6)`, `NOT NULL`, must satisfy `^[A-Z0-9]{2,6}$` (uppercase letters and digits only — no underscore in the current CHECK).
 
@@ -38,10 +39,20 @@ Implementation: [`create-trip-form.tsx`](../src/features/trips/components/create
 
 - **Kostenträger → Familie → Unterart:** If there is more than one **Abrechnungsfamilie**, the user picks the family first, then **Unterart** when the family has more than one variant. If there is only one family and one variant under the payer, **Unterart** is auto-selected. The Unterart dropdown shows `Familie · Name` with monospace **code** as a secondary line (admin hint).
 - **Behavior (`behavior_profile`):** Rules always come from the **family** row. The form resolves a “behavior source” variant with [`resolveBillingBehaviorSourceVariant`](../src/features/trips/lib/resolve-billing-behavior-source.ts): the selected Unterart if set, otherwise any variant under the effective family (same JSON on every variant). That way defaults (addresses, Rückfahrt policy, locks, station requirements) apply as soon as the family is known, not only after Unterart is chosen.
+- **Anrufstation & Betreuer:** If `behavior_profile.askCallingStationAndBetreuer` is true (also `ask_calling_station_and_betreuer`), **Neue Fahrt** shows two optional text fields in the Kostenträger section ([`payer-section.tsx`](../src/features/trips/components/create-trip/sections/payer-section.tsx)). Values are written to `trips.billing_calling_station` and `trips.billing_betreuer`. They are **not** passenger **Abhol-/Ziel-Station** (`pickup_station` / `dropoff_station`). Admins configure the switch in the Kostenträger **Verhalten** dialog ([`billing-type-behavior-dialog.tsx`](../src/features/payers/components/billing-type-behavior-dialog.tsx)). When the effective **Abrechnungsfamilie** changes on create, the form clears these fields. Hin-/Rück pairs from one submit share `baseTrip`; duplicates and one-off Rückfahrt copy them ([`duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts), [`build-return-trip-insert.ts`](../src/features/trips/lib/build-return-trip-insert.ts)).
+- **Trip-Detail-Sheet (v2):** Editable in the **sheet header** below date/time when the family asks for the fields **or** the row already has values ([`trip-detail-sheet.tsx`](../src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx), [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts)). **Details speichern** + **verknüpfte Gegenfahrt** mirror both columns like other Stammdaten ([`paired-trip-sync.ts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts)). **Fahrten** table: columns **Anrufstation** / **Betreuer** before the row actions ([`columns.tsx`](../src/features/trips/components/trips-tables/columns.tsx)). **Bulk CSV:** optional columns `anrufstation`, `betreuer` → same DB columns ([`bulk-trip-upload.md`](bulk-trip-upload.md)); omitting them is valid.
 - **Submit:** If the payer has at least one variant loaded, **`billing_variant_id` is required**; the trip is stored with that leaf id.
 - **Address reset:** Pickup/dropoff/passenger station strings are cleared only when the **family** (`billing_type_id`) changes, not when the user switches **Unterart** within the same family.
 - **Abfahrt (schedule):** The form uses **`departure_date`** (`yyyy-MM-dd`, [`DatePicker`](../src/components/ui/date-time-picker.tsx)) plus optional **`departure_time`** (`HH:mm` or empty). Default on open is **today + current local time**. Empty time matches bulk CSV: insert uses **`scheduled_at = null`** and **`requested_date`** = that calendar day (see [`combineDepartureForTripInsert`](../src/features/trips/lib/departure-schedule.ts)). With both date and time, `scheduled_at` is set and `requested_date` is still set for consistency with import rows.
 - **Rückfahrt:** All return modes remain available even when the outbound leg is date-only (no clock time). Draft persistence uses draft **schema version 3** (`departure_date` / `departure_time`); older drafts with `scheduled_at` still restore correctly ([`create-trip-draft.ts`](../src/features/trips/lib/create-trip-draft.ts)).
+
+### Trip-Detail-Sheet (Bearbeiten)
+
+Implementation: [`trip-detail-sheet.tsx`](../src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx) (re-exported from [`overview/components/trip-detail-sheet.tsx`](../src/features/overview/components/trip-detail-sheet.tsx)). Shared predicates for **when Abrechnungsfamilie and Unterart controls appear** and **when a single leaf variant is auto-selected** live in [`use-billing-ui-for-payer.ts`](../src/features/trips/hooks/use-billing-ui-for-payer.ts) (`computeBillingUiDerived` / `useBillingUiForPayer`) and **must stay aligned** with [`payer-section.tsx`](../src/features/trips/components/create-trip/sections/payer-section.tsx).
+
+- **Kostenträger** is always shown in the Stammdaten block. **Abrechnungsfamilie** is shown only if the payer has more than one `billing_types` row. **Unterart** is shown only if the effective family has more than one `billing_variants` row; if there is exactly one variant, its id is applied to `trips.billing_variant_id` automatically (parity with Neue Fahrt). These controls sit on **one horizontal row** (`flex` + wrap on narrow widths); there is **no** extra summary chip or secondary hint in that row (selection is visible in the triggers / dropdown only).
+- Unterart options use [`formatBillingVariantOptionLabel`](../src/features/trips/lib/format-billing-display-label.ts) so **„Standard“** does not replace the Familienname; the **variant `code`** is **not** shown in the Trip-Detail sheet (unlike Neue Fahrt’s Unterart dropdown, which still shows code as an admin hint).
+- **Persistence:** `trips.billing_variant_id` plus optional `trips.billing_calling_station` / `trips.billing_betreuer` (see above); the family is implied via `billing_variants.billing_type_id` → `billing_types`.
 
 ### Abrechnung-Anzeige (lesend, alle Oberflächen)
 
@@ -53,14 +64,14 @@ Implementation: [`create-trip-form.tsx`](../src/features/trips/components/create
 
 **Call-Sites (nicht manuell `fam.name + ' · ' + bv.name` bauen):**
 
-| Oberfläche | Datei |
-|------------|--------|
-| Dashboard-Übersicht Zeile | [`trip-row.tsx`](../src/features/overview/components/trip-row.tsx) |
-| Trip-Detail-Sheet | [`trip-detail-sheet.tsx`](../src/features/overview/components/trip-detail-sheet.tsx) |
-| Fahrten-Tabelle „Abrechnung“ | [`trips-tables/columns.tsx`](../src/features/trips/components/trips-tables/columns.tsx) |
-| Kanban-Karte | [`kanban-trip-card.tsx`](../src/features/trips/components/kanban/kanban-trip-card.tsx) |
-| Druck / JPEG-Übersichten | [`print-trip-groups-list.tsx`](../src/features/trips/components/print-trip-groups-list.tsx) (`tripPrintBilling`) |
-| Wiederkehrende Regeln (Kunden) | [`recurring-rules-list.tsx`](../src/features/clients/components/recurring-rules-list.tsx) |
+| Oberfläche                     | Datei                                                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard-Übersicht Zeile      | [`trip-row.tsx`](../src/features/overview/components/trip-row.tsx)                                                                                 |
+| Trip-Detail-Sheet              | [`trip-detail-sheet.tsx`](../src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx) (siehe Abschnitt **Trip-Detail-Sheet (Bearbeiten)** oben) |
+| Fahrten-Tabelle „Abrechnung“ / Anrufstation / Betreuer | [`trips-tables/columns.tsx`](../src/features/trips/components/trips-tables/columns.tsx)                                                            |
+| Kanban-Karte                   | [`kanban-trip-card.tsx`](../src/features/trips/components/kanban/kanban-trip-card.tsx)                                                             |
+| Druck / JPEG-Übersichten       | [`print-trip-groups-list.tsx`](../src/features/trips/components/print-trip-groups-list.tsx) (`tripPrintBilling`)                                   |
+| Wiederkehrende Regeln (Kunden) | [`recurring-rules-list.tsx`](../src/features/clients/components/recurring-rules-list.tsx)                                                          |
 
 Neue Stellen mit eingebettetem `billing_variant` → dieselben Helfer verwenden, damit **Standard**- und Embed-Verhalten konsistent bleiben.
 

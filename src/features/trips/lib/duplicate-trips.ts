@@ -212,6 +212,8 @@ function copyRouteAndPassengerFields(
   | 'greeting_style'
   | 'payer_id'
   | 'billing_variant_id'
+  | 'billing_betreuer'
+  | 'billing_calling_station'
   | 'payment_method'
   | 'vehicle_id'
   | 'notes'
@@ -248,6 +250,8 @@ function copyRouteAndPassengerFields(
     greeting_style: source.greeting_style,
     payer_id: source.payer_id,
     billing_variant_id: source.billing_variant_id,
+    billing_betreuer: source.billing_betreuer,
+    billing_calling_station: source.billing_calling_station,
     payment_method: source.payment_method,
     vehicle_id: source.vehicle_id,
     notes: source.notes,

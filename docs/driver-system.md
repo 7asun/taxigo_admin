@@ -16,14 +16,14 @@ This document describes the driver (Fahrer) subsystem: admin management, mobile 
 
 ## Database Tables
 
-| Table | Purpose |
-|-------|---------|
-| `accounts` | User profiles with `role` (`driver` \| `admin`), `company_id`, `is_active`. Renamed from `users` to avoid confusion with `auth.users`. |
-| `driver_profiles` | Driver-specific data: `license_number`, `default_vehicle_id` (1:1 with accounts) |
-| `shifts` | Shift records: `driver_id`, `vehicle_id`, `started_at`, `ended_at`, `status` |
-| `shift_events` | Event log: `shift_id`, `event_type`, `lat`, `lng`, `metadata`, `timestamp` |
-| `vehicles` | Company vehicles for shift assignment |
-| `live_locations` | Real-time driver status (1:1 per driver) — can be updated on shift start/break/end |
+| Table             | Purpose                                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `accounts`        | User profiles with `role` (`driver` \| `admin`), `company_id`, `is_active`. Renamed from `users` to avoid confusion with `auth.users`. |
+| `driver_profiles` | Driver-specific data: `license_number`, `default_vehicle_id` (1:1 with accounts)                                                       |
+| `shifts`          | Shift records: `driver_id`, `vehicle_id`, `started_at`, `ended_at`, `status`                                                           |
+| `shift_events`    | Event log: `shift_id`, `event_type`, `lat`, `lng`, `metadata`, `timestamp`                                                             |
+| `vehicles`        | Company vehicles for shift assignment                                                                                                  |
+| `live_locations`  | Real-time driver status (1:1 per driver) — can be updated on shift start/break/end                                                     |
 
 ### Standardized Values
 

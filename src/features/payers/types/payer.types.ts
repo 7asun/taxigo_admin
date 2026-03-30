@@ -9,6 +9,11 @@ export interface BillingTypeBehavior {
   requirePickupStation: boolean;
   /** When true (Fahrgast flow), Ziel-Station per passenger is required on create. */
   requireDropoffStation: boolean;
+  /**
+   * When true, Neue Fahrt shows optional `billing_calling_station` + `billing_betreuer` in Kostenträger.
+   * Distinct from passenger pickup/dropoff_station (route stops).
+   */
+  askCallingStationAndBetreuer?: boolean;
   // Legacy single-string defaults (kept for backward compatibility)
   defaultPickup?: string | null;
   defaultDropoff?: string | null;

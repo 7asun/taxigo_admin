@@ -1,8 +1,8 @@
 ---
-title: "Kanban-Ansicht"
-category: "Fahrten"
-icon: "kanban"
-description: "Erklärung der Kanban-Tafel für die Fahrtenverwaltung."
+title: 'Kanban-Ansicht'
+category: 'Fahrten'
+icon: 'kanban'
+description: 'Erklärung der Kanban-Tafel für die Fahrtenverwaltung.'
 order: 1
 ---
 
@@ -80,15 +80,15 @@ When a card is inside a group, a small numeric input appears in the card header 
 
 All changes are staged in `useKanbanPendingStore` (persisted to localStorage via `kanban-local-storage`, key: `STORAGE_KEYS.KANBAN_PENDING`). Survives view switching, reload, and accidental close.
 
-| Action | Result |
-|---|---|
-| Drag card to column | Stages `driver_id` / `status` / `payer_id` + derived status |
-| Drop card onto card | Stages `group_id` + `stop_order` for both trips |
-| Edit time | Stages `scheduled_at` |
-| Edit stop-order | Stages `stop_order` |
-| Ungroup | Stages `group_id: null`, `stop_order: null` |
-| **Speichern** | Batch-updates all pending trips → refresh → clear store |
-| **Verwerfen** | Clears pending changes, router.refresh() to restore server state |
+| Action              | Result                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| Drag card to column | Stages `driver_id` / `status` / `payer_id` + derived status      |
+| Drop card onto card | Stages `group_id` + `stop_order` for both trips                  |
+| Edit time           | Stages `scheduled_at`                                            |
+| Edit stop-order     | Stages `stop_order`                                              |
+| Ungroup             | Stages `group_id: null`, `stop_order: null`                      |
+| **Speichern**       | Batch-updates all pending trips → refresh → clear store          |
+| **Verwerfen**       | Clears pending changes, router.refresh() to restore server state |
 
 **Status derivation:** Status is staged immediately at drag-end (not only at Save) so the badge reflects the correct state without waiting for Save + refresh. At Save time, status is only re-derived when `driver_id` is explicitly in the change — a grouping-only save (e.g. `group_id` or `stop_order` only) does **not** touch status, preventing silent resets of already-assigned trips.
 
@@ -125,18 +125,18 @@ Trips can be grouped for multi-passenger dispatches by dragging one trip onto an
 ## 7. DnD Structure
 
 - **Columns:** `useDroppable(id: column.id)` + `useDraggable(id: \`column-${column.id}\`)` for column reordering.
-- **Trip cards:** `useDroppable(id: \`trip-${trip.id}\`)` for drop-on-trip grouping + `useDraggable(id: trip.id)`.
+- **Trip cards:** `useDroppable(id: \`trip-${trip.id}\`)`for drop-on-trip grouping +`useDraggable(id: trip.id)`.
 - **Groups:** `useDraggable(id: \`group-${groupId}\`)` on the group header.
 - **DragOverlay:** Renders a lightweight hook-free `KanbanDragPreview`. The overlay element must **not** have a `transform` style — dnd-kit owns that for cursor tracking. The preview content is size-matched via CSS `zoom` on an inner wrapper. Original card goes `opacity: 0` while dragging (invisible DOM placeholder), columns go `opacity: 0.3`.
 - **Coordinate system:** The board grid uses `transform: scale(zoom)` (not CSS `zoom`) so scroll measurements stay accurate. The DragOverlay is rendered outside this scaled container via dnd-kit's portal.
 
 **`handleDragEnd` routing:**
 
-| `active.id` prefix | `over.id` prefix | Action |
-|---|---|---|
-| `column-` | column id | Column reorder |
-| trip id | `trip-` | Grouping (drop-on-trip) |
-| trip id or `group-` | column id | Assignment (driver / status / payer) |
+| `active.id` prefix  | `over.id` prefix | Action                               |
+| ------------------- | ---------------- | ------------------------------------ |
+| `column-`           | column id        | Column reorder                       |
+| trip id             | `trip-`          | Grouping (drop-on-trip)              |
+| trip id or `group-` | column id        | Assignment (driver / status / payer) |
 
 ---
 

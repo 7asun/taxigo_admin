@@ -46,6 +46,8 @@ import {
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
   billing_variant_id: 'payer',
+  billing_calling_station: 'payer',
+  billing_betreuer: 'payer',
   departure_date: 'schedule',
   departure_time: 'schedule',
   return_mode: 'schedule',
@@ -128,7 +130,9 @@ export function CreateTripForm({
       return_time: '',
       driver_id: '__none__',
       is_wheelchair: false,
-      notes: ''
+      notes: '',
+      billing_calling_station: '',
+      billing_betreuer: ''
     }
   });
 
@@ -176,6 +180,8 @@ export function CreateTripForm({
       const order: (keyof TripFormValues)[] = [
         'payer_id',
         'billing_variant_id',
+        'billing_calling_station',
+        'billing_betreuer',
         'departure_date',
         'departure_time',
         'return_mode',
@@ -305,6 +311,10 @@ export function CreateTripForm({
       const dropFirstUid =
         dropoffGroupsRef.current[0]?.uid ?? crypto.randomUUID();
 
+      // v2 Trip-Detail-Sheet may also reset these when Familie changes (parity).
+      form.setValue('billing_calling_station', '');
+      form.setValue('billing_betreuer', '');
+
       setPickupGroups([{ uid: pickupFirstUid, address: '' }]);
       setDropoffGroups([{ uid: dropFirstUid, address: '' }]);
       setPassengers((p) =>
@@ -326,7 +336,7 @@ export function CreateTripForm({
     }
 
     prevResolvedBillingFamilyIdRef.current = current;
-  }, [resolvedBillingFamilyKey]);
+  }, [resolvedBillingFamilyKey, form]);
 
   // Apply family behavior_profile when family is known (selected Unterart or proxy row).
   React.useEffect(() => {
@@ -973,9 +983,22 @@ export function CreateTripForm({
           ? values.driver_id
           : null;
 
+      /**
+       * Billing metadata columns (`trips.billing_*`): create-flow only in v1.
+       * Future Trip-Detail-Sheet: read `billing_types.behavior_profile` and/or non-null
+       * row values; patch via `tripsService.updateTrip` (paired-leg sync TBD by product).
+       */
+      const askBillingExtras = billingBehavior.askCallingStationAndBetreuer;
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
+        billing_calling_station: askBillingExtras
+          ? values.billing_calling_station?.trim() || null
+          : null,
+        billing_betreuer: askBillingExtras
+          ? values.billing_betreuer?.trim() || null
+          : null,
         driver_id: driverId,
         notes: values.notes || null,
         status: (getStatusWhenDriverChanges('pending', driverId) ??

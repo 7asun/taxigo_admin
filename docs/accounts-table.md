@@ -19,31 +19,31 @@ This separation also better supports multi-tenant architecture.
 
 ## Schema
 
-| Column       | Type         | Purpose                                       |
-|--------------|--------------|-----------------------------------------------|
-| `id`         | `uuid`       | PK, matches `auth.users.id`                   |
-| `company_id` | `uuid`       | FK → `companies.id` (tenant)                  |
-| `name`       | `text`       | Display name                                  |
-| `first_name` | `text`       | First name (or first part of display name)    |
-| `last_name`  | `text`       | Last name                                     |
-| `email`      | `text`       | Cached from auth, for admin display           |
-| `phone`      | `text`       | Contact                                       |
-| `role`       | `text`       | `driver` \| `admin`                           |
-| `is_active`  | `boolean`    | Soft deactivation                             |
-| `created_at` | `timestamptz`| Creation timestamp                            |
+| Column       | Type          | Purpose                                    |
+| ------------ | ------------- | ------------------------------------------ |
+| `id`         | `uuid`        | PK, matches `auth.users.id`                |
+| `company_id` | `uuid`        | FK → `companies.id` (tenant)               |
+| `name`       | `text`        | Display name                               |
+| `first_name` | `text`        | First name (or first part of display name) |
+| `last_name`  | `text`        | Last name                                  |
+| `email`      | `text`        | Cached from auth, for admin display        |
+| `phone`      | `text`        | Contact                                    |
+| `role`       | `text`        | `driver` \| `admin`                        |
+| `is_active`  | `boolean`     | Soft deactivation                          |
+| `created_at` | `timestamptz` | Creation timestamp                         |
 
 ---
 
 ## Related Tables
 
-| Table             | Relation                          |
-|-------------------|-----------------------------------|
-| `driver_profiles` | 1:1 with accounts (`user_id` → `id`) |
-| `trips`           | `driver_id` → `accounts.id`       |
-| `shifts`          | `driver_id` → `accounts.id`       |
-| `live_locations`  | `driver_id` → `accounts.id`       |
-| `rides`           | `driver_id` → `accounts.id`       |
-| `trip_assignments`| `driver_id` → `accounts.id`      |
+| Table              | Relation                             |
+| ------------------ | ------------------------------------ |
+| `driver_profiles`  | 1:1 with accounts (`user_id` → `id`) |
+| `trips`            | `driver_id` → `accounts.id`          |
+| `shifts`           | `driver_id` → `accounts.id`          |
+| `live_locations`   | `driver_id` → `accounts.id`          |
+| `rides`            | `driver_id` → `accounts.id`          |
+| `trip_assignments` | `driver_id` → `accounts.id`          |
 
 ---
 
@@ -54,7 +54,10 @@ This separation also better supports multi-tenant architecture.
 Always use the `accounts` table name:
 
 ```typescript
-const { data } = await supabase.from('accounts').select('*').eq('role', 'driver');
+const { data } = await supabase
+  .from('accounts')
+  .select('*')
+  .eq('role', 'driver');
 ```
 
 ### Trip–Driver Joins
@@ -84,14 +87,14 @@ type UpdateUser = Database['public']['Tables']['accounts']['Update'];
 
 ## Files Updated (Post-Migration)
 
-| Area          | Files |
-|---------------|-------|
-| Trips         | `trips.service.ts`, `trips-listing.tsx`, `client-trips-panel.tsx`, `print-trips-button.tsx` ([print export](./print-trips-export.md)), `create-trip/create-trip-form.tsx`, `use-trip-form-data.ts`, `pending-driver-assignments-panel.tsx`, `bulk-upload-dialog.tsx`, `resolve-clients-step.tsx` |
-| Overview      | `trip-detail-sheet.tsx` |
-| Drivers       | `drivers.service.ts`, `driver-table-listing.tsx`, `shift-tracker.tsx`, `types.ts` |
-| Dashboard     | `pending-tours-widget.tsx` |
-| Clients       | `client-form.tsx` |
-| Payers        | `use-payers.ts` |
-| Auth          | `sign-in-view.tsx` |
-| API           | `drivers/create/route.ts`, `drivers/[id]/route.ts` |
-| Driver app    | `driver/layout.tsx` |
+| Area       | Files                                                                                                                                                                                                                                                                                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Trips      | `trips.service.ts`, `trips-listing.tsx`, `client-trips-panel.tsx`, `print-trips-button.tsx` ([print export](./print-trips-export.md)), `create-trip/create-trip-form.tsx`, `use-trip-form-data.ts`, `pending-driver-assignments-panel.tsx`, `bulk-upload-dialog.tsx`, `resolve-clients-step.tsx` |
+| Overview   | `trip-detail-sheet.tsx`                                                                                                                                                                                                                                                                          |
+| Drivers    | `drivers.service.ts`, `driver-table-listing.tsx`, `shift-tracker.tsx`, `types.ts`                                                                                                                                                                                                                |
+| Dashboard  | `pending-tours-widget.tsx`                                                                                                                                                                                                                                                                       |
+| Clients    | `client-form.tsx`                                                                                                                                                                                                                                                                                |
+| Payers     | `use-payers.ts`                                                                                                                                                                                                                                                                                  |
+| Auth       | `sign-in-view.tsx`                                                                                                                                                                                                                                                                               |
+| API        | `drivers/create/route.ts`, `drivers/[id]/route.ts`                                                                                                                                                                                                                                               |
+| Driver app | `driver/layout.tsx`                                                                                                                                                                                                                                                                              |

@@ -12,28 +12,30 @@ Every color decision falls into one of two categories:
 
 Any color used for layout, surface, border, or generic interactive state must come from the theme token system. These adapt automatically to all 6 themes (Vercel, Claude, Neobrutualism, Supabase, Mono, Notebook) and dark mode.
 
-| Use case | Correct class |
-|---|---|
-| Page / card background | `bg-background`, `bg-card` |
-| Subdued surface (e.g. tabs, input area) | `bg-muted`, `bg-muted/60` |
-| Default text | `text-foreground` |
-| Subdued / helper text | `text-muted-foreground` |
-| Borders and dividers | `border-border` |
-| Primary action / brand color | `bg-primary`, `text-primary` |
-| Focus ring | `ring-ring` |
-| Inverted badge (dark bg, light text) | `bg-foreground text-background` |
-| Button hover tint | `hover:bg-primary/10` |
+| Use case                                | Correct class                   |
+| --------------------------------------- | ------------------------------- |
+| Page / card background                  | `bg-background`, `bg-card`      |
+| Subdued surface (e.g. tabs, input area) | `bg-muted`, `bg-muted/60`       |
+| Default text                            | `text-foreground`               |
+| Subdued / helper text                   | `text-muted-foreground`         |
+| Borders and dividers                    | `border-border`                 |
+| Primary action / brand color            | `bg-primary`, `text-primary`    |
+| Focus ring                              | `ring-ring`                     |
+| Inverted badge (dark bg, light text)    | `bg-foreground text-background` |
+| Button hover tint                       | `hover:bg-primary/10`           |
 
 Never use `bg-slate-*`, `bg-white`, `bg-black`, `text-slate-*`, `border-slate-*` for chrome. These are hardcoded and break in dark mode and themed variants.
 
 **Example — wrong:**
+
 ```tsx
-<div className="bg-slate-100 text-slate-600 border-slate-200">...</div>
+<div className='border-slate-200 bg-slate-100 text-slate-600'>...</div>
 ```
 
 **Example — correct:**
+
 ```tsx
-<div className="bg-muted text-muted-foreground border-border">...</div>
+<div className='bg-muted text-muted-foreground border-border'>...</div>
 ```
 
 ---
@@ -45,10 +47,15 @@ Status colors (completed, assigned, in_progress, cancelled, pending) carry unive
 **Never scatter status color logic in components.** Always import from the utility:
 
 ```typescript
-import { tripStatusBadge, tripStatusLabels, type TripStatus } from '@/lib/trip-status';
+import {
+  tripStatusBadge,
+  tripStatusLabels,
+  type TripStatus
+} from '@/lib/trip-status';
 ```
 
 **Badge / chip:**
+
 ```tsx
 <Badge className={tripStatusBadge({ status: trip.status as TripStatus })}>
   {tripStatusLabels[trip.status as TripStatus]}
@@ -56,6 +63,7 @@ import { tripStatusBadge, tripStatusLabels, type TripStatus } from '@/lib/trip-s
 ```
 
 **Row highlight:**
+
 ```tsx
 import { tripStatusRow } from '@/lib/trip-status';
 
@@ -71,13 +79,15 @@ import { tripStatusRow } from '@/lib/trip-status';
 Billing type colors come from the database (`billing_type.color`). Use `color-mix()` to tint backgrounds, but always blend toward `var(--background)` — never `white` — so it works in dark mode.
 
 **Wrong (breaks in dark mode):**
+
 ```ts
-`color-mix(in srgb, ${color}, white 85%)`
+`color-mix(in srgb, ${color}, white 85%)`;
 ```
 
 **Correct:**
+
 ```ts
-`color-mix(in srgb, ${color}, var(--background) 85%)`
+`color-mix(in srgb, ${color}, var(--background) 85%)`;
 ```
 
 For borders and text, use the raw `color` value directly from the DB — it is already readable against any background.
@@ -86,15 +96,15 @@ For borders and text, use the raw `color` value directly from the DB — it is a
 
 ## Quick Reference
 
-| Scenario | Solution |
-|---|---|
-| Status badge (completed, cancelled, etc.) | `tripStatusBadge({ status })` from `@/lib/trip-status` |
-| Row tint by status | `tripStatusRow({ status })` from `@/lib/trip-status` |
-| DB color tinted background | `color-mix(in srgb, ${color}, var(--background) 85%)` |
-| Any surface / layout color | Theme tokens (`bg-muted`, `border-border`, etc.) |
-| Inverted badge (e.g. Rollstuhl) | `bg-foreground text-background` |
-| New status color needed | Edit `src/lib/trip-status.ts` only |
-| Dark mode for a semantic color | Already handled in `trip-status.ts` via `dark:` variants |
+| Scenario                                  | Solution                                                 |
+| ----------------------------------------- | -------------------------------------------------------- |
+| Status badge (completed, cancelled, etc.) | `tripStatusBadge({ status })` from `@/lib/trip-status`   |
+| Row tint by status                        | `tripStatusRow({ status })` from `@/lib/trip-status`     |
+| DB color tinted background                | `color-mix(in srgb, ${color}, var(--background) 85%)`    |
+| Any surface / layout color                | Theme tokens (`bg-muted`, `border-border`, etc.)         |
+| Inverted badge (e.g. Rollstuhl)           | `bg-foreground text-background`                          |
+| New status color needed                   | Edit `src/lib/trip-status.ts` only                       |
+| Dark mode for a semantic color            | Already handled in `trip-status.ts` via `dark:` variants |
 
 ---
 

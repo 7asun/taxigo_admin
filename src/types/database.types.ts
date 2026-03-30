@@ -789,6 +789,8 @@ export type Database = {
         Row: {
           actual_dropoff_at: string | null;
           actual_pickup_at: string | null;
+          billing_betreuer: string | null;
+          billing_calling_station: string | null;
           billing_variant_id: string | null;
           client_id: string | null;
           client_name: string | null;
@@ -844,6 +846,8 @@ export type Database = {
         Insert: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
+          billing_betreuer?: string | null;
+          billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;
@@ -899,6 +903,8 @@ export type Database = {
         Update: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
+          billing_betreuer?: string | null;
+          billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;
