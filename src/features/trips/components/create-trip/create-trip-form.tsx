@@ -9,13 +9,19 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { tripsService } from '@/features/trips/api/trips.service';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import type { PassengerEntry, AddressGroupEntry } from '@/features/trips/types';
 import type { AddressResult } from '../trip-address-passenger';
 import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
+import { format } from 'date-fns';
 import { tripFormSchema, type TripFormValues, type ReturnMode } from './schema';
+import {
+  combineDepartureForTripInsert,
+  formatLocalYmd
+} from '@/features/trips/lib/departure-schedule';
+import { resolveBillingBehaviorSourceVariant } from '@/features/trips/lib/resolve-billing-behavior-source';
 import {
   TripFormSectionsProvider,
   type TripFormSectionsContextType
@@ -40,7 +46,10 @@ import {
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
   billing_variant_id: 'payer',
-  scheduled_at: 'schedule',
+  billing_calling_station: 'payer',
+  billing_betreuer: 'payer',
+  departure_date: 'schedule',
+  departure_time: 'schedule',
   return_mode: 'schedule',
   return_date: 'schedule',
   return_time: 'schedule',
@@ -76,6 +85,7 @@ export function CreateTripForm({
   preselectedClientId
 }: CreateTripFormProps) {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [billingFamilyId, setBillingFamilyId] = React.useState('');
   const hasInitializedReturnDateRef = React.useRef(false);
   const lastSyncedPanelClientIdRef = React.useRef<string | null>(null);
 
@@ -92,7 +102,9 @@ export function CreateTripForm({
   const dropoffGroupsRef = React.useRef(dropoffGroups);
   pickupGroupsRef.current = pickupGroups;
   dropoffGroupsRef.current = dropoffGroups;
-  const prevBillingTypeIdRef = React.useRef<string | undefined>(undefined);
+  const prevResolvedBillingFamilyIdRef = React.useRef<string | undefined>(
+    undefined
+  );
 
   // Validation error state
   const [formErrors, setFormErrors] = React.useState<{
@@ -111,13 +123,16 @@ export function CreateTripForm({
     defaultValues: {
       payer_id: '',
       billing_variant_id: '',
-      scheduled_at: new Date(),
+      departure_date: format(new Date(), 'yyyy-MM-dd'),
+      departure_time: format(new Date(), 'HH:mm'),
       return_mode: 'none',
       return_date: undefined,
       return_time: '',
       driver_id: '__none__',
       is_wheelchair: false,
-      notes: ''
+      notes: '',
+      billing_calling_station: '',
+      billing_betreuer: ''
     }
   });
 
@@ -165,7 +180,10 @@ export function CreateTripForm({
       const order: (keyof TripFormValues)[] = [
         'payer_id',
         'billing_variant_id',
-        'scheduled_at',
+        'billing_calling_station',
+        'billing_betreuer',
+        'departure_date',
+        'departure_time',
         'return_mode',
         'return_date',
         'return_time',
@@ -194,7 +212,7 @@ export function CreateTripForm({
   const watchedBillingVariantId = form.watch('billing_variant_id');
   const watchedIsWheelchair = form.watch('is_wheelchair');
   const watchedReturnMode = form.watch('return_mode') as ReturnMode;
-  const watchedScheduledAt = form.watch('scheduled_at');
+  const watchedDepartureDateYmd = form.watch('departure_date');
 
   const {
     payers,
@@ -245,26 +263,57 @@ export function CreateTripForm({
     }
   }, [passengers, preselectedClientId, onClientSelect, searchClientsById]);
 
-  // Reset billing type when payer changes
+  // Reset billing variant + family pick when payer changes
   React.useEffect(() => {
     form.setValue('billing_variant_id', '');
+    setBillingFamilyId('');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedBillingType = billingTypes.find(
     (bt) => bt.id === watchedBillingVariantId
   );
 
-  // When Abrechnungsart changes, clear address rows (then the next effect applies new defaults).
-  // Passengers, schedule, notes, etc. stay; station strings reset with addresses.
-  React.useEffect(() => {
-    const current = watchedBillingVariantId || '';
-    const prev = prevBillingTypeIdRef.current;
+  const billingFamilies = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const v of billingTypes) {
+      if (!map.has(v.billing_type_id)) {
+        map.set(v.billing_type_id, v.billing_type_name);
+      }
+    }
+    return Array.from(map.entries()).map(([id]) => ({ id }));
+  }, [billingTypes]);
 
-    if (prev !== undefined && prev !== current) {
+  const effectiveBillingFamilyId =
+    billingFamilies.length === 1
+      ? (billingFamilies[0]?.id ?? '')
+      : billingFamilyId;
+
+  const billingBehaviorSource = React.useMemo(
+    () =>
+      resolveBillingBehaviorSourceVariant({
+        billingTypes,
+        billingVariantId: watchedBillingVariantId,
+        effectiveFamilyId: effectiveBillingFamilyId
+      }),
+    [billingTypes, watchedBillingVariantId, effectiveBillingFamilyId]
+  );
+
+  const resolvedBillingFamilyKey = billingBehaviorSource?.billing_type_id ?? '';
+
+  // When Abrechnungs**familie** changes, clear address rows (not when only Unterart changes).
+  React.useEffect(() => {
+    const current = resolvedBillingFamilyKey;
+    const prev = prevResolvedBillingFamilyIdRef.current;
+
+    if (prev !== undefined && prev !== '' && prev !== current) {
       const pickupFirstUid =
         pickupGroupsRef.current[0]?.uid ?? crypto.randomUUID();
       const dropFirstUid =
         dropoffGroupsRef.current[0]?.uid ?? crypto.randomUUID();
+
+      // v2 Trip-Detail-Sheet may also reset these when Familie changes (parity).
+      form.setValue('billing_calling_station', '');
+      form.setValue('billing_betreuer', '');
 
       setPickupGroups([{ uid: pickupFirstUid, address: '' }]);
       setDropoffGroups([{ uid: dropFirstUid, address: '' }]);
@@ -286,14 +335,14 @@ export function CreateTripForm({
       }));
     }
 
-    prevBillingTypeIdRef.current = current;
-  }, [watchedBillingVariantId]);
+    prevResolvedBillingFamilyIdRef.current = current;
+  }, [resolvedBillingFamilyKey, form]);
 
-  // Apply all behavior profile rules when billing type changes
+  // Apply family behavior_profile when family is known (selected Unterart or proxy row).
   React.useEffect(() => {
-    if (!selectedBillingType) return;
+    if (!billingBehaviorSource) return;
     const b = parseBehaviorProfileRaw(
-      selectedBillingType.behavior_profile
+      billingBehaviorSource.behavior_profile
     ) as Record<string, any>;
 
     // Address defaults
@@ -390,41 +439,37 @@ export function CreateTripForm({
     else if (rawPolicy === 'exact') returnMode = 'exact';
     form.setValue('return_mode', returnMode);
     hasInitializedReturnDateRef.current = false;
-  }, [selectedBillingType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [billingBehaviorSource]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Default return date to Hinfahrt date
+  // Default return date to Hinfahrt calendar day (even when outbound has no clock time).
   React.useEffect(() => {
     if (
       watchedReturnMode !== 'exact' ||
-      !watchedScheduledAt ||
+      !watchedDepartureDateYmd?.trim() ||
       hasInitializedReturnDateRef.current
     )
       return;
-    form.setValue(
-      'return_date',
-      new Date(
-        watchedScheduledAt.getFullYear(),
-        watchedScheduledAt.getMonth(),
-        watchedScheduledAt.getDate()
-      ),
-      { shouldValidate: true }
-    );
+    const [y, m, d] = watchedDepartureDateYmd.split('-').map(Number);
+    if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return;
+    form.setValue('return_date', new Date(y, m - 1, d), {
+      shouldValidate: true
+    });
     hasInitializedReturnDateRef.current = true;
-  }, [watchedReturnMode, watchedScheduledAt, form]);
+  }, [watchedReturnMode, watchedDepartureDateYmd, form]);
 
   const billingBehavior = React.useMemo(
-    () => normalizeBillingTypeBehavior(selectedBillingType?.behavior_profile),
-    [selectedBillingType]
+    () => normalizeBillingTypeBehavior(billingBehaviorSource?.behavior_profile),
+    [billingBehaviorSource]
   );
 
   const behavior = billingBehavior;
 
   const isPickupLocked = behavior.lockPickup;
   const isDropoffLocked = behavior.lockDropoff;
-  // Hide Rückfahrt block when explicitly locked OR when billing type mandates no return trip
+  // Hide Rückfahrt block when explicitly locked OR when family mandates no return trip
   const isReturnModeLocked =
     behavior.lockReturnMode ||
-    (selectedBillingType != null && behavior.returnPolicy === 'none');
+    (billingBehaviorSource != null && behavior.returnPolicy === 'none');
   const requirePassenger = billingBehavior.requirePassenger;
 
   // ── Passenger helpers ──────────────────────────────────────────────────────
@@ -853,6 +898,20 @@ export function CreateTripForm({
       return;
     }
 
+    if (
+      billingTypes.length > 0 &&
+      !String(values.billing_variant_id ?? '').trim()
+    ) {
+      form.setError('billing_variant_id', {
+        type: 'manual',
+        message: 'Bitte Unterart wählen.'
+      });
+      toast.error('Bitte Abrechnung vervollständigen.');
+      scrollToCreateTripSection('payer');
+      void form.setFocus('billing_variant_id');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const supabase = createSupabaseClient();
@@ -884,6 +943,19 @@ export function CreateTripForm({
         resolvedDropoffGroups.map((g) => [g.uid, g])
       );
 
+      const {
+        scheduled_at: outboundScheduledAt,
+        requested_date: outboundRequestedDate
+      } = combineDepartureForTripInsert(
+        values.departure_date,
+        values.departure_time
+      );
+
+      const returnRequestedDate =
+        values.return_mode === 'exact' && values.return_date
+          ? formatLocalYmd(values.return_date)
+          : outboundRequestedDate;
+
       // group_id only applies when multiple passengers are bundled together in one dispatch
       const groupId = passengers.length > 1 ? crypto.randomUUID() : null;
       const shouldCreateReturn =
@@ -911,9 +983,22 @@ export function CreateTripForm({
           ? values.driver_id
           : null;
 
+      /**
+       * Billing metadata columns (`trips.billing_*`): create-flow only in v1.
+       * Future Trip-Detail-Sheet: read `billing_types.behavior_profile` and/or non-null
+       * row values; patch via `tripsService.updateTrip` (paired-leg sync TBD by product).
+       */
+      const askBillingExtras = billingBehavior.askCallingStationAndBetreuer;
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
+        billing_calling_station: askBillingExtras
+          ? values.billing_calling_station?.trim() || null
+          : null,
+        billing_betreuer: askBillingExtras
+          ? values.billing_betreuer?.trim() || null
+          : null,
         driver_id: driverId,
         notes: values.notes || null,
         status: (getStatusWhenDriverChanges('pending', driverId) ??
@@ -942,7 +1027,7 @@ export function CreateTripForm({
         let outboundDrivingDurationSeconds: number | null = null;
 
         if (pickupHasCoords && dropoffHasCoords) {
-          const metrics = await getDrivingMetrics(
+          const metrics = await fetchDrivingMetrics(
             pickupGroup.lat as number,
             pickupGroup.lng as number,
             dropoffGroup.lat as number,
@@ -961,7 +1046,8 @@ export function CreateTripForm({
           client_id: null,
           client_name: null,
           client_phone: null,
-          scheduled_at: values.scheduled_at.toISOString(),
+          scheduled_at: outboundScheduledAt,
+          requested_date: outboundRequestedDate,
           pickup_address: pickupGroup.address || '',
           pickup_street: pickupGroup.street || null,
           pickup_street_number: pickupGroup.street_number || null,
@@ -990,7 +1076,7 @@ export function CreateTripForm({
           let returnDrivingDurationSeconds: number | null = null;
 
           if (pickupHasCoords && dropoffHasCoords) {
-            const metrics = await getDrivingMetrics(
+            const metrics = await fetchDrivingMetrics(
               dropoffGroup.lat as number,
               dropoffGroup.lng as number,
               pickupGroup.lat as number,
@@ -1011,6 +1097,7 @@ export function CreateTripForm({
             client_phone: null,
             driver_id: null,
             scheduled_at: returnScheduledAt,
+            requested_date: returnRequestedDate,
             pickup_address: dropoffGroup.address || '',
             pickup_street: dropoffGroup.street || null,
             pickup_street_number: dropoffGroup.street_number || null,
@@ -1057,7 +1144,8 @@ export function CreateTripForm({
               client_name:
                 [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
               client_phone: p.phone || null,
-              scheduled_at: values.scheduled_at.toISOString(),
+              scheduled_at: outboundScheduledAt,
+              requested_date: outboundRequestedDate,
               pickup_address: pickupGroup?.address || '',
               pickup_street: pickupGroup?.street || null,
               pickup_street_number: pickupGroup?.street_number || null,
@@ -1104,7 +1192,7 @@ export function CreateTripForm({
                 let drivingDurationSeconds: number | null = null;
 
                 if (pickupHasCoords && dropoffHasCoords) {
-                  const metrics = await getDrivingMetrics(
+                  const metrics = await fetchDrivingMetrics(
                     dropoffGroup!.lat as number,
                     dropoffGroup!.lng as number,
                     pickupGroup!.lat as number,
@@ -1127,6 +1215,7 @@ export function CreateTripForm({
                   client_phone: p.phone || null,
                   driver_id: null,
                   scheduled_at: returnScheduledAt,
+                  requested_date: returnRequestedDate,
                   pickup_address: dropoffGroup?.address || '',
                   pickup_street: dropoffGroup?.street || null,
                   pickup_street_number: dropoffGroup?.street_number || null,
@@ -1182,7 +1271,9 @@ export function CreateTripForm({
     watchedBillingVariantId,
     watchedIsWheelchair,
     watchedReturnMode,
-    watchedScheduledAt,
+    watchedDepartureDateYmd,
+    billingFamilyId,
+    setBillingFamilyId,
     payers,
     billingTypes,
     drivers,

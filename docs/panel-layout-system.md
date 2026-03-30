@@ -69,6 +69,7 @@ PageContainer scrollable=false  →  flex flex-1 min-h-0 flex-col overflow-hidde
 ```
 
 **Key rules:**
+
 1. `PageContainer` with `scrollable={false}` is the page-level anchor: `flex flex-1 min-h-0 flex-col overflow-hidden`.
 2. Every wrapper in the chain uses `flex-1 min-h-0`. Without `min-h-0`, flex children ignore their parent's height cap.
 3. Only `PanelBody` has `overflow-y-auto`. Everything above it is `overflow-hidden`.
@@ -85,11 +86,9 @@ A thin wrapper that adds `overflow-hidden rounded-lg border`. It intentionally d
 import { ColumnLayout } from '@/components/panels';
 
 // Typical usage — consumer anchors the height
-<div className="flex-1 min-h-0 overflow-hidden">
-  <ColumnLayout className="h-full w-full">
-    {/* Panel children */}
-  </ColumnLayout>
-</div>
+<div className='min-h-0 flex-1 overflow-hidden'>
+  <ColumnLayout className='h-full w-full'>{/* Panel children */}</ColumnLayout>
+</div>;
 ```
 
 > For resizable columns (the standard for new pages), use `ResizablePanelGroup`
@@ -123,33 +122,33 @@ import { Panel } from '@/components/panels';
 
 Structured panel header. Always `shrink-0` and renders a `border-b`.
 
-| Prop | Type | Description |
-|---|---|---|
-| `title` | `string` | Required. Primary heading. |
-| `description` | `string?` | Optional subtitle in muted text. |
-| `onClose` | `() => void` | Optional. Renders an X button when provided. |
-| `actions` | `ReactNode` | Optional. Rendered to the left of the X button. Use for save/action buttons. |
+| Prop          | Type         | Description                                                                  |
+| ------------- | ------------ | ---------------------------------------------------------------------------- |
+| `title`       | `string`     | Required. Primary heading.                                                   |
+| `description` | `string?`    | Optional subtitle in muted text.                                             |
+| `onClose`     | `() => void` | Optional. Renders an X button when provided.                                 |
+| `actions`     | `ReactNode`  | Optional. Rendered to the left of the X button. Use for save/action buttons. |
 
 ```tsx
 import { PanelHeader } from '@/components/panels';
 
 // With a conditional save button in the header
 <PanelHeader
-  title="Fahrgast bearbeiten"
-  description="Stammdaten verwalten"
+  title='Fahrgast bearbeiten'
+  description='Stammdaten verwalten'
   onClose={() => nav.clearAll()}
   actions={
     <Button
-      size="sm"
+      size='sm'
       variant={isDirty ? 'default' : 'ghost'}
       disabled={!isDirty}
-      className="h-6 px-2 text-xs"
+      className='h-6 px-2 text-xs'
       onClick={() => formRef.current?.submit()}
     >
       Aktualisieren
     </Button>
   }
-/>
+/>;
 ```
 
 ---
@@ -158,8 +157,8 @@ import { PanelHeader } from '@/components/panels';
 
 The independently scrollable content area. Uses the `min-h-0 flex-1 overflow-y-auto` pattern.
 
-| Prop | Type | Description |
-|---|---|---|
+| Prop     | Type      | Description                                                             |
+| -------- | --------- | ----------------------------------------------------------------------- |
 | `padded` | `boolean` | Default `true`. Adds `px-4 py-4`. Set `false` for edge-to-edge content. |
 
 ```tsx
@@ -186,9 +185,13 @@ Fixed bottom footer. Always `shrink-0` — it never scrolls away even when the p
 import { PanelFooter } from '@/components/panels';
 
 <PanelFooter>
-  <Button variant="outline" onClick={onCancel}>Abbrechen</Button>
-  <Button type="submit" form="my-form-id">Speichern</Button>
-</PanelFooter>
+  <Button variant='outline' onClick={onCancel}>
+    Abbrechen
+  </Button>
+  <Button type='submit' form='my-form-id'>
+    Speichern
+  </Button>
+</PanelFooter>;
 ```
 
 > **Footer + Form wiring:** The submit button uses the HTML `form` attribute to link
@@ -213,20 +216,20 @@ The generic "first column" list panel. Handles search input, loading state, empt
 
 **Constraint:** `T` must have an `id: string` field.
 
-| Prop | Type | Description |
-|---|---|---|
-| `items` | `T[]` | Data to render. Filtering done server-side by parent. |
-| `loading` | `boolean?` | Shows spinner when true. |
-| `selectedId` | `string \| null?` | Highlights the matching row. |
-| `onSelect` | `(item: T) => void` | Called on row click. |
-| `renderItem` | `(item: T, isSelected: boolean) => ReactNode` | Render prop for each row. |
-| `searchValue` | `string` | Controlled search input value. |
-| `onSearchChange` | `(val: string) => void` | Called on every keystroke. |
-| `searchPlaceholder` | `string?` | Input placeholder. |
-| `emptyMessage` | `string?` | Shown when items are empty. |
-| `onNew` | `() => void?` | If provided, adds a fixed "+ New" footer button. |
-| `newLabel` | `string?` | Label for the new button. |
-| `width` | `string?` | Optional Tailwind width class. Leave unset when inside a `ResizablePanel` — the group controls width. |
+| Prop                | Type                                          | Description                                                                                           |
+| ------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `items`             | `T[]`                                         | Data to render. Filtering done server-side by parent.                                                 |
+| `loading`           | `boolean?`                                    | Shows spinner when true.                                                                              |
+| `selectedId`        | `string \| null?`                             | Highlights the matching row.                                                                          |
+| `onSelect`          | `(item: T) => void`                           | Called on row click.                                                                                  |
+| `renderItem`        | `(item: T, isSelected: boolean) => ReactNode` | Render prop for each row.                                                                             |
+| `searchValue`       | `string`                                      | Controlled search input value.                                                                        |
+| `onSearchChange`    | `(val: string) => void`                       | Called on every keystroke.                                                                            |
+| `searchPlaceholder` | `string?`                                     | Input placeholder.                                                                                    |
+| `emptyMessage`      | `string?`                                     | Shown when items are empty.                                                                           |
+| `onNew`             | `() => void?`                                 | If provided, adds a fixed "+ New" footer button.                                                      |
+| `newLabel`          | `string?`                                     | Label for the new button.                                                                             |
+| `width`             | `string?`                                     | Optional Tailwind width class. Leave unset when inside a `ResizablePanel` — the group controls width. |
 
 ```tsx
 import { PanelList } from '@/components/panels';
@@ -241,10 +244,10 @@ import { PanelList } from '@/components/panels';
   )}
   searchValue={search}
   onSearchChange={setSearch}
-  searchPlaceholder="Fahrgast suchen..."
+  searchPlaceholder='Fahrgast suchen...'
   onNew={() => nav.set({ clientId: 'new', ruleId: null })}
-  newLabel="Neuer Fahrgast"
-/>
+  newLabel='Neuer Fahrgast'
+/>;
 ```
 
 ---
@@ -259,8 +262,8 @@ import { useColumnNavigation } from '@/hooks/use-column-navigation';
 const nav = useColumnNavigation(['clientId', 'ruleId'] as const);
 
 // Read current values
-nav.values.clientId   // string | null
-nav.values.ruleId     // string | null
+nav.values.clientId; // string | null
+nav.values.ruleId; // string | null
 
 // Set one or more params atomically (single history push)
 nav.set({ clientId: 'abc-123', ruleId: null });
@@ -276,6 +279,7 @@ nav.clearAll();
 **Always use `as const`** on the keys array so TypeScript infers literal types instead of `string[]`.
 
 Options:
+
 ```typescript
 useColumnNavigation(['clientId', 'ruleId'] as const, {
   historyMode: 'replace' // default: 'push' — use 'replace' for transient state
@@ -303,39 +307,41 @@ export interface EntityFormHandle {
 
 interface EntityFormProps {
   initialData: Entity | null;
-  noCard?: boolean;              // hides internal submit button
+  noCard?: boolean; // hides internal submit button
   onSuccess?: (e: Entity) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-const EntityForm = forwardRef<EntityFormHandle, EntityFormProps>(function EntityForm(
-  { initialData, noCard, onSuccess, onDirtyChange }, ref
-) {
-  const form = useForm({ defaultValues: buildDefaults(initialData) });
+const EntityForm = forwardRef<EntityFormHandle, EntityFormProps>(
+  function EntityForm({ initialData, noCard, onSuccess, onDirtyChange }, ref) {
+    const form = useForm({ defaultValues: buildDefaults(initialData) });
 
-  useImperativeHandle(ref, () => ({
-    submit: () => void form.handleSubmit(onSubmit)()
-  }));
+    useImperativeHandle(ref, () => ({
+      submit: () => void form.handleSubmit(onSubmit)()
+    }));
 
-  // Notify parent of dirty state changes
-  const isDirty = form.formState.isDirty;
-  const onDirtyChangeRef = useRef(onDirtyChange);
-  onDirtyChangeRef.current = onDirtyChange;
-  useEffect(() => { onDirtyChangeRef.current?.(isDirty); }, [isDirty]);
+    // Notify parent of dirty state changes
+    const isDirty = form.formState.isDirty;
+    const onDirtyChangeRef = useRef(onDirtyChange);
+    onDirtyChangeRef.current = onDirtyChange;
+    useEffect(() => {
+      onDirtyChangeRef.current?.(isDirty);
+    }, [isDirty]);
 
-  async function onSubmit(values) {
-    const saved = await yourService.update(values);
-    form.reset(values); // ← clears isDirty after a successful save
-    onSuccess?.(saved);
+    async function onSubmit(values) {
+      const saved = await yourService.update(values);
+      form.reset(values); // ← clears isDirty after a successful save
+      onSuccess?.(saved);
+    }
+
+    return (
+      <Form form={form} onSubmit={form.handleSubmit(onSubmit)}>
+        {/* fields */}
+        {!noCard && <Button type='submit'>Speichern</Button>}
+      </Form>
+    );
   }
-
-  return (
-    <Form form={form} onSubmit={form.handleSubmit(onSubmit)}>
-      {/* fields */}
-      {!noCard && <Button type="submit">Speichern</Button>}
-    </Form>
-  );
-});
+);
 export default EntityForm;
 ```
 
@@ -346,15 +352,15 @@ export default EntityForm;
 const formRef = useRef<EntityFormHandle>(null);
 const [isFormDirty, setIsFormDirty] = useState(false);
 
-<Panel className="flex-1">
+<Panel className='flex-1'>
   <PanelHeader
     title={entityName}
     onClose={onClose}
     actions={
       <Button
-        size="sm"
+        size='sm'
         variant={isFormDirty ? 'default' : 'ghost'}
-        className="h-6 px-2 text-xs"
+        className='h-6 px-2 text-xs'
         disabled={!isFormDirty}
         onClick={() => formRef.current?.submit()}
       >
@@ -371,7 +377,7 @@ const [isFormDirty, setIsFormDirty] = useState(false);
       onDirtyChange={setIsFormDirty}
     />
   </PanelBody>
-</Panel>
+</Panel>;
 ```
 
 ### Fixed footer for sub-detail panels (Column 3+)
@@ -380,20 +386,20 @@ Sub-panels like rule/sub-item forms use `PanelFooter` as a sibling to `PanelBody
 linked via the HTML `form` attribute so the button sits outside the scroll area:
 
 ```tsx
-<Panel className="flex-1">
-  <PanelHeader title="Neue Regelfahrt" onClose={onClose} />
+<Panel className='flex-1'>
+  <PanelHeader title='Neue Regelfahrt' onClose={onClose} />
   <PanelBody padded={false}>
-    <div className="px-6">
-      <form id="my-rule-form" onSubmit={form.handleSubmit(handleSubmit)}>
+    <div className='px-6'>
+      <form id='my-rule-form' onSubmit={form.handleSubmit(handleSubmit)}>
         <MyFormBody form={form} />
       </form>
     </div>
   </PanelBody>
   <PanelFooter>
-    <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+    <Button variant='outline' onClick={onClose} disabled={isSubmitting}>
       Abbrechen
     </Button>
-    <Button type="submit" form="my-rule-form" disabled={isSubmitting}>
+    <Button type='submit' form='my-rule-form' disabled={isSubmitting}>
       {isNew ? 'Hinzufügen' : 'Speichern'}
     </Button>
   </PanelFooter>
@@ -414,10 +420,10 @@ The Fahrgäste implementation is your reference.
 import { YourViewToggle } from '@/features/your-feature/components/your-view-toggle';
 
 // In pageHeaderAction:
-<div className="flex items-center gap-2">
-  {!isColumnView && <Link href="...">+ Neu</Link>}
+<div className='flex items-center gap-2'>
+  {!isColumnView && <Link href='...'>+ Neu</Link>}
   <YourViewToggle />
-</div>
+</div>;
 ```
 
 Create `your-view-toggle.tsx` by copying `clients-view-toggle.tsx` — only the component name changes. The toggle uses `nuqs` with `shallow: false` to force a server re-render when switching views.
@@ -450,13 +456,18 @@ export function YourColumnView() {
 
   return (
     // flex-1 min-h-0: fills the remaining height in PageContainer's flex column
-    <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border">
+    <div className='flex min-h-0 flex-1 overflow-hidden rounded-lg border'>
       <ResizablePanelGroup
-        direction="horizontal"
-        className="h-full w-full"
-        autoSaveId="your-entity-column-layout"
+        direction='horizontal'
+        className='h-full w-full'
+        autoSaveId='your-entity-column-layout'
       >
-        <ResizablePanel id="list" order={1} defaultSize={showDetail ? 22 : 100} minSize={15}>
+        <ResizablePanel
+          id='list'
+          order={1}
+          defaultSize={showDetail ? 22 : 100}
+          minSize={15}
+        >
           <YourListPanel
             selectedId={entityId}
             onSelect={(id) => nav.set({ entityId: id, subId: null })}
@@ -467,7 +478,12 @@ export function YourColumnView() {
         {showDetail && (
           <>
             <ResizableHandle withHandle />
-            <ResizablePanel id="detail" order={2} defaultSize={showSub ? 44 : 78} minSize={28}>
+            <ResizablePanel
+              id='detail'
+              order={2}
+              defaultSize={showSub ? 44 : 78}
+              minSize={28}
+            >
               {/* key forces full remount when switching between entities */}
               <YourDetailPanel
                 key={entityId}
@@ -483,7 +499,7 @@ export function YourColumnView() {
         {showSub && (
           <>
             <ResizableHandle withHandle />
-            <ResizablePanel id="sub" order={3} defaultSize={34} minSize={22}>
+            <ResizablePanel id='sub' order={3} defaultSize={34} minSize={22}>
               <YourSubPanel
                 parentId={entityId!}
                 subId={subId!}
@@ -502,10 +518,10 @@ export function YourColumnView() {
 **Default size guidelines:**
 
 | Columns visible | List | Detail | Sub |
-|---|---|---|---|
-| 1 only | 100% | — | — |
-| 1 + 2 | 22% | 78% | — |
-| 1 + 2 + 3 | 22% | 44% | 34% |
+| --------------- | ---- | ------ | --- |
+| 1 only          | 100% | —      | —   |
+| 1 + 2           | 22%  | 78%    | —   |
+| 1 + 2 + 3       | 22%  | 44%    | 34% |
 
 ### Step 3 — Build the list panel
 
@@ -537,12 +553,16 @@ export function YourListPanel({ selectedId, onSelect, onNew }) {
     }
   }, []);
 
-  useEffect(() => { fetchItems(debouncedSearch); }, [debouncedSearch, fetchItems]);
+  useEffect(() => {
+    fetchItems(debouncedSearch);
+  }, [debouncedSearch, fetchItems]);
 
   // Expose refresh to sibling panels (call after create/delete)
   useEffect(() => {
     (window as any).__refreshYourList = () => fetchItems(debouncedSearch);
-    return () => { delete (window as any).__refreshYourList; };
+    return () => {
+      delete (window as any).__refreshYourList;
+    };
   }, [fetchItems, debouncedSearch]);
 
   return (
@@ -556,10 +576,10 @@ export function YourListPanel({ selectedId, onSelect, onNew }) {
       )}
       searchValue={search}
       onSearchChange={setSearch}
-      searchPlaceholder="Eintrag suchen..."
-      emptyMessage="Keine Einträge gefunden."
+      searchPlaceholder='Eintrag suchen...'
+      emptyMessage='Keine Einträge gefunden.'
       onNew={onNew}
-      newLabel="Neuer Eintrag"
+      newLabel='Neuer Eintrag'
     />
   );
 }
@@ -586,15 +606,20 @@ export function YourDetailPanel({ entityId, onClose, onSelectSub, onNewSub }) {
   const [loading, setLoading] = useState(!isNew);
 
   useEffect(() => {
-    if (isNew) { setEntity(null); setLoading(false); return; }
+    if (isNew) {
+      setEntity(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    yourService.getById(entityId)
+    yourService
+      .getById(entityId)
       .then(setEntity)
       .finally(() => setLoading(false));
   }, [entityId, isNew]);
 
   return (
-    <Panel className="flex-1">
+    <Panel className='flex-1'>
       <PanelHeader
         title={isNew ? 'Neuer Eintrag' : (entity?.name ?? '...')}
         description={isNew ? 'Neuen Eintrag anlegen' : 'Eintrag bearbeiten'}
@@ -602,9 +627,9 @@ export function YourDetailPanel({ entityId, onClose, onSelectSub, onNewSub }) {
         actions={
           !loading && (
             <Button
-              size="sm"
+              size='sm'
               variant={isFormDirty ? 'default' : 'ghost'}
-              className="h-6 px-2 text-xs"
+              className='h-6 px-2 text-xs'
               disabled={!isFormDirty}
               onClick={() => formRef.current?.submit()}
             >
@@ -636,18 +661,20 @@ export function YourDetailPanel({ entityId, onClose, onSelectSub, onNewSub }) {
 Same pattern as the detail panel but uses `PanelFooter` for the submit button (Column 3+ forms are typically self-contained). Extract the form fields into a `YourFormBody` component shared between a `Sheet` and the `Panel`. See `recurring-rule-form-body.tsx` as the reference.
 
 ```tsx
-<Panel className="flex-1">
-  <PanelHeader title="..." onClose={onClose} />
+<Panel className='flex-1'>
+  <PanelHeader title='...' onClose={onClose} />
   <PanelBody padded={false}>
-    <div className="px-6">
-      <form id="your-sub-form" onSubmit={form.handleSubmit(handleSubmit)}>
+    <div className='px-6'>
+      <form id='your-sub-form' onSubmit={form.handleSubmit(handleSubmit)}>
         <YourFormBody form={form} showIsActive={!isNew} />
       </form>
     </div>
   </PanelBody>
   <PanelFooter>
-    <Button variant="outline" onClick={onClose} disabled={isSubmitting}>Abbrechen</Button>
-    <Button type="submit" form="your-sub-form" disabled={isSubmitting}>
+    <Button variant='outline' onClick={onClose} disabled={isSubmitting}>
+      Abbrechen
+    </Button>
+    <Button type='submit' form='your-sub-form' disabled={isSubmitting}>
       {isNew ? 'Hinzufügen' : 'Speichern'}
     </Button>
   </PanelFooter>

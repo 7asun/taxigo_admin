@@ -46,6 +46,13 @@ export type ParsedCsvRow = {
    * Examples: "CH1", "pair-A", "1"
    */
   pair_id?: string;
+  /**
+   * Optional — maps to `trips.billing_calling_station` (Abrechnung), not Fahrgast
+   * `pickup_station` / `dropoff_station`.
+   */
+  anrufstation?: string;
+  /** Optional — maps to `trips.billing_betreuer`. */
+  betreuer?: string;
 };
 
 export type ValidationIssueType =

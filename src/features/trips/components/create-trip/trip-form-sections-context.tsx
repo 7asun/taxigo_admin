@@ -40,7 +40,11 @@ export interface TripFormSectionsContextType {
   watchedBillingVariantId: string | undefined;
   watchedIsWheelchair: boolean;
   watchedReturnMode: ReturnMode;
-  watchedScheduledAt: Date | undefined;
+  /** Outbound calendar day `yyyy-MM-dd` (local), for Rückfahrt default date. */
+  watchedDepartureDateYmd: string;
+  /** Multi-family: user’s Abrechnungsfamilie pick; single-family UI derives id without storing. */
+  billingFamilyId: string;
+  setBillingFamilyId: (id: string) => void;
   payers: PayerOption[];
   billingTypes: BillingTypeOption[];
   drivers: DriverOption[];

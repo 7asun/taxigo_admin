@@ -16,7 +16,11 @@ import {
   type TripStatus
 } from '@/lib/trip-status';
 import { UrgencyIndicator } from '../urgency-indicator';
-import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
+import { parseTripAddressForDataTable } from '@/features/trips/lib/format-trip-address-display-line';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
@@ -120,16 +124,21 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Fahrgast' />
     ),
     cell: ({ row }) => (
-      <div className='flex items-center gap-2'>
-        <div className='flex flex-col'>
-          <span className='font-medium'>{row.original.client_name || '-'}</span>
-          {row.original.is_wheelchair && (
-            <Badge variant='destructive' className='w-fit origin-left scale-75'>
-              <Accessibility className='mr-1 h-3 w-3' />
-              Rollstuhl
-            </Badge>
-          )}
-        </div>
+      <div className='flex flex-wrap items-center gap-2'>
+        <span className='font-medium'>{row.original.client_name || '-'}</span>
+        {row.original.is_wheelchair && (
+          <Badge
+            variant='outline'
+            title='Rollstuhl'
+            aria-label='Rollstuhl'
+            className={cn(
+              'shrink-0 border-rose-200 bg-rose-50 px-1 py-0 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400',
+              'inline-flex size-5 items-center justify-center p-0 [&>svg]:size-3'
+            )}
+          >
+            <Accessibility aria-hidden />
+          </Badge>
+        )}
       </div>
     ),
     meta: {
@@ -144,8 +153,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Abholung' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseTripAddressForDisplay(
-        row.original.pickup_address
+      const { street, cityLine } = parseTripAddressForDataTable(
+        row.original,
+        'pickup'
       );
       const station = row.original.pickup_station as string | undefined;
       return (
@@ -177,8 +187,9 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='Ziel' />
     ),
     cell: ({ row }) => {
-      const { street, cityLine } = parseTripAddressForDisplay(
-        row.original.dropoff_address
+      const { street, cityLine } = parseTripAddressForDataTable(
+        row.original,
+        'dropoff'
       );
       const station = row.original.dropoff_station as string | undefined;
       return (
@@ -244,6 +255,7 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ row }) => <div>{row.original.payer?.name || '-'}</div>,
     meta: { label: 'Kostenträger' }
   },
+  // Abrechnung: use formatBillingDisplayLabel (hides Unterart „Standard“); do not concatenate names here.
   {
     id: 'billing_type',
     accessorKey: 'billing_variant.name',
@@ -254,39 +266,69 @@ export const columns: ColumnDef<any>[] = [
       const bv = row.original.billing_variant as
         | {
             name?: string | null;
-            code?: string | null;
-            billing_types?: { name?: string | null; color?: string | null };
+            billing_types?: unknown;
           }
         | null
         | undefined;
-      const fam = bv?.billing_types;
+      const label = formatBillingDisplayLabel(bv).trim() || '-';
+      if (label === '-') return '-';
+      const fam = billingFamilyFromEmbed(bv?.billing_types);
       const color = fam?.color ?? '#64748b';
-      const label =
-        fam?.name && bv?.name
-          ? `${fam.name} · ${bv.name}`
-          : bv?.name || fam?.name || '-';
-      if (!bv && !fam) return '-';
       return (
-        <div className='flex min-w-0 flex-col gap-0.5'>
-          <Badge
-            variant='outline'
-            className='w-fit max-w-full truncate font-normal'
-            style={{
-              borderColor: color,
-              color,
-              backgroundColor: `color-mix(in srgb, ${color}, var(--background) 90%)`
-            }}
-          >
-            {label}
-          </Badge>
-          {bv?.code ? (
-            <span className='text-muted-foreground font-mono text-[10px]'>
-              {bv.code}
-            </span>
-          ) : null}
-        </div>
+        <Badge
+          variant='outline'
+          className='w-fit max-w-full truncate font-normal'
+          style={{
+            borderColor: color,
+            color,
+            backgroundColor: `color-mix(in srgb, ${color}, var(--background) 90%)`
+          }}
+        >
+          {label}
+        </Badge>
       );
     }
+  },
+  {
+    id: 'billing_calling_station',
+    accessorFn: (row) => row.billing_calling_station ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Anrufstation' />
+    ),
+    cell: ({ row }) => {
+      const v = row.original.billing_calling_station as
+        | string
+        | null
+        | undefined;
+      const t = v?.trim();
+      if (!t) return <span className='text-muted-foreground'>—</span>;
+      return (
+        <span className='max-w-[140px] truncate text-sm' title={t}>
+          {t}
+        </span>
+      );
+    },
+    meta: { label: 'Anrufstation', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
+    id: 'billing_betreuer',
+    accessorFn: (row) => row.billing_betreuer ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Betreuer' />
+    ),
+    cell: ({ row }) => {
+      const v = row.original.billing_betreuer as string | null | undefined;
+      const t = v?.trim();
+      if (!t) return <span className='text-muted-foreground'>—</span>;
+      return (
+        <span className='max-w-[140px] truncate text-sm' title={t}>
+          {t}
+        </span>
+      );
+    },
+    meta: { label: 'Betreuer', variant: 'text' },
+    enableColumnFilter: false
   },
   {
     id: 'actions',

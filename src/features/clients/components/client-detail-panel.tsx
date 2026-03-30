@@ -41,7 +41,7 @@ import { Panel, PanelHeader, PanelBody } from '@/components/panels';
 import { clientsService, Client } from '../api/clients.service';
 import {
   recurringRulesService,
-  RecurringRule
+  RecurringRuleWithBillingEmbed
 } from '@/features/trips/api/recurring-rules.service';
 import ClientForm, { ClientFormHandle } from './client-form';
 import { RecurringRulesList } from './recurring-rules-list';
@@ -71,7 +71,7 @@ export function ClientDetailPanel({
 
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(!isNew);
-  const [rules, setRules] = useState<RecurringRule[]>([]);
+  const [rules, setRules] = useState<RecurringRuleWithBillingEmbed[]>([]);
 
   // After creating a new client, we receive the saved Client object and update
   // the active clientId to the real UUID. We store it locally here and also

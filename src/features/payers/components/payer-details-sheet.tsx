@@ -251,6 +251,11 @@ export function PayerDetailsSheet({
           payerId={payer.id}
           familyId={variantDialog.familyId}
           familyName={variantDialog.familyName}
+          existingVariantCodes={
+            families
+              ?.find((f) => f.id === variantDialog.familyId)
+              ?.billing_variants.map((v) => v.code) ?? []
+          }
           open={!!variantDialog}
           onOpenChange={(o) => !o && setVariantDialog(null)}
           nextSortOrder={variantDialog.nextSort}
@@ -275,6 +280,16 @@ export function PayerDetailsSheet({
         payerId={payer.id}
         familyName={editVariant?.familyName ?? ''}
         variant={editVariant?.variant ?? null}
+        peerVariantCodes={
+          editVariant
+            ? ((families ?? [])
+                .find((f) => f.id === editVariant.variant.billing_type_id)
+                ?.billing_variants.filter(
+                  (v) => v.id !== editVariant.variant.id
+                )
+                .map((v) => v.code) ?? [])
+            : []
+        }
         open={!!editVariant}
         onOpenChange={(isOpen) => !isOpen && setEditVariant(null)}
       />
@@ -393,74 +408,77 @@ function FamilyBlock({
         </div>
       </div>
 
-      <ul className='divide-y'>
-        {(family.billing_variants || []).map((v) => (
-          <li
-            key={v.id}
-            className='flex items-center justify-between gap-2 px-4 py-2.5 text-sm'
-          >
-            <div className='min-w-0 flex-1'>
-              <span className='font-medium'>{v.name}</span>
-              <span className='text-muted-foreground ml-2 text-xs'>
-                · CSV-Code für{' '}
-                <code className='text-[10px]'>abrechnungsvariante</code>
-              </span>
-            </div>
-            <div className='flex shrink-0 items-center gap-2'>
-              <Badge
-                variant='secondary'
-                className='font-mono text-xs tracking-wide uppercase'
-              >
-                {v.code}
-              </Badge>
-              <Button
-                variant='ghost'
-                size='icon'
-                className='text-muted-foreground hover:text-foreground h-8 w-8'
-                onClick={() => onEditVariant(v)}
-                title='Unterart bearbeiten'
-              >
-                <Pencil className='h-3.5 w-3.5' />
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    className='text-muted-foreground hover:text-destructive h-8 w-8'
-                    disabled={isDeleting || variantCount <= 1}
-                    title={
-                      variantCount <= 1
-                        ? 'Mindestens eine Unterart behalten'
-                        : 'Unterart löschen'
-                    }
-                  >
-                    <Trash2 className='h-3.5 w-3.5' />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Unterart löschen?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      „{v.name}“ ({v.code}) — betroffene Fahrten verlieren diese
-                      Zuordnung.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void onDeleteVariant(v.id)}
-                      className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+      {/* Einzelne Standard-Unterart: Liste ausblenden; „Unterart“ oben legt weitere an. */}
+      {variantCount > 1 ? (
+        <ul className='divide-y'>
+          {(family.billing_variants || []).map((v) => (
+            <li
+              key={v.id}
+              className='flex items-center justify-between gap-2 px-4 py-2.5 text-sm'
+            >
+              <div className='min-w-0 flex-1'>
+                <span className='font-medium'>{v.name}</span>
+                <span className='text-muted-foreground ml-2 text-xs'>
+                  · CSV-Code für{' '}
+                  <code className='text-[10px]'>abrechnungsvariante</code>
+                </span>
+              </div>
+              <div className='flex shrink-0 items-center gap-2'>
+                <Badge
+                  variant='secondary'
+                  className='font-mono text-xs tracking-wide uppercase'
+                >
+                  {v.code}
+                </Badge>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground h-8 w-8'
+                  onClick={() => onEditVariant(v)}
+                  title='Unterart bearbeiten'
+                >
+                  <Pencil className='h-3.5 w-3.5' />
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant='ghost'
+                      size='icon'
+                      className='text-muted-foreground hover:text-destructive h-8 w-8'
+                      disabled={isDeleting || variantCount <= 1}
+                      title={
+                        variantCount <= 1
+                          ? 'Mindestens eine Unterart behalten'
+                          : 'Unterart löschen'
+                      }
                     >
-                      Löschen
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </li>
-        ))}
-      </ul>
+                      <Trash2 className='h-3.5 w-3.5' />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Unterart löschen?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        „{v.name}“ ({v.code}) — betroffene Fahrten verlieren
+                        diese Zuordnung.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => void onDeleteVariant(v.id)}
+                        className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                      >
+                        Löschen
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

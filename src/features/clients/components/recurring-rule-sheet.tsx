@@ -38,6 +38,8 @@ import {
  *   clientId      — the client this rule belongs to
  *   initialData   — if provided, form renders in edit mode
  *   onSuccess     — called after a successful create or update
+ *
+ * Sheet and RecurringRulePanel submit the same `ruleData` shape (incl. payer + billing).
  */
 
 interface RecurringRuleSheetProps {
@@ -77,12 +79,15 @@ export function RecurringRuleSheet({
       const ruleData = {
         client_id: clientId,
         rrule_string: rruleString,
+        payer_id: values.payer_id,
+        billing_variant_id: values.billing_variant_id,
         pickup_time: `${values.pickup_time}:00`,
         pickup_address: values.pickup_address,
         dropoff_address: values.dropoff_address,
-        return_trip: values.return_trip,
+        return_mode: values.return_mode,
+        return_trip: values.return_mode !== 'none',
         return_time:
-          values.return_trip && values.return_time
+          values.return_mode === 'exact' && values.return_time
             ? `${values.return_time}:00`
             : null,
         start_date: values.start_date,

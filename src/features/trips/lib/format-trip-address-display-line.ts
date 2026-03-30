@@ -71,11 +71,21 @@ export function formatTripAddressDisplayLine(input: {
   return name || core;
 }
 
+export interface ParseTripAddressForDisplayOptions {
+  /**
+   * When true, never omit PLZ+Stadt for Oldenburg (Fahrten data table only).
+   */
+  alwaysShowZipCity?: boolean;
+}
+
 /**
  * Split a bundled `*_address` into street vs "PLZ Stadt" for tables/cards.
- * When the city after PLZ is Oldenburg, `cityLine` is **null** (ZIP and city hidden).
+ * When the city after PLZ is Oldenburg, `cityLine` is **null** unless `alwaysShowZipCity` is set.
  */
-export function parseTripAddressForDisplay(raw: string | null | undefined): {
+export function parseTripAddressForDisplay(
+  raw: string | null | undefined,
+  options?: ParseTripAddressForDisplayOptions
+): {
   street: string | null;
   cityLine: string | null;
 } {
@@ -85,10 +95,52 @@ export function parseTripAddressForDisplay(raw: string | null | undefined): {
   if (!zipCityLine) {
     return { street: streetPart || null, cityLine: null };
   }
-  if (isOldenburgZipCityLine(zipCityLine)) {
+  if (!options?.alwaysShowZipCity && isOldenburgZipCityLine(zipCityLine)) {
     return { street: streetPart || null, cityLine: null };
   }
   return { street: streetPart || null, cityLine: zipCityLine };
+}
+
+type TripAddressDataTableSlice = {
+  pickup_address?: string | null;
+  dropoff_address?: string | null;
+  pickup_zip_code?: string | null;
+  pickup_city?: string | null;
+  pickup_street?: string | null;
+  pickup_street_number?: string | null;
+  dropoff_zip_code?: string | null;
+  dropoff_city?: string | null;
+  dropoff_street?: string | null;
+  dropoff_street_number?: string | null;
+};
+
+/**
+ * Fahrten table: street on first line; PLZ + Stadt on second when known.
+ * Always shows postal line for Oldenburg when it appears in the bundled address or structured columns.
+ */
+export function parseTripAddressForDataTable(
+  trip: TripAddressDataTableSlice,
+  kind: 'pickup' | 'dropoff'
+): { street: string | null; cityLine: string | null } {
+  const isPickup = kind === 'pickup';
+  const raw = isPickup ? trip.pickup_address : trip.dropoff_address;
+  const zip = isPickup ? trip.pickup_zip_code : trip.dropoff_zip_code;
+  const city = isPickup ? trip.pickup_city : trip.dropoff_city;
+  const street = isPickup ? trip.pickup_street : trip.dropoff_street;
+  const streetNumber = isPickup
+    ? trip.pickup_street_number
+    : trip.dropoff_street_number;
+
+  const parsed = parseTripAddressForDisplay(raw, { alwaysShowZipCity: true });
+  const structStreet = [street?.trim(), streetNumber?.trim()]
+    .filter(Boolean)
+    .join(' ');
+  const structCityLine = [zip?.trim(), city?.trim()].filter(Boolean).join(' ');
+
+  return {
+    street: parsed.street?.trim() || structStreet || raw?.trim() || null,
+    cityLine: parsed.cityLine?.trim() || structCityLine || null
+  };
 }
 
 type KanbanAddressTripSlice = {

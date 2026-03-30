@@ -105,7 +105,7 @@ export const CellAction: React.FC<CellActionProps> = ({ data }) => {
           <DropdownMenuItem onClick={() => setIsDetailOpen(true)}>
             <Eye className='mr-2 h-4 w-4' /> Details anzeigen
           </DropdownMenuItem>
-          <DropdownMenuItem disabled>
+          <DropdownMenuItem onClick={() => setIsDetailOpen(true)}>
             <Edit className='mr-2 h-4 w-4' /> Bearbeiten
           </DropdownMenuItem>
           <DropdownMenuItem

@@ -307,6 +307,8 @@ export interface DatePickerProps {
   disabled?: boolean;
   /** Forwarded to the trigger `Button` (`htmlFor` on the external `Label`). */
   id?: string;
+  /** Merged into the trigger `Button` (e.g. compact toolbar: `h-8 text-xs`). */
+  triggerClassName?: string;
 }
 
 /**
@@ -320,7 +322,8 @@ export function DatePicker({
   value,
   onChange,
   disabled,
-  id = 'date-picker'
+  id = 'date-picker',
+  triggerClassName
 }: DatePickerProps) {
   const narrow = useIsNarrowScreen(768);
   const [popoverOpen, setPopoverOpen] = React.useState(false);
@@ -359,14 +362,15 @@ export function DatePicker({
           onClick={() => setDateSheetOpen(true)}
           className={cn(
             'h-10 min-h-10 w-full touch-manipulation justify-between text-left text-base font-normal md:h-9 md:min-h-0',
-            !selectedDate && 'text-muted-foreground'
+            !selectedDate && 'text-muted-foreground',
+            triggerClassName
           )}
         >
-          <span className='flex min-w-0 items-center gap-2'>
-            <CalendarIcon className='h-4 w-4 shrink-0 opacity-60' />
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <CalendarIcon className='h-3.5 w-3.5 shrink-0 opacity-60' />
             <span className='min-w-0 truncate'>{displayDate}</span>
           </span>
-          <ChevronDownIcon className='h-4 w-4 shrink-0 opacity-50' />
+          <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
         </Button>
         <MobileDateTimeSheet
           open={dateSheetOpen}
@@ -398,14 +402,15 @@ export function DatePicker({
           disabled={disabled}
           className={cn(
             'h-10 min-h-10 w-full touch-manipulation justify-between text-left font-normal md:h-9 md:min-h-0',
-            !selectedDate && 'text-muted-foreground'
+            !selectedDate && 'text-muted-foreground',
+            triggerClassName
           )}
         >
-          <span className='flex min-w-0 items-center gap-2'>
-            <CalendarIcon className='h-4 w-4 shrink-0 opacity-60' />
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <CalendarIcon className='h-3.5 w-3.5 shrink-0 opacity-60' />
             <span className='truncate'>{displayDate}</span>
           </span>
-          <ChevronDownIcon className='h-4 w-4 shrink-0 opacity-50' />
+          <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
         </Button>
       </PopoverTrigger>
       <PopoverContent

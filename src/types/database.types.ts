@@ -425,12 +425,15 @@ export type Database = {
           pickup_address: string;
           dropoff_address: string;
           pickup_time: string;
+          return_mode: string;
           return_trip: boolean;
           return_time: string | null;
           start_date: string;
           end_date: string | null;
           is_active: boolean;
           created_at: string;
+          payer_id: string | null;
+          billing_variant_id: string | null;
         };
         Insert: {
           id?: string;
@@ -439,12 +442,15 @@ export type Database = {
           pickup_address: string;
           dropoff_address: string;
           pickup_time: string;
+          return_mode: string;
           return_trip?: boolean;
           return_time?: string | null;
           start_date: string;
           end_date?: string | null;
           is_active?: boolean;
           created_at?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
         };
         Update: {
           id?: string;
@@ -453,19 +459,36 @@ export type Database = {
           pickup_address?: string;
           dropoff_address?: string;
           pickup_time?: string;
+          return_mode?: string;
           return_trip?: boolean;
           return_time?: string | null;
           start_date?: string;
           end_date?: string | null;
           is_active?: boolean;
           created_at?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: 'recurring_rules_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          },
           {
             foreignKeyName: 'recurring_rules_client_id_fkey';
             columns: ['client_id'];
             isOneToOne: false;
             referencedRelation: 'clients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'recurring_rules_payer_id_fkey';
+            columns: ['payer_id'];
+            isOneToOne: false;
+            referencedRelation: 'payers';
             referencedColumns: ['id'];
           }
         ];
@@ -766,6 +789,8 @@ export type Database = {
         Row: {
           actual_dropoff_at: string | null;
           actual_pickup_at: string | null;
+          billing_betreuer: string | null;
+          billing_calling_station: string | null;
           billing_variant_id: string | null;
           client_id: string | null;
           client_name: string | null;
@@ -821,6 +846,8 @@ export type Database = {
         Insert: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
+          billing_betreuer?: string | null;
+          billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;
@@ -876,6 +903,8 @@ export type Database = {
         Update: {
           actual_dropoff_at?: string | null;
           actual_pickup_at?: string | null;
+          billing_betreuer?: string | null;
+          billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           client_id?: string | null;
           client_name?: string | null;

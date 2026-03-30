@@ -8,7 +8,9 @@ import type {
 } from '../types/payer.types';
 import {
   isValidBillingVariantCode,
-  normalizeBillingVariantCodeInput
+  normalizeBillingVariantCodeInput,
+  pickUniqueBillingVariantCode,
+  suggestBillingVariantCode
 } from '../lib/billing-variant-code';
 
 export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
@@ -20,6 +22,7 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requirePassenger: true,
   requirePickupStation: false,
   requireDropoffStation: false,
+  askCallingStationAndBetreuer: false,
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,
@@ -31,18 +34,6 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   defaultDropoffZip: null,
   defaultDropoffCity: null
 };
-
-/**
- * Suggests a 2–6 char code from a label (family or variant name) for first-time setup.
- * Caller must still validate with isValidBillingVariantCode; may need manual edit if too short.
- */
-export function suggestVariantCodeFromLabel(label: string): string {
-  const n = normalizeBillingVariantCodeInput(label);
-  if (n.length >= 2 && n.length <= 6) return n;
-  if (n.length > 6) return n.slice(0, 6);
-  if (n.length === 1) return `${n}X`;
-  return 'VAR01';
-}
 
 export class PayersService {
   static async getPayers(): Promise<PayerWithBillingCount[]> {
@@ -155,20 +146,24 @@ export class PayersService {
     options?: {
       /** Default "Standard"; shown as Unterart name. */
       initialVariantName?: string;
-      /** If omitted, derived from familyName via suggestVariantCodeFromLabel. */
+      /** Optional override; otherwise derived from Unterart + Familie. */
       initialVariantCode?: string;
     }
   ): Promise<void> {
     if (!payerId) throw new Error('Payer ID is required');
 
     const initialName = options?.initialVariantName?.trim() || 'Standard';
-    let code =
+    const manual =
       options?.initialVariantCode != null
         ? normalizeBillingVariantCodeInput(options.initialVariantCode)
-        : suggestVariantCodeFromLabel(familyName);
-    if (!isValidBillingVariantCode(code)) {
-      throw new Error('Ungültiger Varianten-Code (2–6 Zeichen, A–Z und 0–9).');
-    }
+        : '';
+    const code =
+      manual.length >= 2 && isValidBillingVariantCode(manual)
+        ? manual
+        : pickUniqueBillingVariantCode(
+            suggestBillingVariantCode(initialName, familyName.trim()),
+            []
+          );
 
     const supabase = createClient();
 
@@ -221,21 +216,52 @@ export class PayersService {
     }
   }
 
+  /**
+   * Inserts a variant. If `rawCode` is missing or invalid, code is generated from
+   * Unterart + `billing_types.name` and made unique within the family.
+   */
   static async createBillingVariant(
     familyId: string,
     name: string,
-    rawCode: string,
+    rawCode: string | null | undefined,
     sortOrder?: number
   ): Promise<void> {
-    const code = normalizeBillingVariantCodeInput(rawCode);
-    if (!isValidBillingVariantCode(code)) {
-      throw new Error('Ungültiger Varianten-Code (2–6 Zeichen, A–Z und 0–9).');
+    const supabase = createClient();
+    const trimmedName = name.trim();
+
+    const manual =
+      rawCode != null ? normalizeBillingVariantCodeInput(rawCode) : '';
+    let code: string;
+    if (manual.length >= 2 && isValidBillingVariantCode(manual)) {
+      code = manual;
+    } else {
+      const { data: fam, error: famErr } = await supabase
+        .from('billing_types')
+        .select('name')
+        .eq('id', familyId)
+        .single();
+      if (famErr) {
+        console.error('Error loading billing family for code:', famErr);
+        throw toQueryError(famErr);
+      }
+      const { data: rows, error: listErr } = await supabase
+        .from('billing_variants')
+        .select('code')
+        .eq('billing_type_id', familyId);
+      if (listErr) {
+        console.error('Error listing variant codes:', listErr);
+        throw toQueryError(listErr);
+      }
+      const existing = (rows ?? []).map((r) => r.code);
+      code = pickUniqueBillingVariantCode(
+        suggestBillingVariantCode(trimmedName, fam?.name ?? ''),
+        existing
+      );
     }
 
-    const supabase = createClient();
     const { error } = await supabase.from('billing_variants').insert({
       billing_type_id: familyId,
-      name: name.trim(),
+      name: trimmedName,
       code,
       sort_order: sortOrder ?? 0
     });

@@ -1,3 +1,4 @@
+import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import type { Database } from '@/types/database.types';
@@ -92,12 +93,43 @@ export const tripsService = {
     }
   },
 
+  /**
+   * POST body matches `parseDuplicateTripsPayload` — optional `includeLinkedLeg` (omitted ⇒ true),
+   * optional `explicitPerLegUnifiedTimes` + per-leg ISOs for detail-sheet pair duplicates.
+   */
+  async duplicateTrips(
+    payload: DuplicateTripsPayload
+  ): Promise<{ created: number; ids: string[] }> {
+    const res = await fetch('/api/trips/duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      created?: number;
+      ids?: string[];
+    };
+
+    if (!res.ok) {
+      throw new Error(
+        data.error || `Duplizieren fehlgeschlagen (${res.status})`
+      );
+    }
+
+    return {
+      created: data.created ?? 0,
+      ids: data.ids ?? []
+    };
+  },
+
   async getUpcomingTrips(startDate: string, endDate: string) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('trips')
       .select(
-        '*, driver:accounts!trips_driver_id_fkey(name), billing_variant:billing_variants(name, code, billing_types(name, color))'
+        '*, driver:accounts!trips_driver_id_fkey(name), payer:payers(name), billing_variant:billing_variants!trips_billing_variant_id_fkey(name, code, billing_types!billing_variants_billing_type_id_fkey(name, color))'
       )
       .gte('scheduled_at', startDate)
       .lte('scheduled_at', endDate)

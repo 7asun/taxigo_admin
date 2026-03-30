@@ -5,7 +5,7 @@
 Allow dispatchers to change the planned pickup time (and date) for a **single, non-recurring** trip without cancelling and re-creating it. Entry points:
 
 - **Trips table** — row menu (**Verschieben**).
-- **Trip detail sheet** — **Verschieben** in the footer.
+- **Trip detail sheet** — **Verschieben** under footer **Aktionen** (next to **Duplizieren**; see [trips-duplicate.md](./trips-duplicate.md) for the copy flow).
 
 ## v1 behaviour
 
@@ -18,12 +18,12 @@ Allow dispatchers to change the planned pickup time (and date) for a **single, n
 
 ## Code map (English comments)
 
-| Area | Location |
-|------|----------|
+| Area                           | Location                                                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Feature folder (barrel import) | [`src/features/trips/trip-reschedule/`](../src/features/trips/trip-reschedule/) — see [`README.md`](../src/features/trips/trip-reschedule/README.md) |
-| Eligibility + delta math | [`trip-reschedule/lib/reschedule-trip.ts`](../src/features/trips/trip-reschedule/lib/reschedule-trip.ts) |
-| Supabase updates | [`trip-reschedule/api/reschedule.actions.ts`](../src/features/trips/trip-reschedule/api/reschedule.actions.ts) |
-| UI | [`trip-reschedule/components/trip-reschedule-dialog.tsx`](../src/features/trips/trip-reschedule/components/trip-reschedule-dialog.tsx) |
+| Eligibility + delta math       | [`trip-reschedule/lib/reschedule-trip.ts`](../src/features/trips/trip-reschedule/lib/reschedule-trip.ts)                                             |
+| Supabase updates               | [`trip-reschedule/api/reschedule.actions.ts`](../src/features/trips/trip-reschedule/api/reschedule.actions.ts)                                       |
+| UI                             | [`trip-reschedule/components/trip-reschedule-dialog.tsx`](../src/features/trips/trip-reschedule/components/trip-reschedule-dialog.tsx)               |
 
 UI: **`DatePicker`** + `<input type="time">` from `src/components/ui/date-time-picker.tsx` (same module as `DateTimePicker`) — split fields allow Zeitabsprache; see [`docs/date-picker.md`](date-picker.md).
 

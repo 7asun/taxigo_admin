@@ -13,6 +13,10 @@ import { Accessibility } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 import type { TripData } from './mobile-print-template';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 
 export interface PrintTripGroupsListProps {
   trips: TripData[];
@@ -36,20 +40,20 @@ function formatCity(addr: string | null): string {
   return ` (${cityPart})`;
 }
 
-/** Accent + caption from joined billing_variant (family color + „Familie · Unterart“). */
+/**
+ * Print/JPEG billing line — must stay aligned with `formatBillingDisplayLabel`
+ * (Familie · Unterart, or Familie only when Unterart is Standard). Never hand-join names.
+ */
 function tripPrintBilling(trip: TripData | undefined): {
   color: string | null;
   label: string | null;
 } {
   const bv = trip?.billing_variant;
   if (!bv) return { color: null, label: null };
-  const fam = bv.billing_types;
+  const fam = billingFamilyFromEmbed(bv.billing_types);
   const color = fam?.color ?? null;
-  const label =
-    fam?.name && bv.name
-      ? `${fam.name} · ${bv.name}`
-      : bv.name || fam?.name || null;
-  return { color, label };
+  const text = formatBillingDisplayLabel(bv).trim();
+  return { color, label: text || null };
 }
 
 export function PrintTripGroupsList({

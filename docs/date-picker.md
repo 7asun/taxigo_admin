@@ -23,11 +23,12 @@ import {
 
 ## When to use which
 
-| Need | Component |
-|------|-----------|
-| One `Date` for a full pickup instant (e.g. create-trip `scheduled_at`) | `DateTimePicker` |
-| Split **Datum** + **Uhrzeit**; optional empty time (Zeitabsprache) + optional `requested_date` | `DatePicker` + separate `<input type="time">` — see **Verschieben** in [`trip-reschedule/`](../src/features/trips/trip-reschedule/) |
-| React Hook Form, date field only without trip time | Often [`FormDatePicker`](../src/components/forms/form-date-picker.tsx) (same Popover + Calendar idea, form-wired) |
+| Need                                                                                                     | Component                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One `Date` for a full pickup instant (other flows; not create-trip Abfahrt)                              | `DateTimePicker`                                                                                                                                                                   |
+| Create-trip **Abfahrt**: calendar day + optional clock time → `requested_date` + optional `scheduled_at` | `DatePicker` + `<input type="time">` in [`schedule-section.tsx`](../src/features/trips/components/create-trip/sections/schedule-section.tsx) (same idea as bulk CSV / Verschieben) |
+| Split **Datum** + **Uhrzeit**; optional empty time (Zeitabsprache) + optional `requested_date`           | `DatePicker` + separate `<input type="time">` — see **Verschieben** in [`trip-reschedule/`](../src/features/trips/trip-reschedule/)                                                |
+| React Hook Form, date field only without trip time                                                       | Often [`FormDatePicker`](../src/components/forms/form-date-picker.tsx) (same Popover + Calendar idea, form-wired)                                                                  |
 
 ## Behaviour notes
 

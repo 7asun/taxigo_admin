@@ -16,12 +16,13 @@ Address input fields across the app (trip creation, client forms, recurring rule
 
 ## Files
 
-| File | Role |
-|------|------|
-| [`src/features/trips/components/address-autocomplete.tsx`](../src/features/trips/components/address-autocomplete.tsx) | Reusable UI — input, debounced autocomplete, Oldenburg-first sorting, calls Place Details on selection |
-| [`src/app/api/places-autocomplete/route.ts`](../src/app/api/places-autocomplete/route.ts) | Proxies queries to **Places Autocomplete** (New), `locationBias` around Oldenburg |
-| [`src/app/api/place-details/route.ts`](../src/app/api/place-details/route.ts) | Proxies **Place Details** `places.get` — lat/lng, `addressComponents`, PLZ fallback |
-| [`src/lib/google-geocoding.ts`](../src/lib/google-geocoding.ts) | Geocoding API helpers: forward geocode for address → coordinates; **reverse geocode** for PLZ fallback when Places returns an incomplete code |
+| File                                                                                                                              | Role                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`src/features/trips/components/address-autocomplete.tsx`](../src/features/trips/components/address-autocomplete.tsx)             | Reusable UI — input, debounced autocomplete, Oldenburg-first sorting, calls Place Details on selection                                                                                                                                                                                                   |
+| [`src/app/api/places-autocomplete/route.ts`](../src/app/api/places-autocomplete/route.ts)                                         | Proxies queries to **Places Autocomplete** (New), `locationBias` around Oldenburg                                                                                                                                                                                                                        |
+| [`src/app/api/place-details/route.ts`](../src/app/api/place-details/route.ts)                                                     | Proxies **Place Details** `places.get` — lat/lng, `addressComponents`, PLZ fallback                                                                                                                                                                                                                      |
+| [`src/lib/google-geocoding.ts`](../src/lib/google-geocoding.ts)                                                                   | Geocoding API helpers: forward geocode for address → coordinates; **reverse geocode** for PLZ fallback when Places returns an incomplete code                                                                                                                                                            |
+| [`src/features/clients/components/recurring-rule-form-body.tsx`](../src/features/clients/components/recurring-rule-form-body.tsx) | Wiederkehrende Fahrten: Abhol- und Zieladresse use the same component; values are stored as **one formatted line** per field on `recurring_rules`. The recurring **cron** geocodes those lines when materializing `trips` so structured columns and lat/lng match manually created trips where possible. |
 
 ---
 
@@ -89,10 +90,10 @@ Google Places API v1 (New) allows mixing address types (`route`, `street_address
 
 The Google Places API returns a different `structuredFormat` shape for each type:
 
-| Type | `mainText` | `secondaryText` |
-|------|-----------|----------------|
-| `route` / `street_address` | Street name or full address | City / region |
-| `establishment` | **Place name** | Street address + city |
+| Type                       | `mainText`                  | `secondaryText`       |
+| -------------------------- | --------------------------- | --------------------- |
+| `route` / `street_address` | Street name or full address | City / region         |
+| `establishment`            | **Place name**              | Street address + city |
 
 For establishments, `mainText` is the place name — not a street. The component detects this via `p.types` and routes `mainText → name` instead of `street`. The `name` field drives both the dropdown label and the input value after selection. The actual `street`, `street_number`, `zip_code`, and coordinates are resolved on selection via `/api/place-details`.
 
@@ -137,16 +138,16 @@ The final list is `[...oldenburgResults, ...nearbyResults]`. If nothing matched 
 
 ```typescript
 interface AddressResult {
-  address: string;       // Full display string
-  name?: string;         // Establishment / POI name (when not a plain street row)
-  street?: string;       // Street name (from structuredFormat mainText)
+  address: string; // Full display string
+  name?: string; // Establishment / POI name (when not a plain street row)
+  street?: string; // Street name (from structuredFormat mainText)
   street_number?: string; // House number (resolved via place-details)
-  zip_code?: string;     // Postal code (resolved via place-details; may use geocode fallback)
-  city?: string;         // City name (from structuredFormat secondaryText)
-  lat?: number;          // WGS-84 latitude (resolved via place-details)
-  lng?: number;          // WGS-84 longitude (resolved via place-details)
-  distance?: number;     // Distance in metres from bias centre (from autocomplete)
-  placeId?: string;      // Google Place ID, used to fetch details on selection
+  zip_code?: string; // Postal code (resolved via place-details; may use geocode fallback)
+  city?: string; // City name (from structuredFormat secondaryText)
+  lat?: number; // WGS-84 latitude (resolved via place-details)
+  lng?: number; // WGS-84 longitude (resolved via place-details)
+  distance?: number; // Distance in metres from bias centre (from autocomplete)
+  placeId?: string; // Google Place ID, used to fetch details on selection
 }
 ```
 
@@ -156,12 +157,12 @@ interface AddressResult {
 
 ## Environment Variables
 
-| Variable | Used in | Purpose |
-|----------|---------|---------|
-| `GOOGLE_PLACES_API_KEY` | `places-autocomplete`, `place-details` | Server-side only — Autocomplete + Place Details (New). Never expose to the client. |
-| `GOOGLE_MAPS_API_KEY` | `google-geocoding.ts` (reverse PLZ fallback) | Geocoding API for reverse lookup when Place Details PLZ is incomplete. Same GCP project as Places is typical; **Geocoding API** must be enabled. |
+| Variable                | Used in                                      | Purpose                                                                                                                                          |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GOOGLE_PLACES_API_KEY` | `places-autocomplete`, `place-details`       | Server-side only — Autocomplete + Place Details (New). Never expose to the client.                                                               |
+| `GOOGLE_MAPS_API_KEY`   | [`google-geocoding.ts`](../src/lib/google-geocoding.ts) (reverse PLZ fallback), [`google-directions.ts`](../src/lib/google-directions.ts) / **`POST /api/trips/driving-metrics`** | **Geocoding API** when Place Details PLZ is incomplete; **Directions API** for driving distance/duration (`driving_distance_km`, `driving_duration_seconds`). Enable both on the GCP key. Details: [driving-metrics-api.md](./driving-metrics-api.md). |
 
-The frontend calls only `/api/places-autocomplete` and `/api/place-details`, never Google directly.
+The frontend calls only `/api/places-autocomplete` and `/api/place-details`, never Google directly. Driving metrics use **`POST /api/trips/driving-metrics`** (not the Places routes).
 
 ---
 

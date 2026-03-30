@@ -360,6 +360,11 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       requireDropoffStation: Boolean(
         b.requireDropoffStation ?? b.require_dropoff_station ?? false
       ),
+      askCallingStationAndBetreuer: Boolean(
+        b.askCallingStationAndBetreuer ??
+          b.ask_calling_station_and_betreuer ??
+          false
+      ),
       defaultPickup: (b.defaultPickup ?? b.default_pickup ?? null) as
         | string
         | null,
@@ -890,6 +895,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                     (parsedRow.is_wheelchair || '').toUpperCase() === 'TRUE',
                   notes: parsedRow.notes || null,
                   greeting_style: parsedRow.greeting_style || null,
+                  billing_calling_station: parsedRow.anrufstation?.trim()
+                    ? parsedRow.anrufstation.trim()
+                    : null,
+                  billing_betreuer: parsedRow.betreuer?.trim()
+                    ? parsedRow.betreuer.trim()
+                    : null,
                   status,
                   company_id: companyId,
                   created_by: user?.id || null,

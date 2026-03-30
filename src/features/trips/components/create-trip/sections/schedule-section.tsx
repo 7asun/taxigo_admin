@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { DateTimePicker } from '@/components/ui/date-time-picker';
+import { DatePicker } from '@/components/ui/date-time-picker';
 import { Badge } from '@/components/ui/badge';
 import { CalendarClock, ChevronDownIcon, Navigation } from 'lucide-react';
 import { format } from 'date-fns';
@@ -145,7 +145,8 @@ export function CreateTripScheduleSection() {
     isSubmitting,
     watchedReturnMode,
     isReturnModeLocked,
-    hasInitializedReturnDateRef
+    hasInitializedReturnDateRef,
+    watchedDepartureDateYmd
   } = useTripFormSections();
   const narrow = useIsNarrowScreen(768);
 
@@ -158,19 +159,57 @@ export function CreateTripScheduleSection() {
         </span>
       </div>
       <div className='flex flex-col gap-3'>
-        <FormField
-          control={form.control as any}
-          name='scheduled_at'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel className='text-xs'>Abfahrtszeit *</FormLabel>
-              <FormControl>
-                <DateTimePicker value={field.value} onChange={field.onChange} />
-              </FormControl>
-              <FormMessage className='text-xs' />
-            </FormItem>
-          )}
-        />
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-end'>
+          <FormField
+            control={form.control as any}
+            name='departure_date'
+            render={({ field }) => (
+              <FormItem className='min-w-0 flex-1'>
+                <FormLabel
+                  className='text-xs'
+                  htmlFor='create-trip-departure-date'
+                >
+                  Abfahrtsdatum *
+                </FormLabel>
+                <FormControl>
+                  <DatePicker
+                    id='create-trip-departure-date'
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={isSubmitting}
+                  />
+                </FormControl>
+                <FormMessage className='text-xs' />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control as any}
+            name='departure_time'
+            render={({ field }) => (
+              <FormItem className='w-full shrink-0 sm:w-[8.25rem]'>
+                <FormLabel
+                  className='text-xs'
+                  htmlFor='create-trip-departure-time'
+                >
+                  Uhrzeit
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    id='create-trip-departure-time'
+                    type='time'
+                    step={60}
+                    value={field.value}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    disabled={isSubmitting || !watchedDepartureDateYmd?.trim()}
+                    className='h-10 min-h-10 font-mono text-base md:h-9 md:min-h-0 md:text-sm'
+                  />
+                </FormControl>
+                <FormMessage className='text-xs' />
+              </FormItem>
+            )}
+          />
+        </div>
 
         {isReturnModeLocked ? (
           watchedReturnMode !== 'none' && (

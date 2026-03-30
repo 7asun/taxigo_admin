@@ -49,6 +49,7 @@ const formSchema = z.object({
   requirePassenger: z.boolean(),
   requirePickupStation: z.boolean(),
   requireDropoffStation: z.boolean(),
+  askCallingStationAndBetreuer: z.boolean(),
   defaultPickup: z.string().optional().nullable(),
   defaultPickupStreet: z.string().optional().nullable(),
   defaultPickupStreetNumber: z.string().optional().nullable(),
@@ -103,6 +104,11 @@ function normaliseBehavior(b: any): FormValues {
       b.require_dropoff_station ??
       false
     ),
+    askCallingStationAndBetreuer: !!(
+      b.askCallingStationAndBetreuer ??
+      b.ask_calling_station_and_betreuer ??
+      false
+    ),
     defaultPickup: b.defaultPickup ?? b.default_pickup ?? '',
     defaultPickupStreet: b.defaultPickupStreet ?? b.default_pickup_street ?? '',
     defaultPickupStreetNumber:
@@ -146,6 +152,7 @@ export function BillingTypeBehaviorDialog({
       requirePassenger: true,
       requirePickupStation: false,
       requireDropoffStation: false,
+      askCallingStationAndBetreuer: false,
       defaultPickup: '',
       defaultPickupStreet: '',
       defaultPickupStreetNumber: '',
@@ -271,6 +278,31 @@ export function BillingTypeBehaviorDialog({
                   )}
                 />
               )}
+
+              {/* ── Neue Fahrt: optionale Abrechnungs-Zusatzfelder (nicht Fahrgast-Stationen) ── */}
+              <FormField
+                control={form.control}
+                name='askCallingStationAndBetreuer'
+                render={({ field }) => (
+                  <FormItem className='bg-background flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>Anrufstation und Betreuer abfragen</FormLabel>
+                      <FormDescription>
+                        Zeigt in „Neue Fahrt“ unter Kostenträger zwei optionale
+                        Freitextfelder (Anrufstation, Betreuer). Das sind keine
+                        Abhol-/Ziel-Stationen am Fahrgast — die kommen aus dem
+                        Fahrgast-Flow (`pickup_station` / `dropoff_station`).
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
 
               {/* ── Abholung ── */}
               <div className='bg-muted/20 space-y-4 rounded-lg border p-4'>

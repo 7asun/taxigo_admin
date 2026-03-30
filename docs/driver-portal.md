@@ -8,12 +8,12 @@ A mobile-first driver interface at `/driver/*`. Drivers see only their own data;
 
 ## Route Map
 
-| Route | Page component | Purpose |
-|---|---|---|
-| `/driver` | `page.tsx` | Redirects → `/driver/startseite` |
+| Route                | Page component        | Purpose                                                    |
+| -------------------- | --------------------- | ---------------------------------------------------------- |
+| `/driver`            | `page.tsx`            | Redirects → `/driver/startseite`                           |
 | `/driver/startseite` | `startseite/page.tsx` | Home: personalised greeting + shift widget + today's trips |
-| `/driver/touren` | `touren/page.tsx` | Browse, search, and filter all assigned trips |
-| `/driver/shift` | `shift/page.tsx` | Manual time-entry form + shift history (Schichtenzettel) |
+| `/driver/touren`     | `touren/page.tsx`     | Browse, search, and filter all assigned trips              |
+| `/driver/shift`      | `shift/page.tsx`      | Manual time-entry form + shift history (Schichtenzettel)   |
 
 ---
 
@@ -79,11 +79,11 @@ StartseitePageContent
 
 `DriverHeader` renders a mobile burger menu (shadcn `Sheet`) with three links:
 
-| Label | Route |
-|---|---|
-| Startseite | `/driver/startseite` |
-| Touren | `/driver/touren` |
-| Schichtenzettel | `/driver/shift` |
+| Label           | Route                |
+| --------------- | -------------------- |
+| Startseite      | `/driver/startseite` |
+| Touren          | `/driver/touren`     |
+| Schichtenzettel | `/driver/shift`      |
 
 The header title updates dynamically based on the current route using `getPageTitle(pathname)`. Tapping the title returns to `/driver/startseite`.
 
@@ -129,6 +129,7 @@ in_progress
 ### Shift → Trip Linking (`shift_id`)
 
 When the driver taps **Tour starten**, `startTrip(tripId, shiftId)` writes the active `shift_id` onto the `trips` row. This allows:
+
 - Querying all trips worked within a shift: `SELECT * FROM trips WHERE shift_id = '<id>'`
 - Future earning reports and shift summaries per driver
 
@@ -137,6 +138,7 @@ If no active shift exists or the `shift_id` column write fails for any reason, `
 ### Cancellation Reason
 
 When the driver taps **Stornieren**:
+
 1. A dialog prompts for a free-text reason (required — confirm button disabled until filled)
 2. `cancelTrip(tripId, reason, existingNotes)` appends the reason with a timestamp to `notes`:
    ```
@@ -169,24 +171,24 @@ All status colors follow `docs/color-system.md`:
 - **Left accent bar:** `tripStatusRow({ status })` with `border-l-4`
 - No hardcoded color classes in components — all imported from the central utility
 
-| Status | Color |
-|---|---|
-| `assigned` / `scheduled` | Blue |
-| `in_progress` | Amber |
-| `completed` | Green |
-| `cancelled` | Red |
+| Status                   | Color |
+| ------------------------ | ----- |
+| `assigned` / `scheduled` | Blue  |
+| `in_progress`            | Amber |
+| `completed`              | Green |
+| `cancelled`              | Red   |
 
 ---
 
 ## `driver-trips.service.ts` API
 
-| Function | Description |
-|---|---|
-| `getTodaysTrips(driverId)` | Trips for today (local date), ordered by scheduled_at ascending |
-| `getDriverTrips(driverId, options)` | All trips with search, status filter, date filter, limit |
-| `startTrip(tripId, shiftId?)` | Sets status → `in_progress`; best-effort `shift_id` write |
-| `completeTrip(tripId)` | Sets status → `completed` |
-| `cancelTrip(tripId, reason, existingNotes?)` | Sets status → `cancelled`; appends reason to notes |
+| Function                                     | Description                                                     |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| `getTodaysTrips(driverId)`                   | Trips for today (local date), ordered by scheduled_at ascending |
+| `getDriverTrips(driverId, options)`          | All trips with search, status filter, date filter, limit        |
+| `startTrip(tripId, shiftId?)`                | Sets status → `in_progress`; best-effort `shift_id` write       |
+| `completeTrip(tripId)`                       | Sets status → `completed`                                       |
+| `cancelTrip(tripId, reason, existingNotes?)` | Sets status → `cancelled`; appends reason to notes              |
 
 ---
 
@@ -194,12 +196,12 @@ All status colors follow `docs/color-system.md`:
 
 Supabase Row Level Security must allow drivers to:
 
-| Table | Operation | Condition |
-|---|---|---|
-| `trips` | SELECT | `driver_id = auth.uid()` |
-| `trips` | UPDATE (status, notes, shift_id) | `driver_id = auth.uid()` |
-| `shifts` | SELECT, INSERT, UPDATE | `driver_id = auth.uid()` |
-| `shift_events` | SELECT, INSERT | `shift_id IN (SELECT id FROM shifts WHERE driver_id = auth.uid())` |
+| Table          | Operation                        | Condition                                                          |
+| -------------- | -------------------------------- | ------------------------------------------------------------------ |
+| `trips`        | SELECT                           | `driver_id = auth.uid()`                                           |
+| `trips`        | UPDATE (status, notes, shift_id) | `driver_id = auth.uid()`                                           |
+| `shifts`       | SELECT, INSERT, UPDATE           | `driver_id = auth.uid()`                                           |
+| `shift_events` | SELECT, INSERT                   | `shift_id IN (SELECT id FROM shifts WHERE driver_id = auth.uid())` |
 
 ---
 

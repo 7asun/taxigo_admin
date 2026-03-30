@@ -40,6 +40,10 @@ import type {
   OnUngroup
 } from '@/features/trips/lib/kanban-types';
 import { formatKanbanTripAddressLine } from '@/features/trips/lib/format-trip-address-display-line';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 
 export interface TripCardProps {
   trip: KanbanTrip;
@@ -125,12 +129,10 @@ export function TripCard({
   // ── Derived display values ─────────────────────────────────────────────────
   const payerName = trip.payer?.name;
   const bv = trip.billing_variant;
-  const fam = bv?.billing_types;
-  const billingColor = fam?.color || undefined;
-  const billingLabel =
-    fam?.name && bv?.name
-      ? `${fam.name} · ${bv.name}`
-      : bv?.name || fam?.name || '';
+  const billingColor =
+    billingFamilyFromEmbed(bv?.billing_types)?.color || undefined;
+  /** Match trips table / overview: omit „Standard“ Unterart in the caption. */
+  const billingLabel = formatBillingDisplayLabel(bv).trim();
   const cardColor = billingColor || 'transparent';
   const isGrouped = !!trip.group_id;
 
