@@ -1,3 +1,4 @@
+import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import type { Database } from '@/types/database.types';
@@ -90,6 +91,33 @@ export const tripsService = {
         payload.error || `Löschen fehlgeschlagen (${res.status})`
       );
     }
+  },
+
+  async duplicateTrips(
+    payload: DuplicateTripsPayload
+  ): Promise<{ created: number; ids: string[] }> {
+    const res = await fetch('/api/trips/duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      created?: number;
+      ids?: string[];
+    };
+
+    if (!res.ok) {
+      throw new Error(
+        data.error || `Duplizieren fehlgeschlagen (${res.status})`
+      );
+    }
+
+    return {
+      created: data.created ?? 0,
+      ids: data.ids ?? []
+    };
   },
 
   async getUpcomingTrips(startDate: string, endDate: string) {

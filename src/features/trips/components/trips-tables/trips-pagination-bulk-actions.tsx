@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { Table as TanstackTable } from '@tanstack/react-table';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import { toast } from 'sonner';
-import { Trash2, X } from 'lucide-react';
+import { Copy, Trash2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +17,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
+import { DuplicateTripsDialog } from '@/features/trips/components/trips-tables/duplicate-trips-dialog';
 
 interface TripsPaginationBulkActionsProps<TData> {
   table: TanstackTable<TData>;
@@ -27,13 +28,18 @@ export function TripsPaginationBulkActions<TData>({
 }: TripsPaginationBulkActionsProps<TData>) {
   const { refreshTripsPage } = useTripsRscRefresh();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [duplicateOpen, setDuplicateOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
 
   const selectedRows = table.getSelectedRowModel().rows;
   const count = selectedRows.length;
+  const selectedTrips = selectedRows.map((r) => r.original as Trip);
 
   React.useEffect(() => {
-    if (count === 0) setConfirmOpen(false);
+    if (count === 0) {
+      setConfirmOpen(false);
+      setDuplicateOpen(false);
+    }
   }, [count]);
 
   if (count === 0) return null;
@@ -81,6 +87,16 @@ export function TripsPaginationBulkActions<TData>({
         </Button>
         <Button
           type='button'
+          variant='outline'
+          size='sm'
+          className='h-8 gap-1.5'
+          onClick={() => setDuplicateOpen(true)}
+        >
+          <Copy className='size-3.5' />
+          Duplizieren
+        </Button>
+        <Button
+          type='button'
           variant='destructive'
           size='sm'
           className='h-8 gap-1.5'
@@ -90,6 +106,15 @@ export function TripsPaginationBulkActions<TData>({
           Endgültig löschen
         </Button>
       </div>
+
+      <DuplicateTripsDialog
+        open={duplicateOpen}
+        onOpenChange={setDuplicateOpen}
+        selectedTrips={selectedTrips}
+        onSuccess={() => {
+          table.resetRowSelection();
+        }}
+      />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
