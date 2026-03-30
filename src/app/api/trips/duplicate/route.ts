@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Duplicates trips to another day (one-off rows, `rule_id` cleared). Auth + company ownership
  * mirror `bulk-delete`; writes use the service role so RLS does not block inserts.
+ * Body: `parseDuplicateTripsPayload` (`includeLinkedLeg`, `explicitPerLegUnifiedTimes`, ISO fields).
  */
 export async function POST(request: Request) {
   try {

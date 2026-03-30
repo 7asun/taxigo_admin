@@ -175,16 +175,16 @@ Pass 4 the two trips are indistinguishable from any other bidirectional pair.
 
 ---
 
-### 3e. Duplicate from Fahrten (`/api/trips/duplicate`)
+### 3e. Duplicate from Fahrten / detail sheet (`/api/trips/duplicate`)
 
-Admins can duplicate existing rows to another calendar day from the **Fahrten** bulk bar. New rows are **one-off** materialised trips: **`rule_id` is always cleared** (same principle as the post-hoc Rückfahrt insert in [`trips-rueckfahrt-detail-sheet.md`](trips-rueckfahrt-detail-sheet.md)).
+Admins can duplicate existing rows to another calendar day from the **Fahrten** bulk bar or from the **trip detail sheet** (**Aktionen** → **Duplizieren**). New rows are **one-off** materialised trips: **`rule_id` is always cleared** (same principle as the post-hoc Rückfahrt insert in [`trips-rueckfahrt-detail-sheet.md`](trips-rueckfahrt-detail-sheet.md)).
 
 | Leg                       | `link_type`                                  | `linked_trip_id`     |
 | ------------------------- | -------------------------------------------- | -------------------- |
 | Hinfahrt (inserted first) | `null` then **`'outbound'`** after link pass | → new Rückfahrt `id` |
 | Rückfahrt                 | `'return'` ✅                                | → new Hinfahrt `id`  |
 
-Selection is expanded to the paired leg via the same three-stage idea as `findPairedTrip` (implemented server-side in [`duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts)). Product copy and schedule modes: [`trips-duplicate.md`](trips-duplicate.md).
+Selection is expanded to the paired leg via the same three-stage idea as `findPairedTrip` (implemented server-side in [`duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts)), unless the client sends `includeLinkedLeg: false` (detail sheet: **nur diese Fahrt**). Schedule payload (`unified_time`, `explicitPerLegUnifiedTimes`, optional per-leg ISOs): [`trips-duplicate.md`](trips-duplicate.md).
 
 ---
 

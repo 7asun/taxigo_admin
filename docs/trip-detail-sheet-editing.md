@@ -7,13 +7,26 @@
 
 ### Billing: Anrufstation & Betreuer
 
-When the selected Unterart’s family has `askCallingStationAndBetreuer`, or the trip already has `billing_calling_station` / `billing_betreuer`, the **header** (below date/time) shows two optional fields. They map to `trips.billing_*` columns — not Fahrgast `pickup_station` / `dropoff_station`. Saves go through [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts). With a linked Gegenfahrt, **Details speichern** can mirror both columns to the partner via [`PAIRED_SYNC_COLUMN_KEYS`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) / [`buildPartnerSyncPatchFromDrafts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) (same values on both legs, no route swap).
+When the selected Unterart’s family has `askCallingStationAndBetreuer`, or the trip already has `billing_calling_station` / `billing_betreuer`, the **header** (below date/time) shows two optional fields. They map to `trips.billing_*` columns — not Fahrgast `pickup_station` / `dropoff_station`. Saves go through [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts). With a linked Gegenfahrt, **Trip aktualisieren** can mirror both columns to the partner via [`PAIRED_SYNC_COLUMN_KEYS`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) / [`buildPartnerSyncPatchFromDrafts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) (same values on both legs, no route swap).
 
 ## Layout
 
-The sheet keeps the **original** structure: header (Kunde with **Rollstuhl** switch beside the name, **Datum** + **Uhrzeit**, optional **Anrufstation** / **Betreuer** when applicable), **TripSheetTopCallouts** (verknüpfte Fahrt + Gruppe), **Route & Verlauf** timeline (with expandable address edit where applicable), then the compact **two-column** details grid (`Fahrer` full width, `Kostenträger`, `Abrechnung`, `Kontakt`). Edits use the same grid and typography as before; footer actions **Zeit speichern** / **Details speichern** when dirty.
+The sheet keeps the **original** structure: header (Kunde with **Rollstuhl** switch beside the name, status badges including **Kopie** when `ingestion_source === 'trip_duplicate'`, **Datum** + **Uhrzeit**, optional **Anrufstation** / **Betreuer** when applicable), **TripSheetTopCallouts** (verknüpfte Fahrt + Gruppe), **Route & Verlauf** timeline (with expandable address edit where applicable), then the compact **two-column** details grid (`Fahrer` full width, `Kostenträger`, `Abrechnung`, `Kontakt`). Edits use the same grid and typography as before; footer action **Trip aktualisieren** when anything in the sheet is dirty (including header date/time), plus **Aktionen** (Duplizieren, Verschieben) and **Fahrt stornieren**.
 
 ## Behaviour
+
+### Duplizieren (Aktionen)
+
+**Duplizieren** erzeugt **neue** `trips`-Zeilen (INSERT) auf einem gewählten Kalendertag, mit `rule_id` geleert und `ingestion_source = 'trip_duplicate'` — es ist **kein** Verschieben der bestehenden Zeile.
+
+| Aktion | Was passiert |
+|--------|----------------|
+| **Duplizieren** | Kopie(n); optional die **verknüpfte Gegenfahrt** mitkopieren (Checkbox im Dialog). Bei **Hin+Rück** und „Neue Uhrzeit wählen“: zwei Felder (Hinfahrt / Rückfahrt), unabhängig und optional leer (`explicitPerLegUnifiedTimes`). Vollständige Regeln, `includeLinkedLeg`, Payload: [trips-duplicate.md](./trips-duplicate.md). |
+| **Verschieben** | **UPDATE** von `scheduled_at` / `requested_date` auf derselben Zeile (und ggf. Partner); nur nicht-wiederkehrende Fahrten, andere Eligibility: [trip-reschedule-v1.md](./trip-reschedule-v1.md). |
+| **Rückfahrt** (Button) | Legt eine **neue** Rückfahrt an und **verknüpft** sie mit der geöffneten Hinfahrt — anderes Produktziel als „Kopie auf anderem Tag“. |
+| **Datum/Uhrzeit** (Header) | Inline bearbeiten; Speichern über dieselbe Fußzeile **Trip aktualisieren** wie Kostenträger/Route (PATCH inkl. reiner Uhrzeit am gleichen Tag). |
+
+Nach erfolgreichem Duplizieren springt das Blatt auf die **neue** Fahrt (sofern der Parent `onNavigateToTrip` setzt).
 
 ### Standalone row
 
@@ -35,7 +48,7 @@ By default, edits apply **only** to the opened `trips.id`. Other rows sharing `g
 
 **Dialog order (critical).** If the trip belongs to a recurring series (`rule_id`), [`RecurringTripEditScopeDialog`](../src/features/trips/trip-detail-sheet/dialogs/recurring-trip-edit-scope-dialog.tsx) runs **first**. Only after the user chooses **Nur diese Fahrt** (materialized occurrence) may [`PairedTripSyncDialog`](../src/features/trips/trip-detail-sheet/dialogs/paired-trip-sync-dialog.tsx) appear. The two modals are **never** open at the same time.
 
-**Details speichern.** The PATCH for the open row is built in [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts) (route, date, metrics, client, billing, etc.). Eligibility for the paired prompt is computed in [`paired-trip-sync.ts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) (any key in `PAIRED_SYNC_COLUMN_KEYS` present in the built patch **or** dirty notes). If the user chooses **Diese Fahrt + Gegenfahrt**, the current row is updated first; then [`buildPartnerSyncPatchFromDrafts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) builds the partner payload from **current form drafts + trip fallbacks**, then driving metrics are applied; then the second `updateTrip` runs. If the user also had unsaved note edits, notes are merged onto **both** rows in that flow.
+**Trip aktualisieren.** The PATCH for the open row is built in [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts) (route, date, metrics, client, billing, etc.). Eligibility for the paired prompt is computed in [`paired-trip-sync.ts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) (any key in `PAIRED_SYNC_COLUMN_KEYS` present in the built patch **or** dirty notes). If the user chooses **Diese Fahrt + Gegenfahrt**, the current row is updated first; then [`buildPartnerSyncPatchFromDrafts`](../src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts) builds the partner payload from **current form drafts + trip fallbacks**, then driving metrics are applied; then the second `updateTrip` runs. If the user also had unsaved note edits, notes are merged onto **both** rows in that flow.
 
 **Notizen (separate Speichern).** The notes block can trigger the same paired dialog (**notes** variant) so a notes-only save can still align both legs (notes only on that path unless the user later saves details with full paired sync).
 
@@ -63,6 +76,7 @@ Before persisting changes (including the path that leads to the paired dialog), 
 
 ## Related
 
+- [trips-duplicate.md](trips-duplicate.md) — Duplizieren aus Liste und Detail-Blatt, `includeLinkedLeg`, `explicitPerLegUnifiedTimes`, „Kopie“-Badge.
 - [trips-rueckfahrt-detail-sheet.md](trips-rueckfahrt-detail-sheet.md) — creating a linked return from the sheet (create-time symmetry with `buildReturnTripInsert`).
 - [trip-linking-and-cancellation.md](trip-linking-and-cancellation.md) — pairing and cancel flows.
 - [`findPairedTrip`](../src/features/trips/api/recurring-exceptions.actions.ts) — resolves the other leg for cancel/navigation; paired sync reuses the same partner concept.

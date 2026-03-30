@@ -79,9 +79,16 @@ import {
   CalendarRange,
   Copy,
   PenLine,
-  Layers
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Tooltip,
@@ -106,6 +113,7 @@ import {
 } from '@/features/trips/lib/trip-direction';
 import { shouldShowCreateReturnTripButton } from '@/features/trips/lib/can-create-linked-return';
 import { CreateReturnTripDialog } from '@/features/trips/components/return-trip';
+import { DuplicateTripsDialog } from '@/features/trips/components/trips-tables/duplicate-trips-dialog';
 import {
   TripRescheduleDialog,
   canRescheduleTrip,
@@ -123,6 +131,21 @@ import {
   formatBillingVariantOptionLabel
 } from '@/features/trips/lib/format-billing-display-label';
 import { normalizeBillingTypeBehavior } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import type { TripDirection } from '@/features/trips/lib/trip-direction';
+
+/**
+ * `POST /api/trips/duplicate` returns ids in insert order: for Hin+Rück, `[outboundId, returnId]`
+ * (`executeDuplicateTrips`). Pick the id that corresponds to the leg the user had open.
+ */
+function pickNewTripIdAfterDuplicate(
+  createdIds: string[],
+  openedLegDirection: TripDirection
+): string | undefined {
+  if (createdIds.length === 0) return undefined;
+  if (createdIds.length === 1) return createdIds[0];
+  if (openedLegDirection === 'rueckfahrt') return createdIds[1];
+  return createdIds[0];
+}
 
 interface TripDetailSheetProps {
   tripId: string | null;
@@ -193,9 +216,9 @@ export function TripDetailSheet({
   const [linkedPartner, setLinkedPartner] = useState<Trip | null>(null);
   const [isCreateReturnOpen, setIsCreateReturnOpen] = useState(false);
   const [isRescheduleDialogOpen, setIsRescheduleDialogOpen] = useState(false);
-  /** `HH:mm` for inline time edit; only used when `trip.scheduled_at` is set */
+  const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
+  /** `HH:mm` for header time field; empty when the row has no `scheduled_at` yet (date-only). */
   const [timeDraft, setTimeDraft] = useState('');
-  const [isSavingTime, setIsSavingTime] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const { cancelTrip, isLoading: isCancelling } = useTripCancellation();
@@ -496,37 +519,6 @@ export function TripDetailSheet({
 
   const tripLegDirection = trip ? getTripDirection(trip as Trip) : 'standalone';
 
-  const timeDirty =
-    isOpen &&
-    !!trip?.scheduled_at &&
-    !!timeDraft &&
-    (() => {
-      const next = applyTimeToScheduledDate(trip.scheduled_at, timeDraft);
-      return next.toISOString() !== new Date(trip.scheduled_at).toISOString();
-    })();
-
-  const handleSaveTime = async () => {
-    if (!isOpen || !trip?.scheduled_at || !timeDraft) return;
-    const exec = async () => {
-      setIsSavingTime(true);
-      try {
-        const next = applyTimeToScheduledDate(trip.scheduled_at!, timeDraft);
-        await updateTripMutation.mutateAsync({
-          id: trip.id,
-          patch: { scheduled_at: next.toISOString() }
-        });
-        toast.success('Zeit aktualisiert');
-        await refreshAfterTripSave();
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error(`Speichern fehlgeschlagen: ${message}`);
-      } finally {
-        setIsSavingTime(false);
-      }
-    };
-    runWithRecurringScope(exec);
-  };
-
   const normalizeNotes = (s: string) => s.trim();
   const notesDirty =
     isOpen &&
@@ -686,6 +678,7 @@ export function TripDetailSheet({
     ? format(new Date(trip.scheduled_at), 'yyyy-MM-dd')
     : (trip?.requested_date ?? '');
 
+  /** Kostenträger/Route/… + Datum/Uhrzeit (inkl. reiner Uhrzeit-Änderung am gleichen Tag). */
   const detailsDirty =
     !!trip &&
     (payerDraft !== (trip.payer_id ?? '') ||
@@ -709,7 +702,19 @@ export function TripDetailSheet({
         normalizeNotes(trip.billing_calling_station ?? '') ||
       normalizeNotes(billingBetreuerDraft) !==
         normalizeNotes(trip.billing_betreuer ?? '') ||
-      dateYmdDraft !== currentDateYmd);
+      dateYmdDraft !== currentDateYmd ||
+      (!!trip &&
+        !trip.scheduled_at &&
+        !!trip.requested_date &&
+        !!timeDraft.trim()) ||
+      (!!trip.scheduled_at &&
+        !!timeDraft.trim() &&
+        (() => {
+          const next = applyTimeToScheduledDate(trip.scheduled_at!, timeDraft);
+          return (
+            next.toISOString() !== new Date(trip.scheduled_at!).toISOString()
+          );
+        })()));
 
   const handleSaveTripDetails = () => {
     if (!trip) return;
@@ -805,6 +810,14 @@ export function TripDetailSheet({
                       : 'Hinfahrt'}
                   </Badge>
                 )}
+                {trip.ingestion_source === 'trip_duplicate' && (
+                  <Badge
+                    variant='secondary'
+                    className='border-border/60 text-[10px] font-semibold shadow-none'
+                  >
+                    Kopie
+                  </Badge>
+                )}
                 {linkedPartner?.status === 'cancelled' && (
                   <Badge
                     variant='destructive'
@@ -846,51 +859,45 @@ export function TripDetailSheet({
                         <DatePicker
                           value={dateYmdDraft}
                           onChange={setDateYmdDraft}
-                          disabled={!isOpen || isSavingTime}
+                          disabled={!isOpen || isSavingDetails}
                           id='trip-detail-sheet-date'
                           triggerClassName='h-8 min-h-8 w-auto max-w-[11rem] shrink-0 px-2 text-xs font-medium'
                         />
-                        {trip.scheduled_at ? (
-                          <>
-                            <span
-                              className='text-muted-foreground shrink-0'
-                              aria-hidden
-                            >
-                              ·
-                            </span>
-                            <span
-                              className={cn(
-                                'border-border/80 inline-grid h-8 min-w-[4.5rem] shrink-0 place-items-center rounded-md border align-middle',
-                                'bg-muted/80 hover:bg-muted transition-colors',
-                                (isSavingTime || !isOpen) &&
-                                  'pointer-events-none opacity-70'
-                              )}
-                            >
-                              <input
-                                type='time'
-                                step={60}
-                                value={timeDraft}
-                                onChange={(e) => setTimeDraft(e.target.value)}
-                                disabled={isSavingTime || !isOpen}
-                                title='Zeit bearbeiten'
-                                aria-label='Geplante Uhrzeit bearbeiten'
-                                className={cn(
-                                  'h-8 w-full min-w-[4.5rem] cursor-text rounded-md border-0 bg-transparent px-1.5',
-                                  'text-foreground text-center text-xs font-semibold outline-none',
-                                  '[&::-webkit-calendar-picker-indicator]:hidden',
-                                  '[&::-webkit-datetime-edit]:m-0 [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-full [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center',
-                                  '[&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:justify-center',
-                                  '[&::-moz-calendar-picker-indicator]:hidden',
-                                  'focus-visible:ring-ring focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2'
-                                )}
-                              />
-                            </span>
-                          </>
-                        ) : (
-                          <span className='text-muted-foreground shrink-0 text-xs font-normal'>
-                            (Uhrzeit offen)
+                        <>
+                          <span
+                            className='text-muted-foreground shrink-0'
+                            aria-hidden
+                          >
+                            ·
                           </span>
-                        )}
+                          <span
+                            className={cn(
+                              'border-border/80 inline-grid h-8 min-w-[4.5rem] shrink-0 place-items-center rounded-md border align-middle',
+                              'bg-muted/80 hover:bg-muted transition-colors',
+                              (isSavingDetails || !isOpen) &&
+                                'pointer-events-none opacity-70'
+                            )}
+                          >
+                            <input
+                              type='time'
+                              step={60}
+                              value={timeDraft}
+                              onChange={(e) => setTimeDraft(e.target.value)}
+                              disabled={isSavingDetails || !isOpen}
+                              title='Zeit bearbeiten'
+                              aria-label='Geplante Uhrzeit bearbeiten'
+                              className={cn(
+                                'h-8 w-full min-w-[4.5rem] cursor-text rounded-md border-0 bg-transparent px-1.5',
+                                'text-foreground text-center text-xs font-semibold outline-none',
+                                '[&::-webkit-calendar-picker-indicator]:hidden',
+                                '[&::-webkit-datetime-edit]:m-0 [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:h-full [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center',
+                                '[&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:justify-center',
+                                '[&::-moz-calendar-picker-indicator]:hidden',
+                                'focus-visible:ring-ring focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2'
+                              )}
+                            />
+                          </span>
+                        </>
                       </>
                     ) : (
                       <span className='text-muted-foreground text-sm'>
@@ -1449,27 +1456,16 @@ export function TripDetailSheet({
                 </div>
               )}
               <div className='flex flex-wrap items-center gap-2'>
-                {timeDirty && (
-                  <Button
-                    type='button'
-                    size='sm'
-                    disabled={isSavingTime}
-                    onClick={() => {
-                      void handleSaveTime();
-                    }}
-                  >
-                    {isSavingTime ? 'Wird gespeichert…' : 'Zeit speichern'}
-                  </Button>
-                )}
                 {detailsDirty && (
                   <Button
                     type='button'
                     size='sm'
-                    variant='secondary'
                     disabled={isSavingDetails}
                     onClick={() => handleSaveTripDetails()}
                   >
-                    {isSavingDetails ? 'Speichern…' : 'Details speichern'}
+                    {isSavingDetails
+                      ? 'Wird aktualisiert…'
+                      : 'Trip aktualisieren'}
                   </Button>
                 )}
                 {showCreateReturnButton && (
@@ -1484,17 +1480,35 @@ export function TripDetailSheet({
                     Rückfahrt
                   </Button>
                 )}
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  disabled={!canRescheduleTrip(trip as Trip)}
-                  title={getRescheduleDisabledReason(trip as Trip)}
-                  onClick={() => setIsRescheduleDialogOpen(true)}
-                >
-                  <CalendarRange className='mr-1.5 h-3.5 w-3.5' />
-                  Verschieben
-                </Button>
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='gap-1.5'
+                    >
+                      Aktionen
+                      <ChevronDown className='h-3.5 w-3.5 opacity-70' />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align='end' className='w-52'>
+                    <DropdownMenuItem
+                      onClick={() => setIsDuplicateDialogOpen(true)}
+                    >
+                      <Copy className='mr-2 h-4 w-4' />
+                      Duplizieren
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!canRescheduleTrip(trip as Trip)}
+                      title={getRescheduleDisabledReason(trip as Trip)}
+                      onClick={() => setIsRescheduleDialogOpen(true)}
+                    >
+                      <CalendarRange className='mr-2 h-4 w-4' />
+                      Verschieben
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   type='button'
                   variant='destructive'
@@ -1535,6 +1549,26 @@ export function TripDetailSheet({
                 void findPairedTrip(trip as Trip).then((p) =>
                   setLinkedPartner(p ?? null)
                 );
+              }}
+            />
+
+            <DuplicateTripsDialog
+              open={isDuplicateDialogOpen}
+              onOpenChange={setIsDuplicateDialogOpen}
+              selectedTrips={trip ? [trip as Trip] : []}
+              variant='detail'
+              linkedPartnerPreview={linkedPartner}
+              onSuccess={(result) => {
+                if (!trip) return;
+                const ids = result?.ids ?? [];
+                const nextId = pickNewTripIdAfterDuplicate(
+                  ids,
+                  tripLegDirection
+                );
+                if (nextId) {
+                  onNavigateToTrip?.(nextId);
+                }
+                // `linkedPartner` refreshes via `useEffect` when `trip.id` updates after navigation.
               }}
             />
 

@@ -93,6 +93,10 @@ export const tripsService = {
     }
   },
 
+  /**
+   * POST body matches `parseDuplicateTripsPayload` — optional `includeLinkedLeg` (omitted ⇒ true),
+   * optional `explicitPerLegUnifiedTimes` + per-leg ISOs for detail-sheet pair duplicates.
+   */
   async duplicateTrips(
     payload: DuplicateTripsPayload
   ): Promise<{ created: number; ids: string[] }> {

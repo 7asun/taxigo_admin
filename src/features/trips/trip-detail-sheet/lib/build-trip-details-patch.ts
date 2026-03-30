@@ -1,5 +1,5 @@
 /**
- * Builds the Supabase PATCH for “Details speichern” on one trip row: Kostenträger,
+ * Builds the Supabase PATCH for the sheet footer **Trip aktualisieren** action: Kostenträger,
  * billing variant, billing metadata (Anrufstation/Betreuer), client fields,
  * route/stations, date, and driving metrics when
  * endpoints change.
@@ -11,6 +11,10 @@
 
 import type { Trip } from '@/features/trips/api/trips.service';
 import type { AddressResult } from '@/features/trips/components/trip-address-passenger';
+import {
+  applyTimeToScheduledDate,
+  buildScheduledAtFromYmdAndHm
+} from '@/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled';
 import { getDrivingMetrics } from '@/lib/google-directions';
 
 export function clientDisplayNameFromParts(
@@ -155,20 +159,53 @@ export async function buildTripDetailsPatch(
 
   if (input.dateYmdDraft !== input.currentDateYmd) {
     if (trip.scheduled_at && input.dateYmdDraft && input.timeDraft) {
-      const [y, mo, d] = input.dateYmdDraft
-        .split('-')
-        .map((x) => parseInt(x, 10));
-      const next = new Date(y, mo - 1, d);
-      const [hh, mm] = input.timeDraft.split(':').map((x) => parseInt(x, 10));
-      next.setHours(
-        Number.isFinite(hh) ? hh : 0,
-        Number.isFinite(mm) ? mm : 0,
-        0,
-        0
+      const next = buildScheduledAtFromYmdAndHm(
+        input.dateYmdDraft,
+        input.timeDraft
       );
       patch.scheduled_at = next.toISOString();
+    } else if (
+      !trip.scheduled_at &&
+      input.dateYmdDraft &&
+      input.timeDraft?.trim()
+    ) {
+      const next = buildScheduledAtFromYmdAndHm(
+        input.dateYmdDraft,
+        input.timeDraft
+      );
+      patch.scheduled_at = next.toISOString();
+      patch.requested_date = null;
     } else if (input.dateYmdDraft && !trip.scheduled_at) {
       patch.requested_date = input.dateYmdDraft;
+    }
+  }
+
+  if (
+    !trip.scheduled_at &&
+    trip.requested_date &&
+    input.dateYmdDraft &&
+    input.timeDraft?.trim() &&
+    input.dateYmdDraft === input.currentDateYmd &&
+    !('scheduled_at' in patch)
+  ) {
+    const next = buildScheduledAtFromYmdAndHm(
+      input.dateYmdDraft,
+      input.timeDraft
+    );
+    patch.scheduled_at = next.toISOString();
+    patch.requested_date = null;
+  }
+
+  if (
+    trip.scheduled_at &&
+    input.dateYmdDraft &&
+    input.dateYmdDraft === input.currentDateYmd &&
+    input.timeDraft?.trim() &&
+    !('scheduled_at' in patch)
+  ) {
+    const next = applyTimeToScheduledDate(trip.scheduled_at, input.timeDraft);
+    if (next.toISOString() !== new Date(trip.scheduled_at).toISOString()) {
+      patch.scheduled_at = next.toISOString();
     }
   }
 

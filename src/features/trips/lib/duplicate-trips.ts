@@ -1,10 +1,11 @@
 /**
- * Server-side helpers to duplicate one-off trips to another calendar day (Fahrten bulk action).
+ * Server-side helpers to duplicate one-off trips to another calendar day (Fahrten bulk + detail sheet).
  *
  * Duplicates are **not** tied to `recurring_rules` (`rule_id` is always cleared). Hin/Rück pairs
  * are expanded from the selection, inserted outbound-first, then linked like bulk/Rückfahrt flows.
  *
- * Schedule math shared with the dialog lives in `duplicate-trip-schedule.ts` (no Supabase).
+ * `explicitPerLegUnifiedTimes`: optional outbound/return ISOs per leg; validated to a single pair.
+ * Schedule math lives in `duplicate-trip-schedule.ts` (no Supabase).
  *
  * @see docs/trips-duplicate.md
  */
@@ -76,12 +77,15 @@ export async function findPairedTripWithClient(
 }
 
 /**
- * Loads selected trips plus any paired leg so checkbox on one row still duplicates Hin+Rück once.
+ * Loads selected trips; optionally merges each row’s paired leg (Hin/Rück) into the same batch.
+ * When `includeLinkedLeg` is false, callers get exactly the requested ids — used for detail-sheet
+ * “nur diese Fahrt” so the new row is not forced into a pair with the partner.
  */
 export async function fetchTripsExpandedForDuplicate(
   supabase: SupabaseClient<Database>,
   tripIds: string[],
-  companyId: string
+  companyId: string,
+  includeLinkedLeg: boolean
 ): Promise<Trip[]> {
   const unique = [...new Set(tripIds.filter(Boolean))];
   if (unique.length === 0) return [];
@@ -95,17 +99,20 @@ export async function fetchTripsExpandedForDuplicate(
   if (error) throw new Error(error.message);
   const map = new Map((rows ?? []).map((r) => [r.id, r as Trip]));
 
-  for (const t of [...map.values()]) {
-    const partner = await findPairedTripWithClient(supabase, t);
-    if (partner && partner.company_id === companyId && !map.has(partner.id)) {
-      map.set(partner.id, partner);
+  if (includeLinkedLeg) {
+    for (const t of [...map.values()]) {
+      const partner = await findPairedTripWithClient(supabase, t);
+      if (partner && partner.company_id === companyId && !map.has(partner.id)) {
+        map.set(partner.id, partner);
+      }
     }
   }
 
   return [...map.values()];
 }
 
-function pickOutboundAndReturn(
+/** Same ordering as inserts (`outbound` first, then `return`). Exported for duplicate dialog UI. */
+export function pickOutboundAndReturn(
   a: Trip,
   b: Trip
 ): { outbound: Trip; ret: Trip } {
@@ -153,6 +160,17 @@ export function findPartnerAmongTrips(
       !!x.scheduled_at &&
       instantToYmdInBusinessTz(new Date(x.scheduled_at).getTime()) === selfYmd
   );
+}
+
+/** Two selected rows that form one Hin/Rück pair (bulk selection). */
+export function tryGetOutboundReturnPairFromTrips(
+  trips: Trip[]
+): { outbound: Trip; ret: Trip } | null {
+  if (trips.length !== 2) return null;
+  const [a, b] = trips;
+  const partner = findPartnerAmongTrips(a, trips);
+  if (!partner || partner.id !== b.id) return null;
+  return pickOutboundAndReturn(a, b);
 }
 
 export type DuplicateUnit =
@@ -301,7 +319,8 @@ export interface DuplicateTripsResult {
 }
 
 /**
- * Performs inserts + outbound backfill updates. Caller must use a Supabase client allowed to write `trips`.
+ * Inserts duplicate rows + outbound link backfill. `explicitPerLegUnifiedTimes` requires
+ * `partitionIntoDuplicateUnits` to yield exactly one `{ kind: 'pair' }` unit.
  */
 export async function executeDuplicateTrips(
   supabase: SupabaseClient<Database>,
@@ -309,10 +328,13 @@ export async function executeDuplicateTrips(
   companyId: string,
   createdBy: string | null
 ): Promise<DuplicateTripsResult> {
+  // Omitted or true: match legacy bulk behaviour (expand partner). False: strict id list only.
+  const includeLinkedLeg = payload.includeLinkedLeg !== false;
   const expanded = await fetchTripsExpandedForDuplicate(
     supabase,
     payload.ids,
-    companyId
+    companyId,
+    includeLinkedLeg
   );
 
   const requested = new Set(payload.ids);
@@ -328,6 +350,15 @@ export async function executeDuplicateTrips(
   const units = partitionIntoDuplicateUnits(expanded);
   const createdIds: string[] = [];
 
+  // Detail dialog: two optional ISOs per leg; invalid for multi-unit bulk selections.
+  if (payload.explicitPerLegUnifiedTimes) {
+    if (units.length !== 1 || units[0].kind !== 'pair') {
+      throw new Error(
+        'Explizite Hin-/Rück-Uhrzeiten sind nur für ein einzelnes Hin-/Rück-Paar möglich.'
+      );
+    }
+  }
+
   for (const unit of units) {
     if (unit.kind === 'single') {
       let schedule: {
@@ -337,7 +368,10 @@ export async function executeDuplicateTrips(
       if (payload.scheduleMode === 'time_open') {
         schedule = computeTimeOpenSchedule(payload.targetDateYmd);
       } else if (payload.scheduleMode === 'unified_time') {
-        const iso = payload.unifiedScheduledAtIso!;
+        const iso = payload.unifiedScheduledAtIso;
+        if (!iso) {
+          throw new Error('Bitte eine Abholzeit festlegen.');
+        }
         schedule = {
           scheduled_at: iso,
           requested_date: instantToYmdInBusinessTz(new Date(iso).getTime())
@@ -375,11 +409,19 @@ export async function executeDuplicateTrips(
     if (payload.scheduleMode === 'time_open') {
       outSchedule = computeTimeOpenSchedule(payload.targetDateYmd);
     } else if (payload.scheduleMode === 'unified_time') {
-      const iso = payload.unifiedScheduledAtIso!;
-      outSchedule = {
-        scheduled_at: iso,
-        requested_date: instantToYmdInBusinessTz(new Date(iso).getTime())
-      };
+      // Missing outbound ISO is allowed only when `explicitPerLegUnifiedTimes` (detail pair).
+      const iso = payload.unifiedScheduledAtIso;
+      if (iso) {
+        outSchedule = {
+          scheduled_at: iso,
+          requested_date: instantToYmdInBusinessTz(new Date(iso).getTime())
+        };
+      } else {
+        outSchedule = {
+          scheduled_at: null,
+          requested_date: payload.targetDateYmd
+        };
+      }
     } else {
       outSchedule = computePreserveScheduleForLeg(
         unit.outbound,
@@ -387,14 +429,25 @@ export async function executeDuplicateTrips(
       );
     }
 
-    const retSchedule = computeReturnScheduleForDuplicate(
-      unit.outbound,
-      unit.ret,
-      outSchedule,
-      payload.scheduleMode,
-      payload.targetDateYmd,
-      payload.unifiedScheduledAtIso
-    );
+    const retSchedule =
+      payload.scheduleMode === 'unified_time' &&
+      payload.unifiedReturnScheduledAtIso
+        ? (() => {
+            const retIso = payload.unifiedReturnScheduledAtIso;
+            const retMs = new Date(retIso).getTime();
+            return {
+              scheduled_at: retIso,
+              requested_date: instantToYmdInBusinessTz(retMs)
+            };
+          })()
+        : computeReturnScheduleForDuplicate(
+            unit.outbound,
+            unit.ret,
+            outSchedule,
+            payload.scheduleMode,
+            payload.targetDateYmd,
+            payload.unifiedScheduledAtIso
+          );
 
     const outInsert = buildDuplicateInsert(
       unit.outbound,
@@ -436,6 +489,7 @@ export async function executeDuplicateTrips(
 
     if (linkErr) throw new Error(linkErr.message);
 
+    // Order is part of the public contract: detail sheet navigates to ids[0] vs ids[1] by leg direction.
     createdIds.push(outRow.id, retRow.id);
   }
 

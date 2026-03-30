@@ -16,7 +16,7 @@ import type { AddressResult } from '@/features/trips/components/trip-address-pas
 import { getDrivingMetrics } from '@/lib/google-directions';
 
 /**
- * Supabase column names that (1) make “Details speichern” offer the paired dialog
+ * Supabase column names that (1) make “Trip aktualisieren” offer the paired dialog
  * when present in the primary PATCH, and (2) are written on the partner row when the
  * user chooses “Diese Fahrt + Gegenfahrt”. Excludes schedule/driver — see doc section
  * “Verknüpfte Gegenfahrt” in `docs/trip-detail-sheet-editing.md`.

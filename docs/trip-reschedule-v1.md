@@ -5,7 +5,7 @@
 Allow dispatchers to change the planned pickup time (and date) for a **single, non-recurring** trip without cancelling and re-creating it. Entry points:
 
 - **Trips table** — row menu (**Verschieben**).
-- **Trip detail sheet** — **Verschieben** in the footer.
+- **Trip detail sheet** — **Verschieben** under footer **Aktionen** (next to **Duplizieren**; see [trips-duplicate.md](./trips-duplicate.md) for the copy flow).
 
 ## v1 behaviour
 
