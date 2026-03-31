@@ -713,9 +713,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             } else if (typesForPayer.length === 1) {
               matchedType = typesForPayer[0];
             } else if (typesForPayer.length === 0) {
+              // No billing_types for this payer — import with billing_variant_id = null
+              // (matches spreadsheets that omit Abrechnungsart when none are configured yet).
               issues.push({
                 type: 'billing_type_not_found',
-                message: `Keine Abrechnungsart für Kostenträger "${parsedRow.kostentraeger}" hinterlegt.`
+                severity: 'warning',
+                message: `Für Kostenträger "${parsedRow.kostentraeger}" ist keine Abrechnungsart im System hinterlegt — die Fahrt wird ohne Abrechnungs-Verknüpfung importiert.`
               });
             } else {
               issues.push({

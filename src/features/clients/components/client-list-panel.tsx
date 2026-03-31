@@ -27,6 +27,7 @@ import { PanelList } from '@/components/panels';
 import { clientsService, Client } from '../api/clients.service';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { formatClientNumber } from '@/lib/customer-number';
 
 interface ClientListPanelProps {
   selectedClientId: string | null;
@@ -135,7 +136,10 @@ interface ClientListItemProps {
 function ClientListItem({ client, isSelected }: ClientListItemProps) {
   const initials = getClientInitials(client);
   const displayName = getClientDisplayName(client);
-  const subtitle = [client.zip_code, client.city].filter(Boolean).join(' ');
+  const c = client as Client & { customer_number?: number };
+  const subtitle = c.customer_number
+    ? formatClientNumber(c.customer_number)
+    : '';
 
   return (
     <div className='flex items-center gap-3 px-3 py-2.5'>

@@ -45,6 +45,7 @@ import {
 } from '@/features/trips/api/recurring-rules.service';
 import ClientForm, { ClientFormHandle } from './client-form';
 import { RecurringRulesList } from './recurring-rules-list';
+import { formatClientNumber } from '@/lib/customer-number';
 
 interface ClientDetailPanelProps {
   clientId: string;
@@ -230,7 +231,18 @@ export function ClientDetailPanel({
 function getDisplayName(client: Client | null, isNew: boolean): string {
   if (isNew) return 'Neuer Fahrgast';
   if (!client) return '...';
-  if (client.company_name) return client.company_name;
-  const parts = [client.first_name, client.last_name].filter(Boolean);
-  return parts.length > 0 ? parts.join(' ') : 'Unbekannt';
+
+  let name = 'Unbekannt';
+  if (client.company_name) {
+    name = client.company_name;
+  } else {
+    const parts = [client.first_name, client.last_name].filter(Boolean);
+    if (parts.length > 0) name = parts.join(' ');
+  }
+
+  const c = client as Client & { customer_number?: number };
+  if (c.customer_number) {
+    return `${name} (${formatClientNumber(c.customer_number)})`;
+  }
+  return name;
 }

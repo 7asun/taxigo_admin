@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { formatPayerNumber } from '@/lib/customer-number';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import { usePayers } from '../hooks/use-payers';
 import { AddBillingFamilyDialog } from './add-billing-family-dialog';
@@ -79,7 +80,6 @@ export function PayerDetailsSheet({
   const startEditing = () => {
     if (payer) {
       setEditName(payer.name);
-      setEditNumber(payer.number || '');
       setIsEditing(true);
     }
   };
@@ -87,7 +87,11 @@ export function PayerDetailsSheet({
   const handleSave = async () => {
     if (!payer) return;
     try {
-      await updatePayer({ id: payer.id, name: editName, number: editNumber });
+      await updatePayer({
+        id: payer.id,
+        name: editName,
+        number: payer.number as any
+      });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
     } catch {
@@ -118,7 +122,14 @@ export function PayerDetailsSheet({
                   autoFocus
                 />
               ) : (
-                <SheetTitle className='text-2xl'>{payer.name}</SheetTitle>
+                <SheetTitle className='flex items-baseline gap-3 text-2xl'>
+                  {payer.name}
+                  {payer.number && (
+                    <span className='text-muted-foreground text-lg font-normal'>
+                      {formatPayerNumber(payer.number)}
+                    </span>
+                  )}
+                </SheetTitle>
               )}
               <SheetDescription>
                 Abrechnungsfamilien und Unterarten verwalten; CSV-Codes hier
@@ -156,18 +167,9 @@ export function PayerDetailsSheet({
                 <Receipt className='text-muted-foreground h-6 w-6' />
               </div>
               <div className='flex-1'>
-                {isEditing ? (
-                  <Input
-                    value={editNumber}
-                    onChange={(e) => setEditNumber(e.target.value)}
-                    placeholder='Kostenträgernummer'
-                    className='mb-1 h-8 px-2 py-1'
-                  />
-                ) : (
-                  <div className='text-foreground text-lg font-bold'>
-                    {payer.number || '–'}
-                  </div>
-                )}
+                <div className='text-foreground text-lg font-bold'>
+                  {payer.number || '–'}
+                </div>
                 <div className='text-muted-foreground text-sm'>
                   Kostenträgernummer
                 </div>
