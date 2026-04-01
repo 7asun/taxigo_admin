@@ -63,7 +63,14 @@ const formSchema = z.object({
   relation: z.string().optional(),
   greeting_style: z.string().optional(),
   notes: z.string().optional(),
-  is_wheelchair: z.boolean()
+  is_wheelchair: z.boolean(),
+  // Price tag: Default price for all trips of this client.
+  // Takes precedence over manually entered trip prices during invoicing.
+  // Nullable: not all clients have fixed pricing.
+  price_tag: z
+    .union([z.number().min(0), z.nan(), z.null()])
+    .optional()
+    .transform((val) => (val === undefined || isNaN(val) ? null : val))
 });
 
 /** Imperative handle exposed via forwardRef — used by ClientDetailPanel */
@@ -156,7 +163,9 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       relation: initialData?.relation || '',
       greeting_style: initialData?.greeting_style || '',
       notes: initialData?.notes || '',
-      is_wheelchair: initialData?.is_wheelchair ?? false
+      is_wheelchair: initialData?.is_wheelchair ?? false,
+      // Default price for all trips of this client. Takes precedence over trip.price.
+      price_tag: initialData?.price_tag ?? null
     };
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -439,6 +448,20 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
               label='Beziehung'
               placeholder='z. B. Angehörige, Betreuer'
               className='max-w-md'
+            />
+            {/* Standardpreis: Default price for all trips of this client.
+                Takes precedence over manually entered trip prices during invoicing.
+                If set, all trips for this client will use this price automatically. */}
+            <FormInput
+              control={form.control}
+              name='price_tag'
+              label='Standardpreis (€)'
+              type='number'
+              step='0,01'
+              min='0'
+              placeholder='z. B. 25,00'
+              description='Wird für Rechnungen verwendet. Fahrpreis bitte in Brutto.'
+              className='max-w-xs'
             />
             <FormTextarea
               control={form.control}

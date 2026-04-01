@@ -23,6 +23,15 @@ Because invoices are immutable, any mistake requires a formal cancellation (**St
   3. Mirrors the exact snapshot line items, but **inverts** their quantities and totals (e.g., `1` → `-1`, `20.00€` → `-20.00€`).
   4. Links them historically via the `cancels_invoice_id` foreign key.
 
+### 1.3 Invoice numbers (`RE-YYYY-MM-NNNN`)
+
+Human-readable numbers are generated in [`src/features/invoices/lib/invoice-number.ts`](src/features/invoices/lib/invoice-number.ts) at **final insert time** (new invoice or Stornorechnung), using the machine date at that moment as the **issue month**:
+
+- **Format**: `RE-{year}-{2-digit-month}-{4-digit-sequence}` (e.g. `RE-2026-04-0002`).
+- **Sequence**: Increments within each calendar month, then resets to `0001` in the next month.
+- **Uniqueness**: Enforced by a unique constraint on `invoices.invoice_number`.
+- **Legacy**: Older rows may still show `RE-YYYY-NNNN`; they do not participate in the monthly `LIKE` query for the next number. New issuances use only the new shape.
+
 ---
 
 ## 2. The Invoice Builder Wizard (State Machine)
@@ -53,9 +62,55 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 
 ## 3. Pricing & Tax Calculation Layer
 
-Tax logic is abstracted away from the UI into dedicated service files:
-- **`lib/tax-calculator.ts`**: Automatically determines the German MwSt rate. E.g., trips under 50km receive `7%` (ermäßigter Steuersatz für Personennahverkehr), while trips over 50km receive `19%`.
-- **`lib/price-calculator.ts`**: Resolves the exact `unit_price`, prioritizing manual driver overrides (`trips.price`), followed by recurring rule logic, and finally falling back to `null` if the dispatcher needs to manually quote it.
+Tax and price logic is abstracted away from the UI into dedicated service files.
+
+### 3.1 Tax Rate Resolution (`lib/tax-calculator.ts`)
+Automatically determines the German MwSt rate:
+- Trips under 50km receive `7%` (ermäßigter Steuersatz für Personennahverkehr)
+- Trips over 50km receive `19%`
+- Trips with unknown distance default to `7%` (conservative fallback)
+
+### 3.2 Price Resolution (`lib/price-calculator.ts`)
+
+The `resolveTripPrice()` function follows a strict **3-tier precedence hierarchy** when determining the billable price for a trip:
+
+#### Price Precedence (Highest → Lowest)
+
+| Priority | Source | Field | Description |
+|----------|--------|-------|-------------|
+| **1. Highest** | Client price tag | `clients.price_tag` | **Stored as BRUTTO** (gross price incl. tax). Automatically converted to NETTO during invoicing. Applies to ALL trips of this client. |
+| **2. Fallback** | Trip price | `trips.price` | **Stored as NETTO** (net price without tax). Manually entered per trip. Only used when client has no `price_tag`. |
+| **3. Last resort** | Manual entry | `null` | No price available. Dispatcher must enter price manually in Step 3. |
+
+#### Key Behaviors
+
+- **`clients.price_tag` wins automatically**: If a client has a `price_tag` set, it takes precedence over any manually entered `trips.price`
+- **Visual indicator in Step 3**: The invoice builder shows a badge indicating which price source was used:
+  - "Kunden-Preis" (green badge) — price from `clients.price_tag`
+  - "Fahrt-Preis" (blue badge) — price from `trips.price`
+- **Consistent pricing**: Setting a `price_tag` on a client ensures all their trips use the same price, eliminating the need to manually enter prices for every trip
+
+#### Brutto → Netto Conversion
+
+When a `price_tag` is used, the system automatically converts from **brutto** (stored) to **netto** (invoice line item):
+
+```
+netto = brutto / (1 + tax_rate)
+```
+
+**Example**: Client has `price_tag = 25.00 €`, trip qualifies for 19% tax:
+- **Netto** (stored in line item): 25.00 / 1.19 = **21.01 €**
+- **Tax** (7% or 19%): 21.01 × 0.19 = **3.99 €**
+- **Brutto** (matches price_tag): 21.01 + 3.99 = **25.00 €** ✓
+
+#### Example Scenarios
+
+| Client has `price_tag` | Trip has `price` | Tax Rate | Result (Netto) | Source Badge |
+|------------------------|------------------|----------|----------------|--------------|
+| 25.00 € (brutto) | 30.00 € (netto) | 19% | **21.01 €** | Kunden-Preis |
+| null | 30.00 € (netto) | 19% | **30.00 €** | Fahrt-Preis |
+| 25.00 € (brutto) | null | 7% | **23.36 €** | Kunden-Preis |
+| null | null | — | **null** ⚠️ | Fehlt (manual entry required) |
 
 ---
 
@@ -65,14 +120,34 @@ Tax logic is abstracted away from the UI into dedicated service files:
 Due to strict foreign key relationships, complex objects like the `company_profile` cannot be recursively joined in a single PostgREST pass from the `invoices` table.
 - `getInvoiceDetail` sequentially fetches the invoice (with payloads and snapshot lines), and then cleanly fetches the `company_profile` using the invoice's `company_id`.
 
-### The PDF Engine (`/api/invoices/[id]/pdf`)
-- We use `@react-pdf/renderer` directly on the server (Next.js App Router API).
-- The `InvoiceDocument` component outputs a pure stream of bytes (`renderToStream`), ensuring the client immediately receives a high-quality, universally compatible PDF Blob.
-- Heavy reliance on CSS-like styling in React-PDF (Flexbox) ensures perfect A4 alignment for German window envelopes (DIN-Brief).
+### Invoice PDF (`@react-pdf/renderer`)
+
+PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx)):
+
+- **Detail page** — [`PDFDownloadLink`](https://react-pdf.org/components#pdfdownloadlink) wraps the same document for “PDF herunterladen”.
+- **Preview** — dashboard route `src/app/dashboard/invoices/[id]/preview/page.tsx` uses `InvoicePdfPreview` + `PDFViewer`.
+
+Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (A4 padding, DIN-oriented top margin, flex tables). Supporting utilities: `resolve-sender-font-size.ts`, `generate-payment-qr-data-url.ts`, `build-sepa-qr-payload.ts`.
+
+#### PDF layout & codebase map
+
+| Piece | File | Role |
+|-------|------|------|
+| Root composer | `InvoicePdfDocument.tsx` | `Document` + two `Page`s; recipient/salutation; totals + `buildInvoicePdfSummary` |
+| Cover header | `invoice-pdf-cover-header.tsx` | Logo, sender line, address window, Rechnungsdaten |
+| Cover body | `invoice-pdf-cover-body.tsx` | Subject, summary table, VAT totals, payment + optional SEPA QR |
+| Footer | `invoice-pdf-footer.tsx` | Fixed footer + `Seite x / y` |
+| Appendix | `invoice-pdf-appendix.tsx` | Fixed appendix header + per–line-item table |
+| Format helpers | `lib/invoice-pdf-format.ts` | EUR, dates, IBAN display, sender one-liner |
+| Places / routes | `lib/invoice-pdf-places.ts` | Canonical addresses, hint map, airport label |
+| Summary build | `lib/build-invoice-pdf-summary.ts` | Grouped routes, Hinfahrt/Rückfahrt labels, net line amount |
+
+**Pages:** (1) summary + payment; (2) trip-detail appendix. Footer repeats on both; appendix uses a fixed header when content wraps.
 
 ---
 
 ## 5. Security & RBAC Notes
+- **`invoices` / `invoice_line_items`**: RLS restricts SELECT/INSERT/UPDATE to `accounts.role = 'admin'` rows whose `company_id` matches `current_user_company_id()` (see migration `20260401180000_invoices_invoice_line_items_rls.sql`). The next invoice number is allocated via RPC `invoice_numbers_max_for_prefix` (SECURITY DEFINER) so the sequence stays **global** across tenants while list/detail queries remain company-scoped.
 - All endpoints rely on Supabase Row Level Security (RLS) bound to the active `company_id`.
 - Sentry captures all PDF generation render faults and query lookup errors to ensure seamless administrative support.
 

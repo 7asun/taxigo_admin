@@ -187,18 +187,20 @@ function sortClientsAlphabetically(data: Client[]): Client[] {
   return [...data].sort((a, b) => {
     const aKey = (
       a.last_name ??
-      a.company_name ??
       a.first_name ??
+      a.company_name ??
       ''
     ).toLowerCase();
     const bKey = (
       b.last_name ??
-      b.company_name ??
       b.first_name ??
+      b.company_name ??
       ''
     ).toLowerCase();
+
     const primary = aKey.localeCompare(bKey, 'de');
     if (primary !== 0) return primary;
+
     // Tiebreaker for persons sharing the same last name
     const aFirst = (a.first_name ?? '').toLowerCase();
     const bFirst = (b.first_name ?? '').toLowerCase();
@@ -207,16 +209,16 @@ function sortClientsAlphabetically(data: Client[]): Client[] {
 }
 
 function getClientDisplayName(client: Client): string {
-  if (client.company_name) return client.company_name;
   const parts = [client.first_name, client.last_name].filter(Boolean);
-  return parts.length > 0 ? parts.join(' ') : 'Unbekannt';
+  if (parts.length > 0) return parts.join(' ');
+  return client.company_name || 'Unbekannt';
 }
 
 function getClientInitials(client: Client): string {
-  if (client.company_name) {
-    return client.company_name.charAt(0).toUpperCase();
-  }
   const first = client.first_name?.charAt(0) ?? '';
   const last = client.last_name?.charAt(0) ?? '';
-  return (first + last).toUpperCase() || '?';
+  const nameInitials = (first + last).toUpperCase();
+
+  if (nameInitials) return nameInitials;
+  return client.company_name?.charAt(0).toUpperCase() || '?';
 }

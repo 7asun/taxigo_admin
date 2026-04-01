@@ -100,6 +100,8 @@ export type Database = {
           notes: string | null;
           phone: string | null;
           phone_secondary: string | null;
+          // Default price for all trips of this client. Takes precedence over trip.price.
+          price_tag: number | null;
           requires_daily_scheduling: boolean | null;
           stations: string[] | null;
           street: string;
@@ -125,6 +127,8 @@ export type Database = {
           notes?: string | null;
           phone?: string | null;
           phone_secondary?: string | null;
+          // Default price for all trips of this client. Takes precedence over trip.price.
+          price_tag?: number | null;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street: string;
@@ -150,6 +154,8 @@ export type Database = {
           notes?: string | null;
           phone?: string | null;
           phone_secondary?: string | null;
+          // Default price for all trips of this client. Takes precedence over trip.price.
+          price_tag?: number | null;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street?: string;
@@ -1101,7 +1107,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      invoice_numbers_max_for_prefix: {
+        Args: { p_prefix: string };
+        Returns: string | null;
+      };
     };
     Enums: {
       [_ in never]: never;

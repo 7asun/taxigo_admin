@@ -10,7 +10,7 @@
  * ─── Storno rules (§14 UStG) ──────────────────────────────────────────────
  *   1. A Stornorechnung must reference the original invoice number.
  *   2. All amounts must be negative (negating the original totals).
- *   3. The Storno gets its own sequential invoice number (RE-YYYY-NNNN).
+ *   3. The Storno gets its own sequential invoice number (RE-YYYY-MM-NNNN).
  *   4. The original invoice status is updated to 'corrected'.
  * ─────────────────────────────────────────────────────────────────────────
  */

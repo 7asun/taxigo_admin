@@ -208,7 +208,7 @@ export function Step3LineItems({
                   {formatTaxRate(item.tax_rate)}
                 </TableCell>
 
-                {/* Price — editable on click */}
+                {/* Price — shows source badge when resolved automatically */}
                 <TableCell className='text-right'>
                   {editingPosition === item.position ? (
                     <Input
@@ -232,7 +232,26 @@ export function Step3LineItems({
                       onClick={() => startEdit(item.position, item.unit_price)}
                     >
                       {item.unit_price !== null ? (
-                        formatEur(item.unit_price)
+                        <div className='flex flex-col items-end gap-0.5'>
+                          <span>{formatEur(item.unit_price)}</span>
+                          {/* Price source badge — shows which source was used
+                              'client_price_tag' = from clients.price_tag (highest priority)
+                              'trip_price' = from trips.price (fallback) */}
+                          {item.price_source && (
+                            <Badge
+                              variant='outline'
+                              className={`px-1.5 py-0 text-[10px] font-normal ${
+                                item.price_source === 'client_price_tag'
+                                  ? 'border-green-500/30 bg-green-500/10 text-green-700'
+                                  : 'border-blue-500/30 bg-blue-500/10 text-blue-700'
+                              }`}
+                            >
+                              {item.price_source === 'client_price_tag'
+                                ? 'Kunden-Preis'
+                                : 'Fahrt-Preis'}
+                            </Badge>
+                          )}
+                        </div>
                       ) : (
                         <span className='font-medium text-amber-500'>
                           Fehlt

@@ -51,7 +51,8 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    paddingBottom: 96,
+    // Reserve space: footer columns anchor at bottom 44pt; page line at 11pt; tall 3-col text grows upward
+    paddingBottom: 148,
     paddingLeft: 45,
     paddingRight: 45,
     lineHeight: 1.45
@@ -79,7 +80,7 @@ export const styles = StyleSheet.create({
     width: '100%'
   },
   sloganBelowLogo: {
-    fontSize: PDF_FONT_SIZES.sm,
+    fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.muted,
     lineHeight: 1.4,
     marginTop: 5,
@@ -217,6 +218,21 @@ export const styles = StyleSheet.create({
     color: PDF_COLORS.text,
     marginBottom: 16
   },
+  /** Standalone block after payment — not wrapped with Zahlungsinformation for pagination */
+  bodyOutroSection: {
+    marginTop: 16
+  },
+  bodyOutro: {
+    fontSize: PDF_FONT_SIZES.base,
+    lineHeight: 1.6,
+    color: PDF_COLORS.text
+  },
+  bodyClosing: {
+    fontSize: PDF_FONT_SIZES.base,
+    lineHeight: 1.6,
+    color: PDF_COLORS.text,
+    marginTop: 10
+  },
 
   // ── Line items table ───────────────────────────────────────────────────────
   tableHeader: {
@@ -294,11 +310,10 @@ export const styles = StyleSheet.create({
     width: '35%',
     textAlign: 'right'
   },
-  totalsDivider: {
-    borderTopWidth: 1,
-    borderTopColor: PDF_COLORS.border,
+  /** Space before grand total — no horizontal rule between totals “sections” */
+  totalsGrandSpacer: {
     width: '53%',
-    marginVertical: 4,
+    height: 8,
     marginRight: 8
   },
   totalsGrandRow: {
@@ -344,48 +359,50 @@ export const styles = StyleSheet.create({
 
   // ── Payment Instructions ───────────────────────────────────────────────────
   paymentInstructions: {
-    marginTop: 18,
-    paddingTop: 12,
-    paddingBottom: 2,
-    borderTopWidth: 0.5,
-    borderTopColor: PDF_COLORS.border
+    marginTop: 20,
+    paddingTop: 4,
+    paddingBottom: 2
   },
+  /** Left: payment fields (Begünstigter … Verwendungszweck); right: QR beside full stack */
   paymentContentRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
     marginTop: 8
   },
-  paymentTextCol: {
+  paymentDetailsCol: {
     flex: 1,
-    minWidth: 200,
-    paddingRight: 10
+    flexGrow: 1,
+    minWidth: 0,
+    paddingRight: 14
   },
-  paymentQrWrap: {
+  paymentQrCol: {
+    width: 90,
+    flexShrink: 0,
     alignItems: 'center',
-    marginLeft: 12,
-    width: 113
+    justifyContent: 'center'
   },
-  /** ~40 mm — gut scannbar in Banking-Apps */
+  /** ~32 mm — kompakter, weiterhin gut scannbar */
   paymentQr: {
-    width: 113,
-    height: 113
+    width: 90,
+    height: 90
   },
   paymentDetailRow: {
     flexDirection: 'row',
-    marginTop: 6,
+    alignItems: 'flex-start',
+    marginTop: 5,
     paddingLeft: 2
   },
   paymentLabel: {
     fontSize: PDF_FONT_SIZES.sm,
     fontFamily: 'Helvetica-Bold',
     color: PDF_COLORS.text,
-    width: '32%'
+    width: 108
   },
   paymentValue: {
     fontSize: PDF_FONT_SIZES.sm,
     color: PDF_COLORS.text,
-    width: '68%'
+    flex: 1
   },
   boldText: {
     fontFamily: 'Helvetica-Bold',
@@ -420,9 +437,10 @@ export const styles = StyleSheet.create({
   },
 
   // ── Footer ─────────────────────────────────────────────────────────────────
+  /** Bottom edge of column block — keep above footerPageNumber (larger = higher on page) */
   footer: {
     position: 'absolute',
-    bottom: 38,
+    bottom: 28,
     left: 45,
     right: 45,
     borderTopWidth: 0.5,
@@ -462,13 +480,19 @@ export const styles = StyleSheet.create({
     color: PDF_COLORS.text,
     marginBottom: 2
   },
+  /**
+   * Page line — use `top` + `minHeight`, not `bottom`: @react-pdf/renderer 4.3.x
+   * often paints nothing for `render` + `fixed` + `bottom` (see diegomura/react-pdf#3308).
+   * A4 height ≈ 842pt; ~820pt places one line above the physical bottom margin.
+   */
   footerPageNumber: {
     position: 'absolute',
-    bottom: 16,
+    top: 818,
     left: 45,
     right: 45,
-    fontSize: PDF_FONT_SIZES.xs,
-    color: PDF_COLORS.muted,
+    minHeight: 14,
+    fontSize: PDF_FONT_SIZES.sm,
+    color: PDF_COLORS.text,
     textAlign: 'center'
   }
 });

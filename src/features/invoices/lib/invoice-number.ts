@@ -2,7 +2,7 @@
  * invoice-number.ts
  *
  * Generates and validates sequential invoice numbers in the format:
- *   RE-YYYY-NNNN   (e.g. RE-2026-0001)
+ *   RE-YYYY-MM-NNNN   (e.g. RE-2026-04-0001)
  *
  * Legal requirement: §14 Abs. 4 Nr. 4 UStG mandates a "fortlaufende Nummer"
  * (uninterrupted sequential number) on every invoice. Gaps are not permitted.
@@ -10,15 +10,21 @@
  * ─── Implementation ───────────────────────────────────────────────────────
  * - The sequence is global (not per-payer). Decision: legal compliance is
  *   simpler with one sequence; per-payer numbering adds no legal benefit.
- * - The year resets the counter: RE-2025-0047 → RE-2026-0001 on Jan 1.
- * - Generation is done optimistically: query the MAX invoice_number for the
- *   current year and increment. Race conditions are prevented by the
- *   UNIQUE constraint on invoices.invoice_number (DB will reject duplicates).
+ * - The counter resets each calendar month: after RE-2026-04-0042 the next
+ *   invoice in May is RE-2026-05-0001. The full string remains unique.
+ * - Month and year are taken from the date at generation time (invoice
+ *   creation / Storno insert) — i.e. the issue date for numbering purposes.
+ * - Generation is done optimistically: RPC invoice_numbers_max_for_prefix
+ *   (SECURITY DEFINER) returns the global MAX for the year-month prefix so
+ *   numbering stays correct under per-company RLS. Race conditions are handled
+ *   by the UNIQUE constraint on invoices.invoice_number (retry on conflict).
+ * - Legacy rows may still use RE-YYYY-NNNN; they do not match the monthly
+ *   LIKE filter and do not affect the next RE-YYYY-MM-* number.
  *
  * ─── Future extension point ───────────────────────────────────────────────
  * If per-payer sequences are ever needed, add a `payerId` parameter and
  * filter the MAX query by `payer_id`. The format would then become:
- *   RE-{PayerCode}-{YYYY}-{NNNN}
+ *   RE-{PayerCode}-{YYYY}-{MM}-{NNNN}
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -28,21 +34,25 @@ import { createClient } from '@/lib/supabase/client';
 const INVOICE_PREFIX = 'RE';
 
 /**
- * Formats a year + sequence number into the canonical invoice number string.
+ * Formats year, calendar month, and sequence into the canonical invoice number.
  *
  * @param year     - 4-digit year (e.g. 2026)
+ * @param month    - Calendar month 1–12
  * @param sequence - Sequential integer (1-based, padded to 4 digits)
- * @returns Formatted invoice number string, e.g. "RE-2026-0001"
+ * @returns Formatted invoice number string, e.g. "RE-2026-04-0001"
  *
  * @example
- *   formatInvoiceNumber(2026, 1)   // → "RE-2026-0001"
- *   formatInvoiceNumber(2026, 42)  // → "RE-2026-0042"
- *   formatInvoiceNumber(2026, 999) // → "RE-2026-0999"
+ *   formatInvoiceNumber(2026, 4, 1)    // → "RE-2026-04-0001"
+ *   formatInvoiceNumber(2026, 12, 42)  // → "RE-2026-12-0042"
  */
-export function formatInvoiceNumber(year: number, sequence: number): string {
-  // Zero-pad the sequence to at least 4 digits (supports up to 9999 invoices/year)
+export function formatInvoiceNumber(
+  year: number,
+  month: number,
+  sequence: number
+): string {
+  const paddedMonth = String(month).padStart(2, '0');
   const paddedSeq = String(sequence).padStart(4, '0');
-  return `${INVOICE_PREFIX}-${year}-${paddedSeq}`;
+  return `${INVOICE_PREFIX}-${year}-${paddedMonth}-${paddedSeq}`;
 }
 
 /**
@@ -50,25 +60,28 @@ export function formatInvoiceNumber(year: number, sequence: number): string {
  * Returns null if the string does not match the expected format.
  *
  * @example
- *   parseInvoiceNumber("RE-2026-0042") // → { year: 2026, sequence: 42 }
- *   parseInvoiceNumber("INVALID")      // → null
+ *   parseInvoiceNumber("RE-2026-04-0042") // → { year: 2026, month: 4, sequence: 42 }
+ *   parseInvoiceNumber("INVALID")         // → null
  */
 export function parseInvoiceNumber(
   invoiceNumber: string
-): { year: number; sequence: number } | null {
-  const match = invoiceNumber.match(/^RE-(\d{4})-(\d+)$/);
+): { year: number; month: number; sequence: number } | null {
+  const match = invoiceNumber.match(/^RE-(\d{4})-(\d{2})-(\d+)$/);
   if (!match) return null;
   return {
     year: parseInt(match[1], 10),
-    sequence: parseInt(match[2], 10)
+    month: parseInt(match[2], 10),
+    sequence: parseInt(match[3], 10)
   };
 }
 
 /**
- * Generates the next available invoice number for the current calendar year.
+ * Generates the next available invoice number for the current calendar month.
  *
- * Queries the `invoices` table for the highest-numbered invoice in the current
- * year, then returns the next number. This is safe for concurrent use because:
+ * Calls DB RPC `invoice_numbers_max_for_prefix` for the highest global
+ * invoice_number matching RE-{this year}-{this month}-*, then returns the next
+ * number. Safe for
+ * concurrent use because:
  *   1. The DB has a UNIQUE constraint on invoice_number.
  *   2. Callers should retry once on a unique-violation error.
  *
@@ -78,19 +91,18 @@ export function parseInvoiceNumber(
  */
 export async function generateNextInvoiceNumber(): Promise<string> {
   const supabase = createClient();
-  const currentYear = new Date().getFullYear();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const monthPadded = String(currentMonth).padStart(2, '0');
 
-  // Build the year prefix to filter only this year's invoices.
-  // LIKE 'RE-2026-%' is index-friendly on the invoice_number TEXT column.
-  const yearPrefix = `${INVOICE_PREFIX}-${currentYear}-`;
+  // LIKE 'RE-2026-04-%' matches only this year-month series (not legacy RE-YYYY-NNNN).
+  const ymPrefix = `${INVOICE_PREFIX}-${currentYear}-${monthPadded}-`;
 
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .like('invoice_number', `${yearPrefix}%`)
-    .order('invoice_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: lastNumber, error } = await supabase.rpc(
+    'invoice_numbers_max_for_prefix',
+    { p_prefix: ymPrefix }
+  );
 
   if (error) {
     throw new Error(
@@ -98,21 +110,15 @@ export async function generateNextInvoiceNumber(): Promise<string> {
     );
   }
 
-  if (!data) {
-    // No invoices exist for this year yet → start at 1
-    return formatInvoiceNumber(currentYear, 1);
+  if (!lastNumber) {
+    return formatInvoiceNumber(currentYear, currentMonth, 1);
   }
 
-  // Parse the last number and increment
-  const parsed = parseInvoiceNumber(data.invoice_number);
+  const parsed = parseInvoiceNumber(lastNumber);
   if (!parsed) {
-    // Unexpected format in DB — fall back to a safe default
-    console.error(
-      'Unexpected invoice_number format in DB:',
-      data.invoice_number
-    );
-    return formatInvoiceNumber(currentYear, 1);
+    console.error('Unexpected invoice_number format in DB:', lastNumber);
+    return formatInvoiceNumber(currentYear, currentMonth, 1);
   }
 
-  return formatInvoiceNumber(currentYear, parsed.sequence + 1);
+  return formatInvoiceNumber(currentYear, currentMonth, parsed.sequence + 1);
 }

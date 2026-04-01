@@ -42,7 +42,8 @@ export interface FetchTripsForBuilderParams {
  * Fetches trips for inclusion in an invoice, scoped by payer, date range,
  * and optionally by billing_type and client.
  *
- * Joins billing_variant and client for name/code snapshot data.
+ * Joins billing_variant and client (including price_tag) for name/code snapshot data.
+ * The client.price_tag is the highest priority source for pricing.
  *
  * @param params - Filter parameters from the builder step 2.
  * @returns       Array of TripForInvoice objects ready for line item building.
@@ -64,7 +65,7 @@ export async function fetchTripsForBuilder(
       pickup_address,
       dropoff_address,
       billing_variant:billing_variants(id, code, name),
-      client:clients(id, first_name, last_name)
+      client:clients(id, first_name, last_name, price_tag)
     `
     )
     // Filter by payer directly on the trips table
@@ -97,25 +98,35 @@ export async function fetchTripsForBuilder(
  *
  * This function:
  *   1. Resolves the billable price using resolveTripPrice()
+ *      - client.price_tag has HIGHEST priority
+ *      - trips.price is the fallback
  *   2. Resolves the tax rate using resolveTaxRate()
  *   3. Builds a human-readable description string
  *   4. Attaches validation warnings via validateLineItems()
  *
- * The result is what the user sees in step 3 (Positionen-Vorschau) and
- * can edit (unit_price can be changed inline before confirming).
+ * The result is what the user sees in step 3 (Positionen-Vorschau).
  *
  * @param trips - Raw trip rows from fetchTripsForBuilder().
- * @returns      Line items with warnings attached, ready for user review.
+ * @returns      Line items with price_source and warnings attached.
  */
 export function buildLineItemsFromTrips(
   trips: TripForInvoice[]
 ): BuilderLineItem[] {
   const rawItems = trips.map((trip, index) => {
-    // ── Price resolution ─────────────────────────────────────────────────
-    const { unitPrice, quantity, totalPrice } = resolveTripPrice(trip);
-
     // ── Tax rate resolution ──────────────────────────────────────────────
+    // Tax rate must be resolved FIRST because it's needed to convert
+    // client.price_tag from brutto to netto
     const { rate: taxRate } = resolveTaxRate(trip.driving_distance_km);
+
+    // ── Price resolution ─────────────────────────────────────────────────
+    // resolveTripPrice follows the hierarchy:
+    //   1. client.price_tag (brutto, converted to netto using taxRate)
+    //   2. trips.price (already netto, used as fallback)
+    //   3. null (requires manual entry)
+    const { unitPrice, quantity, totalPrice, source } = resolveTripPrice(
+      trip,
+      taxRate
+    );
 
     // ── Client name snapshot ─────────────────────────────────────────────
     const clientName = trip.client
@@ -158,6 +169,11 @@ export function buildLineItemsFromTrips(
       tax_rate: taxRate,
       billing_variant_code: trip.billing_variant?.code ?? null,
       billing_variant_name: trip.billing_variant?.name ?? null,
+      // Track which price source was used for this line item
+      // 'client_price_tag' — from clients.price_tag (highest priority)
+      // 'trip_price' — from trips.price (fallback)
+      // null — no price set
+      price_source: source,
       // totalPrice handled separately (not part of BuilderLineItem; computed on save)
       _totalPrice: totalPrice // internal — used in calculateTotals()
     } as BuilderLineItem & { _totalPrice: number | null };

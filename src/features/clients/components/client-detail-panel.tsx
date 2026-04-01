@@ -232,13 +232,11 @@ function getDisplayName(client: Client | null, isNew: boolean): string {
   if (isNew) return 'Neuer Fahrgast';
   if (!client) return '...';
 
-  let name = 'Unbekannt';
-  if (client.company_name) {
-    name = client.company_name;
-  } else {
-    const parts = [client.first_name, client.last_name].filter(Boolean);
-    if (parts.length > 0) name = parts.join(' ');
-  }
+  const nameParts = [client.first_name, client.last_name].filter(Boolean);
+  const name =
+    nameParts.length > 0
+      ? nameParts.join(' ')
+      : client.company_name || 'Unbekannt';
 
   const c = client as Client & { customer_number?: number };
   if (c.customer_number) {

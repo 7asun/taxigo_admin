@@ -66,13 +66,17 @@ export function PassengerSearchOverlay() {
         });
         if (cancelled) return;
         setClients(
-          found.map((c) => ({
-            id: c.id,
-            name: c.is_company
-              ? c.company_name || 'Unbekannt'
-              : [c.first_name, c.last_name].filter(Boolean).join(' ') ||
-                'Unbekannt'
-          }))
+          found.map((c) => {
+            const nameParts = [c.first_name, c.last_name].filter(Boolean);
+            const name =
+              nameParts.length > 0
+                ? nameParts.join(' ')
+                : c.company_name || 'Unbekannt';
+            return {
+              id: c.id,
+              name
+            };
+          })
         );
       } finally {
         if (!cancelled) setIsLoadingClients(false);

@@ -167,7 +167,8 @@ export interface CreateInvoicePayload {
  * IMPORTANT: Line items must be inserted AFTER calling this function
  * using insertLineItems() from invoice-line-items.api.ts.
  *
- * The invoice number is auto-generated using the sequential RE-YYYY-NNNN format.
+ * The invoice number is auto-generated using the sequential RE-YYYY-MM-NNNN
+ * format (sequence resets each calendar month).
  * If the insert fails with a unique-constraint violation on invoice_number,
  * callers should retry once (race condition if two invoices are created simultaneously).
  *

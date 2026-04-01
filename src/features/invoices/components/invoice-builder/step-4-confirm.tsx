@@ -6,7 +6,7 @@
  * Invoice builder — Step 4: Confirmation and creation.
  *
  * Shows a summary of what will be created:
- *   - Invoice number preview (RE-YYYY-NNNN — shown as "wird automatisch vergeben")
+ *   - Invoice number preview (RE-YYYY-MM-NNNN — shown as "wird automatisch vergeben")
  *   - Totals recap (Netto / MwSt / Brutto)
  *   - Editable: Notes (Notizen) + Zahlungsziel (payment days override)
  *   - Warning if prices are missing (non-blocking)
@@ -130,7 +130,7 @@ export function Step4Confirm({
       <div className='bg-card border-border rounded-lg border px-4 py-3'>
         <p className='text-muted-foreground text-xs'>Rechnungsnummer</p>
         <p className='text-sm font-medium'>
-          Wird automatisch vergeben (RE-{new Date().getFullYear()}-XXXX)
+          {`Wird automatisch vergeben (RE-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-XXXX)`}
         </p>
       </div>
 

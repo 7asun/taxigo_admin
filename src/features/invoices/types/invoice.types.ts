@@ -54,7 +54,7 @@ export type InvoiceMode = 'monthly' | 'single_trip' | 'per_client';
 export interface InvoiceRow {
   id: string;
   company_id: string;
-  invoice_number: string; // RE-YYYY-NNNN
+  invoice_number: string; // RE-YYYY-MM-NNNN
   payer_id: string;
   billing_type_id: string | null; // null = all billing types
   mode: InvoiceMode;
@@ -190,11 +190,14 @@ export interface TripForInvoice {
     code: string;
     name: string;
   } | null;
-  // Client snapshot fields
+  // Client snapshot fields — includes price_tag for invoice price resolution
+  // price_tag is the highest priority source for pricing
   client?: {
     id: string;
     first_name: string | null;
     last_name: string | null;
+    // Default price for all trips of this client. Takes precedence over trip.price.
+    price_tag: number | null;
   } | null;
   // Address snapshot fields
   pickup_address: string | null;
@@ -270,6 +273,14 @@ export interface BuilderLineItem {
   tax_rate: number; // 0.07 or 0.19
   billing_variant_code: string | null;
   billing_variant_name: string | null;
+
+  /**
+   * Indicates which price source was used for this line item.
+   * 'client_price_tag' — from clients.price_tag (highest priority)
+   * 'trip_price' — from trips.price (fallback)
+   * null — no price set (manual entry required)
+   */
+  price_source: 'client_price_tag' | 'trip_price' | null;
 
   /**
    * Validation warnings for this line item.
