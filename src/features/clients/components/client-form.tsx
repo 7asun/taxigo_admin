@@ -67,7 +67,7 @@ const formSchema = z.object({
   // Price tag: Default price for all trips of this client.
   // Takes precedence over manually entered trip prices during invoicing.
   // Nullable: not all clients have fixed pricing.
-  price_tag: z.number().min(0).nullable().default(null)
+  price_tag: z.number().min(0).nullable()
 });
 
 /** Imperative handle exposed via forwardRef — used by ClientDetailPanel */
