@@ -38,8 +38,21 @@ export function buildSepaQrPayload(params: SepaQrParams): string | null {
 
   const purpose = params.remittance.trim().slice(0, 140);
 
-  // 8 lines per EPC SCT template (BCD 002, UTF-8, SCT)
-  const lines = ['BCD', '002', '1', 'SCT', bic, name, iban, amountStr, purpose];
+  // EPC SCT payload with explicit remittance slot so banking apps parse the
+  // invoice number as Verwendungszweck instead of treating it as free text.
+  const lines = [
+    'BCD',
+    '002',
+    '1',
+    'SCT',
+    bic,
+    name,
+    iban,
+    amountStr,
+    '',
+    purpose,
+    ''
+  ];
 
   return lines.join('\n');
 }

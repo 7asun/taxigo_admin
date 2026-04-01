@@ -253,7 +253,7 @@ export async function insertLineItems(
     // Default missing prices to 0 (user was warned by 'missing_price' badge)
     unit_price: item.unit_price ?? 0,
     quantity: item.quantity,
-    total_price: (item.unit_price ?? 0) * item.quantity,
+    total_price: (item.unit_price ?? 0) * item.quantity * (1 + item.tax_rate),
     tax_rate: item.tax_rate,
     billing_variant_code: item.billing_variant_code,
     billing_variant_name: item.billing_variant_name

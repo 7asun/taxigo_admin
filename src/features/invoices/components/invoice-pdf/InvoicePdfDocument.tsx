@@ -35,7 +35,7 @@ function formatIbanDisplay(iban: string | null | undefined): string {
   return compact.replace(/(.{4})/g, '$1 ').trim();
 }
 
-/** Absenderzeile: name | Straße Nr. | PLZ Ort | Telefon */
+/** Absenderzeile: name | Straße Nr. | PLZ Ort */
 function buildSenderOneLine(cp: InvoiceDetail['company_profile']): string {
   if (!cp) return '';
   const streetPart = [cp.street, cp.street_number]
@@ -43,10 +43,165 @@ function buildSenderOneLine(cp: InvoiceDetail['company_profile']): string {
     .join(' ')
     .trim();
   const cityPart = [cp.zip_code, cp.city].filter(Boolean).join(' ').trim();
-  const parts = [cp.legal_name, streetPart, cityPart, cp.phone?.trim()].filter(
+  const parts = [cp.legal_name, streetPart, cityPart].filter(
     (p): p is string => typeof p === 'string' && p.length > 0
   );
   return parts.join(' | ');
+}
+
+function calculateGrossAmount(netAmount: number, taxRate: number): number {
+  return Math.round(netAmount * (1 + taxRate) * 100) / 100;
+}
+
+function calculateNetAmount(unitPrice: number, quantity: number): number {
+  return Math.round(unitPrice * quantity * 100) / 100;
+}
+
+function normalizeCompareText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractZipCityParts(address: string): {
+  street: string;
+  zipCity: string;
+} {
+  const compact = address.replace(/\s+/g, ' ').trim();
+  const match = compact.match(/^(.*?)(?:,\s*)?(\d{5}\s+.+)$/);
+
+  if (!match) {
+    return { street: compact, zipCity: '' };
+  }
+
+  return {
+    street: match[1].trim().replace(/,\s*$/, ''),
+    zipCity: match[2].trim()
+  };
+}
+
+const PLACE_NOISE_WORDS = new Set([
+  'gmbh',
+  'mbh',
+  'kg',
+  'ug',
+  'co',
+  'bre',
+  'terminal',
+  'halle',
+  'ankunft',
+  'abflug'
+]);
+
+function toDisplayCase(value: string): string {
+  return value.replace(/\w\S*/g, (part) => {
+    const lower = part.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  });
+}
+
+function buildPlaceStem(value: string): string {
+  return normalizeCompareText(value)
+    .split(' ')
+    .filter((token) => token && !PLACE_NOISE_WORDS.has(token))
+    .join(' ');
+}
+
+interface CanonicalPlace {
+  key: string;
+  primary: string;
+  secondary: string;
+}
+
+type PlaceHintMap = Map<string, CanonicalPlace>;
+
+function buildPlaceHintMap(addresses: string[]): PlaceHintMap {
+  const candidates = new Map<string, CanonicalPlace[]>();
+
+  addresses.forEach((rawAddress) => {
+    const normalized = normalizeCompareText(rawAddress);
+    if (!normalized) return;
+
+    const { street, zipCity } = extractZipCityParts(rawAddress);
+    const streetStem = buildPlaceStem(street);
+    if (!streetStem || !zipCity) return;
+
+    const place: CanonicalPlace = {
+      key: `${streetStem}|${buildPlaceStem(zipCity) || normalizeCompareText(zipCity)}`,
+      primary: street || rawAddress.trim(),
+      secondary: zipCity
+    };
+
+    const existing = candidates.get(streetStem) ?? [];
+    existing.push(place);
+    candidates.set(streetStem, existing);
+  });
+
+  const resolved = new Map<string, CanonicalPlace>();
+
+  candidates.forEach((places, stem) => {
+    const uniqueKeys = new Set(places.map((place) => place.key));
+    if (uniqueKeys.size === 1) {
+      resolved.set(stem, places[0]);
+    }
+  });
+
+  return resolved;
+}
+
+function canonicalizePlace(
+  rawAddress: string,
+  placeHints: PlaceHintMap
+): CanonicalPlace {
+  const normalized = normalizeCompareText(rawAddress);
+  const { street, zipCity } = extractZipCityParts(rawAddress);
+  const zipMatch = zipCity.match(/^(\d{5})\s+(.+)$/);
+  const zipCode = zipMatch?.[1] ?? '';
+  const city = zipMatch?.[2]?.trim() ?? '';
+  const cityStem = buildPlaceStem(city);
+  const streetStem = buildPlaceStem(street);
+  const hintedPlace = streetStem ? placeHints.get(streetStem) : undefined;
+
+  const isAirport =
+    normalized.includes('flughafen') || normalized.includes('airport');
+
+  if (isAirport) {
+    const airportKeyBase = [zipCode, cityStem || streetStem]
+      .filter(Boolean)
+      .join('|');
+    const displayCity = city || toDisplayCase(streetStem);
+
+    return {
+      key: `airport:${airportKeyBase || streetStem || normalized}`,
+      primary: displayCity ? `Flughafen ${displayCity}` : 'Flughafen',
+      secondary: zipCity
+    };
+  }
+
+  if (!zipCity && hintedPlace) {
+    return hintedPlace;
+  }
+
+  return {
+    key: `${streetStem || normalizeCompareText(street)}|${cityStem || normalizeCompareText(zipCity)}`,
+    primary: street || rawAddress.trim(),
+    secondary: zipCity
+  };
+}
+
+function buildRouteSecondaryLine(
+  from: CanonicalPlace,
+  to: CanonicalPlace
+): string {
+  if (from.secondary && to.secondary) {
+    return `${from.secondary} -> ${to.secondary}`;
+  }
+
+  return from.secondary || to.secondary || '';
 }
 
 interface InvoicePdfDocumentProps {
@@ -67,12 +222,13 @@ export function InvoicePdfDocument({
     (invoice.mode === 'per_client' || invoice.mode === 'single_trip') &&
     !!client;
 
-  const recipientName = isClientBilled
-    ? (
-        client?.company_name ||
-        `${client?.first_name || ''} ${client?.last_name || ''}`
-      ).trim()
+  const recipientCompanyName = isClientBilled
+    ? (client?.company_name?.trim() ?? '')
+    : '';
+  const recipientPersonName = isClientBilled
+    ? `${client?.first_name || ''} ${client?.last_name || ''}`.trim()
     : (payer?.name ?? '—');
+  const recipientName = recipientPersonName || recipientCompanyName || '—';
 
   const recipientStreet = isClientBilled ? client?.street : payer?.street;
   const recipientStreetNumber = isClientBilled
@@ -80,6 +236,7 @@ export function InvoicePdfDocument({
     : payer?.street_number;
   const recipientZipCode = isClientBilled ? client?.zip_code : payer?.zip_code;
   const recipientCity = isClientBilled ? client?.city : payer?.city;
+  const recipientPhone = isClientBilled ? client?.phone : null;
 
   const customerNumber = isClientBilled
     ? (client?.customer_number ?? '')
@@ -117,44 +274,94 @@ export function InvoicePdfDocument({
     string,
     {
       count: number;
-      description: string;
+      from: CanonicalPlace;
+      to: CanonicalPlace;
       tax_rate: number;
       total_price: number;
+      firstSeen: number;
     }
   > = {};
 
-  invoice.line_items.forEach((item) => {
+  const placeHints = buildPlaceHintMap(
+    invoice.line_items.flatMap((item) =>
+      [item.pickup_address, item.dropoff_address]
+        .filter(
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0
+        )
+        .map((value) => value.trim())
+    )
+  );
+
+  invoice.line_items.forEach((item, idx) => {
     const pAddr = (item.pickup_address || '').trim().replace(/\s+/g, ' ');
     const dAddr = (item.dropoff_address || '').trim().replace(/\s+/g, ' ');
     const rate = item.tax_rate;
+    const from = canonicalizePlace(pAddr || item.description, placeHints);
+    const to = canonicalizePlace(dAddr || item.description, placeHints);
 
-    // key normalization
-    const isRouteItem = pAddr && dAddr;
-    const routeKey = isRouteItem
-      ? `${pAddr.toLowerCase()} -> ${dAddr.toLowerCase()} [${rate}]`
-      : `spec-${item.description.toLowerCase().trim().replace(/\s+/g, ' ')} [${rate}]`;
+    const routeKey = `${from.key} -> ${to.key} [${rate}]`;
 
     if (!routeGroups[routeKey]) {
       routeGroups[routeKey] = {
         count: 0,
-        description: isRouteItem ? `${pAddr} nach ${dAddr}` : item.description,
+        from,
+        to,
         tax_rate: rate,
-        total_price: 0
+        total_price: 0,
+        firstSeen: idx
       };
     }
 
-    routeGroups[routeKey].count += item.quantity || 1;
-    routeGroups[routeKey].total_price += item.total_price;
+    // For grouped route summaries we want the number of rides, not the billing
+    // quantity field, because quantity may represent editable billing units.
+    routeGroups[routeKey].count += 1;
+    routeGroups[routeKey].total_price += calculateNetAmount(
+      item.unit_price,
+      item.quantity
+    );
   });
 
-  const summaryItems = Object.values(routeGroups).map((g, idx) => ({
-    id: `summary-${idx}`,
-    position: idx + 1,
-    description: g.description,
-    tax_rate: g.tax_rate,
-    total_price: g.total_price,
-    quantity: g.count
-  }));
+  const routeDirectionLabels: Record<
+    string,
+    'Hinfahrt' | 'Rückfahrt' | 'Fahrt'
+  > = {};
+
+  Object.entries(routeGroups).forEach(([routeKey, group]) => {
+    const reverseKey = `${group.to.key} -> ${group.from.key} [${group.tax_rate}]`;
+    const reverseGroup = routeGroups[reverseKey];
+
+    routeDirectionLabels[routeKey] = reverseGroup
+      ? reverseGroup.firstSeen < group.firstSeen
+        ? 'Rückfahrt'
+        : 'Hinfahrt'
+      : 'Fahrt';
+  });
+
+  const summaryItems = Object.values(routeGroups)
+    .map((g, idx) => ({
+      reverseKey: `${g.to.key} -> ${g.from.key} [${g.tax_rate}]`,
+      id: `summary-${idx}`,
+      position: idx + 1,
+      from: g.from,
+      to: g.to,
+      tax_rate: g.tax_rate,
+      total_price: g.total_price,
+      quantity: g.count,
+      firstSeen: g.firstSeen
+    }))
+    .sort((a, b) => a.firstSeen - b.firstSeen)
+    .map((g, idx) => {
+      const directionLabel =
+        routeDirectionLabels[`${g.from.key} -> ${g.to.key} [${g.tax_rate}]`];
+
+      return {
+        ...g,
+        position: idx + 1,
+        descriptionPrimary: `${directionLabel}: ${g.from.primary} nach ${g.to.primary}`,
+        descriptionSecondary: buildRouteSecondaryLine(g.from, g.to)
+      };
+    });
 
   const dueDateMs =
     new Date(invoice.created_at).getTime() +
@@ -167,53 +374,89 @@ export function InvoicePdfDocument({
     : { line: '', fontSize: 7 };
 
   const renderFooter = () => (
-    <View style={styles.footer} fixed>
-      <View style={styles.footerColThird}>
-        <Text style={styles.footerBold}>{cp?.legal_name ?? '—'}</Text>
-        {cp?.inhaber?.trim() ? (
-          <Text style={styles.footerText}>Inhaber: {cp.inhaber}</Text>
-        ) : null}
-        {cp?.street ? (
-          <Text style={styles.footerText}>
-            {cp.street} {cp.street_number}
-          </Text>
-        ) : null}
-        {cp?.zip_code ? (
-          <Text style={styles.footerText}>
-            {cp.zip_code} {cp.city}
-          </Text>
-        ) : null}
+    <>
+      <View style={styles.footer} fixed>
+        <View style={styles.footerColThird}>
+          <Text style={styles.footerBold}>{cp?.legal_name ?? '—'}</Text>
+          {cp?.inhaber?.trim() ? (
+            <Text style={styles.footerText}>Inhaber: {cp.inhaber}</Text>
+          ) : null}
+          {cp?.street ? (
+            <Text style={styles.footerText}>
+              {cp.street} {cp.street_number}
+            </Text>
+          ) : null}
+          {cp?.zip_code ? (
+            <Text style={styles.footerText}>
+              {cp.zip_code} {cp.city}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.footerColThird}>
+          <Text style={styles.footerKontaktHeading}>Kontakt</Text>
+          {cp?.phone?.trim() ? (
+            <Text style={styles.footerText}>Tel.: {cp.phone}</Text>
+          ) : null}
+          {cp?.email?.trim() ? (
+            <Text style={styles.footerText}>E-Mail: {cp.email}</Text>
+          ) : null}
+          {cp?.website?.trim() ? (
+            <Text style={styles.footerText}>Web: {cp.website}</Text>
+          ) : null}
+          {invoice.notes?.trim() ? (
+            <Text style={styles.footerNote}>Hinweis: {invoice.notes}</Text>
+          ) : null}
+        </View>
+        <View style={styles.footerColThird}>
+          {cp?.bank_name?.trim() ? (
+            <Text style={styles.footerText}>{cp.bank_name}</Text>
+          ) : null}
+          {cp?.bank_iban?.trim() ? (
+            <Text style={styles.footerText}>
+              IBAN: {formatIbanDisplay(cp.bank_iban)}
+            </Text>
+          ) : null}
+          {cp?.tax_id ? (
+            <Text style={styles.footerText}>St.-Nr.: {cp.tax_id}</Text>
+          ) : null}
+          {cp?.vat_id ? (
+            <Text style={styles.footerText}>USt-IdNr.: {cp.vat_id}</Text>
+          ) : null}
+        </View>
       </View>
-      <View style={styles.footerColThird}>
-        <Text style={styles.footerKontaktHeading}>Kontakt</Text>
-        {cp?.phone?.trim() ? (
-          <Text style={styles.footerText}>Tel.: {cp.phone}</Text>
-        ) : null}
-        {cp?.email?.trim() ? (
-          <Text style={styles.footerText}>E-Mail: {cp.email}</Text>
-        ) : null}
-        {cp?.website?.trim() ? (
-          <Text style={styles.footerText}>Web: {cp.website}</Text>
-        ) : null}
-        {invoice.notes?.trim() ? (
-          <Text style={styles.footerNote}>Hinweis: {invoice.notes}</Text>
-        ) : null}
-      </View>
-      <View style={styles.footerColThird}>
-        {cp?.bank_name?.trim() ? (
-          <Text style={styles.footerText}>{cp.bank_name}</Text>
-        ) : null}
-        {cp?.bank_iban?.trim() ? (
-          <Text style={styles.footerText}>
-            IBAN: {formatIbanDisplay(cp.bank_iban)}
-          </Text>
-        ) : null}
-        {cp?.tax_id ? (
-          <Text style={styles.footerText}>St.-Nr.: {cp.tax_id}</Text>
-        ) : null}
-        {cp?.vat_id ? (
-          <Text style={styles.footerText}>USt-IdNr.: {cp.vat_id}</Text>
-        ) : null}
+      <Text
+        style={styles.footerPageNumber}
+        render={({ pageNumber, totalPages }) =>
+          `Seite ${pageNumber} / ${totalPages}`
+        }
+        fixed
+      />
+    </>
+  );
+
+  const renderAppendixHeader = () => (
+    <View style={styles.appendixHeaderFixed} fixed>
+      <Text style={styles.invoiceTitle}>Anhang: Fahrtendetails</Text>
+      <Text style={styles.notesLabel}>
+        Zu Rechnung {invoice.invoice_number}
+      </Text>
+
+      <View style={[styles.tableHeader, { marginTop: 15 }]}>
+        <Text style={[styles.colPos, styles.tableHeaderText]}>#</Text>
+        <Text style={[styles.colDate, styles.tableHeaderText]}>Datum</Text>
+        <Text style={[styles.colDesc, styles.tableHeaderText]}>
+          Fahrtbeschreibung
+        </Text>
+        <Text style={[styles.colKm, styles.tableHeaderText]}>km</Text>
+        <Text style={[styles.colMwst, styles.tableHeaderText]}>
+          MwSt.{'\n'}Satz
+        </Text>
+        <Text style={[styles.colTotal, styles.tableHeaderText]}>
+          Netto-{'\n'}betrag
+        </Text>
+        <Text style={[styles.colGross, styles.tableHeaderText]}>
+          Brutto-{'\n'}betrag
+        </Text>
       </View>
     </View>
   );
@@ -246,46 +489,76 @@ export function InvoicePdfDocument({
             ) : null}
 
             <View style={styles.recipientBlock}>
-              <Text style={styles.addressCompanyName}>{recipientName}</Text>
+              {recipientCompanyName && recipientPersonName ? (
+                <Text style={styles.addressCompanyName}>
+                  {recipientCompanyName}
+                </Text>
+              ) : null}
+              <Text
+                style={
+                  recipientCompanyName && recipientPersonName
+                    ? styles.addressPersonName
+                    : styles.addressCompanyName
+                }
+              >
+                {recipientName}
+              </Text>
               <Text style={styles.addressLine}>
                 {recipientStreet ?? ''} {recipientStreetNumber ?? ''}
               </Text>
               <Text style={styles.addressLine}>
                 {recipientZipCode ?? ''} {recipientCity ?? ''}
               </Text>
+              {recipientPhone?.trim() ? (
+                <Text style={styles.addressLine}>Tel.: {recipientPhone}</Text>
+              ) : null}
             </View>
           </View>
 
           <View style={styles.headerRight}>
             <View style={styles.metaContainer}>
+              <Text style={styles.metaHeading}>Rechnungsdaten</Text>
               <View style={styles.metaItem}>
-                <Text style={styles.metaLabel}>Rechnungsnr.</Text>
+                <Text style={styles.metaLabel} wrap={false}>
+                  Rechnungsnr.
+                </Text>
                 <Text style={styles.metaValue}>{invoice.invoice_number}</Text>
               </View>
               <View style={styles.metaItem}>
-                <Text style={styles.metaLabel}>Kundennummer</Text>
-                <Text style={styles.metaValue}>{customerNumber || '—'}</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Text style={styles.metaLabel}>Rechnungsdatum</Text>
+                <Text style={styles.metaLabel} wrap={false}>
+                  Rechnungsdatum
+                </Text>
                 <Text style={styles.metaValue}>
                   {fmtDate(invoice.created_at)}
                 </Text>
               </View>
               <View style={styles.metaItem}>
-                <Text style={styles.metaLabel}>Leistungszeitraum</Text>
+                <Text style={styles.metaLabel} wrap={false}>
+                  Kundennummer
+                </Text>
+                <Text style={styles.metaValue}>{customerNumber || '—'}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel} wrap={false}>
+                  St.-Nr.
+                </Text>
+                <Text style={styles.metaValue}>{cp?.tax_id ?? '—'}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel} wrap={false}>
+                  USt-IdNr.
+                </Text>
+                <Text style={styles.metaValue}>{cp?.vat_id ?? '—'}</Text>
+              </View>
+              <View style={[styles.metaItem, styles.metaItemLast]}>
+                <Text style={styles.metaLabel} wrap={false}>
+                  Leistungszeitraum
+                </Text>
                 <Text style={styles.metaValue}>
-                  {fmtDate(invoice.period_from)} – {fmtDate(invoice.period_to)}
+                  {fmtDate(invoice.period_from)} –{'\n'}
+                  {fmtDate(invoice.period_to)}
                 </Text>
               </View>
-            </View>
-            <View style={styles.rightTaxBlock}>
-              {cp?.tax_id ? (
-                <Text style={styles.rightTaxLine}>St.-Nr.: {cp.tax_id}</Text>
-              ) : null}
-              {cp?.vat_id ? (
-                <Text style={styles.rightTaxLine}>USt-IdNr.: {cp.vat_id}</Text>
-              ) : null}
             </View>
           </View>
         </View>
@@ -294,9 +567,8 @@ export function InvoicePdfDocument({
           <Text style={styles.subject}>
             Rechnung Nr. {invoice.invoice_number}
           </Text>
-          <Text style={styles.salutation}>
-            {salutation}
-            {'\n\n'}
+          <Text style={styles.salutation}>{salutation}</Text>
+          <Text style={styles.bodyText}>
             vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die
             erbrachten Personenbeförderungsleistungen gemäß den vereinbarten
             Konditionen.
@@ -323,7 +595,14 @@ export function InvoicePdfDocument({
             wrap={false}
           >
             <Text style={styles.colPos}>{item.position}</Text>
-            <Text style={styles.colRoute}>{item.description}</Text>
+            <View style={styles.colRoute}>
+              <Text style={styles.routePrimary}>{item.descriptionPrimary}</Text>
+              {item.descriptionSecondary ? (
+                <Text style={styles.routeSecondary}>
+                  {item.descriptionSecondary}
+                </Text>
+              ) : null}
+            </View>
             <Text style={styles.colQty}>{item.quantity}x</Text>
             <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
             <Text style={styles.colTotal}>{eur(item.total_price)}</Text>
@@ -331,7 +610,7 @@ export function InvoicePdfDocument({
         ))}
 
         {/* Totals block */}
-        <View style={styles.totalsSection}>
+        <View style={styles.totalsSection} minPresenceAhead={88}>
           <View style={styles.totalsRow}>
             <Text style={styles.totalsLabel}>Summe Nettobeträge</Text>
             <Text style={styles.totalsValue}>{eur(subtotal)}</Text>
@@ -345,7 +624,7 @@ export function InvoicePdfDocument({
             </View>
           ))}
           <View style={styles.totalsDivider} />
-          <View style={styles.totalsRow}>
+          <View style={styles.totalsGrandRow} wrap={false}>
             <Text style={styles.totalsGrandLabel}>
               Bruttobetrag (Zahlungsbetrag)
             </Text>
@@ -353,9 +632,9 @@ export function InvoicePdfDocument({
           </View>
         </View>
 
-        <View style={styles.paymentInstructions}>
+        <View style={styles.paymentInstructions} minPresenceAhead={140}>
           <Text style={styles.boldText}>Zahlungsinformation</Text>
-          <View minPresenceAhead={120}>
+          <View>
             <Text style={[styles.normalText, { marginBottom: 4 }]}>
               Zahlungsziel: {invoice.payment_due_days} Tage netto — fällig zum{' '}
               <Text style={{ fontFamily: 'Helvetica-Bold' }}>{dueDate}</Text>.
@@ -405,7 +684,6 @@ export function InvoicePdfDocument({
               {paymentQrDataUrl ? (
                 <View style={styles.paymentQrWrap}>
                   <Image src={paymentQrDataUrl} style={styles.paymentQr} />
-                  <Text style={styles.paymentQrCaption}>SEPA-QR (EPC)</Text>
                 </View>
               ) : null}
             </View>
@@ -417,42 +695,62 @@ export function InvoicePdfDocument({
 
       {/* Appendix Page */}
       <Page size='A4' style={styles.page} wrap>
-        <Text style={styles.invoiceTitle}>Anhang: Fahrtendetails</Text>
-        <Text style={styles.notesLabel}>
-          Zu Rechnung {invoice.invoice_number}
-        </Text>
+        {renderAppendixHeader()}
+        <View style={styles.appendixContentSpacer} />
 
-        <View style={[styles.tableHeader, { marginTop: 15 }]}>
-          <Text style={[styles.colPos, styles.tableHeaderText]}>#</Text>
-          <Text style={[styles.colDate, styles.tableHeaderText]}>Datum</Text>
-          <Text style={[styles.colDesc, styles.tableHeaderText]}>
-            Fahrtbeschreibung
-          </Text>
-          <Text style={[styles.colKm, styles.tableHeaderText]}>km</Text>
-          <Text style={[styles.colMwst, styles.tableHeaderText]}>
-            MwSt-Satz
-          </Text>
-          <Text style={[styles.colTotal, styles.tableHeaderText]}>Betrag</Text>
-        </View>
+        {invoice.line_items.map((item, idx) =>
+          (() => {
+            const pickup = canonicalizePlace(
+              item.pickup_address || item.description,
+              placeHints
+            );
+            const dropoff = canonicalizePlace(
+              item.dropoff_address || item.description,
+              placeHints
+            );
+            const routeKey = `${pickup.key} -> ${dropoff.key} [${item.tax_rate}]`;
+            const directionLabel = routeDirectionLabels[routeKey] ?? 'Fahrt';
+            const dateLabel = item.line_date
+              ? fmtDate(item.line_date)
+              : fmtDate(invoice.created_at);
 
-        {invoice.line_items.map((item, idx) => (
-          <View
-            key={item.id}
-            style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
-            wrap={false}
-          >
-            <Text style={styles.colPos}>{item.position}</Text>
-            <Text style={styles.colDate}>
-              {item.line_date ? fmtDate(item.line_date) : '—'}
-            </Text>
-            <Text style={styles.colDesc}>{item.description}</Text>
-            <Text style={styles.colKm}>
-              {item.distance_km !== null ? item.distance_km.toFixed(1) : '—'}
-            </Text>
-            <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
-            <Text style={styles.colTotal}>{eur(item.total_price)}</Text>
-          </View>
-        ))}
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.tableRow,
+                  idx % 2 === 1 ? styles.tableRowAlt : {}
+                ]}
+                wrap={false}
+              >
+                <Text style={styles.colPos}>{item.position}</Text>
+                <Text style={styles.colDate}>
+                  {item.line_date ? fmtDate(item.line_date) : '—'}
+                </Text>
+                <View style={styles.colDesc}>
+                  <Text style={styles.routePrimary}>
+                    {`Fahrt vom ${dateLabel} - ${directionLabel}`}
+                  </Text>
+                  <Text style={styles.routeSecondary}>
+                    {`${pickup.primary} -> ${dropoff.primary}`}
+                  </Text>
+                </View>
+                <Text style={styles.colKm}>
+                  {item.distance_km !== null
+                    ? item.distance_km.toFixed(1)
+                    : '—'}
+                </Text>
+                <Text style={styles.colMwst}>
+                  {formatTaxRate(item.tax_rate)}
+                </Text>
+                <Text style={styles.colTotal}>
+                  {eur(calculateNetAmount(item.unit_price, item.quantity))}
+                </Text>
+                <Text style={styles.colGross}>{eur(item.total_price)}</Text>
+              </View>
+            );
+          })()
+        )}
 
         {renderFooter()}
       </Page>

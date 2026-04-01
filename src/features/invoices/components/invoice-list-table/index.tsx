@@ -23,7 +23,7 @@ import {
   getFilteredRowModel
 } from '@tanstack/react-table';
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Eye, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -72,6 +72,7 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const { invoices, isLoading } = useInvoices(filter);
+  const previewInvoice = invoices?.[0];
 
   // ── Table ─────────────────────────────────────────────────────────────────
   const columns = createInvoiceColumns({
@@ -149,7 +150,24 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
           triggerClassName='w-40'
         />
 
-        <div className='ml-auto'>
+        <div className='ml-auto flex items-center gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            className='gap-2'
+            disabled={!previewInvoice}
+            onClick={() => {
+              if (!previewInvoice) return;
+              window.open(
+                `/dashboard/invoices/${previewInvoice.id}/preview`,
+                '_blank',
+                'noopener,noreferrer'
+              );
+            }}
+          >
+            <Eye className='h-4 w-4' />
+            PDF-Vorschau
+          </Button>
           <Button
             onClick={() => router.push('/dashboard/invoices/new')}
             className='gap-2'

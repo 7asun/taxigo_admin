@@ -47,6 +47,9 @@ const formatEur = (v: number) =>
     v
   );
 
+const calculateNetAmount = (unitPrice: number, quantity: number) =>
+  Math.round(unitPrice * quantity * 100) / 100;
+
 /** Status badge config (mirrors columns.tsx for consistency). */
 const STATUS_CONFIG: Record<
   InvoiceStatus,
@@ -265,7 +268,9 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
                       {formatTaxRate(item.tax_rate)}
                     </TableCell>
                     <TableCell className='text-right text-sm font-medium'>
-                      {formatEur(item.total_price)}
+                      {formatEur(
+                        calculateNetAmount(item.unit_price, item.quantity)
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

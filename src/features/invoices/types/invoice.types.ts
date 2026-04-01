@@ -93,7 +93,7 @@ export interface InvoiceLineItemRow {
   distance_km: number | null; // driving distance (from trips.driving_distance_km)
   unit_price: number; // price per unit (per trip or per km)
   quantity: number; // usually 1; or distance_km for per-km pricing
-  total_price: number; // unit_price × quantity (snapshot)
+  total_price: number; // Bruttobetrag snapshot = unit_price × quantity × (1 + tax_rate)
   tax_rate: number; // 0.07 or 0.19 (decimal fraction)
   billing_variant_code: string | null; // e.g. "V01"
   billing_variant_name: string | null; // e.g. "Vollversorgung"
@@ -151,6 +151,7 @@ export interface InvoiceDetail extends InvoiceRow {
     zip_code: string;
     city: string;
     email: string | null;
+    phone: string | null;
   } | null;
   line_items: InvoiceLineItemRow[];
   company_profile: {

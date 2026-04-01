@@ -107,7 +107,7 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       ),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,
-        street, street_number, zip_code, city, email
+        street, street_number, zip_code, city, email, phone
       ),
       line_items:invoice_line_items(
         id, invoice_id, trip_id, position, line_date, description,

@@ -24,8 +24,10 @@ export const PDF_COLORS = {
   lightGray: '#f8fafc',
   /** Border color for table lines */
   border: '#e2e8f0',
-  /** Primary brand accent (used for invoice number). */
-  primary: '#0f172a',
+  /** Primary brand accent. */
+  primary: '#1e40af',
+  /** Soft accent background for emphasis rows */
+  accent: '#dbeafe',
   /** White */
   white: '#ffffff'
 } as const;
@@ -36,9 +38,9 @@ export const PDF_FONT_SIZES = {
   sm: 8,
   base: 9,
   md: 10,
-  lg: 13,
-  xl: 16,
-  xxl: 22
+  lg: 12,
+  xl: 15,
+  xxl: 20
 } as const;
 
 export const styles = StyleSheet.create({
@@ -49,10 +51,10 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    paddingBottom: 65,
+    paddingBottom: 96,
     paddingLeft: 45,
     paddingRight: 45,
-    lineHeight: 1.4
+    lineHeight: 1.45
   },
 
   // ── Kopf: Logo, Slogan darunter (links) | Meta + Steuer rechts; Absenderzeile; Empfänger (Fenster)
@@ -68,7 +70,8 @@ export const styles = StyleSheet.create({
   },
   headerRight: {
     width: '44%',
-    alignItems: 'flex-end'
+    alignItems: 'stretch',
+    paddingTop: 14
   },
   /** Logo oben, Slogan direkt darunter (nicht daneben) */
   brandStack: {
@@ -102,6 +105,11 @@ export const styles = StyleSheet.create({
     width: '100%',
     marginTop: 4
   },
+  addressCompanySecondary: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginBottom: 2
+  },
   addressBlock: {
     width: '100%'
   },
@@ -113,6 +121,11 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.md,
     fontFamily: 'Helvetica-Bold',
     marginBottom: 2
+  },
+  addressPersonName: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginBottom: 4
   },
   addressLine: {
     fontSize: PDF_FONT_SIZES.base,
@@ -129,23 +142,49 @@ export const styles = StyleSheet.create({
 
   metaContainer: {
     width: '100%',
-    marginTop: 0
+    marginTop: 0,
+    backgroundColor: '#f8fafc',
+    borderWidth: 0.8,
+    borderColor: PDF_COLORS.border,
+    borderRadius: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 10
+  },
+  metaHeading: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 1
   },
   metaItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 1,
+    alignItems: 'flex-start',
+    marginBottom: 0,
+    paddingVertical: 2,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#e5edf6'
+  },
+  metaItemLast: {
+    borderBottomWidth: 0,
     paddingBottom: 0
   },
   metaLabel: {
-    fontSize: 6,
+    fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.muted,
-    textTransform: 'uppercase'
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    width: 92,
+    paddingTop: 1,
+    paddingRight: 8
   },
   metaValue: {
-    fontSize: 6,
+    fontSize: PDF_FONT_SIZES.sm,
     color: PDF_COLORS.text,
+    flex: 1,
     textAlign: 'right',
+    lineHeight: 1.35,
     maxWidth: '58%'
   },
 
@@ -153,6 +192,7 @@ export const styles = StyleSheet.create({
   invoiceTitle: {
     fontSize: PDF_FONT_SIZES.xl,
     fontFamily: 'Helvetica-Bold',
+    color: PDF_COLORS.primary,
     marginBottom: 4
   },
   invoiceNumber: {
@@ -162,21 +202,28 @@ export const styles = StyleSheet.create({
   },
 
   subject: {
-    fontSize: PDF_FONT_SIZES.md,
+    fontSize: PDF_FONT_SIZES.lg,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 8
+    marginBottom: 10
   },
   salutation: {
-    fontSize: PDF_FONT_SIZES.sm,
-    marginBottom: 20,
+    fontSize: PDF_FONT_SIZES.base,
+    marginBottom: 8,
     lineHeight: 1.5
+  },
+  bodyText: {
+    fontSize: PDF_FONT_SIZES.base,
+    lineHeight: 1.6,
+    color: PDF_COLORS.text,
+    marginBottom: 16
   },
 
   // ── Line items table ───────────────────────────────────────────────────────
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: PDF_COLORS.primary,
-    color: PDF_COLORS.white,
+    backgroundColor: '#f1f5f9',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#94a3b8',
     paddingVertical: 6,
     paddingHorizontal: 8
   },
@@ -192,21 +239,35 @@ export const styles = StyleSheet.create({
   },
 
   // Summary Table tweaks
-  colQty: { width: '10%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
-  colRoute: { width: '50%', fontSize: PDF_FONT_SIZES.sm },
+  colQty: { width: '9%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
+  colRoute: { width: '55%', paddingRight: 8 },
+  routePrimary: {
+    fontSize: PDF_FONT_SIZES.sm,
+    color: PDF_COLORS.text,
+    lineHeight: 1.35
+  },
+  routeSecondary: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    lineHeight: 1.3,
+    marginTop: 2
+  },
 
-  // Column widths (must sum to 100%)
+  // Column widths (appendix widths must sum to 100%)
   colPos: { width: '5%', fontSize: PDF_FONT_SIZES.sm },
-  colDate: { width: '12%', fontSize: PDF_FONT_SIZES.sm },
-  colDesc: { width: '43%', fontSize: PDF_FONT_SIZES.sm },
-  colKm: { width: '10%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colMwst: { width: '10%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colTotal: { width: '20%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  colDate: { width: '10%', fontSize: PDF_FONT_SIZES.sm },
+  colDesc: { width: '38%', paddingRight: 8 },
+  colKm: { width: '8%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  colMwst: { width: '12%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  colTotal: { width: '19%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  colGross: { width: '16%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
 
   tableHeaderText: {
-    color: PDF_COLORS.white,
+    color: '#334155',
     fontSize: PDF_FONT_SIZES.sm,
-    fontFamily: 'Helvetica-Bold'
+    fontFamily: 'Helvetica-Bold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4
   },
 
   // ── Totals block ───────────────────────────────────────────────────────────
@@ -217,38 +278,51 @@ export const styles = StyleSheet.create({
   totalsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    width: 200,
-    paddingVertical: 2
+    width: '53%',
+    paddingVertical: 3,
+    paddingHorizontal: 8
   },
   totalsLabel: {
     fontSize: PDF_FONT_SIZES.sm,
     color: PDF_COLORS.muted,
-    width: 100,
+    flex: 1,
     textAlign: 'right',
-    paddingRight: 8
+    paddingRight: 12
   },
   totalsValue: {
     fontSize: PDF_FONT_SIZES.sm,
-    width: 100,
+    width: '35%',
     textAlign: 'right'
   },
   totalsDivider: {
     borderTopWidth: 1,
     borderTopColor: PDF_COLORS.border,
-    width: 200,
-    marginVertical: 4
+    width: '53%',
+    marginVertical: 4,
+    marginRight: 8
+  },
+  totalsGrandRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    width: '53%',
+    backgroundColor: PDF_COLORS.accent,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 3
   },
   totalsGrandLabel: {
     fontSize: PDF_FONT_SIZES.md,
     fontFamily: 'Helvetica-Bold',
-    width: 100,
+    flex: 1,
     textAlign: 'right',
-    paddingRight: 8
+    paddingRight: 12,
+    color: PDF_COLORS.text
   },
   totalsGrandValue: {
     fontSize: PDF_FONT_SIZES.md,
     fontFamily: 'Helvetica-Bold',
-    width: 100,
+    width: '35%',
     textAlign: 'right'
   },
 
@@ -271,7 +345,8 @@ export const styles = StyleSheet.create({
   // ── Payment Instructions ───────────────────────────────────────────────────
   paymentInstructions: {
     marginTop: 18,
-    paddingTop: 10,
+    paddingTop: 12,
+    paddingBottom: 2,
     borderTopWidth: 0.5,
     borderTopColor: PDF_COLORS.border
   },
@@ -296,13 +371,6 @@ export const styles = StyleSheet.create({
     width: 113,
     height: 113
   },
-  paymentQrCaption: {
-    fontSize: PDF_FONT_SIZES.xs,
-    color: PDF_COLORS.muted,
-    marginTop: 4,
-    textAlign: 'center',
-    width: 113
-  },
   paymentDetailRow: {
     flexDirection: 'row',
     marginTop: 6,
@@ -321,14 +389,24 @@ export const styles = StyleSheet.create({
   },
   boldText: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: PDF_FONT_SIZES.sm,
+    fontSize: PDF_FONT_SIZES.lg,
     color: PDF_COLORS.text,
-    marginBottom: 2
+    marginBottom: 4
   },
   normalText: {
-    fontSize: PDF_FONT_SIZES.sm,
-    lineHeight: 1.4,
+    fontSize: PDF_FONT_SIZES.base,
+    lineHeight: 1.5,
     color: PDF_COLORS.text
+  },
+
+  appendixHeaderFixed: {
+    position: 'absolute',
+    top: 57,
+    left: 45,
+    right: 45
+  },
+  appendixContentSpacer: {
+    height: 94
   },
 
   // ── Header Top Right ───────────────────────────────────────────────────────
@@ -344,7 +422,7 @@ export const styles = StyleSheet.create({
   // ── Footer ─────────────────────────────────────────────────────────────────
   footer: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 38,
     left: 45,
     right: 45,
     borderTopWidth: 0.5,
@@ -383,5 +461,14 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.text,
     marginBottom: 2
+  },
+  footerPageNumber: {
+    position: 'absolute',
+    bottom: 16,
+    left: 45,
+    right: 45,
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    textAlign: 'center'
   }
 });

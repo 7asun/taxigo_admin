@@ -4,8 +4,8 @@
  */
 
 const MAX_LINE_WIDTH_PT = 268;
-const MIN_PT = 5;
-const FONT_CANDIDATES = [7, 6.5, 6, 5.5, 5] as const;
+const MIN_PT = 6;
+const FONT_CANDIDATES = [7.5, 7, 6.5, 6] as const;
 
 /** Approximate chars that fit at given font size (pt) on one line. */
 function approxMaxChars(fontPt: number): number {
