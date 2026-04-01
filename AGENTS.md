@@ -126,6 +126,7 @@ The project follows a feature-based folder structure designed for scalability in
 │   ├── clerk_setup.md     # Clerk configuration guide
 │   ├── nav-rbac.md        # Navigation RBAC documentation
 │   ├── themes.md          # Theme customization guide
+│   ├── invoice-text-templates.md # Rechnungsvorlagen (Baukasten system)
 │   ├── kanban-view.md     # Kanban trips board behaviour
 │   ├── print-trips-export.md # Fahrten drucken ZIP (PDF + JPEG overviews)
 │   ├── trips-date-filter.md # Fahrten date query + “stuck cards” fix

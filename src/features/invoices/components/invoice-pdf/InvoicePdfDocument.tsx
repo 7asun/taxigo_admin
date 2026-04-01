@@ -30,15 +30,25 @@ export interface InvoicePdfDocumentProps {
   invoice: InvoiceDetail;
   /** PNG data URL from `qrcode` (EPC SCT payload); omit if IBAN missing or generation failed. */
   paymentQrDataUrl?: string | null;
+  /** Optional intro text override from invoice_text_blocks */
+  introText?: string | null;
+  /** Optional outro text override from invoice_text_blocks */
+  outroText?: string | null;
 }
 
 export function InvoicePdfDocument({
   invoice,
-  paymentQrDataUrl = null
+  paymentQrDataUrl = null,
+  introText = null,
+  outroText = null
 }: InvoicePdfDocumentProps) {
   const cp = invoice.company_profile;
   const payer = invoice.payer;
   const client = invoice.client;
+
+  // Use invoice text blocks if available, otherwise fall back to props
+  const resolvedIntroText = introText ?? invoice.intro_block?.content ?? null;
+  const resolvedOutroText = outroText ?? invoice.outro_block?.content ?? null;
 
   const isClientBilled =
     (invoice.mode === 'per_client' || invoice.mode === 'single_trip') &&
@@ -143,6 +153,8 @@ export function InvoicePdfDocument({
           subtotal={subtotal}
           total={total}
           breakdown={breakdown}
+          introText={resolvedIntroText}
+          outroText={resolvedOutroText}
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

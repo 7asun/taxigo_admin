@@ -29,6 +29,10 @@ export interface InvoicePdfCoverBodyProps {
   subtotal: number;
   total: number;
   breakdown: { rate: number; tax: number }[];
+  /** Optional intro text from invoice_text_blocks (Einleitung) */
+  introText?: string | null;
+  /** Optional outro text from invoice_text_blocks (Schlussformel) */
+  outroText?: string | null;
 }
 
 export function InvoicePdfCoverBody({
@@ -41,7 +45,9 @@ export function InvoicePdfCoverBody({
   summaryItems,
   subtotal,
   total,
-  breakdown
+  breakdown,
+  introText,
+  outroText
 }: InvoicePdfCoverBodyProps) {
   return (
     <>
@@ -49,9 +55,8 @@ export function InvoicePdfCoverBody({
         <Text style={styles.subject}>Rechnung Nr. {invoiceNumber}</Text>
         <Text style={styles.salutation}>{salutation}</Text>
         <Text style={styles.bodyText}>
-          vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die
-          erbrachten Personenbeförderungsleistungen gemäß den vereinbarten
-          Konditionen.
+          {introText ??
+            'vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die erbrachten Personenbeförderungsleistungen gemäß den vereinbarten Konditionen.'}
         </Text>
       </View>
 
@@ -174,13 +179,14 @@ export function InvoicePdfCoverBody({
 
       <View style={styles.bodyOutroSection}>
         <Text style={styles.bodyOutro}>
-          Wir bedanken uns herzlich für Ihr Vertrauen in unsere Dienstleistungen
-          und stehen Ihnen bei Fragen oder Anliegen gerne zur Verfügung. Bitte
-          kontaktieren Sie uns gerne hierzu unter{' '}
-          <Text style={{ fontFamily: 'Helvetica-Bold' }}>
-            {cp?.phone?.trim() || '0441 350 17475'}
-          </Text>
-          .
+          {outroText ??
+            'Wir bedanken uns herzlich für Ihr Vertrauen in unsere Dienstleistungen und stehen Ihnen bei Fragen oder Anliegen gerne zur Verfügung.'}
+          {cp?.phone && (
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              {' '}
+              Bitte kontaktieren Sie uns gerne hierzu unter {cp.phone.trim()}.
+            </Text>
+          )}
         </Text>
         <Text style={styles.bodyClosing}>Mit freundlichen Grüßen,</Text>
       </View>

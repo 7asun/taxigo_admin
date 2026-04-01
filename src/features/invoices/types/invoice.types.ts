@@ -173,6 +173,14 @@ export interface InvoiceDetail extends InvoiceRow {
     website: string | null;
     default_payment_days: number;
   } | null;
+  /** FK to invoice_text_blocks - selected intro block for this invoice */
+  intro_block_id?: string | null;
+  /** FK to invoice_text_blocks - selected outro block for this invoice */
+  outro_block_id?: string | null;
+  /** Rechnungsvorlagen - intro block content for PDF */
+  intro_block?: { id: string; content: string } | null;
+  /** Rechnungsvorlagen - outro block content for PDF */
+  outro_block?: { id: string; content: string } | null;
 }
 
 /**
@@ -236,7 +244,9 @@ export const invoiceBuilderSchema = z.object({
   period_to: z.string().min(1, 'Enddatum erforderlich'),
 
   // ── Step 4 — Invoice header / meta ───────────────────────────────────────
-  notes: z.string().nullable(),
+  // Rechnungsvorlagen: selected intro/outro text blocks for PDF
+  intro_block_id: z.string().uuid().nullable().optional(),
+  outro_block_id: z.string().uuid().nullable().optional(),
 
   // Overrides company_profiles.default_payment_days for this invoice
   payment_due_days: z

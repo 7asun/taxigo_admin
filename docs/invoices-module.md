@@ -142,6 +142,10 @@ Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/
 | Places / routes | `lib/invoice-pdf-places.ts` | Canonical addresses, hint map, airport label |
 | Summary build | `lib/build-invoice-pdf-summary.ts` | Grouped routes, Hinfahrt/Rückfahrt labels, net line amount |
 
+**Route Consolidation Logic:** The summary builder now matches routes by canonicalized addresses **only** (not by tax rate). This ensures Hinfahrt and Rückfahrt pairs consolidate properly even if they have different tax rates. The direction labels (Hinfahrt/Rückfahrt) are determined by the first occurrence order of the route.
+
+**Key Normalization Strategy:** Place keys use `cityStem` (city without zip code) to ensure consistent matching. For example, "Taubenstraße 17, 26122 Oldenburg (Oldb)" becomes key: `taubenstraße 17|oldenburg oldb`. This ensures incomplete addresses that receive hints match complete addresses with the same canonical key, preventing fragmentation into 3 route groups instead of 2.
+
 **Pages:** (1) summary + payment; (2) trip-detail appendix. Footer repeats on both; appendix uses a fixed header when content wraps.
 
 ---

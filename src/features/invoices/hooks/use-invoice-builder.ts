@@ -160,13 +160,29 @@ export function useInvoiceBuilder(
 
   const createMutation = useMutation({
     mutationFn: async (
-      step4Values: Pick<InvoiceBuilderFormValues, 'notes' | 'payment_due_days'>
+      step4Values: Pick<
+        InvoiceBuilderFormValues,
+        'intro_block_id' | 'outro_block_id' | 'payment_due_days'
+      >
     ) => {
       if (!step2Values) throw new Error('Schritt 2 nicht abgeschlossen');
 
+      // Convert "none" to null for text block IDs
+      const processedValues = {
+        ...step4Values,
+        intro_block_id:
+          step4Values.intro_block_id === 'none'
+            ? null
+            : step4Values.intro_block_id,
+        outro_block_id:
+          step4Values.outro_block_id === 'none'
+            ? null
+            : step4Values.outro_block_id
+      };
+
       const fullValues: InvoiceBuilderFormValues = {
         ...step2Values,
-        ...step4Values
+        ...processedValues
       };
 
       // 1. Create the invoice header row

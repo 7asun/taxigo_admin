@@ -59,5 +59,19 @@ export const invoiceKeys = {
     period_from: string;
     period_to: string;
     client_id?: string | null;
-  }) => ['invoices', 'builder-trips', params] as const
+  }) => ['invoices', 'builder-trips', params] as const,
+
+  /**
+   * Invoice text blocks (Baukasten) for template management.
+   */
+  textBlocks: {
+    /** Root — invalidate to refetch all text block queries. */
+    all: ['invoice-text-blocks'] as const,
+
+    /** List all text blocks for the current company. */
+    list: () => ['invoice-text-blocks', 'list'] as const,
+
+    /** Single text block by ID. */
+    detail: (id: string) => ['invoice-text-blocks', 'detail', id] as const
+  }
 };

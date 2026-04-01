@@ -147,6 +147,29 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
     detail.line_items.sort((a, b) => a.position - b.position);
   }
 
+  // Fetch text block content for PDF generation
+  if (detail.intro_block_id) {
+    const { data: introBlock } = await supabase
+      .from('invoice_text_blocks')
+      .select('id, content')
+      .eq('id', detail.intro_block_id)
+      .single();
+    if (introBlock) {
+      detail.intro_block = introBlock;
+    }
+  }
+
+  if (detail.outro_block_id) {
+    const { data: outroBlock } = await supabase
+      .from('invoice_text_blocks')
+      .select('id, content')
+      .eq('id', detail.outro_block_id)
+      .single();
+    if (outroBlock) {
+      detail.outro_block = outroBlock;
+    }
+  }
+
   return detail;
 }
 
@@ -193,7 +216,8 @@ export async function createInvoice(
       client_id: payload.formValues.client_id,
       period_from: payload.formValues.period_from,
       period_to: payload.formValues.period_to,
-      notes: payload.formValues.notes,
+      intro_block_id: payload.formValues.intro_block_id,
+      outro_block_id: payload.formValues.outro_block_id,
       payment_due_days: payload.formValues.payment_due_days,
       subtotal: payload.subtotal,
       tax_amount: payload.taxAmount,

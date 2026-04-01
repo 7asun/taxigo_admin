@@ -5,6 +5,14 @@
  * We build a hint map from all addresses on the invoice so a bare street line
  * can inherit zip/city when it uniquely matches one stem. Airports get a
  * dedicated display label. Used by the cover summary table and the appendix.
+ *
+ * KEY NORMALIZATION STRATEGY:
+ * - Place keys use cityStem (city without zip) to ensure consistent matching
+ * - Example: "Taubenstraße 17, 26122 Oldenburg (Oldb)" → key: "taubenstraße 17|oldenburg oldb"
+ * - This ensures incomplete addresses like "Taubenstraße 17" that get hints
+ *   will match complete addresses with the same canonical key
+ * - Without this normalization, we'd create 3 route groups instead of 2 for
+ *   Hinfahrt/Rückfahrt pairs when some trips have incomplete addresses
  */
 
 export interface CanonicalPlace {
@@ -87,8 +95,15 @@ export function buildInvoicePdfPlaceHintMap(
     const streetStem = buildPlaceStem(street);
     if (!streetStem || !zipCity) return;
 
+    // Extract city from zipCity (e.g., "26122 Oldenburg (Oldb)" -> "Oldenburg (Oldb)")
+    const zipMatch = zipCity.match(/^(\d{5})\s+(.+)$/);
+    const city = zipMatch?.[2]?.trim() ?? zipCity;
+    const cityStem = buildPlaceStem(city);
+
     const place: CanonicalPlace = {
-      key: `${streetStem}|${buildPlaceStem(zipCity) || normalizeCompareText(zipCity)}`,
+      // Normalize key to use cityStem (without zip) for consistent matching
+      // This ensures incomplete addresses that get hints match complete addresses
+      key: `${streetStem}|${cityStem || normalizeCompareText(zipCity)}`,
       primary: street || rawAddress.trim(),
       secondary: zipCity
     };
@@ -140,6 +155,7 @@ export function canonicalizeInvoicePdfPlace(
   }
 
   if (!zipCity && hintedPlace) {
+    // Return the hinted place directly - key is already normalized to cityStem format
     return hintedPlace;
   }
 

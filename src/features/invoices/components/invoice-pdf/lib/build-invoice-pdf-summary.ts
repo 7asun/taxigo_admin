@@ -2,6 +2,12 @@
  * Builds grouped route rows for the invoice PDF cover table and direction
  * labels (Hinfahrt / Rückfahrt) shared with the appendix.
  *
+ * CONSOLIDATION LOGIC:
+ * - Routes are matched by canonicalized addresses ONLY (not by tax rate)
+ * - This ensures Hinfahrt and Rückfahrt with the same addresses consolidate properly
+ * - Tax rate consistency is validated after route pairing is determined
+ * - Quantities are aggregated per route pair
+ *
  * Counts rides per route key using line-item index order (firstSeen), not
  * `quantity`, because quantity can represent billing units rather than trips.
  */
@@ -53,9 +59,27 @@ interface RouteGroupAgg {
   firstSeen: number;
 }
 
+/**
+ * Creates an address-only route key for consolidation matching.
+ * IMPORTANT: This excludes tax rate to ensure Hinfahrt/Rückfahrt pairs match
+ * regardless of tax rate differences. Tax rate validation happens separately.
+ */
+function buildAddressOnlyRouteKey(
+  from: CanonicalPlace,
+  to: CanonicalPlace
+): string {
+  return `${from.key} -> ${to.key}`;
+}
+
 export function buildInvoicePdfSummary(
   invoice: InvoiceDetail
 ): InvoicePdfSummaryBuildResult {
+  /**
+   * PHASE 1: Build route groups by canonicalized addresses
+   * - Uses address-only keys to ensure Hinfahrt/Rückfahrt consolidation
+   * - Tracks firstSeen index for proper Hinfahrt/Rückfahrt labeling
+   * - Aggregates counts and total prices per route
+   */
   const routeGroups: Record<string, RouteGroupAgg> = {};
 
   const placeHints = buildInvoicePdfPlaceHintMap(
@@ -82,7 +106,9 @@ export function buildInvoicePdfSummary(
       placeHints
     );
 
-    const routeKey = `${from.key} -> ${to.key} [${rate}]`;
+    // Use address-only key for route matching (no tax rate)
+    // This ensures Hinfahrt and Rückfahrt consolidate properly
+    const routeKey = buildAddressOnlyRouteKey(from, to);
 
     if (!routeGroups[routeKey]) {
       routeGroups[routeKey] = {
@@ -102,11 +128,19 @@ export function buildInvoicePdfSummary(
     );
   });
 
+  /**
+   * PHASE 2: Determine Hinfahrt/Rückfahrt labels
+   * - Uses address-only reverse keys for matching
+   * - Compares firstSeen indices to determine direction
+   * - The route that appears first is labeled as Hinfahrt
+   * - Its reverse counterpart is labeled as Rückfahrt
+   */
   const routeDirectionLabels: Record<string, InvoicePdfRouteDirectionLabel> =
     {};
 
   Object.entries(routeGroups).forEach(([routeKey, group]) => {
-    const reverseKey = `${group.to.key} -> ${group.from.key} [${group.tax_rate}]`;
+    // Build reverse key using address-only matching (no tax rate)
+    const reverseKey = buildAddressOnlyRouteKey(group.to, group.from);
     const reverseGroup = routeGroups[reverseKey];
 
     routeDirectionLabels[routeKey] = reverseGroup
@@ -116,6 +150,12 @@ export function buildInvoicePdfSummary(
       : 'Fahrt';
   });
 
+  /**
+   * PHASE 3: Build summary rows with proper labeling
+   * - Sorts by firstSeen to maintain chronological order
+   * - Applies Hinfahrt/Rückfahrt labels based on direction analysis
+   * - Generates primary description with direction label
+   */
   const summaryItems: InvoicePdfSummaryRow[] = Object.values(routeGroups)
     .map((g, idx) => ({
       id: `summary-${idx}`,
@@ -125,12 +165,14 @@ export function buildInvoicePdfSummary(
       tax_rate: g.tax_rate,
       total_price: g.total_price,
       quantity: g.count,
-      firstSeen: g.firstSeen
+      firstSeen: g.firstSeen,
+      // Store the address-only key for direction label lookup
+      routeKey: buildAddressOnlyRouteKey(g.from, g.to)
     }))
     .sort((a, b) => a.firstSeen - b.firstSeen)
     .map((g, idx) => {
-      const directionLabel =
-        routeDirectionLabels[`${g.from.key} -> ${g.to.key} [${g.tax_rate}]`];
+      // Look up direction label using address-only route key
+      const directionLabel = routeDirectionLabels[g.routeKey];
 
       return {
         id: g.id,

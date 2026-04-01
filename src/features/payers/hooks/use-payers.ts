@@ -32,10 +32,26 @@ export function usePayers() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async ({ name, number }: { name: string; number: string }) => {
+    mutationFn: async ({
+      name,
+      number,
+      default_intro_block_id,
+      default_outro_block_id
+    }: {
+      name: string;
+      number: string;
+      default_intro_block_id?: string | null;
+      default_outro_block_id?: string | null;
+    }) => {
       const companyId = await getCompanyId();
       if (!companyId) throw new Error('Not authenticated');
-      return PayersService.createPayer(companyId, name, number);
+      return PayersService.createPayer(
+        companyId,
+        name,
+        number,
+        default_intro_block_id,
+        default_outro_block_id
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });

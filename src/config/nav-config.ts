@@ -76,6 +76,13 @@ export const navItems: NavItem[] = [
         url: '/dashboard/settings/company',
         icon: 'billing',
         shortcut: ['e', 'u']
+      },
+      {
+        // Invoice text templates: intro/outro blocks (Baukasten system)
+        title: 'Rechnungsvorlagen',
+        url: '/dashboard/settings/invoice-templates',
+        icon: 'post',
+        shortcut: ['r', 'v']
       }
     ]
   },

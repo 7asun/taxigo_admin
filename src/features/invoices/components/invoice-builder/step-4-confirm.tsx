@@ -16,11 +16,10 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, FileText } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -32,10 +31,19 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 
 /** Step 4 local schema — only the invoice meta fields. */
 const step4Schema = z.object({
-  notes: z.string().nullable(),
+  intro_block_id: z.string().optional(),
+  outro_block_id: z.string().optional(),
   payment_due_days: z
     .number({ message: 'Bitte eine Zahl eingeben' })
     .int()
@@ -62,6 +70,10 @@ interface Step4ConfirmProps {
   isCreating: boolean;
   onBack: () => void;
   onConfirm: (values: Step4Values) => void;
+  /** Payer's default intro block (pre-selected if exists) */
+  payerIntroBlockId?: string | null;
+  /** Payer's default outro block (pre-selected if exists) */
+  payerOutroBlockId?: string | null;
 }
 
 /**
@@ -76,13 +88,19 @@ export function Step4Confirm({
   missingPrices,
   isCreating,
   onBack,
-  onConfirm
+  onConfirm,
+  payerIntroBlockId,
+  payerOutroBlockId
 }: Step4ConfirmProps) {
+  const { data: textBlocks, isLoading: isLoadingTextBlocks } =
+    useAllInvoiceTextBlocks();
+
   const form = useForm<Step4Values>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(step4Schema) as any,
     defaultValues: {
-      notes: null,
+      intro_block_id: payerIntroBlockId || 'none',
+      outro_block_id: payerOutroBlockId || 'none',
       payment_due_days: defaultPaymentDays
     }
   });
@@ -165,30 +183,88 @@ export function Step4Confirm({
           )}
         />
 
-        {/* Notes */}
-        <FormField
-          control={form.control}
-          name='notes'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Notizen (optional)</FormLabel>
-              <FormControl>
-                <Textarea
-                  placeholder='z. B. Vertragsnummer, Ansprechpartner, Sondervereinbarungen…'
-                  className='resize-none'
-                  rows={3}
-                  {...field}
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(e.target.value || null)}
-                />
-              </FormControl>
-              <FormDescription>
-                Erscheint im Rechnungstext (nicht auf der PDF-Titelzeile).
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* Rechnungsvorlagen */}
+        <div className='space-y-4'>
+          <h3 className='text-sm font-medium'>Rechnungsvorlagen</h3>
+
+          {/* Intro Block */}
+          <FormField
+            control={form.control}
+            name='intro_block_id'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className='flex items-center gap-2'>
+                  <FileText className='h-4 w-4' />
+                  Einleitung
+                </FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isLoadingTextBlocks || isCreating}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Vorlage wählen' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='none'>Keine Vorlage</SelectItem>
+                      {textBlocks
+                        ?.filter((b) => b.type === 'intro')
+                        .map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                            {block.is_default ? ' (Standard)' : ''}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormDescription>
+                  Wird als Einleitung im Rechnungstext verwendet.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+
+          {/* Outro Block */}
+          <FormField
+            control={form.control}
+            name='outro_block_id'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className='flex items-center gap-2'>
+                  <FileText className='h-4 w-4' />
+                  Schlussformel
+                </FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isLoadingTextBlocks || isCreating}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Vorlage wählen' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='none'>Keine Vorlage</SelectItem>
+                      {textBlocks
+                        ?.filter((b) => b.type === 'outro')
+                        .map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                            {block.is_default ? ' (Standard)' : ''}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormDescription>
+                  Wird als Schlussformel im Rechnungstext verwendet.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+        </div>
 
         {/* Navigation */}
         <div className='flex justify-between pt-2'>

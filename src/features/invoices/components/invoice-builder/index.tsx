@@ -35,6 +35,8 @@ interface Payer {
   name: string;
   number: string;
   billing_types?: { id: string; name: string }[];
+  default_intro_block_id?: string | null;
+  default_outro_block_id?: string | null;
 }
 
 interface Client {
@@ -95,6 +97,11 @@ export function InvoiceBuilder({
     // Navigate to the detail page after successful creation
     router.push(`/dashboard/invoices/${newId}`);
   });
+
+  // Find selected payer for their default text blocks
+  const selectedPayer = step2Values?.payer_id
+    ? payers.find((p) => p.id === step2Values.payer_id)
+    : null;
 
   // ── Guard: company profile not set up ─────────────────────────────────────
   if (companyProfileMissing) {
@@ -206,6 +213,8 @@ export function InvoiceBuilder({
             isCreating={isCreating}
             onBack={() => goToStep(3)}
             onConfirm={(step4Values) => createInvoice(step4Values)}
+            payerIntroBlockId={selectedPayer?.default_intro_block_id}
+            payerOutroBlockId={selectedPayer?.default_outro_block_id}
           />
         )}
       </div>
