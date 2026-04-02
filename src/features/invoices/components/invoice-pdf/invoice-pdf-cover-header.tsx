@@ -94,9 +94,6 @@ export function InvoicePdfCoverHeader({
           <Text style={styles.addressLine}>
             {recipientZipCode} {recipientCity}
           </Text>
-          {recipientPhone?.trim() ? (
-            <Text style={styles.addressLine}>Tel.: {recipientPhone}</Text>
-          ) : null}
         </View>
       </View>
 

@@ -5,7 +5,7 @@
  * sender string used under the logo (DIN-style compact return address).
  */
 
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 
 import type { InvoiceDetail } from '../../../types/invoice.types';
@@ -44,4 +44,17 @@ export function buildInvoicePdfSenderOneLine(
     (p): p is string => typeof p === 'string' && p.length > 0
   );
   return parts.join(' | ');
+}
+
+/** Format time from ISO string (HH:mm) - converts to German local time (Europe/Berlin). */
+export function formatInvoicePdfTime(iso: string): string {
+  // Use Intl.DateTimeFormat to properly convert to German timezone
+  const date = new Date(iso);
+  const formatter = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  return formatter.format(date);
 }

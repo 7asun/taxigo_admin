@@ -128,6 +128,10 @@ export class CompanySettingsService {
    * Storage path: company-assets/{company_id}/logo.{ext}
    * Overwrites any existing logo for the same company.
    *
+   * Important: we upload with { upsert: true }. For Supabase Storage this requires
+   * RLS policies on storage.objects that allow SELECT + INSERT + UPDATE (not INSERT alone),
+   * otherwise uploads can fail with an RLS violation.
+   *
    * After calling this, the caller should also update company_profiles.logo_url
    * via upsertProfile({ logo_url: url }).
    */

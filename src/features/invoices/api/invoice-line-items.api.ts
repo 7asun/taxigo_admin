@@ -156,9 +156,7 @@ export function buildLineItemsFromTrips(
     return {
       trip_id: trip.id,
       position: index + 1, // 1-based
-      line_date: trip.scheduled_at
-        ? trip.scheduled_at.substring(0, 10) // "YYYY-MM-DD"
-        : null,
+      line_date: trip.scheduled_at,
       description,
       client_name: clientName,
       pickup_address: trip.pickup_address,

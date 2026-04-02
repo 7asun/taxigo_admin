@@ -99,7 +99,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 0.4,
     borderBottomColor: PDF_COLORS.border,
     paddingBottom: 3,
-    marginBottom: 8,
+    marginBottom: 1,
     lineHeight: 1.35
   },
   recipientBlock: {
@@ -119,19 +119,19 @@ export const styles = StyleSheet.create({
     paddingTop: 2
   },
   addressCompanyName: {
-    fontSize: PDF_FONT_SIZES.md,
-    fontFamily: 'Helvetica-Bold',
-    marginBottom: 2
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginBottom: 1
   },
   addressPersonName: {
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    marginBottom: 4
+    marginBottom: 1
   },
   addressLine: {
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    marginBottom: 2
+    marginBottom: 1
   },
 
   // ── Logo (links oben im Kopf, nicht absolut)
@@ -273,7 +273,7 @@ export const styles = StyleSheet.create({
   colPos: { width: '5%', fontSize: PDF_FONT_SIZES.sm },
   colDate: { width: '10%', fontSize: PDF_FONT_SIZES.sm },
   colDesc: { width: '38%', paddingRight: 8 },
-  colKm: { width: '8%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  colTime: { width: '8%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
   colMwst: { width: '12%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
   colTotal: { width: '19%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
   colGross: { width: '16%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
@@ -377,15 +377,15 @@ export const styles = StyleSheet.create({
     paddingRight: 14
   },
   paymentQrCol: {
-    width: 90,
+    width: 75,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center'
   },
   /** ~32 mm — kompakter, weiterhin gut scannbar */
   paymentQr: {
-    width: 90,
-    height: 90
+    width: 75,
+    height: 75
   },
   paymentDetailRow: {
     flexDirection: 'row',
@@ -491,8 +491,8 @@ export const styles = StyleSheet.create({
     left: 45,
     right: 45,
     minHeight: 14,
-    fontSize: PDF_FONT_SIZES.sm,
-    color: PDF_COLORS.text,
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
     textAlign: 'center'
   }
 });

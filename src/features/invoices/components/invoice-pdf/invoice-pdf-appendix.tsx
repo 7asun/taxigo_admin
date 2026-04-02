@@ -14,7 +14,8 @@ import {
 } from './lib/build-invoice-pdf-summary';
 import {
   formatInvoicePdfDate,
-  formatInvoicePdfEur
+  formatInvoicePdfEur,
+  formatInvoicePdfTime
 } from './lib/invoice-pdf-format';
 import {
   canonicalizeInvoicePdfPlace,
@@ -49,7 +50,7 @@ export function InvoicePdfAppendix({
           <Text style={[styles.colDesc, styles.tableHeaderText]}>
             Fahrtbeschreibung
           </Text>
-          <Text style={[styles.colKm, styles.tableHeaderText]}>km</Text>
+          <Text style={[styles.colTime, styles.tableHeaderText]}>Uhrzeit</Text>
           <Text style={[styles.colMwst, styles.tableHeaderText]}>
             MwSt.{'\n'}Satz
           </Text>
@@ -96,8 +97,8 @@ export function InvoicePdfAppendix({
                 {`${pickup.primary} -> ${dropoff.primary}`}
               </Text>
             </View>
-            <Text style={styles.colKm}>
-              {item.distance_km !== null ? item.distance_km.toFixed(1) : '—'}
+            <Text style={styles.colTime}>
+              {item.line_date ? formatInvoicePdfTime(item.line_date) : '—'}
             </Text>
             <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
             <Text style={styles.colTotal}>
