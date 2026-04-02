@@ -75,15 +75,16 @@ export function InvoicePdfPreview({ invoiceId }: InvoicePdfPreviewProps) {
     );
   }
 
-  const pdfInvoice = pdfLogoUrl
-    ? {
-        ...invoice,
-        company_profile: {
-          ...invoice.company_profile,
-          logo_url: pdfLogoUrl
+  const pdfInvoice =
+    pdfLogoUrl && invoice.company_profile
+      ? {
+          ...invoice,
+          company_profile: {
+            ...invoice.company_profile,
+            logo_url: pdfLogoUrl
+          }
         }
-      }
-    : invoice;
+      : invoice;
 
   return (
     <div className='flex h-[calc(100vh-4rem)] flex-col gap-4 p-6'>

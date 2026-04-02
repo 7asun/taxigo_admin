@@ -131,15 +131,16 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
   }
 
   const statusCfg = STATUS_CONFIG[invoice.status];
-  const pdfInvoice = pdfLogoUrl
-    ? {
-        ...invoice,
-        company_profile: {
-          ...invoice.company_profile,
-          logo_url: pdfLogoUrl
+  const pdfInvoice =
+    pdfLogoUrl && invoice.company_profile
+      ? {
+          ...invoice,
+          company_profile: {
+            ...invoice.company_profile,
+            logo_url: pdfLogoUrl
+          }
         }
-      }
-    : invoice;
+      : invoice;
 
   return (
     <div className='space-y-6'>
