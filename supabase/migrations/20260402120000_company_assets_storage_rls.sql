@@ -67,42 +67,87 @@ DROP POLICY IF EXISTS "company_assets_authenticated_insert" ON storage.objects;
 DROP POLICY IF EXISTS "company_assets_authenticated_update" ON storage.objects;
 DROP POLICY IF EXISTS "company_assets_authenticated_delete" ON storage.objects;
 
-CREATE POLICY "company_assets_authenticated_select"
-  ON storage.objects
-  FOR SELECT
-  TO authenticated
-  USING (
-    bucket_id = 'company-assets'
-    AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
-  );
+-- CREATE POLICY has no IF NOT EXISTS, so we guard with pg_policies checks.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'company_assets_authenticated_select'
+  ) THEN
+    CREATE POLICY "company_assets_authenticated_select"
+      ON storage.objects
+      FOR SELECT
+      TO authenticated
+      USING (
+        bucket_id = 'company-assets'
+        AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
+      );
+  END IF;
+END $$;
 
-CREATE POLICY "company_assets_authenticated_insert"
-  ON storage.objects
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    bucket_id = 'company-assets'
-    AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
-  );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'company_assets_authenticated_insert'
+  ) THEN
+    CREATE POLICY "company_assets_authenticated_insert"
+      ON storage.objects
+      FOR INSERT
+      TO authenticated
+      WITH CHECK (
+        bucket_id = 'company-assets'
+        AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
+      );
+  END IF;
+END $$;
 
-CREATE POLICY "company_assets_authenticated_update"
-  ON storage.objects
-  FOR UPDATE
-  TO authenticated
-  USING (
-    bucket_id = 'company-assets'
-    AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
-  )
-  WITH CHECK (
-    bucket_id = 'company-assets'
-    AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
-  );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'company_assets_authenticated_update'
+  ) THEN
+    CREATE POLICY "company_assets_authenticated_update"
+      ON storage.objects
+      FOR UPDATE
+      TO authenticated
+      USING (
+        bucket_id = 'company-assets'
+        AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
+      )
+      WITH CHECK (
+        bucket_id = 'company-assets'
+        AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
+      );
+  END IF;
+END $$;
 
-CREATE POLICY "company_assets_authenticated_delete"
-  ON storage.objects
-  FOR DELETE
-  TO authenticated
-  USING (
-    bucket_id = 'company-assets'
-    AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
-  );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'company_assets_authenticated_delete'
+  ) THEN
+    CREATE POLICY "company_assets_authenticated_delete"
+      ON storage.objects
+      FOR DELETE
+      TO authenticated
+      USING (
+        bucket_id = 'company-assets'
+        AND public.user_can_access_company_storage_folder((storage.foldername(name))[1])
+      );
+  END IF;
+END $$;

@@ -38,6 +38,7 @@ import {
 import { InvoiceActions } from './invoice-actions';
 import { InvoicePdfDocument } from '../invoice-pdf/InvoicePdfDocument';
 import { generatePaymentQrDataUrl } from '../invoice-pdf/generate-payment-qr-data-url';
+import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
 import { useInvoiceDetail } from '../../hooks/use-invoice';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceStatus } from '../../types/invoice.types';
@@ -76,16 +77,36 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
   const router = useRouter();
   const { data: invoice, isLoading, isError } = useInvoiceDetail(invoiceId);
   const [paymentQrDataUrl, setPaymentQrDataUrl] = useState<string | null>(null);
+  const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!invoice) {
       setPaymentQrDataUrl(null);
+      setPdfLogoUrl(null);
       return;
     }
     let cancelled = false;
     void generatePaymentQrDataUrl(invoice).then((url) => {
       if (!cancelled) setPaymentQrDataUrl(url);
     });
+
+    void (async () => {
+      const logoPath = invoice.company_profile?.logo_path ?? null;
+      const legacyUrl = invoice.company_profile?.logo_url ?? null;
+      if (!logoPath && !legacyUrl) {
+        if (!cancelled) setPdfLogoUrl(null);
+        return;
+      }
+
+      // Longer TTL so a downloaded PDF can embed the image reliably.
+      const resolved = await resolveCompanyAssetUrl({
+        path: logoPath,
+        url: legacyUrl,
+        expiresInSeconds: 60 * 60 * 24
+      });
+      if (!cancelled) setPdfLogoUrl(resolved);
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -110,6 +131,15 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
   }
 
   const statusCfg = STATUS_CONFIG[invoice.status];
+  const pdfInvoice = pdfLogoUrl
+    ? {
+        ...invoice,
+        company_profile: {
+          ...invoice.company_profile,
+          logo_url: pdfLogoUrl
+        }
+      }
+    : invoice;
 
   return (
     <div className='space-y-6'>
@@ -336,7 +366,7 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
           <PDFDownloadLink
             document={
               <InvoicePdfDocument
-                invoice={invoice}
+                invoice={pdfInvoice}
                 paymentQrDataUrl={paymentQrDataUrl}
               />
             }

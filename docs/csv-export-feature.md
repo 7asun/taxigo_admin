@@ -1,12 +1,12 @@
 # CSV Export Feature for Fahrten
 
-Feature to export trips data to CSV format with customizable filters, column selection, and export preview.
+Feature to export trips data to CSV format with customizable filters, column selection, and live data preview.
 
 ---
 
 ## Overview
 
-The CSV Export feature allows administrators to download trip data from the Fahrten page as a CSV file. The export supports filtering by payer, billing type, and date range, with full control over which columns are included in the output. A preview step shows the user exactly how many trips will be exported before confirming the download.
+The CSV Export feature allows administrators to download trip data from the Fahrten page as a CSV file. The export supports filtering by payer, billing family/type, and date range, with full control over which columns are included in the output. A live preview step shows actual sample data rows before confirming the download.
 
 ---
 
@@ -14,13 +14,12 @@ The CSV Export feature allows administrators to download trip data from the Fahr
 
 1. Navigate to the Fahrten page (`/dashboard/trips`)
 2. Click the **"CSV Export"** button next to the Bulk Upload button
-3. Follow the 5-step wizard:
-   - **Step 1**: Select a payer (or "All payers")
-   - **Step 2**: Select a billing type (only shown if a specific payer was selected)
-   - **Step 3**: Choose date range (defaults to last 30 days)
-   - **Step 4**: Select which columns to export
-   - **Step 5**: Preview the export (shows trip count, filters, and selected columns)
-4. Click "Export" to download the CSV file
+3. Follow the 4-step wizard:
+   - **Step 1**: Select a payer and optionally filter by billing family/type
+   - **Step 2**: Choose date range with quick presets (defaults to current month)
+   - **Step 3**: Select which columns to export
+   - **Step 4**: Preview the export (shows live data table with first 5 rows)
+4. Click "Exportieren" to download the CSV file
 
 ---
 
@@ -30,11 +29,10 @@ The CSV Export feature allows administrators to download trip data from the Fahr
 src/features/trips/components/csv-export/
 ├── download-csv-button.tsx           # Main button component
 ├── csv-export-dialog.tsx             # Multi-step dialog wizard
-├── payer-selection-step.tsx          # Step 1: Payer selection UI
-├── billing-type-selection-step.tsx   # Step 2: Billing type selection UI
-├── date-range-step.tsx               # Step 3: Date range picker UI
-├── column-selector-step.tsx          # Step 4: Column selection UI
-├── preview-step.tsx                  # Step 5: Export preview UI
+├── payer-billing-step.tsx            # Step 1: Combined payer + billing selection
+├── date-range-step.tsx               # Step 2: Date range picker with presets
+├── column-selector-step.tsx          # Step 3: Column selection UI
+├── preview-step.tsx                  # Step 4: Live data preview with table
 ├── csv-export-constants.ts           # Available columns configuration
 
 src/features/trips/types/
@@ -43,8 +41,55 @@ src/features/trips/types/
 src/app/api/trips/export/
 ├── route.ts                          # Server-side CSV generation API
 └── preview/
-    └── route.ts                      # Preview count API (counts matching trips)
+    └── route.ts                      # Preview API (returns count + sample rows)
 ```
+
+---
+
+## 4-Step Wizard
+
+### Step 1: Kostenträger & Abrechnung
+
+Combined payer and billing selection step:
+
+- **Kostenträger**: Select "Alle Kostenträger" or a specific payer
+- **Abrechnungsfamilie**: Appears when a specific payer is selected with billing families
+  - Shows "Alle Abrechnungsfamilien" as default option
+  - Lists all billing families for the selected payer
+- **Abrechnungsart**: Only appears when a specific billing family is selected
+  - Shows "Alle Abrechnungsarten" as default option
+  - Lists all billing variants within the selected family
+
+### Step 2: Zeitraum
+
+Date range selection with project Calendar component in range mode:
+
+**Quick Select Presets:**
+- **Diesen Monat** - Current month (1st to last day)
+- **Letzten Monat** - Previous month (1st to last day)
+- **Diese Woche** - Current week (Monday to Sunday)
+- **Letzte Woche** - Previous week (Monday to Sunday)
+
+Dates are formatted as `DD.MM.YYYY` for display and `yyyy-MM-dd` for API.
+
+### Step 3: Spalten
+
+Column selection interface with categorized columns:
+
+- All 45+ exportable columns organized by category
+- Toggle individual columns or select all/none
+- Categories: Trip Information, Passenger, Pickup Address, Dropoff Address, Billing, Driver, Metadata, Driving Metrics, Technical
+
+### Step 4: Vorschau
+
+Live data preview before export:
+
+- Shows first 5 rows of actual data with selected columns
+- Displays total trip count
+- Horizontal scrolling for many columns
+- Table header stays fixed when scrolling
+- Buttons fixed at bottom (Zurück / Exportieren)
+- Shows "... und X weitere Zeilen" when more than 5 rows
 
 ---
 
@@ -95,7 +140,8 @@ Returns a count of trips matching the filters without generating CSV.
 
 ```typescript
 {
-  count: number  // Number of trips matching the filters
+  count: number;        // Number of trips matching the filters
+  sampleTrips: Array<Record<string, unknown>>;  // First 5 rows for preview
 }
 ```
 
@@ -106,8 +152,10 @@ Returns a count of trips matching the filters without generating CSV.
 The export supports all 45+ columns from the trips table and joined tables:
 
 ### Trip Information
-- `id`, `scheduled_at`, `requested_date`, `status`, `is_wheelchair`
+- `id`, `requested_date`, `status`, `is_wheelchair`
 - `return_status`, `link_type`, `created_at`
+- `scheduled_date`, `scheduled_time` (split from scheduled_at)
+- `canceled_reason_notes` - Stornierungsgrund
 
 ### Passenger Information
 - `client_id`, `client_name`, `client_phone`, `greeting_style`
@@ -158,9 +206,26 @@ The export uses the same timezone-aware filtering as the main Fahrten page:
 
 - Encoding: UTF-8 with BOM for Excel compatibility
 - Delimiter: Comma (`,`)
-- Date format: German format (`DD.MM.YYYY HH:mm`)
+- Date format: German format (`DD.MM.YYYY`)
+- Time format: German format (`HH:mm`)
 - Boolean values: "Ja" / "Nein"
 - Empty values: Empty string (not NULL)
+
+---
+
+## Filename Format
+
+The exported CSV filename follows this pattern:
+
+```
+dd.mm.yy-dd.mm.yy_Fahrten_Kostenträger_Abrechnungs.csv
+```
+
+**Examples:**
+- `01.04.26-15.04.26_Fahrten_Alle.csv`
+- `01.03.26-31.03.26_Fahrten_Muster_Krankenkasse_Privat.csv`
+
+Special characters in payer/billing names are sanitized or replaced with underscores.
 
 ### Security
 
@@ -168,10 +233,17 @@ The export uses the same timezone-aware filtering as the main Fahrten page:
 - Validates company ownership on all exports
 - All filters are scoped to the user's company
 
+### Date/Time Split
+
+The `scheduled_at` datetime field is split into two separate export columns:
+- `scheduled_date`: German date format (DD.MM.YYYY)
+- `scheduled_time`: German time format (HH:mm)
+
 ### Performance
 
 - Server-side CSV generation to handle large datasets
 - No pagination limits - exports ALL matching trips
+- Preview API limits to 5 sample rows for performance
 - Consider narrowing date ranges for large databases
 
 ---
@@ -198,20 +270,27 @@ Example:
 ## Testing
 
 Test scenarios:
-1. Export with "All payers" and broad date range
+1. Export with "Alle Kostenträger" and broad date range
 2. Export with specific payer only
-3. Export with payer + billing type
-4. Export with no columns selected (should show validation error)
-5. Export with date range where start > end (should show validation error)
-6. Export with filters that match 0 trips (should show "not found" error)
+3. Export with payer + billing family + billing variant
+4. Export with "Alle Abrechnungsfamilien" (no specific variant)
+5. Export with no columns selected (should show validation error)
+6. Export with date range where start > end (should show validation error)
+7. Export with filters that match 0 trips (should show "not found" error)
+8. Preview step with many columns selected (dialog should expand and scroll)
+9. Each date preset button (Diesen Monat, Letzten Monat, Diese Woche, Letzte Woche)
 
 ---
 
-## Future Enhancements
+## Recent Changes
 
-Potential improvements:
-- Preset column selections (e.g., "Standard", "Billing", "Addresses only")
-- Export scheduling / recurring exports
-- Email delivery option for large exports
-- Saved export configurations per user
-- Export history log
+### April 2026 Updates
+
+- **Combined Payer/Billing Step**: Merged payer and billing type selection into single step with conditional family/variant visibility
+- **Date Range Presets**: Added 4 quick select buttons (Diesen Monat, Letzten Monat, Diese Woche, Letzte Woche)
+- **Live Data Preview**: Changed from summary view to actual data table with first 5 rows
+- **Dynamic Dialog Width**: Dialog expands to 90vw/1200px for preview step, compact 500px for other steps
+- **Date/Time Split**: Replaced combined "Datum & Uhrzeit" with separate "Datum" and "Uhrzeit" columns
+- **Added canceled_reason_notes**: New column "Stornierungsgrund" for export
+- **Filename Format**: Updated to include payer and billing names with German date format
+- **Removed separate billing-type step**: Now part of combined payer step

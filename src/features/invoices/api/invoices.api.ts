@@ -130,7 +130,7 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       `
         legal_name, street, street_number, zip_code, city,
         tax_id, vat_id, bank_name, bank_iban, bank_bic,
-        logo_url, slogan, phone, inhaber, email, website,
+        logo_path, logo_url, slogan, phone, inhaber, email, website,
         default_payment_days
       `
     )

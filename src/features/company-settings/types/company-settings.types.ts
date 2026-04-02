@@ -45,7 +45,13 @@ export interface CompanyProfile {
   bank_bic: string | null;
 
   // Branding & Kontakt (Rechnung PDF)
-  logo_url: string | null; // Supabase Storage URL
+  /**
+   * Preferred: bucket-relative path (e.g. "<company_id>/logo.png").
+   * The UI/PDF generates signed URLs from this path (works for private buckets).
+   */
+  logo_path: string | null;
+  /** Backward-compatible legacy field (may still exist in older rows). */
+  logo_url: string | null;
   slogan: string | null;
   phone: string | null;
   inhaber: string | null;
@@ -127,7 +133,8 @@ export const companyProfileSchema = z.object({
     .transform((v) => v?.trim().toUpperCase() || null),
 
   // ── Branding & Kontakt ───────────────────────────────────────────────────
-  // logo_url is managed separately via file upload; not part of the text form
+  // logo_path/logo_url are managed separately via file upload; not part of the text form
+  logo_path: z.string().nullable(),
   logo_url: z.string().nullable(),
 
   slogan: z

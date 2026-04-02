@@ -69,6 +69,7 @@ import {
   companyProfileSchema,
   type CompanyProfileFormValues
 } from '../types/company-settings.types';
+import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
 
 // ---------------------------------------------------------------------------
 // Section header — reusable labeled section divider
@@ -101,17 +102,49 @@ function SectionHeader({
 // ---------------------------------------------------------------------------
 
 function LogoUploadField({
-  currentLogoUrl,
+  currentLogoPath,
+  legacyLogoUrl,
   companyId,
   onUpload,
-  isUploading
+  isUploading,
+  onDelete,
+  isDeleting
 }: {
-  currentLogoUrl: string | null;
+  currentLogoPath: string | null;
+  legacyLogoUrl: string | null;
   companyId: string | null;
   onUpload: (args: { file: File; companyId: string }) => Promise<string>;
   isUploading: boolean;
+  onDelete: (args: {
+    companyId: string;
+    currentLogoPath: string | null;
+    legacyLogoUrl: string | null;
+  }) => Promise<unknown>;
+  isDeleting: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [resolvedLogoUrl, setResolvedLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentLogoPath && !legacyLogoUrl) {
+      setResolvedLogoUrl(null);
+      return;
+    }
+
+    // Settings should work with private buckets too: render a signed URL for previews.
+    void resolveCompanyAssetUrl({
+      path: currentLogoPath,
+      url: legacyLogoUrl,
+      expiresInSeconds: 60 * 60
+    }).then((url) => {
+      if (!cancelled) setResolvedLogoUrl(url);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLogoPath, legacyLogoUrl]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -139,9 +172,9 @@ function LogoUploadField({
     <div className='flex items-center gap-4'>
       {/* Logo preview */}
       <div className='border-border bg-muted flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border'>
-        {currentLogoUrl ? (
+        {currentLogoPath || legacyLogoUrl ? (
           <img
-            src={currentLogoUrl}
+            src={resolvedLogoUrl ?? ''}
             alt='Firmenlogo'
             className='h-full w-full object-contain p-1'
           />
@@ -163,21 +196,49 @@ function LogoUploadField({
           className='hidden'
           onChange={handleFileChange}
         />
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          className='gap-2'
-          disabled={isUploading || !companyId}
-          onClick={() => inputRef.current?.click()}
-        >
-          {isUploading ? (
-            <Loader2 className='h-3.5 w-3.5 animate-spin' />
-          ) : (
-            <Upload className='h-3.5 w-3.5' />
-          )}
-          {isUploading ? 'Lädt hoch...' : 'Logo hochladen'}
-        </Button>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='gap-2'
+            disabled={isUploading || isDeleting || !companyId}
+            onClick={() => inputRef.current?.click()}
+          >
+            {isUploading ? (
+              <Loader2 className='h-3.5 w-3.5 animate-spin' />
+            ) : (
+              <Upload className='h-3.5 w-3.5' />
+            )}
+            {isUploading ? 'Lädt hoch...' : 'Logo hochladen'}
+          </Button>
+
+          {currentLogoPath || legacyLogoUrl ? (
+            <Button
+              type='button'
+              variant='destructive'
+              size='sm'
+              className='gap-2'
+              disabled={isUploading || isDeleting || !companyId}
+              onClick={async () => {
+                if (!companyId) return;
+                try {
+                  await onDelete({ companyId, currentLogoPath, legacyLogoUrl });
+                  toast.success('Logo wurde gelöscht.');
+                } catch {
+                  toast.error('Logo konnte nicht gelöscht werden.');
+                }
+              }}
+            >
+              {isDeleting ? (
+                <Loader2 className='h-3.5 w-3.5 animate-spin' />
+              ) : (
+                <X className='h-3.5 w-3.5' />
+              )}
+              {isDeleting ? 'Löscht...' : 'Logo löschen'}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -222,7 +283,9 @@ export function CompanySettingsForm() {
     saveProfile,
     isSaving,
     uploadLogo,
-    isUploadingLogo
+    isUploadingLogo,
+    deleteLogo,
+    isDeletingLogo
   } = useCompanySettings();
 
   // Track whether at least one tax ID is present (soft warning, not a hard error)
@@ -247,6 +310,7 @@ export function CompanySettingsForm() {
       bank_name: null,
       bank_iban: null,
       bank_bic: null,
+      logo_path: null,
       logo_url: null,
       slogan: null,
       phone: null,
@@ -281,6 +345,7 @@ export function CompanySettingsForm() {
       bank_name: profile.bank_name ?? null,
       bank_iban: profile.bank_iban ?? null,
       bank_bic: profile.bank_bic ?? null,
+      logo_path: profile.logo_path ?? null,
       logo_url: profile.logo_url ?? null,
       slogan: profile.slogan ?? null,
       phone: profile.phone ?? null,
@@ -373,10 +438,13 @@ export function CompanySettingsForm() {
         </CardHeader>
         <CardContent className='space-y-6'>
           <LogoUploadField
-            currentLogoUrl={profile?.logo_url ?? null}
+            currentLogoPath={profile?.logo_path ?? null}
+            legacyLogoUrl={profile?.logo_url ?? null}
             companyId={profile?.company_id ?? null}
             onUpload={uploadLogo}
             isUploading={isUploadingLogo}
+            onDelete={deleteLogo}
+            isDeleting={isDeletingLogo}
           />
           <FormField
             control={form.control}

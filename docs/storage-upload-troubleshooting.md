@@ -137,6 +137,14 @@ Migration: `supabase/migrations/20260402120000_company_assets_storage_rls.sql`
 If you’re reading this after the fix is applied, prefer the single source of truth doc:
 `docs/company-logo-upload.md`
 
+## Best practice update (logo_path)
+
+New migration: `supabase/migrations/20260402150000_company_profiles_logo_path.sql`
+
+- Store the logo as a **bucket-relative path** in `company_profiles.logo_path`
+- Generate **signed URLs** when rendering (settings preview + invoice PDF)
+- This avoids relying on public URLs and works with private buckets
+
 ## Debugging Commands
 
 Run these in Supabase SQL Editor to diagnose:
