@@ -19,12 +19,12 @@ import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics'
 
 export function clientDisplayNameFromParts(
   first: string,
-  last: string
+  last: string,
+  company?: string
 ): string {
-  return [first, last]
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(' ');
+  const parts = [first, last].map((s) => s.trim()).filter(Boolean);
+  if (parts.length > 0) return parts.join(' ');
+  return company?.trim() || '';
 }
 
 export interface BuildTripDetailsPatchInput {

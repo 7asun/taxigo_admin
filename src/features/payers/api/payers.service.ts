@@ -54,7 +54,9 @@ export class PayersService {
   static async createPayer(
     companyId: string,
     name: string,
-    number: string
+    number: string,
+    defaultIntroBlockId?: string | null,
+    defaultOutroBlockId?: string | null
   ): Promise<void> {
     if (!companyId) throw new Error('Company ID is required');
 
@@ -62,7 +64,9 @@ export class PayersService {
     const { error } = await supabase.from('payers').insert({
       company_id: companyId,
       name,
-      number
+      number,
+      default_intro_block_id: defaultIntroBlockId || null,
+      default_outro_block_id: defaultOutroBlockId || null
     });
 
     if (error) {

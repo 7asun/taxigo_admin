@@ -1,7 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Pencil, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
+import {
+  Pencil,
+  Plus,
+  Receipt,
+  Settings2,
+  Trash2,
+  FileText,
+  ExternalLink
+} from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -13,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { formatPayerNumber } from '@/lib/customer-number';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import { usePayers } from '../hooks/use-payers';
 import { AddBillingFamilyDialog } from './add-billing-family-dialog';
@@ -36,7 +45,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { toast } from 'sonner';
+import Link from 'next/link';
+import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
+import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
 
 interface PayerDetailsSheetProps {
   payer: PayerWithBillingCount | null;
@@ -76,10 +95,20 @@ export function PayerDetailsSheet({
   const [editName, setEditName] = useState('');
   const [editNumber, setEditNumber] = useState('');
 
+  // Text blocks state
+  const { data: textBlocks, isLoading: isLoadingTextBlocks } =
+    useAllInvoiceTextBlocks();
+  const [selectedIntroBlockId, setSelectedIntroBlockId] = useState<
+    string | null
+  >(null);
+  const [selectedOutroBlockId, setSelectedOutroBlockId] = useState<
+    string | null
+  >(null);
+  const [isSavingTextBlocks, setIsSavingTextBlocks] = useState(false);
+
   const startEditing = () => {
     if (payer) {
       setEditName(payer.name);
-      setEditNumber(payer.number || '');
       setIsEditing(true);
     }
   };
@@ -87,11 +116,32 @@ export function PayerDetailsSheet({
   const handleSave = async () => {
     if (!payer) return;
     try {
-      await updatePayer({ id: payer.id, name: editName, number: editNumber });
+      await updatePayer({
+        id: payer.id,
+        name: editName,
+        number: payer.number as any
+      });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
     } catch {
       toast.error('Fehler beim Aktualisieren');
+    }
+  };
+
+  const handleSaveTextBlocks = async () => {
+    if (!payer) return;
+    setIsSavingTextBlocks(true);
+    try {
+      await updatePayerTextBlocks(
+        payer.id,
+        selectedIntroBlockId,
+        selectedOutroBlockId
+      );
+      toast.success('Rechnungsvorlagen aktualisiert');
+    } catch {
+      toast.error('Fehler beim Speichern der Vorlagen');
+    } finally {
+      setIsSavingTextBlocks(false);
     }
   };
 
@@ -118,7 +168,14 @@ export function PayerDetailsSheet({
                   autoFocus
                 />
               ) : (
-                <SheetTitle className='text-2xl'>{payer.name}</SheetTitle>
+                <SheetTitle className='flex items-baseline gap-3 text-2xl'>
+                  {payer.name}
+                  {payer.number && (
+                    <span className='text-muted-foreground text-lg font-normal'>
+                      {formatPayerNumber(payer.number)}
+                    </span>
+                  )}
+                </SheetTitle>
               )}
               <SheetDescription>
                 Abrechnungsfamilien und Unterarten verwalten; CSV-Codes hier
@@ -156,18 +213,9 @@ export function PayerDetailsSheet({
                 <Receipt className='text-muted-foreground h-6 w-6' />
               </div>
               <div className='flex-1'>
-                {isEditing ? (
-                  <Input
-                    value={editNumber}
-                    onChange={(e) => setEditNumber(e.target.value)}
-                    placeholder='Kostenträgernummer'
-                    className='mb-1 h-8 px-2 py-1'
-                  />
-                ) : (
-                  <div className='text-foreground text-lg font-bold'>
-                    {payer.number || '–'}
-                  </div>
-                )}
+                <div className='text-foreground text-lg font-bold'>
+                  {payer.number || '–'}
+                </div>
                 <div className='text-muted-foreground text-sm'>
                   Kostenträgernummer
                 </div>
@@ -234,6 +282,112 @@ export function PayerDetailsSheet({
                   />
                 ))
               )}
+            </div>
+          </div>
+
+          {/* Invoice Text Templates Section */}
+          <div className='bg-card rounded-xl border p-5 shadow-sm'>
+            <div className='mb-4 flex items-center justify-between'>
+              <div className='flex items-center gap-2'>
+                <FileText className='text-muted-foreground h-5 w-5' />
+                <h3 className='text-lg font-semibold'>Rechnungsvorlagen</h3>
+              </div>
+              <Button variant='outline' size='sm' asChild className='gap-1'>
+                <Link
+                  href='/dashboard/settings/invoice-templates'
+                  target='_blank'
+                >
+                  <ExternalLink className='h-3.5 w-3.5' />
+                  Vorlagen verwalten
+                </Link>
+              </Button>
+            </div>
+
+            <div className='space-y-4'>
+              {/* Intro Block Selector */}
+              <div className='space-y-2'>
+                <label className='text-sm font-medium'>
+                  Standard Einleitung
+                </label>
+                {isLoadingTextBlocks ? (
+                  <Skeleton className='h-10 w-full' />
+                ) : (
+                  <Select
+                    value={selectedIntroBlockId ?? 'default'}
+                    onValueChange={(value) =>
+                      setSelectedIntroBlockId(
+                        value === 'default' ? null : value
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Unternehmens-Standard verwenden...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='default'>
+                        Unternehmens-Standard
+                      </SelectItem>
+                      {textBlocks
+                        ?.filter((b) => b.type === 'intro')
+                        .map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className='text-muted-foreground text-xs'>
+                  Einleitungstext für Rechnungen an diesen Kostenträger.
+                </p>
+              </div>
+
+              {/* Outro Block Selector */}
+              <div className='space-y-2'>
+                <label className='text-sm font-medium'>
+                  Standard Schlussformel
+                </label>
+                {isLoadingTextBlocks ? (
+                  <Skeleton className='h-10 w-full' />
+                ) : (
+                  <Select
+                    value={selectedOutroBlockId ?? 'default'}
+                    onValueChange={(value) =>
+                      setSelectedOutroBlockId(
+                        value === 'default' ? null : value
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder='Unternehmens-Standard verwenden...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='default'>
+                        Unternehmens-Standard
+                      </SelectItem>
+                      {textBlocks
+                        ?.filter((b) => b.type === 'outro')
+                        .map((block) => (
+                          <SelectItem key={block.id} value={block.id}>
+                            {block.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className='text-muted-foreground text-xs'>
+                  Schlussformel für Rechnungen an diesen Kostenträger.
+                </p>
+              </div>
+
+              <Button
+                onClick={handleSaveTextBlocks}
+                disabled={isSavingTextBlocks || isLoadingTextBlocks}
+                size='sm'
+                className='mt-2'
+              >
+                {isSavingTextBlocks ? 'Speichern...' : 'Vorlagen speichern'}
+              </Button>
             </div>
           </div>
         </div>

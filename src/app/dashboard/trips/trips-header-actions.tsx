@@ -38,6 +38,24 @@ const BulkUploadDialog = dynamic(
   }
 );
 
+const DownloadCsvButton = dynamic(
+  async () => {
+    const { DownloadCsvButton: Btn } = await import(
+      '@/features/trips/components/csv-export/download-csv-button'
+    );
+    return { default: Btn };
+  },
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className='border-border bg-muted/40 h-9 w-[140px] shrink-0 animate-pulse rounded-md border'
+        aria-hidden
+      />
+    )
+  }
+);
+
 /**
  * Client-only Radix toolbar actions: `dynamic(..., { ssr: false })` is not allowed
  * in Server Components; wrapping here avoids Popover/Dialog hydration mismatches.
@@ -46,6 +64,7 @@ export function TripsPageHeaderActions() {
   return (
     <div className='flex shrink-0 flex-nowrap items-center justify-end gap-2'>
       <PrintTripsButton />
+      <DownloadCsvButton />
       <BulkUploadDialog />
     </div>
   );

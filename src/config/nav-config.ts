@@ -3,6 +3,11 @@ import { NavItem } from '@/types';
 /**
  * Navigation configuration
  * Used by sidebar and Cmd+K bar.
+ *
+ * HOW TO ADD A NEW NAV ITEM:
+ *   - Top-level page: add a new object to this array (no `items`)
+ *   - Sub-page in a group: add to the parent's `items` array
+ *   - New group: add a new object with an `items` array
  */
 export const navItems: NavItem[] = [
   {
@@ -18,6 +23,15 @@ export const navItems: NavItem[] = [
     url: '/dashboard/trips',
     icon: 'trips',
     shortcut: ['t', 't'],
+    isActive: false,
+    items: []
+  },
+  {
+    // Abrechnung — dedicated section, independent from Account group
+    title: 'Abrechnung',
+    url: '/dashboard/invoices',
+    icon: 'billing',
+    shortcut: ['a', 'a'],
     isActive: false,
     items: []
   },
@@ -44,6 +58,31 @@ export const navItems: NavItem[] = [
         url: '/dashboard/payers',
         icon: 'billing',
         shortcut: ['k', 'k']
+      }
+    ]
+  },
+  {
+    // Einstellungen group — standalone from Abrechnung, extensible via items[]
+    // To add a new settings sub-page: add an entry to items[] below.
+    title: 'Einstellungen',
+    url: '#',
+    icon: 'settings',
+    isActive: false,
+    items: [
+      {
+        // Company profile: legal name, tax IDs, bank details, logo
+        // Data entered here is referenced by all invoices automatically.
+        title: 'Unternehmen',
+        url: '/dashboard/settings/company',
+        icon: 'billing',
+        shortcut: ['e', 'u']
+      },
+      {
+        // Invoice text templates: intro/outro blocks (Baukasten system)
+        title: 'Rechnungsvorlagen',
+        url: '/dashboard/settings/invoice-templates',
+        icon: 'post',
+        shortcut: ['r', 'v']
       }
     ]
   },
