@@ -83,7 +83,8 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.muted,
     lineHeight: 1.4,
-    marginTop: 5,
+    // Keep the branding block compact so it fits comfortably in the header area.
+    marginTop: 2,
     maxWidth: 260
   },
   rightTaxLine: {
@@ -137,7 +138,8 @@ export const styles = StyleSheet.create({
   // ── Logo (links oben im Kopf, nicht absolut)
   logoLeft: {
     width: 100,
-    height: 48,
+    // Keep logo height conservative so it doesn't steal vertical space from DIN header layout.
+    height: 40,
     objectFit: 'contain'
   },
 

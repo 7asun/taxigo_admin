@@ -4,7 +4,7 @@ This project stores the company logo in **Supabase Storage** in the `company-ass
 
 - **Bucket**: `company-assets`
 - **Path**: `{company_id}/logo.{ext}`
-- **DB column**: `company_profiles.logo_url`
+- **DB column**: `company_profiles.logo_path` (preferred)
 
 ### Why uploads failed previously
 
@@ -39,10 +39,18 @@ supabase db push
 
 After that, the logo upload should work again.
 
+### Refactor: store `logo_path` (recommended)
+
+Migration: `supabase/migrations/20260402150000_company_profiles_logo_path.sql`
+
+- New column: `company_profiles.logo_path`
+- Existing `logo_url` values are backfilled into `logo_path` when possible
+- The UI/PDF resolves a **signed URL** from `logo_path` at render time
+
 ### Notes about displaying the logo
 
-The code currently uses `getPublicUrl()` for `logo_url`.
+The app generates **signed URLs** at render time from `logo_path`.
 
-- If your bucket is **private**, anonymous viewers cannot fetch the URL.
-- If you need private buckets, switch to **signed URLs** instead of `getPublicUrl()`.
+- This works whether the bucket is **public or private**.
+- A legacy `logo_url` may still exist in older rows; it is backfilled to `logo_path` via migration.
 

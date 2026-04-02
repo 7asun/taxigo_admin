@@ -50,10 +50,31 @@ export function useCompanySettings() {
       file: File;
       companyId: string;
     }) => {
-      const logoUrl = await CompanySettingsService.uploadLogo(file, companyId);
-      await CompanySettingsService.updateLogoUrl(logoUrl);
-      return logoUrl;
+      const logoPath = await CompanySettingsService.uploadLogo(file, companyId);
+      await CompanySettingsService.updateLogoPath(logoPath);
+      return logoPath;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: companyKeys.profile() });
+    }
+  });
+
+  // ── Logo delete ────────────────────────────────────────────────────────────
+  const deleteLogoMutation = useMutation({
+    mutationFn: async ({
+      companyId,
+      currentLogoPath,
+      legacyLogoUrl
+    }: {
+      companyId: string;
+      currentLogoPath: string | null;
+      legacyLogoUrl: string | null;
+    }) =>
+      CompanySettingsService.deleteLogo({
+        companyId,
+        currentLogoPath,
+        legacyLogoUrl
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: companyKeys.profile() });
     }
@@ -73,6 +94,10 @@ export function useCompanySettings() {
 
     // Logo upload action
     uploadLogo: logoMutation.mutateAsync,
-    isUploadingLogo: logoMutation.isPending
+    isUploadingLogo: logoMutation.isPending,
+
+    // Logo delete action
+    deleteLogo: deleteLogoMutation.mutateAsync,
+    isDeletingLogo: deleteLogoMutation.isPending
   };
 }

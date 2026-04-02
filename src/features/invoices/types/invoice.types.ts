@@ -165,6 +165,7 @@ export interface InvoiceDetail extends InvoiceRow {
     bank_name: string | null;
     bank_iban: string | null;
     bank_bic: string | null;
+    logo_path: string | null;
     logo_url: string | null;
     slogan: string | null;
     phone: string | null;
