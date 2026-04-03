@@ -32,7 +32,7 @@ export default async function Page(props: pageProps) {
       >
         <Suspense
           fallback={
-            <DataTableSkeleton columnCount={10} rowCount={10} filterCount={3} />
+            <DataTableSkeleton columnCount={11} rowCount={10} filterCount={3} />
           }
         >
           <TripsListingPage searchParams={props.searchParams} />

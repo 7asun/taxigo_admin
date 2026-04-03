@@ -101,6 +101,7 @@ Same mental model as **Verhalten** switches (e.g. Abholadresse sperren):
 - **Override:** switch stays editable. If user turns off a catalog-`true`, show a soft warning that the value was catalog-derived. On save → `kts_source = 'manual'`.
 - **Manual on:** if resolver said `false` and user enables KTS → `kts_source = 'manual'`.
 - **Billing change:** when payer/Familie/Unterart changes, re-run resolver **unless** the user has already manually overridden the KTS switch for this editing session (track with local “KTS dirty” state).
+- **Fahrten-Liste (`/dashboard/trips`):** Spalte **KTS** in der Tabellenansicht (`kts_document_applies`); bei `true` ein **KTS**-Badge (gleiche Optik wie im Rechnungs-Builder). Schmale Viewports: dasselbe Badge in der Kartenliste neben dem Status.
 
 ---
 
@@ -141,7 +142,7 @@ Collapsible **KTS-Status** on trip detail when `kts_document_applies = true`: ba
 
 ## 9. Implementation status (V1)
 
-Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver, Katalog-UI, Trip anlegen/bearbeiten, Duplikat/Rückfahrt, Regeln + Cron, CSV, Rechnungs-Hinweise). Bei Schema-Änderungen: `database.types.ts` und ggf. dieses Dokument anpassen.
+Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver, Katalog-UI, Trip anlegen/bearbeiten, Duplikat/Rückfahrt, Regeln + Cron, CSV, Rechnungs-Hinweise, **Fahrten-Dashboard-Liste** mit KTS-Spalte/Badge). Bei Schema-Änderungen: `database.types.ts` und ggf. dieses Dokument anpassen.
 
 ---
 
@@ -153,6 +154,7 @@ Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver,
 | Behavior JSON + dialog | `src/features/payers/components/billing-type-behavior-dialog.tsx`, `src/features/payers/types/payer.types.ts` |
 | Trip create | `src/features/trips/components/create-trip/*` |
 | Trip detail | `src/features/trips/trip-detail-sheet/*` |
+| Fahrten-Liste (Tabelle + Mobil) | `src/features/trips/components/trips-tables/columns.tsx` (Spalte **KTS**), `trips-mobile-card-list.tsx` |
 | Bulk import | `src/features/trips/components/bulk-upload-dialog.tsx`, `bulk-upload/resolve-billing-variants-step.tsx` |
 | Recurring cron | `src/app/api/cron/generate-recurring-trips/route.ts` |
 | Fahrten-CSV-Export (optional Spalte) | `src/features/trips/components/csv-export/csv-export-constants.ts`, `src/app/api/trips/export/route.ts` — Spalte `kts_document_applies` |
@@ -162,4 +164,4 @@ Add **short** comments at resolver entry points and where `kts_source` is assign
 
 ---
 
-*Last updated: 2026-04-03 — V1-Verhalten in Produktivcode und Query-Invalidation für Kostenträger ergänzt.*
+*Last updated: 2026-04-03 — Fahrten-Dashboard: KTS-Spalte/Badge in Liste dokumentiert; Kostenträger-Query-Invalidation wie zuvor.*

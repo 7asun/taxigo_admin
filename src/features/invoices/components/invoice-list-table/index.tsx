@@ -8,7 +8,7 @@
  * Filter bar includes:
  *   - Status filter (Select)
  *   - Payer filter (Select, populated from props)
- *   - Date range (two date inputs)
+ *   - Date range (`DateRangePicker`, `created_at` in business TZ)
  *   - "Neue Rechnung" button → /dashboard/invoices/new
  *
  * The table itself uses the column definitions from ./columns.tsx.
@@ -22,7 +22,7 @@ import {
   type ColumnFiltersState,
   getFilteredRowModel
 } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Eye, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -41,8 +41,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { DatePicker } from '@/components/ui/date-time-picker';
+import { DateRangePicker } from '@/components/ui/date-time-picker';
+import { invoiceDateRangePresets } from '../../lib/invoice-date-range-presets';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatLocalDateToYmd, parseYmdToLocalDate } from '@/lib/date-ymd';
+import type { DateRange } from 'react-day-picker';
 
 import { useInvoices } from '../../hooks/use-invoices';
 import { createInvoiceColumns } from './columns';
@@ -88,6 +91,45 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
     state: { columnFilters },
     onColumnFiltersChange: setColumnFilters
   });
+
+  const invoiceListDateRange = useMemo((): DateRange | undefined => {
+    if (!filter.from && !filter.to) return undefined;
+    const fromD = filter.from ? parseYmdToLocalDate(filter.from) : undefined;
+    const toD = filter.to ? parseYmdToLocalDate(filter.to) : undefined;
+    const start = fromD ?? toD;
+    const end = toD ?? fromD;
+    if (!start || !end) return undefined;
+    return {
+      from: new Date(
+        start.getFullYear(),
+        start.getMonth(),
+        start.getDate(),
+        0,
+        0,
+        0,
+        0
+      ),
+      to: new Date(
+        end.getFullYear(),
+        end.getMonth(),
+        end.getDate(),
+        23,
+        59,
+        59,
+        999
+      )
+    };
+  }, [filter.from, filter.to]);
+
+  const handleInvoiceListDateRangeChange = (range: DateRange | undefined) => {
+    if (!range?.from) {
+      setFilter((f) => ({ ...f, from: undefined, to: undefined }));
+      return;
+    }
+    const fromYmd = formatLocalDateToYmd(range.from);
+    const toYmd = formatLocalDateToYmd(range.to ?? range.from);
+    setFilter((f) => ({ ...f, from: fromYmd, to: toYmd }));
+  };
 
   return (
     <div className='space-y-4'>
@@ -136,18 +178,12 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
           </SelectContent>
         </Select>
 
-        {/* Date range */}
-        <DatePicker
-          value={filter.from ?? ''}
-          onChange={(ymd) =>
-            setFilter((f) => ({ ...f, from: ymd || undefined }))
-          }
-          triggerClassName='w-40'
-        />
-        <DatePicker
-          value={filter.to ?? ''}
-          onChange={(ymd) => setFilter((f) => ({ ...f, to: ymd || undefined }))}
-          triggerClassName='w-40'
+        <DateRangePicker
+          value={invoiceListDateRange}
+          onChange={handleInvoiceListDateRangeChange}
+          presets={invoiceDateRangePresets}
+          triggerClassName='h-10 min-h-10 w-full min-w-[11rem] sm:w-auto sm:max-w-[16rem] md:h-9 md:min-h-0'
+          placeholder='Erstellt im Zeitraum…'
         />
 
         <div className='ml-auto flex items-center gap-2'>

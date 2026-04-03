@@ -4,7 +4,7 @@
  * React Query hook for the invoice list page.
  *
  * Features:
- *   - Filterable list: status, payer, date range
+ *   - Filterable list: status, payer, date range (created_at in business TZ)
  *   - Summary stats computed client-side from the fetched data
  *   - Follows the invalidation pattern from src/query/README.md:
  *     use invalidateQueries(invoiceKeys.all) after any write

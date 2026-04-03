@@ -12,6 +12,7 @@
  * On submit, fetches trips and advances to step 3 (line items preview).
  */
 
+import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -36,7 +37,10 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { DatePicker } from '@/components/ui/date-time-picker';
+import { DateRangePicker } from '@/components/ui/date-time-picker';
+import { invoiceDateRangePresets } from '../../lib/invoice-date-range-presets';
+import { formatLocalDateToYmd, parseYmdToLocalDate } from '@/lib/date-ymd';
+import type { DateRange } from 'react-day-picker';
 import { ClientAutoSuggest } from '@/components/ui/client-auto-suggest';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { useClientPayers } from '../../hooks/use-client-payers';
@@ -116,6 +120,50 @@ export function Step2Params({
   const selectedClientId = form.watch('client_id');
   const { data: clientCombinations = [], isLoading: isLoadingCombinations } =
     useClientPayers(selectedClientId ?? null);
+
+  const periodFrom = form.watch('period_from');
+  const periodTo = form.watch('period_to');
+
+  const step2DateRange = useMemo((): DateRange | undefined => {
+    if (!periodFrom && !periodTo) return undefined;
+    const fromD = periodFrom ? parseYmdToLocalDate(periodFrom) : undefined;
+    const toD = periodTo ? parseYmdToLocalDate(periodTo) : undefined;
+    const start = fromD ?? toD;
+    const end = toD ?? fromD;
+    if (!start || !end) return undefined;
+    return {
+      from: new Date(
+        start.getFullYear(),
+        start.getMonth(),
+        start.getDate(),
+        0,
+        0,
+        0,
+        0
+      ),
+      to: new Date(
+        end.getFullYear(),
+        end.getMonth(),
+        end.getDate(),
+        23,
+        59,
+        59,
+        999
+      )
+    };
+  }, [periodFrom, periodTo]);
+
+  const handleStep2DateRangeChange = (range: DateRange | undefined) => {
+    if (!range?.from) {
+      form.setValue('period_from', '', { shouldValidate: true });
+      form.setValue('period_to', '', { shouldValidate: true });
+      return;
+    }
+    const fromYmd = formatLocalDateToYmd(range.from);
+    const toYmd = formatLocalDateToYmd(range.to ?? range.from);
+    form.setValue('period_from', fromYmd, { shouldValidate: true });
+    form.setValue('period_to', toYmd, { shouldValidate: true });
+  };
 
   const onSubmit = (values: Step2Values) => {
     onNext({
@@ -337,39 +385,27 @@ export function Step2Params({
           </>
         )}
 
-        {/* Date range (always at the bottom) */}
-        <div className='grid grid-cols-2 gap-4'>
-          <FormField
-            control={form.control}
-            name='period_from'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  Von <span className='text-destructive'>*</span>
-                </FormLabel>
-                <FormControl>
-                  <DatePicker value={field.value} onChange={field.onChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='period_to'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  Bis <span className='text-destructive'>*</span>
-                </FormLabel>
-                <FormControl>
-                  <DatePicker value={field.value} onChange={field.onChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
+        {/* Date range (always at the bottom) — same control as trips filter bar */}
+        <FormItem>
+          <FormLabel>
+            Zeitraum <span className='text-destructive'>*</span>
+          </FormLabel>
+          <FormControl>
+            <DateRangePicker
+              value={step2DateRange}
+              onChange={handleStep2DateRangeChange}
+              presets={invoiceDateRangePresets}
+              placeholder='Zeitraum wählen'
+            />
+          </FormControl>
+          {(form.formState.errors.period_from ||
+            form.formState.errors.period_to) && (
+            <p className='text-destructive text-sm font-medium'>
+              {form.formState.errors.period_from?.message ??
+                form.formState.errors.period_to?.message}
+            </p>
+          )}
+        </FormItem>
 
         {/* Navigation */}
         <div className='flex justify-between pt-2'>

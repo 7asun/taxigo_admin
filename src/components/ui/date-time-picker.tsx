@@ -43,6 +43,7 @@ import {
 } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { CalendarIcon, ChevronDownIcon, ClockIcon, X } from 'lucide-react';
+import { parseYmdToLocalDate } from '@/lib/date-ymd';
 import { cn } from '@/lib/utils';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { MobileDateTimeSheet } from '@/features/trips/components/create-trip/mobile-datetime-sheet';
@@ -301,15 +302,6 @@ export function DateTimePicker({
 
 // --- Date-only picker (import as `DatePicker`; used when time is not part of the same `Date`)
 
-/** Parses `yyyy-MM-dd` to a local calendar `Date` (no UTC shift) for `Calendar`’s `selected`. */
-function parseYmdToLocalDate(ymd: string): Date | undefined {
-  const t = ymd.trim();
-  if (!t) return undefined;
-  const [y, m, d] = t.split('-').map(Number);
-  if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return undefined;
-  return new Date(y, m - 1, d);
-}
-
 export interface DatePickerProps {
   /** Calendar day as `yyyy-MM-dd`, or `''` when no day is chosen. */
   value: string;
@@ -473,8 +465,8 @@ export interface DateRangePickerProps {
   placeholder?: string;
 }
 
-/** Default presets for date range selection */
-const defaultPresets: DateRangePreset[] = [
+/** Default presets for date range selection (e.g. trips filter). Exported for consumers that want to subset. */
+export const dateRangePickerDefaultPresets: DateRangePreset[] = [
   {
     label: 'Heute',
     getRange: () => {
@@ -564,7 +556,7 @@ export function DateRangePicker({
   disabled,
   id = 'date-range-picker',
   triggerClassName,
-  presets = defaultPresets,
+  presets = dateRangePickerDefaultPresets,
   placeholder = 'Zeitraum wählen'
 }: DateRangePickerProps) {
   const narrow = useIsNarrowScreen(768);
@@ -612,7 +604,8 @@ export function DateRangePicker({
     onChange(normalized.from ? normalized : undefined);
   };
 
-  const clearSelection = (e: React.MouseEvent) => {
+  const clearSelection = (e: React.SyntheticEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     onChange(undefined);
   };
@@ -621,13 +614,25 @@ export function DateRangePicker({
   if (narrow) {
     return (
       <>
-        <Button
-          type='button'
+        {/* Outer control is a div so the clear action can be a real <button> (no nested buttons). */}
+        <div
           id={id}
-          variant='outline'
-          disabled={disabled}
-          onClick={() => setDateSheetOpen(true)}
+          role='button'
+          tabIndex={disabled ? -1 : 0}
+          aria-disabled={disabled ? true : undefined}
+          aria-haspopup='dialog'
+          onClick={() => {
+            if (!disabled) setDateSheetOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (disabled) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setDateSheetOpen(true);
+            }
+          }}
           className={cn(
+            buttonVariants({ variant: 'outline' }),
             'h-10 min-h-10 w-full touch-manipulation justify-between text-left text-base font-normal md:h-9 md:min-h-0',
             !value?.from && 'text-muted-foreground',
             triggerClassName
@@ -639,19 +644,22 @@ export function DateRangePicker({
           </span>
           <span className='flex items-center gap-1'>
             {value?.from && (
-              <Button
+              <button
                 type='button'
-                variant='ghost'
-                size='icon'
-                className='h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'icon' }),
+                  'h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                )}
+                aria-label='Zeitraum zurücksetzen'
                 onClick={clearSelection}
+                onPointerDown={(e) => e.stopPropagation()}
               >
                 <X className='h-3 w-3' />
-              </Button>
+              </button>
             )}
             <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
           </span>
-        </Button>
+        </div>
         <MobileDateTimeSheet
           open={dateSheetOpen}
           onOpenChange={setDateSheetOpen}
@@ -686,13 +694,12 @@ export function DateRangePicker({
 
   return (
     <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type='button'
+      {/* `asChild` + div: Radix attaches trigger behaviour without a <button>, so the clear control can be a real button. */}
+      <PopoverTrigger asChild disabled={disabled}>
+        <div
           id={id}
-          variant='outline'
-          disabled={disabled}
           className={cn(
+            buttonVariants({ variant: 'outline' }),
             'h-10 min-h-10 w-full touch-manipulation justify-between text-left font-normal md:h-9 md:min-h-0',
             !value?.from && 'text-muted-foreground',
             triggerClassName
@@ -704,19 +711,22 @@ export function DateRangePicker({
           </span>
           <span className='flex items-center gap-1'>
             {value?.from && (
-              <Button
+              <button
                 type='button'
-                variant='ghost'
-                size='icon'
-                className='h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'icon' }),
+                  'h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                )}
+                aria-label='Zeitraum zurücksetzen'
                 onClick={clearSelection}
+                onPointerDown={(e) => e.stopPropagation()}
               >
                 <X className='h-3 w-3' />
-              </Button>
+              </button>
             )}
             <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
           </span>
-        </Button>
+        </div>
       </PopoverTrigger>
       <PopoverContent
         align='start'
