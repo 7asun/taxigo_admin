@@ -22,10 +22,12 @@ Wichtig: **Alle gültigen Fahrten werden immer zuerst erstellt.** Der Wizard die
 Verwenden Sie diese exakte Kopfzeile (Reihenfolge ist wichtig):
 
 ```text
-kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,pickup_street,pickup_zip,pickup_city,pickup_station,dropoff_street,dropoff_zip,dropoff_city,dropoff_station,is_wheelchair,notes,group_id,driver_name,pair_id,anrufstation,betreuer
+kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,pickup_street,pickup_zip,pickup_city,pickup_station,dropoff_street,dropoff_zip,dropoff_city,dropoff_station,is_wheelchair,notes,group_id,driver_name,pair_id,anrufstation,betreuer,kts_document_applies
 ```
 
-> **Hinweise:** `pair_id`, `anrufstation` und `betreuer` sind optional. Bestehende CSVs ohne diese Spalten funktionieren weiterhin ohne Änderungen.
+> **Hinweise:** `pair_id`, `anrufstation`, `betreuer` und **`kts_document_applies`** (sowie die Alias-Spalten `kts` / `kts_document`) sind optional. Bestehende CSVs ohne diese Spalten funktionieren weiterhin ohne Änderungen.
+
+**KTS:** Optionale Spalte **`kts_document_applies`** — gleichwertige Header: **`kts`**, **`kts_document`**. Werte: `true`/`false`, `1`/`0`, `ja`/`nein`, `yes`/`no`. Leer oder Spalte fehlt → gleiche Katalog-Kaskade wie bei **Neue Fahrt** ([kts-architecture.md](kts-architecture.md)). Gesetzt → expliziter Wert auf der Fahrt, `kts_source = manual`.
 
 ### 3. Column Details
 
@@ -167,6 +169,9 @@ kostentraeger,abrechnungsart,date,time,firstname,lastname,phone,greeting_style,p
 
 - **betreuer** (optional)  
   Freitext, wird als `trips.billing_betreuer` gespeichert.
+
+- **kts_document_applies** / **kts** / **kts_document** (optional)  
+  Steuert `trips.kts_document_applies` und `trips.kts_source`. Siehe Kopfzeilen-Hinweis oben. Ungültige Werte führen zu `invalid_kts_cell` und die Zeile wird nicht importiert.
 
 ### 4. Validierung & Matching im Upload
 
