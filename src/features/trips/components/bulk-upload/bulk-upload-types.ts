@@ -53,6 +53,13 @@ export type ParsedCsvRow = {
   anrufstation?: string;
   /** Optional — maps to `trips.billing_betreuer`. */
   betreuer?: string;
+  /**
+   * Optional explicit KTS flag for the trip. Aliases (same semantics): `kts`, `kts_document`.
+   * `true`/`false`, `1`/`0`, `ja`/`nein`, `yes`/`no`. Empty → catalog cascade at import.
+   */
+  kts_document_applies?: string;
+  kts?: string;
+  kts_document?: string;
 };
 
 export type ValidationIssueType =
@@ -71,7 +78,8 @@ export type ValidationIssueType =
    */
   | 'pair_id_ambiguous'
   | 'missing_pickup_station'
-  | 'missing_dropoff_station';
+  | 'missing_dropoff_station'
+  | 'invalid_kts_cell';
 
 export interface ValidationIssue {
   type: ValidationIssueType;
@@ -90,7 +98,14 @@ export interface ValidatedTripRow<TripShape = unknown> {
   variantResolution?: {
     payerId: string;
     familyName: string;
-    variants: { id: string; name: string; code: string }[];
+    payerKtsDefault: boolean | null;
+    familyBehaviorProfile: unknown;
+    variants: {
+      id: string;
+      name: string;
+      code: string;
+      kts_default: boolean | null;
+    }[];
   };
   /** True when the billing type's returnPolicy demands an auto-created return trip. */
   needsReturnTrip?: boolean;

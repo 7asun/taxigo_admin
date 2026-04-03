@@ -35,7 +35,8 @@ function serializeDraftPayload(
       is_wheelchair: values.is_wheelchair,
       notes: values.notes ?? '',
       billing_calling_station: values.billing_calling_station ?? '',
-      billing_betreuer: values.billing_betreuer ?? ''
+      billing_betreuer: values.billing_betreuer ?? '',
+      kts_document_applies: values.kts_document_applies
     },
     passengers,
     pickupGroups,

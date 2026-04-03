@@ -9,6 +9,7 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -20,6 +21,7 @@ import { CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import type { RuleFormValues } from './recurring-rule-form-body';
+import { resolveKtsDefault } from '@/features/trips/lib/resolve-kts-default';
 
 interface RecurringRuleBillingFieldsProps {
   form: UseFormReturn<RuleFormValues>;
@@ -37,6 +39,9 @@ export function RecurringRuleBillingFields({
   const { payers, billingTypes, isLoading } = useTripFormData(watchedPayerId);
 
   const [billingFamilyId, setBillingFamilyId] = React.useState('');
+  const [ktsCatalogHint, setKtsCatalogHint] = React.useState<string | null>(
+    null
+  );
 
   const prevPayerRef = React.useRef<string | undefined>(undefined);
   React.useEffect(() => {
@@ -46,9 +51,40 @@ export function RecurringRuleBillingFields({
     ) {
       form.setValue('billing_variant_id', '');
       setBillingFamilyId('');
+      form.setValue('kts_manual', false);
     }
     prevPayerRef.current = watchedPayerId;
   }, [watchedPayerId, form]);
+
+  React.useEffect(() => {
+    if (form.getValues('kts_manual')) return;
+    if (!watchedPayerId || !watchedBillingVariantId) {
+      setKtsCatalogHint(null);
+      return;
+    }
+    const payer = payers.find((p) => p.id === watchedPayerId);
+    const variant = billingTypes.find((b) => b.id === watchedBillingVariantId);
+    if (!payer || !variant) return;
+    const r = resolveKtsDefault({
+      payerKtsDefault: payer.kts_default,
+      familyBehaviorProfile: variant.behavior_profile,
+      variantKtsDefault: variant.kts_default
+    });
+    form.setValue('kts_document_applies', r.value);
+    if (!r.value) {
+      setKtsCatalogHint(null);
+    } else if (r.source === 'variant') {
+      setKtsCatalogHint(`Voreingestellt aus Unterart: ${variant.name}`);
+    } else if (r.source === 'familie') {
+      setKtsCatalogHint(
+        `Voreingestellt aus Abrechnungsfamilie: ${variant.billing_type_name}`
+      );
+    } else if (r.source === 'payer') {
+      setKtsCatalogHint(`Voreingestellt aus Kostenträger: ${payer.name}`);
+    } else {
+      setKtsCatalogHint(null);
+    }
+  }, [watchedPayerId, watchedBillingVariantId, payers, billingTypes, form]);
 
   const selectedFamilyId = billingFamilyId;
 
@@ -225,6 +261,42 @@ export function RecurringRuleBillingFields({
             />
           )}
       </div>
+      {watchedPayerId ? (
+        <FormField
+          control={form.control}
+          name='kts_document_applies'
+          render={({ field }) => (
+            <FormItem className='bg-muted/30 mt-2 rounded-lg border p-3'>
+              <div className='flex flex-row items-center justify-between gap-3'>
+                <div className='min-w-0 space-y-1'>
+                  <FormLabel className='text-sm'>
+                    KTS / Krankentransportschein
+                  </FormLabel>
+                  {ktsCatalogHint && field.value ? (
+                    <p className='text-muted-foreground text-xs'>
+                      {ktsCatalogHint}
+                    </p>
+                  ) : null}
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={(c) => {
+                      form.setValue('kts_manual', true);
+                      if (!c) setKtsCatalogHint(null);
+                      field.onChange(c);
+                    }}
+                  />
+                </FormControl>
+              </div>
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Wird auf alle Fahrten dieser Regel übertragen.
+              </p>
+            </FormItem>
+          )}
+        />
+      ) : null}
+
       {selectedBillingType && (
         <div
           className='mt-1 flex flex-col gap-0.5 rounded-md px-3 py-1.5 text-xs font-medium'

@@ -23,6 +23,7 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requirePickupStation: false,
   requireDropoffStation: false,
   askCallingStationAndBetreuer: false,
+  kts_default: 'unset',
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,
@@ -40,7 +41,7 @@ export class PayersService {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('payers')
-      .select('id, name, number, billing_types(count)')
+      .select('id, name, number, kts_default, billing_types(count)')
       .order('name');
 
     if (error) {
@@ -75,16 +76,21 @@ export class PayersService {
     }
   }
 
-  static async updatePayer(
-    id: string,
-    name: string,
-    number: string
-  ): Promise<void> {
+  static async updatePayer(args: {
+    id: string;
+    name: string;
+    number: string;
+    kts_default: boolean | null;
+  }): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
       .from('payers')
-      .update({ name, number })
-      .eq('id', id);
+      .update({
+        name: args.name,
+        number: args.number,
+        kts_default: args.kts_default
+      })
+      .eq('id', args.id);
 
     if (error) {
       console.error('Error updating payer:', error);
@@ -117,7 +123,8 @@ export class PayersService {
           name,
           code,
           sort_order,
-          created_at
+          created_at,
+          kts_default
         )
       `
       )
@@ -228,7 +235,8 @@ export class PayersService {
     familyId: string,
     name: string,
     rawCode: string | null | undefined,
-    sortOrder?: number
+    sortOrder?: number,
+    ktsDefault?: boolean | null
   ): Promise<void> {
     const supabase = createClient();
     const trimmedName = name.trim();
@@ -267,7 +275,8 @@ export class PayersService {
       billing_type_id: familyId,
       name: trimmedName,
       code,
-      sort_order: sortOrder ?? 0
+      sort_order: sortOrder ?? 0,
+      kts_default: ktsDefault ?? null
     });
 
     if (error) {
@@ -279,7 +288,8 @@ export class PayersService {
   static async updateBillingVariant(
     variantId: string,
     name: string,
-    rawCode: string
+    rawCode: string,
+    ktsDefault: boolean | null
   ): Promise<void> {
     const code = normalizeBillingVariantCodeInput(rawCode);
     if (!isValidBillingVariantCode(code)) {
@@ -289,7 +299,7 @@ export class PayersService {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_variants')
-      .update({ name: name.trim(), code })
+      .update({ name: name.trim(), code, kts_default: ktsDefault })
       .eq('id', variantId);
 
     if (error) {

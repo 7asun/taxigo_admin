@@ -59,12 +59,14 @@ export function useBillingTypes(payerId: string | undefined | null) {
       /** Omit to auto-generate from Unterart + Familie (unique in family). */
       code?: string;
       sortOrder?: number;
+      kts_default?: boolean | null;
     }) =>
       PayersService.createBillingVariant(
         args.familyId,
         args.name,
         args.code,
-        args.sortOrder
+        args.sortOrder,
+        args.kts_default
       ),
     onSuccess: invalidateAll
   });
@@ -97,8 +99,18 @@ export function useBillingTypes(payerId: string | undefined | null) {
   });
 
   const updateVariantMutation = useMutation({
-    mutationFn: (args: { variantId: string; name: string; code: string }) =>
-      PayersService.updateBillingVariant(args.variantId, args.name, args.code),
+    mutationFn: (args: {
+      variantId: string;
+      name: string;
+      code: string;
+      kts_default: boolean | null;
+    }) =>
+      PayersService.updateBillingVariant(
+        args.variantId,
+        args.name,
+        args.code,
+        args.kts_default
+      ),
     onSuccess: invalidateAll
   });
 

@@ -183,6 +183,8 @@ export async function GET() {
         client_phone: client.phone || '',
         payer_id: rule.payer_id,
         billing_variant_id: rule.billing_variant_id,
+        kts_document_applies: rule.kts_document_applies ?? false,
+        kts_source: rule.kts_source ?? null,
         greeting_style: client.greeting_style,
         is_wheelchair: client.is_wheelchair,
         requested_date: dateStr,

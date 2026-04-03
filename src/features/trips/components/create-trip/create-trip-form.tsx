@@ -39,6 +39,10 @@ import {
   normalizeBillingTypeBehavior,
   parseBehaviorProfileRaw
 } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import {
+  resolveKtsDefault,
+  type TripKtsSource
+} from '@/features/trips/lib/resolve-kts-default';
 import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 import { useCreateTripDraft } from '@/features/trips/hooks/use-create-trip-draft';
 import {
@@ -51,6 +55,7 @@ const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   billing_variant_id: 'payer',
   billing_calling_station: 'payer',
   billing_betreuer: 'payer',
+  kts_document_applies: 'payer',
   departure_date: 'schedule',
   departure_time: 'schedule',
   return_mode: 'schedule',
@@ -114,6 +119,18 @@ export function CreateTripForm({
   const prevResolvedBillingFamilyIdRef = React.useRef<string | undefined>(
     undefined
   );
+  const ktsUserLockedRef = React.useRef(false);
+  const [ktsCatalogHint, setKtsCatalogHint] = React.useState<string | null>(
+    null
+  );
+
+  const markKtsUserTouched = React.useCallback(
+    (opts?: { clearHint?: boolean }) => {
+      ktsUserLockedRef.current = true;
+      if (opts?.clearHint) setKtsCatalogHint(null);
+    },
+    []
+  );
 
   // Validation error state
   const [formErrors, setFormErrors] = React.useState<{
@@ -141,7 +158,8 @@ export function CreateTripForm({
       is_wheelchair: false,
       notes: '',
       billing_calling_station: '',
-      billing_betreuer: ''
+      billing_betreuer: '',
+      kts_document_applies: false
     }
   });
 
@@ -149,6 +167,7 @@ export function CreateTripForm({
 
   const handleApplyDraft = React.useCallback(
     (draft: CreateTripDraftStored) => {
+      ktsUserLockedRef.current = true;
       form.reset(buildTripFormValuesFromDraft(draft.values));
       setPassengers((draft.passengers as PassengerEntry[]) ?? []);
       const pu = draft.pickupGroups as AddressGroupEntry[];
@@ -191,6 +210,7 @@ export function CreateTripForm({
         'billing_variant_id',
         'billing_calling_station',
         'billing_betreuer',
+        'kts_document_applies',
         'departure_date',
         'departure_time',
         'return_mode',
@@ -272,11 +292,70 @@ export function CreateTripForm({
     }
   }, [passengers, preselectedClientId, onClientSelect, searchClientsById]);
 
-  // Reset billing variant + family pick when payer changes
+  // Reset billing variant + family pick when payer changes; allow fresh KTS cascade.
   React.useEffect(() => {
+    ktsUserLockedRef.current = false;
     form.setValue('billing_variant_id', '');
     setBillingFamilyId('');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // KTS default from catalog unless the dispatcher has overridden the switch.
+  // With only a Kostenträger (no Unterart yet), still apply payer-level `kts_default`
+  // — same cascade as submit / `resolveKtsDefault` without variant or family inputs.
+  React.useEffect(() => {
+    if (ktsUserLockedRef.current) return;
+
+    if (!watchedPayerId) {
+      setKtsCatalogHint(null);
+      const cur = form.getValues('kts_document_applies');
+      if (cur !== false) form.setValue('kts_document_applies', false);
+      return;
+    }
+
+    const payer = payers.find((p) => p.id === watchedPayerId);
+    if (!payer) return;
+
+    if (!watchedBillingVariantId) {
+      const r = resolveKtsDefault({
+        payerKtsDefault: payer.kts_default,
+        familyBehaviorProfile: undefined,
+        variantKtsDefault: undefined
+      });
+      const curKts = form.getValues('kts_document_applies');
+      if (curKts !== r.value) {
+        form.setValue('kts_document_applies', r.value);
+      }
+      const nextHint =
+        r.value && r.source === 'payer'
+          ? `Voreingestellt aus Kostenträger: ${payer.name}`
+          : null;
+      setKtsCatalogHint((h) => (h === nextHint ? h : nextHint));
+      return;
+    }
+
+    const variant = billingTypes.find((b) => b.id === watchedBillingVariantId);
+    if (!variant) return;
+
+    const r = resolveKtsDefault({
+      payerKtsDefault: payer.kts_default,
+      familyBehaviorProfile: variant.behavior_profile,
+      variantKtsDefault: variant.kts_default
+    });
+    const curKts = form.getValues('kts_document_applies');
+    if (curKts !== r.value) {
+      form.setValue('kts_document_applies', r.value);
+    }
+    const nextHint = !r.value
+      ? null
+      : r.source === 'variant'
+        ? `Voreingestellt aus Unterart: ${variant.name}`
+        : r.source === 'familie'
+          ? `Voreingestellt aus Abrechnungsfamilie: ${variant.billing_type_name}`
+          : r.source === 'payer'
+            ? `Voreingestellt aus Kostenträger: ${payer.name}`
+            : null;
+    setKtsCatalogHint((h) => (h === nextHint ? h : nextHint));
+  }, [watchedPayerId, watchedBillingVariantId, billingTypes, payers, form]);
 
   const selectedBillingType = billingTypes.find(
     (bt) => bt.id === watchedBillingVariantId
@@ -1006,9 +1085,24 @@ export function CreateTripForm({
        */
       const askBillingExtras = billingBehavior.askCallingStationAndBetreuer;
 
+      const ktsVariantRow = billingTypes.find(
+        (b) => b.id === values.billing_variant_id
+      );
+      const ktsPayerRow = payers.find((p) => p.id === values.payer_id);
+      const ktsResolvedSubmit = resolveKtsDefault({
+        payerKtsDefault: ktsPayerRow?.kts_default,
+        familyBehaviorProfile: ktsVariantRow?.behavior_profile,
+        variantKtsDefault: ktsVariantRow?.kts_default
+      });
+      const ktsSource: TripKtsSource = ktsUserLockedRef.current
+        ? 'manual'
+        : ktsResolvedSubmit.source;
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
+        kts_document_applies: values.kts_document_applies,
+        kts_source: ktsSource,
         billing_calling_station: askBillingExtras
           ? values.billing_calling_station?.trim() || null
           : null,
@@ -1306,6 +1400,8 @@ export function CreateTripForm({
     isDropoffLocked,
     isReturnModeLocked,
     isPayerSelected,
+    ktsCatalogHint,
+    markKtsUserTouched,
     unassignedPassengers,
     getPickupGroupPassengers,
     getDropoffGroupPassengers,

@@ -44,7 +44,9 @@ export const tripFormSchema = z
      * `trips.billing_calling_station` / `trips.billing_betreuer` (not route stations).
      */
     billing_calling_station: z.string().optional(),
-    billing_betreuer: z.string().optional()
+    billing_betreuer: z.string().optional(),
+    /** Krankentransportschein / KTS — see `resolveKtsDefault` + `trips.kts_source`. */
+    kts_document_applies: z.boolean().default(false)
   })
   .superRefine((data, ctx) => {
     if (data.return_mode === 'exact') {

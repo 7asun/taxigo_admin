@@ -211,6 +211,8 @@ export interface TripForInvoice {
   // Address snapshot fields
   pickup_address: string | null;
   dropoff_address: string | null;
+  /** Krankentransportschein — from trips.kts_document_applies */
+  kts_document_applies: boolean;
 }
 
 // ─── 4. Zod Schemas (Invoice Builder Form) ────────────────────────────────────
@@ -284,6 +286,8 @@ export interface BuilderLineItem {
   tax_rate: number; // 0.07 or 0.19
   billing_variant_code: string | null;
   billing_variant_name: string | null;
+  /** True when the source trip is flagged as KTS-relevant (Krankentransportschein). */
+  kts_document_applies: boolean;
 
   /**
    * Indicates which price source was used for this line item.

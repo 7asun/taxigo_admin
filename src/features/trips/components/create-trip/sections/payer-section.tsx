@@ -17,6 +17,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { CreditCard } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useTripFormSections } from '../trip-form-sections-context';
 
@@ -33,7 +34,9 @@ export function CreateTripPayerSection() {
     watchedBillingVariantId,
     billingFamilyId,
     setBillingFamilyId,
-    billingBehavior
+    billingBehavior,
+    ktsCatalogHint,
+    markKtsUserTouched
   } = useTripFormSections();
 
   /** Multi-family Abrechnungsfamilie; single-family flows use `effectiveFamilyId` only. */
@@ -63,15 +66,25 @@ export function CreateTripPayerSection() {
   React.useEffect(() => {
     if (!watchedBillingVariantId) return;
     const v = billingTypes.find((b) => b.id === watchedBillingVariantId);
-    if (v) setBillingFamilyId(v.billing_type_id);
-  }, [watchedBillingVariantId, billingTypes, setBillingFamilyId]);
+    if (v && v.billing_type_id !== billingFamilyId) {
+      setBillingFamilyId(v.billing_type_id);
+    }
+  }, [
+    watchedBillingVariantId,
+    billingTypes,
+    setBillingFamilyId,
+    billingFamilyId
+  ]);
 
   // One Unterart under the effective family → set billing_variant_id; no dropdown needed.
   React.useEffect(() => {
     if (!watchedPayerId || !effectiveFamilyId) return;
     if (variantsInEffectiveFamily.length !== 1) return;
     const only = variantsInEffectiveFamily[0];
-    form.setValue('billing_variant_id', only.id);
+    const current = form.getValues('billing_variant_id');
+    if (current !== only.id) {
+      form.setValue('billing_variant_id', only.id);
+    }
   }, [watchedPayerId, effectiveFamilyId, variantsInEffectiveFamily, form]);
 
   const showFamilySelect = families.length > 1;
@@ -120,7 +133,7 @@ export function CreateTripPayerSection() {
               <FormLabel className='text-xs'>Kostenträger *</FormLabel>
               <Select
                 onValueChange={field.onChange}
-                defaultValue={field.value}
+                value={field.value ? field.value : undefined}
                 disabled={isLoading}
               >
                 <FormControl>
@@ -180,7 +193,10 @@ export function CreateTripPayerSection() {
                   )}
                 >
                   <FormLabel className='text-xs'>Unterart</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value ? field.value : undefined}
+                  >
                     <FormControl>
                       <SelectTrigger className='h-9 w-full min-w-0 text-base md:text-sm'>
                         <SelectValue placeholder='Wählen...' />
@@ -210,6 +226,43 @@ export function CreateTripPayerSection() {
       </div>
 
       {/* Optional Abrechnungs-Metadaten — not `pickup_station` / `dropoff_station` (Fahrgast). */}
+      {watchedPayerId && (
+        <FormField
+          control={form.control as any}
+          name='kts_document_applies'
+          render={({ field }) => (
+            <FormItem className='bg-muted/30 mt-3 rounded-lg border p-3'>
+              <div className='flex flex-row items-center justify-between gap-3'>
+                <div className='min-w-0 space-y-1'>
+                  <FormLabel className='text-sm'>
+                    KTS / Krankentransportschein
+                  </FormLabel>
+                  {ktsCatalogHint && field.value ? (
+                    <p className='text-muted-foreground text-xs'>
+                      {ktsCatalogHint}
+                    </p>
+                  ) : null}
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={(c) => {
+                      markKtsUserTouched({ clearHint: !c });
+                      field.onChange(c);
+                    }}
+                  />
+                </FormControl>
+              </div>
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Wenn die Abrechnung KTS vorschlägt, bitte nur deaktivieren, wenn
+                bewusst kein Krankentransportschein vorliegt.
+              </p>
+              <FormMessage className='text-xs' />
+            </FormItem>
+          )}
+        />
+      )}
+
       {billingBehavior.askCallingStationAndBetreuer && (
         <div className='mt-3 flex w-full flex-row gap-2 sm:gap-3'>
           <FormField

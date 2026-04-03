@@ -131,6 +131,10 @@ import {
   formatBillingVariantOptionLabel
 } from '@/features/trips/lib/format-billing-display-label';
 import { normalizeBillingTypeBehavior } from '@/features/trips/lib/normalize-billing-type-behavior-profile';
+import {
+  resolveKtsDefault,
+  type TripKtsSource
+} from '@/features/trips/lib/resolve-kts-default';
 import type { TripDirection } from '@/features/trips/lib/trip-direction';
 
 /**
@@ -189,6 +193,9 @@ export function TripDetailSheet({
   const [billingCallingStationDraft, setBillingCallingStationDraft] =
     useState('');
   const [billingBetreuerDraft, setBillingBetreuerDraft] = useState('');
+  const [ktsDocumentAppliesDraft, setKtsDocumentAppliesDraft] = useState(false);
+  const [ktsCatalogHint, setKtsCatalogHint] = useState<string | null>(null);
+  const ktsUserLockedRef = useRef(false);
   const [pickupRouteExpanded, setPickupRouteExpanded] = useState(false);
   const [dropoffRouteExpanded, setDropoffRouteExpanded] = useState(false);
   const [dateYmdDraft, setDateYmdDraft] = useState<string>('');
@@ -239,6 +246,51 @@ export function TripDetailSheet({
   const selectedBillingType = billingVariants.find(
     (b) => b.id === billingVariantDraft
   );
+
+  const billingChangedFromTrip = useMemo(
+    () =>
+      !!trip &&
+      (payerDraft !== (trip.payer_id ?? '') ||
+        billingVariantDraft !== (trip.billing_variant_id ?? '')),
+    [trip, payerDraft, billingVariantDraft]
+  );
+
+  useEffect(() => {
+    if (ktsUserLockedRef.current) return;
+    if (!billingChangedFromTrip) return;
+    if (!payerDraft || !billingVariantDraft) {
+      setKtsCatalogHint(null);
+      return;
+    }
+    const payer = payers.find((p) => p.id === payerDraft);
+    const variant = billingVariants.find((b) => b.id === billingVariantDraft);
+    if (!payer || !variant) return;
+    const r = resolveKtsDefault({
+      payerKtsDefault: payer.kts_default,
+      familyBehaviorProfile: variant.behavior_profile,
+      variantKtsDefault: variant.kts_default
+    });
+    setKtsDocumentAppliesDraft(r.value);
+    if (!r.value) {
+      setKtsCatalogHint(null);
+    } else if (r.source === 'variant') {
+      setKtsCatalogHint(`Voreingestellt aus Unterart: ${variant.name}`);
+    } else if (r.source === 'familie') {
+      setKtsCatalogHint(
+        `Voreingestellt aus Abrechnungsfamilie: ${variant.billing_type_name}`
+      );
+    } else if (r.source === 'payer') {
+      setKtsCatalogHint(`Voreingestellt aus Kostenträger: ${payer.name}`);
+    } else {
+      setKtsCatalogHint(null);
+    }
+  }, [
+    billingChangedFromTrip,
+    payerDraft,
+    billingVariantDraft,
+    payers,
+    billingVariants
+  ]);
 
   /** Kostenträger billing extras: show when family asks, or row already has data, or user typed in session. */
   const showBillingMetadataHeader = useMemo(() => {
@@ -340,6 +392,9 @@ export function TripDetailSheet({
     setDropoffStationDraft(trip.dropoff_station ?? '');
     setBillingCallingStationDraft(trip.billing_calling_station ?? '');
     setBillingBetreuerDraft(trip.billing_betreuer ?? '');
+    setKtsDocumentAppliesDraft(!!trip.kts_document_applies);
+    ktsUserLockedRef.current = false;
+    setKtsCatalogHint(null);
     if (trip.scheduled_at) {
       setDateYmdDraft(format(new Date(trip.scheduled_at), 'yyyy-MM-dd'));
     } else if (trip.requested_date) {
@@ -589,6 +644,19 @@ export function TripDetailSheet({
           patch: currentPatch as UpdateTrip
         });
         if (syncPartner && linkedPartner) {
+          const ktsRowP = billingVariants.find(
+            (b) => b.id === billingVariantDraft
+          );
+          const ktsPayerRowP = payers.find((p) => p.id === payerDraft);
+          const ktsResolvedP = resolveKtsDefault({
+            payerKtsDefault: ktsPayerRowP?.kts_default,
+            familyBehaviorProfile: ktsRowP?.behavior_profile,
+            variantKtsDefault: ktsRowP?.kts_default
+          });
+          const ktsSourceP: TripKtsSource = ktsUserLockedRef.current
+            ? 'manual'
+            : ktsResolvedP.source;
+
           let partnerPatch = buildPartnerSyncPatchFromDrafts({
             trip,
             clientIdDraft,
@@ -607,6 +675,8 @@ export function TripDetailSheet({
             dropoffStationDraft,
             billingCallingStationDraft,
             billingBetreuerDraft,
+            ktsDocumentAppliesDraft,
+            ktsSourceForSave: ktsSourceP,
             lastPickupResolved: lastPickupResolved.current,
             lastDropoffResolved: lastDropoffResolved.current
           });
@@ -702,6 +772,7 @@ export function TripDetailSheet({
         normalizeNotes(trip.billing_calling_station ?? '') ||
       normalizeNotes(billingBetreuerDraft) !==
         normalizeNotes(trip.billing_betreuer ?? '') ||
+      ktsDocumentAppliesDraft !== !!trip.kts_document_applies ||
       dateYmdDraft !== currentDateYmd ||
       (!!trip &&
         !trip.scheduled_at &&
@@ -719,6 +790,17 @@ export function TripDetailSheet({
   const handleSaveTripDetails = () => {
     if (!trip) return;
     const exec = async () => {
+      const ktsRow = billingVariants.find((b) => b.id === billingVariantDraft);
+      const ktsPayerRow = payers.find((p) => p.id === payerDraft);
+      const ktsResolvedSave = resolveKtsDefault({
+        payerKtsDefault: ktsPayerRow?.kts_default,
+        familyBehaviorProfile: ktsRow?.behavior_profile,
+        variantKtsDefault: ktsRow?.kts_default
+      });
+      const ktsSourceForSave: TripKtsSource = ktsUserLockedRef.current
+        ? 'manual'
+        : ktsResolvedSave.source;
+
       const built = await buildTripDetailsPatch({
         trip,
         payerDraft,
@@ -738,7 +820,9 @@ export function TripDetailSheet({
         lastPickupResolved: lastPickupResolved.current,
         lastDropoffResolved: lastDropoffResolved.current,
         billingCallingStationDraft,
-        billingBetreuerDraft
+        billingBetreuerDraft,
+        ktsDocumentAppliesDraft,
+        ktsSourceForSave
       });
       if (built.isEmpty) {
         toast.info('Keine Änderungen zum Speichern.');
@@ -1323,6 +1407,28 @@ export function TripDetailSheet({
                         </div>
                       )}
                   </div>
+                  {payerDraft ? (
+                    <div className='col-span-2 flex flex-row items-center justify-between gap-3 rounded-lg border border-dashed p-3'>
+                      <div className='min-w-0 space-y-1'>
+                        <div className='text-muted-foreground text-xs font-medium'>
+                          KTS / Krankentransportschein
+                        </div>
+                        {ktsCatalogHint && ktsDocumentAppliesDraft ? (
+                          <p className='text-muted-foreground text-[11px]'>
+                            {ktsCatalogHint}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Switch
+                        checked={ktsDocumentAppliesDraft}
+                        onCheckedChange={(c) => {
+                          ktsUserLockedRef.current = true;
+                          if (!c) setKtsCatalogHint(null);
+                          setKtsDocumentAppliesDraft(c);
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   <DetailItem
                     icon={<Phone className='h-3.5 w-3.5' />}
                     label='Kontakt'

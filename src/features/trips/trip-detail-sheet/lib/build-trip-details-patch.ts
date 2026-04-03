@@ -48,6 +48,9 @@ export interface BuildTripDetailsPatchInput {
   /** `trips.billing_*` — not Fahrgast pickup/dropoff_station. */
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
+  ktsDocumentAppliesDraft: boolean;
+  /** Persisted with `kts_document_applies` (catalog tier vs manual). */
+  ktsSourceForSave: string;
 }
 
 export interface BuildTripDetailsPatchResult {
@@ -75,6 +78,16 @@ export async function buildTripDetailsPatch(
   }
   if (input.billingVariantDraft !== (trip.billing_variant_id ?? '')) {
     patch.billing_variant_id = input.billingVariantDraft || null;
+  }
+  const ktsAppliesNext = !!input.ktsDocumentAppliesDraft;
+  const ktsAppliesWas = !!trip.kts_document_applies;
+  const ktsSourceWas = trip.kts_source ?? '';
+  if (
+    ktsAppliesNext !== ktsAppliesWas ||
+    input.ktsSourceForSave !== ktsSourceWas
+  ) {
+    patch.kts_document_applies = ktsAppliesNext;
+    patch.kts_source = input.ktsSourceForSave;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;

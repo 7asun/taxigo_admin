@@ -55,6 +55,7 @@ export type Database = {
           code: string;
           created_at: string;
           id: string;
+          kts_default: boolean | null;
           name: string;
           sort_order: number;
         };
@@ -63,6 +64,7 @@ export type Database = {
           code: string;
           created_at?: string;
           id?: string;
+          kts_default?: boolean | null;
           name: string;
           sort_order?: number;
         };
@@ -71,6 +73,7 @@ export type Database = {
           code?: string;
           created_at?: string;
           id?: string;
+          kts_default?: boolean | null;
           name?: string;
           sort_order?: number;
         };
@@ -396,6 +399,7 @@ export type Database = {
           company_id: string;
           created_at: string;
           id: string;
+          kts_default: boolean | null;
           name: string;
           number: string;
         };
@@ -403,6 +407,7 @@ export type Database = {
           company_id: string;
           created_at?: string;
           id?: string;
+          kts_default?: boolean | null;
           name: string;
           number?: string;
         };
@@ -410,6 +415,7 @@ export type Database = {
           company_id?: string;
           created_at?: string;
           id?: string;
+          kts_default?: boolean | null;
           name?: string;
           number?: string;
         };
@@ -440,6 +446,8 @@ export type Database = {
           created_at: string;
           payer_id: string | null;
           billing_variant_id: string | null;
+          kts_document_applies: boolean;
+          kts_source: string | null;
         };
         Insert: {
           id?: string;
@@ -457,6 +465,8 @@ export type Database = {
           created_at?: string;
           payer_id?: string | null;
           billing_variant_id?: string | null;
+          kts_document_applies?: boolean;
+          kts_source?: string | null;
         };
         Update: {
           id?: string;
@@ -474,6 +484,8 @@ export type Database = {
           created_at?: string;
           payer_id?: string | null;
           billing_variant_id?: string | null;
+          kts_document_applies?: boolean;
+          kts_source?: string | null;
         };
         Relationships: [
           {
@@ -798,6 +810,8 @@ export type Database = {
           billing_betreuer: string | null;
           billing_calling_station: string | null;
           billing_variant_id: string | null;
+          kts_document_applies: boolean;
+          kts_source: string | null;
           client_id: string | null;
           client_name: string | null;
           client_phone: string | null;
@@ -855,6 +869,8 @@ export type Database = {
           billing_betreuer?: string | null;
           billing_calling_station?: string | null;
           billing_variant_id?: string | null;
+          kts_document_applies?: boolean;
+          kts_source?: string | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -912,6 +928,8 @@ export type Database = {
           billing_betreuer?: string | null;
           billing_calling_station?: string | null;
           billing_variant_id?: string | null;
+          kts_document_applies?: boolean;
+          kts_source?: string | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;

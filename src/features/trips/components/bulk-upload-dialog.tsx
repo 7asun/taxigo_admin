@@ -46,6 +46,11 @@ import {
   hasPendingResumeSession
 } from '@/features/trips/stores/use-bulk-upload-resume-store';
 import type { BillingTypeBehavior } from '@/features/payers/types/payer.types';
+import {
+  firstNonEmptyKtsCsvSource,
+  parseKtsCsvCell,
+  resolveKtsDefault
+} from '@/features/trips/lib/resolve-kts-default';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
@@ -160,6 +165,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       name: string;
       code: string;
       sort_order: number;
+      kts_default: boolean | null;
     }[];
   };
   const [billingTypeTree, setBillingTypeTree] = React.useState<
@@ -172,7 +178,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       const { data } = await supabase
         .from('billing_types')
         .select(
-          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order )`
+          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order, kts_default )`
         );
       if (data) setBillingTypeTree(data as BillingTypeTreeRow[]);
     };
@@ -775,10 +781,13 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               variantResolution = {
                 payerId: payer!.id,
                 familyName: matchedType.name,
+                payerKtsDefault: payer!.kts_default,
+                familyBehaviorProfile: matchedType.behavior_profile,
                 variants: variants.map((v) => ({
                   id: v.id,
                   name: v.name,
-                  code: v.code
+                  code: v.code,
+                  kts_default: v.kts_default
                 }))
               };
             } else {
@@ -787,6 +796,36 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 message: `Keine Unterart für "${matchedType.name}" definiert.`
               });
             }
+          }
+
+          const ktsCsvRaw = firstNonEmptyKtsCsvSource(parsedRow);
+          const ktsParsed = parseKtsCsvCell(ktsCsvRaw);
+          if (ktsParsed === 'invalid') {
+            issues.push({
+              type: 'invalid_kts_cell',
+              message: `KTS-Spalte: ungültiger Wert "${ktsCsvRaw}". Erlaubt: ja, nein, true, false, 0, 1.`
+            });
+          }
+
+          let ktsDocumentApplies = false;
+          let ktsSource: string | null = 'system_default';
+          if (ktsParsed === 'true' || ktsParsed === 'false') {
+            ktsDocumentApplies = ktsParsed === 'true';
+            ktsSource = 'manual';
+          } else if (payer) {
+            const variantForKts =
+              billingVariantId && matchedType
+                ? matchedType.billing_variants.find(
+                    (v) => v.id === billingVariantId
+                  )
+                : undefined;
+            const resolved = resolveKtsDefault({
+              payerKtsDefault: payer.kts_default,
+              familyBehaviorProfile: matchedType?.behavior_profile,
+              variantKtsDefault: variantForKts?.kts_default
+            });
+            ktsDocumentApplies = resolved.value;
+            ktsSource = resolved.source;
           }
 
           const pickupStreetParts = splitStreetAndNumber(
@@ -913,7 +952,9 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   has_missing_geodata: true,
                   driver_id: driverId,
                   needs_driver_assignment: needsDriverAssignment,
-                  ingestion_source: 'csv_bulk_upload'
+                  ingestion_source: 'csv_bulk_upload',
+                  kts_document_applies: ktsDocumentApplies,
+                  kts_source: ktsSource
                 }
               : null;
 

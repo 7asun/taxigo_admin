@@ -21,3 +21,5 @@ Supabase `postgres_changes` on the trip row calls **`queryClient.invalidateQueri
 The Fahrten **list/kanban** grid is loaded by **Server Components** (`trips-listing.tsx`). Updates go through **`refreshTripsPage()`** from [`TripsRscRefreshProvider`](../src/features/trips/providers/trips-rsc-refresh-provider.tsx), which runs **`router.refresh()`** and **`invalidateQueries(tripKeys.all)`** so RSC and TanStack Query stay aligned. See **[docs/trips-page-rsc-refresh.md](trips-page-rsc-refresh.md)** for the full picture, file layout, and Kanban behaviour.
 
 Client-side trip detail and other widgets use **Query** keys (`tripKeys.detail`, `tripKeys.unplanned`, …) — both layers are intentional.
+
+**Kostenträger:** the admin list and trip reference payers use different query keys; mutations invalidate both. See [`src/query/README.md`](../src/query/README.md) (“Kostenträger: two query keys”).

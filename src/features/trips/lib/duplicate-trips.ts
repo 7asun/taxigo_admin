@@ -232,6 +232,8 @@ function copyRouteAndPassengerFields(
   | 'billing_variant_id'
   | 'billing_betreuer'
   | 'billing_calling_station'
+  | 'kts_document_applies'
+  | 'kts_source'
   | 'payment_method'
   | 'vehicle_id'
   | 'notes'
@@ -270,6 +272,8 @@ function copyRouteAndPassengerFields(
     billing_variant_id: source.billing_variant_id,
     billing_betreuer: source.billing_betreuer,
     billing_calling_station: source.billing_calling_station,
+    kts_document_applies: !!source.kts_document_applies,
+    kts_source: 'manual',
     payment_method: source.payment_method,
     vehicle_id: source.vehicle_id,
     notes: source.notes,
