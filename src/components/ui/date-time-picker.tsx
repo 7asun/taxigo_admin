@@ -47,7 +47,7 @@ const dateTimePickerCalendarClassNames = {
     'min-h-11 min-w-[2.75rem] touch-manipulation p-0 text-base font-normal aria-selected:opacity-100 sm:min-h-9 sm:min-w-9 sm:text-sm md:size-8 md:min-h-8 md:min-w-8'
   ),
   head_cell:
-    'text-muted-foreground min-w-[2.75rem] rounded-md text-[0.85rem] font-normal sm:min-w-9 sm:text-[0.8rem] md:w-8',
+    'text-muted-foreground w-[2.75rem] rounded-md text-[0.85rem] font-normal sm:w-9 sm:text-[0.8rem] md:w-8',
   nav_button: cn(
     buttonVariants({ variant: 'outline' }),
     'min-h-11 min-w-11 touch-manipulation bg-transparent p-0 opacity-70 hover:opacity-100 sm:min-h-9 sm:min-w-9 md:size-7'
