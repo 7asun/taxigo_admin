@@ -178,8 +178,7 @@ export function PayerDetailsSheet({
                 </SheetTitle>
               )}
               <SheetDescription>
-                Abrechnungsfamilien und Unterarten verwalten; CSV-Codes hier
-                ablesen.
+                Abrechnungsfamilien und Unterarten verwalten.
               </SheetDescription>
             </div>
             <div className='flex gap-2'>

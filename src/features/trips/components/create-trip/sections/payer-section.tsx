@@ -257,32 +257,6 @@ export function CreateTripPayerSection() {
           />
         </div>
       )}
-
-      {selectedBillingType && (
-        <div
-          className='mt-2 flex flex-col gap-0.5 rounded-md px-3 py-1.5 text-xs font-medium'
-          style={{
-            backgroundColor: `color-mix(in srgb, ${selectedBillingType.color}, white 85%)`,
-            borderLeft: `3px solid ${selectedBillingType.color}`,
-            color: selectedBillingType.color
-          }}
-        >
-          <div className='flex items-center gap-2'>
-            <span
-              className='inline-block h-1.5 w-1.5 rounded-full'
-              style={{ backgroundColor: selectedBillingType.color }}
-            />
-            {singleVariantInScope
-              ? selectedBillingType.billing_type_name
-              : summaryLabel}
-          </div>
-          {!singleVariantInScope && summaryCode ? (
-            <span className='text-muted-foreground font-mono text-[10px]'>
-              CSV-Code: {summaryCode}
-            </span>
-          ) : null}
-        </div>
-      )}
     </div>
   );
 }

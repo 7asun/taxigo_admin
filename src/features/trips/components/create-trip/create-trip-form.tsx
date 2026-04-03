@@ -14,7 +14,10 @@ import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import type { PassengerEntry, AddressGroupEntry } from '@/features/trips/types';
 import type { AddressResult } from '../trip-address-passenger';
-import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
+import type {
+  ClientOption,
+  BillingTypeOption
+} from '@/features/trips/hooks/use-trip-form-data';
 import { format } from 'date-fns';
 import { tripFormSchema, type TripFormValues, type ReturnMode } from './schema';
 import {
@@ -75,6 +78,11 @@ export interface CreateTripFormProps {
    * globally (e.g. via Cmd+K "Neue Fahrt für [Name]").
    */
   preselectedClientId?: string;
+  /** Fired when billing type selection changes — for header display. */
+  onBillingTypeChange?: (
+    billingType: BillingTypeOption | null,
+    payerName?: string
+  ) => void;
 }
 
 export function CreateTripForm({
@@ -82,7 +90,8 @@ export function CreateTripForm({
   onCancel,
   onClientSelect,
   onDirtyChange,
-  preselectedClientId
+  preselectedClientId,
+  onBillingTypeChange
 }: CreateTripFormProps) {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [billingFamilyId, setBillingFamilyId] = React.useState('');
@@ -272,6 +281,13 @@ export function CreateTripForm({
   const selectedBillingType = billingTypes.find(
     (bt) => bt.id === watchedBillingVariantId
   );
+
+  const selectedPayer = payers.find((p) => p.id === watchedPayerId);
+
+  // Notify parent when billing type or payer changes (for header display)
+  React.useEffect(() => {
+    onBillingTypeChange?.(selectedBillingType ?? null, selectedPayer?.name);
+  }, [selectedBillingType, selectedPayer, onBillingTypeChange]);
 
   const billingFamilies = React.useMemo(() => {
     const map = new Map<string, string>();

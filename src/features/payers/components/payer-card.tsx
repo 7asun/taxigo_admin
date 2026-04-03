@@ -1,9 +1,10 @@
-import { Hash, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type { PayerWithBillingCount } from '../types/payer.types';
 import { cn } from '@/lib/utils';
+import { formatPayerNumber } from '@/lib/customer-number';
 
 interface PayerCardProps {
   payer: PayerWithBillingCount;
@@ -36,10 +37,9 @@ export function PayerCard({ payer, onClick }: PayerCardProps) {
       <div className='flex min-w-0 flex-1 flex-col items-start'>
         <h3 className='mb-2 truncate text-base font-semibold'>{payer.name}</h3>
         {payer.number && (
-          <div className='text-muted-foreground flex items-center text-sm'>
-            <Hash className='mr-1 h-3.5 w-3.5 flex-shrink-0' />
-            <span className='truncate'>{payer.number}</span>
-          </div>
+          <span className='text-muted-foreground text-sm'>
+            {formatPayerNumber(payer.number)}
+          </span>
         )}
       </div>
 
