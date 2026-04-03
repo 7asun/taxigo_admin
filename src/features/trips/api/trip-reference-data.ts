@@ -28,7 +28,7 @@ export async function fetchPayers(): Promise<PayerOption[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('payers')
-    .select('id, name')
+    .select('id, name, kts_default')
     .order('name');
 
   if (error) throw toQueryError(error);
@@ -56,7 +56,8 @@ export async function fetchBillingVariantsForPayer(
         id,
         name,
         code,
-        sort_order
+        sort_order,
+        kts_default
       )
     `
     )
@@ -76,6 +77,7 @@ export async function fetchBillingVariantsForPayer(
       name: string;
       code: string;
       sort_order: number;
+      kts_default: boolean | null;
     }[];
   };
 
@@ -94,7 +96,8 @@ export async function fetchBillingVariantsForPayer(
         billing_type_id: bt.id,
         billing_type_name: bt.name,
         color: bt.color,
-        behavior_profile: bt.behavior_profile
+        behavior_profile: bt.behavior_profile,
+        kts_default: v.kts_default
       });
     }
   }

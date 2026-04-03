@@ -94,6 +94,8 @@ export function InvoicePdfDocument({
     distance_km: null,
     billing_variant_code: null,
     billing_variant_name: null,
+    kts_document_applies: false,
+    price_source: null,
     warnings: [] as const
   }));
 

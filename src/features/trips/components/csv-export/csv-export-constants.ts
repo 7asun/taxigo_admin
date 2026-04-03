@@ -93,6 +93,11 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
     category: 'billing'
   },
   { key: 'billing_betreuer', label: 'Betreuer', category: 'billing' },
+  {
+    key: 'kts_document_applies',
+    label: 'KTS (Krankentransportschein)',
+    category: 'billing'
+  },
   { key: 'price', label: 'Preis', category: 'billing' },
 
   // Driver & Vehicle

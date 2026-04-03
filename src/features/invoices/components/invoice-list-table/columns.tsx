@@ -15,7 +15,7 @@
 import { type ColumnDef } from '@tanstack/react-table';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { MoreHorizontal, Eye, FileDown } from 'lucide-react';
+import { MoreHorizontal, Eye, FileDown, FileText } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,13 +73,16 @@ function formatMode(mode: InvoiceMode): string {
  * Creates the column definitions for the invoice list table.
  *
  * @param onView      - Called when the user clicks "Ansehen" on a row.
+ * @param onPreview   - Opens PDF preview for the invoice (new tab).
  * @param onDownload  - Called when the user clicks "PDF herunterladen".
  */
 export function createInvoiceColumns({
   onView,
+  onPreview,
   onDownload
 }: {
   onView: (id: string) => void;
+  onPreview: (id: string) => void;
   onDownload: (id: string) => void;
 }): ColumnDef<InvoiceWithPayer>[] {
   return [
@@ -187,6 +190,10 @@ export function createInvoiceColumns({
             <DropdownMenuItem onClick={() => onView(row.original.id)}>
               <Eye className='mr-2 h-4 w-4' />
               Ansehen
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPreview(row.original.id)}>
+              <FileText className='mr-2 h-4 w-4' />
+              PDF-Vorschau
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onDownload(row.original.id)}>
               <FileDown className='mr-2 h-4 w-4' />

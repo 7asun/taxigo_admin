@@ -16,7 +16,10 @@ export const referenceKeys = {
    */
   drivers: () => [...referenceKeys.root, 'drivers'] as const,
 
-  /** All payers the user can see, ordered by name (filter dropdowns, forms). */
+  /**
+   * Slim payer list for trip forms / filters (`id`, `name`, `kts_default`).
+   * Kostenträger admin page uses `['payers']` + full rows — see `src/query/README.md`.
+   */
   payers: () => [...referenceKeys.root, 'payers'] as const,
 
   /**

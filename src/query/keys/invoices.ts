@@ -15,8 +15,8 @@
 export interface InvoiceListFilter {
   status?: string;
   payer_id?: string;
-  from?: string; // ISO date string
-  to?: string; // ISO date string
+  from?: string; // yyyy-MM-dd; list API filters created_at (business TZ)
+  to?: string; // yyyy-MM-dd
 }
 
 export const invoiceKeys = {

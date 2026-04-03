@@ -64,6 +64,7 @@ export async function fetchTripsForBuilder(
       billing_variant_id,
       pickup_address,
       dropoff_address,
+      kts_document_applies,
       billing_variant:billing_variants(id, code, name),
       client:clients(id, first_name, last_name, price_tag)
     `
@@ -167,6 +168,7 @@ export function buildLineItemsFromTrips(
       tax_rate: taxRate,
       billing_variant_code: trip.billing_variant?.code ?? null,
       billing_variant_name: trip.billing_variant?.name ?? null,
+      kts_document_applies: trip.kts_document_applies === true,
       // Track which price source was used for this line item
       // 'client_price_tag' — from clients.price_tag (highest priority)
       // 'trip_price' — from trips.price (fallback)

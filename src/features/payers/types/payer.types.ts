@@ -14,6 +14,8 @@ export interface BillingTypeBehavior {
    * Distinct from passenger pickup/dropoff_station (route stops).
    */
   askCallingStationAndBetreuer?: boolean;
+  /** KTS default for all Unterarten in this Familie unless variant sets `kts_default`. */
+  kts_default?: 'yes' | 'no' | 'unset';
   // Legacy single-string defaults (kept for backward compatibility)
   defaultPickup?: string | null;
   defaultDropoff?: string | null;
@@ -49,6 +51,8 @@ export interface BillingVariant {
   code: string;
   sort_order: number;
   created_at: string;
+  /** NULL = inherit from familie / payer cascade. */
+  kts_default?: boolean | null;
 }
 
 /** Admin tree: `billing_types` rows with nested variants (sorted in the service). */
@@ -62,6 +66,8 @@ export interface Payer {
   name: string;
   number: string;
   created_at: string;
+  /** NULL = inherit (only variant + familie apply). */
+  kts_default?: boolean | null;
 }
 
 export interface PayerWithBillingCount extends Payer {

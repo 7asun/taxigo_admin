@@ -17,6 +17,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
+import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import { generateNextInvoiceNumber } from '../lib/invoice-number';
@@ -33,15 +34,17 @@ import type {
 export interface InvoiceListParams {
   status?: InvoiceStatus;
   payer_id?: string;
-  from?: string; // ISO date string, filters period_from
-  to?: string; // ISO date string, filters period_to
+  /** Inclusive start of `created_at` filter (`yyyy-MM-dd`, interpreted in trips business TZ). */
+  from?: string;
+  /** Inclusive end of `created_at` filter (`yyyy-MM-dd`, same TZ). */
+  to?: string;
 }
 
 /**
  * Fetches a paginated list of invoices with payer name joined.
  * Used in the invoice list table (/dashboard/invoices).
  *
- * @param params - Optional filters for status, payer, and date range.
+ * @param params - Optional filters for status, payer, and **Erstellungsdatum** (`created_at`, business TZ).
  */
 export async function listInvoices(
   params: InvoiceListParams = {}
@@ -69,11 +72,19 @@ export async function listInvoices(
   if (params.payer_id) {
     query = query.eq('payer_id', params.payer_id);
   }
-  if (params.from) {
-    query = query.gte('period_from', params.from);
-  }
-  if (params.to) {
-    query = query.lte('period_to', params.to);
+  // Presets (“Diese Woche”, “Dieser Monat”, …) match user expectation: **when the row was created**,
+  // not the invoice’s Leistungszeitraum (`period_*` — still shown in the “Zeitraum” column).
+  if (params.from && params.to) {
+    const { startISO } = getZonedDayBoundsIso(params.from);
+    const { endExclusiveISO } = getZonedDayBoundsIso(params.to);
+    query = query.gte('created_at', startISO);
+    query = query.lt('created_at', endExclusiveISO);
+  } else if (params.from) {
+    const { startISO } = getZonedDayBoundsIso(params.from);
+    query = query.gte('created_at', startISO);
+  } else if (params.to) {
+    const { endExclusiveISO } = getZonedDayBoundsIso(params.to);
+    query = query.lt('created_at', endExclusiveISO);
   }
 
   const { data, error } = await query;

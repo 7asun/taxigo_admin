@@ -112,6 +112,8 @@ export function Step3LineItems({
     );
   }
 
+  const ktsLineCount = lineItems.filter((i) => i.kts_document_applies).length;
+
   return (
     <div className='space-y-4'>
       <div>
@@ -129,6 +131,18 @@ export function Step3LineItems({
           <AlertDescription>
             <strong>Preise fehlen:</strong> Einige Positionen haben noch keinen
             Preis. Bitte fehlende Preise eintragen, bevor Sie fortfahren.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {ktsLineCount > 0 && (
+        <Alert className='border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30'>
+          <Info className='h-4 w-4 text-blue-600 dark:text-blue-400' />
+          <AlertDescription className='text-blue-900 dark:text-blue-100'>
+            <strong>Krankentransportschein (KTS):</strong> Diese Rechnung
+            enthält {ktsLineCount} {ktsLineCount === 1 ? 'Fahrt' : 'Fahrten'},
+            die im System als KTS-relevant markiert sind. Bitte prüfen Sie
+            Bescheinigung und Abrechnung vor dem Versand.
           </AlertDescription>
         </Alert>
       )}
@@ -184,14 +198,25 @@ export function Step3LineItems({
                       </span>
                     </div>
                   )}
-                  {item.billing_variant_name && (
-                    <div className='mt-1'>
-                      <Badge
-                        variant='outline'
-                        className='px-1.5 py-0 text-[10px] font-normal'
-                      >
-                        {item.billing_variant_name}
-                      </Badge>
+                  {(item.billing_variant_name || item.kts_document_applies) && (
+                    <div className='mt-1 flex flex-wrap gap-1'>
+                      {item.billing_variant_name && (
+                        <Badge
+                          variant='outline'
+                          className='px-1.5 py-0 text-[10px] font-normal'
+                        >
+                          {item.billing_variant_name}
+                        </Badge>
+                      )}
+                      {item.kts_document_applies && (
+                        <Badge
+                          variant='secondary'
+                          className='px-1.5 py-0 text-[10px] font-normal'
+                          title='Krankentransportschein (KTS) — laut Fahrt markiert'
+                        >
+                          KTS
+                        </Badge>
+                      )}
                     </div>
                   )}
                 </TableCell>

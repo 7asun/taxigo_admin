@@ -18,7 +18,8 @@ const draftValuesSchemaV3 = z.object({
   is_wheelchair: z.boolean(),
   notes: z.string().optional(),
   billing_calling_station: z.string().optional(),
-  billing_betreuer: z.string().optional()
+  billing_betreuer: z.string().optional(),
+  kts_document_applies: z.boolean().optional()
 });
 
 const draftValuesSchemaV2 = z.object({
@@ -122,6 +123,7 @@ export function buildTripFormValuesFromDraft(
   notes: string;
   billing_calling_station: string;
   billing_betreuer: string;
+  kts_document_applies: boolean;
 } {
   if ('departure_date' in d) {
     return {
@@ -136,7 +138,8 @@ export function buildTripFormValuesFromDraft(
       is_wheelchair: d.is_wheelchair,
       notes: d.notes ?? '',
       billing_calling_station: d.billing_calling_station ?? '',
-      billing_betreuer: d.billing_betreuer ?? ''
+      billing_betreuer: d.billing_betreuer ?? '',
+      kts_document_applies: d.kts_document_applies ?? false
     };
   }
 
@@ -156,7 +159,8 @@ export function buildTripFormValuesFromDraft(
       is_wheelchair: d.is_wheelchair,
       notes: d.notes ?? '',
       billing_calling_station: '',
-      billing_betreuer: ''
+      billing_betreuer: '',
+      kts_document_applies: false
     };
   }
 
@@ -175,6 +179,7 @@ export function buildTripFormValuesFromDraft(
     is_wheelchair: d.is_wheelchair,
     notes: d.notes ?? '',
     billing_calling_station: '',
-    billing_betreuer: ''
+    billing_betreuer: '',
+    kts_document_applies: false
   };
 }

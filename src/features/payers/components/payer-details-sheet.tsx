@@ -1,6 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * Kostenträger-Detail: liest Stammdaten bevorzugt aus dem TanStack-Cache (`usePayers`),
+ * damit nach Mutation + `invalidateQueries` (siehe `src/query/README.md`) KTS, Name u. a.
+ * sofort stimmen — nicht nur der Klick-Snapshot aus der Elternliste.
+ */
+import { useMemo, useState } from 'react';
 import {
   Pencil,
   Plus,
@@ -75,7 +80,7 @@ export function PayerDetailsSheet({
     deleteBillingFamily,
     isDeleting
   } = useBillingTypes(payer?.id);
-  const { updatePayer, isUpdating } = usePayers();
+  const { data: payersList, updatePayer, isUpdating } = usePayers();
   const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
   const [variantDialog, setVariantDialog] = useState<{
     familyId: string;
@@ -106,20 +111,28 @@ export function PayerDetailsSheet({
   >(null);
   const [isSavingTextBlocks, setIsSavingTextBlocks] = useState(false);
 
+  const displayPayer = useMemo((): PayerWithBillingCount | null => {
+    if (!payer) return null;
+    const fromCache = payersList?.find((p) => p.id === payer.id);
+    return fromCache ?? payer;
+  }, [payer, payersList]);
+
   const startEditing = () => {
-    if (payer) {
-      setEditName(payer.name);
+    if (displayPayer) {
+      setEditName(displayPayer.name);
+      setEditNumber(displayPayer.number ?? '');
       setIsEditing(true);
     }
   };
 
   const handleSave = async () => {
-    if (!payer) return;
+    if (!displayPayer) return;
     try {
       await updatePayer({
-        id: payer.id,
+        id: displayPayer.id,
         name: editName,
-        number: payer.number as any
+        number: editNumber || displayPayer.number || '',
+        kts_default: displayPayer.kts_default ?? null
       });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
@@ -128,12 +141,27 @@ export function PayerDetailsSheet({
     }
   };
 
+  const handleKtsDefaultChange = async (v: 'unset' | 'yes' | 'no') => {
+    if (!displayPayer) return;
+    try {
+      await updatePayer({
+        id: displayPayer.id,
+        name: displayPayer.name,
+        number: displayPayer.number ?? '',
+        kts_default: v === 'unset' ? null : v === 'yes'
+      });
+      toast.success('KTS-Standard gespeichert');
+    } catch {
+      toast.error('KTS-Standard konnte nicht gespeichert werden');
+    }
+  };
+
   const handleSaveTextBlocks = async () => {
-    if (!payer) return;
+    if (!displayPayer) return;
     setIsSavingTextBlocks(true);
     try {
       await updatePayerTextBlocks(
-        payer.id,
+        displayPayer.id,
         selectedIntroBlockId,
         selectedOutroBlockId
       );
@@ -145,7 +173,16 @@ export function PayerDetailsSheet({
     }
   };
 
-  if (!payer) return null;
+  if (!displayPayer) {
+    return null;
+  }
+
+  const ktsSelectValue =
+    displayPayer.kts_default === true
+      ? 'yes'
+      : displayPayer.kts_default === false
+        ? 'no'
+        : 'unset';
 
   return (
     <Sheet
@@ -160,26 +197,27 @@ export function PayerDetailsSheet({
           <div className='flex items-center justify-between'>
             <div className='flex-1'>
               {isEditing ? (
-                <Input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder='Name'
-                  className='focus-visible:border-primary mb-1 h-10 rounded-none border-0 border-b px-0 text-2xl font-semibold focus-visible:ring-0'
-                  autoFocus
-                />
+                <div className='space-y-3'>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder='Name'
+                    className='focus-visible:border-primary h-10 rounded-none border-0 border-b px-0 text-2xl font-semibold focus-visible:ring-0'
+                    autoFocus
+                  />
+                </div>
               ) : (
                 <SheetTitle className='flex items-baseline gap-3 text-2xl'>
-                  {payer.name}
-                  {payer.number && (
+                  {displayPayer.name}
+                  {displayPayer.number && (
                     <span className='text-muted-foreground text-lg font-normal'>
-                      {formatPayerNumber(payer.number)}
+                      {formatPayerNumber(displayPayer.number)}
                     </span>
                   )}
                 </SheetTitle>
               )}
               <SheetDescription>
-                Abrechnungsfamilien und Unterarten verwalten; CSV-Codes hier
-                ablesen.
+                Abrechnungsfamilien und Unterarten verwalten.
               </SheetDescription>
             </div>
             <div className='flex gap-2'>
@@ -214,13 +252,39 @@ export function PayerDetailsSheet({
               </div>
               <div className='flex-1'>
                 <div className='text-foreground text-lg font-bold'>
-                  {payer.number || '–'}
+                  {displayPayer.number || '–'}
                 </div>
                 <div className='text-muted-foreground text-sm'>
                   Kostenträgernummer
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className='bg-card rounded-xl border p-5 shadow-sm'>
+            <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+              KTS-Standard (Kostenträger)
+            </label>
+            <Select
+              value={ktsSelectValue}
+              onValueChange={(v) =>
+                void handleKtsDefaultChange(v as 'unset' | 'yes' | 'no')
+              }
+              disabled={isUpdating}
+            >
+              <SelectTrigger className='h-9 w-full max-w-sm'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='unset'>Nicht festlegen (vererbt)</SelectItem>
+                <SelectItem value='yes'>Ja — KTS voreinstellen</SelectItem>
+                <SelectItem value='no'>Nein</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className='text-muted-foreground mt-2 text-xs'>
+              Gilt nur wenn Abrechnungsfamilie und Unterart kein eigenes KTS
+              setzen (Kaskade in Verhalten / Unterart). Wird sofort gespeichert.
+            </p>
           </div>
 
           <div>
@@ -394,7 +458,7 @@ export function PayerDetailsSheet({
       </SheetContent>
 
       <AddBillingFamilyDialog
-        payerId={payer.id}
+        payerId={displayPayer.id}
         open={isAddFamilyOpen}
         onOpenChange={setIsAddFamilyOpen}
         existingFamilies={families || []}
@@ -402,7 +466,7 @@ export function PayerDetailsSheet({
 
       {variantDialog && (
         <AddBillingVariantDialog
-          payerId={payer.id}
+          payerId={displayPayer.id}
           familyId={variantDialog.familyId}
           familyName={variantDialog.familyName}
           existingVariantCodes={
@@ -417,21 +481,21 @@ export function PayerDetailsSheet({
       )}
 
       <BillingTypeBehaviorDialog
-        payerId={payer.id}
+        payerId={displayPayer.id}
         billingFamily={behaviorFamily}
         open={!!behaviorFamily}
         onOpenChange={(isOpen) => !isOpen && setBehaviorFamily(null)}
       />
 
       <EditBillingFamilyDialog
-        payerId={payer.id}
+        payerId={displayPayer.id}
         family={editFamily}
         open={!!editFamily}
         onOpenChange={(isOpen) => !isOpen && setEditFamily(null)}
       />
 
       <EditBillingVariantDialog
-        payerId={payer.id}
+        payerId={displayPayer.id}
         familyName={editVariant?.familyName ?? ''}
         variant={editVariant?.variant ?? null}
         peerVariantCodes={

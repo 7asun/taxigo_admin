@@ -16,18 +16,11 @@
  */
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { format, startOfWeek, subWeeks, addWeeks } from 'date-fns';
 import { de } from 'date-fns/locale';
-import {
-  CalendarIcon,
-  ChevronDown,
-  ListFilter,
-  RotateCcw,
-  Settings2
-} from 'lucide-react';
+import { ChevronDown, ListFilter, RotateCcw, Settings2 } from 'lucide-react';
 import { CheckIcon, CaretSortIcon } from '@radix-ui/react-icons';
 
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -49,7 +42,7 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command';
-import { Calendar } from '@/components/ui/calendar';
+import { DateRangePicker } from '@/components/ui/date-time-picker';
 import {
   Collapsible,
   CollapsibleContent,
@@ -60,30 +53,12 @@ import { useTripsRscRefresh } from '@/features/trips/providers';
 import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { cn } from '@/lib/utils';
-import {
-  instantToYmdInBusinessTz,
-  isYmdString,
-  todayYmdInBusinessTz,
-  ymdToPickerDate
-} from '@/features/trips/lib/trip-business-date';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import type { DateRange } from 'react-day-picker';
 
 interface TripsFiltersBarProps {
   totalItems: number;
 }
-
-/** Larger tap targets + `touch-manipulation` on small viewports; matches default Calendar styles from `md`. */
-const tripsDateFilterCalendarClassNames = {
-  day: cn(
-    buttonVariants({ variant: 'ghost' }),
-    'min-h-11 min-w-[2.75rem] touch-manipulation p-0 text-base font-normal aria-selected:opacity-100 sm:min-h-9 sm:min-w-9 sm:text-sm md:size-8 md:min-h-8 md:min-w-8'
-  ),
-  head_cell:
-    'text-muted-foreground min-w-[2.75rem] rounded-md text-[0.85rem] font-normal sm:min-w-9 sm:text-[0.8rem] md:w-8',
-  nav_button: cn(
-    buttonVariants({ variant: 'outline' }),
-    'min-h-11 min-w-11 touch-manipulation bg-transparent p-0 opacity-70 hover:opacity-100 sm:min-h-9 sm:min-w-9 md:size-7'
-  )
-};
 
 export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const router = useRouter();
@@ -148,7 +123,6 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
    */
   const { drivers, payers, billingVariants } = useTripFormData(payerId ?? null);
 
-  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const hasAdvancedFilters = useMemo((): boolean => {
@@ -179,22 +153,28 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     }
   }, [hasAdvancedFilters]);
 
-  const selectedDate = useMemo((): Date | undefined => {
+  // Parse scheduled_at from URL (single timestamp or range "from,to")
+  const selectedDateRange = useMemo((): DateRange | undefined => {
     if (!scheduledAt) return undefined;
-    const first = scheduledAt.split(',')[0]?.trim() ?? '';
-    if (isYmdString(first)) {
-      return ymdToPickerDate(first);
+    const parts = scheduledAt.split(',');
+    if (parts.length === 2) {
+      const fromMs = Number(parts[0]);
+      const toMs = Number(parts[1]);
+      if (!Number.isNaN(fromMs) && !Number.isNaN(toMs)) {
+        return {
+          from: new Date(fromMs),
+          to: new Date(toMs)
+        };
+      }
     }
-    const ts = Number(first);
-    if (Number.isNaN(ts)) return undefined;
-    const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? undefined : d;
+    // Single date - treat as range with same start/end
+    const ts = Number(scheduledAt);
+    if (!Number.isNaN(ts)) {
+      const d = new Date(ts);
+      return { from: d, to: d };
+    }
+    return undefined;
   }, [scheduledAt]);
-
-  const dateButtonLabel = useMemo(() => {
-    if (!selectedDate) return 'Heute';
-    return format(selectedDate, 'dd.MM.yyyy', { locale: de });
-  }, [selectedDate]);
 
   const driverOptions = useMemo(
     () => [
@@ -213,14 +193,6 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     { label: 'Abgeschlossen', value: 'completed' },
     { label: 'Storniert', value: 'cancelled' }
   ];
-  const jumpToWeekStart = (anchor: Date) => {
-    const weekStart = startOfWeek(anchor, { weekStartsOn: 1 });
-    weekStart.setHours(0, 0, 0, 0);
-    updateFilters({
-      scheduled_at: instantToYmdInBusinessTz(weekStart.getTime())
-    });
-    setDatePopoverOpen(false);
-  };
 
   /**
    * Writes filter deltas to the URL (always resets `page` to 1) and triggers a server refresh.
@@ -245,6 +217,19 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       router.replace(next, { scroll: false });
     });
     void refreshTripsPage();
+  };
+
+  // Handle date range selection from DateRangePicker
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (!range?.from) {
+      updateFilters({ scheduled_at: null });
+      return;
+    }
+    const from = range.from.getTime();
+    const to = range.to?.getTime() ?? from;
+    updateFilters({
+      scheduled_at: `${from},${to}`
+    });
   };
 
   const handleSearchChange = (value: string) => {
@@ -302,86 +287,13 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       </Popover>
     ) : null;
 
-  const dateFilterPopover = (
-    <Popover
-      modal={false}
-      open={datePopoverOpen}
-      onOpenChange={setDatePopoverOpen}
-    >
-      <PopoverTrigger asChild>
-        <Button
-          variant='outline'
-          size='sm'
-          className='h-10 min-h-10 min-w-0 flex-1 touch-manipulation justify-start gap-2 border-dashed md:h-8 md:min-h-0 md:flex-initial'
-        >
-          <CalendarIcon className='h-4 w-4 shrink-0' />
-          <span className='truncate'>{dateButtonLabel}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align='start'
-        side='bottom'
-        sideOffset={isNarrow ? 8 : 4}
-        collisionPadding={16}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        className={cn(
-          'flex max-h-[min(78vh,560px)] w-[min(100vw-1rem,22rem)] touch-manipulation flex-col overflow-y-auto overscroll-contain p-0 sm:max-h-none sm:w-72 sm:min-w-[280px]',
-          'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]'
-        )}
-      >
-        <div className='flex shrink-0 flex-col gap-2 border-b px-3 py-2.5 sm:flex-row sm:flex-wrap sm:gap-1.5 sm:py-2'>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            className='h-10 min-h-10 w-full touch-manipulation justify-center text-sm sm:h-7 sm:min-h-0 sm:w-auto sm:text-xs'
-            onClick={() => jumpToWeekStart(subWeeks(new Date(), 1))}
-          >
-            Letzte Woche
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            className='h-10 min-h-10 w-full touch-manipulation justify-center text-sm sm:h-7 sm:min-h-0 sm:w-auto sm:text-xs'
-            onClick={() => jumpToWeekStart(new Date())}
-          >
-            Diese Woche
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            className='h-10 min-h-10 w-full touch-manipulation justify-center text-sm sm:h-7 sm:min-h-0 sm:w-auto sm:text-xs'
-            onClick={() => jumpToWeekStart(addWeeks(new Date(), 1))}
-          >
-            Nächste Woche
-          </Button>
-        </div>
-        <div className='w-full min-w-0 shrink-0 px-1 pt-0.5 pb-1 sm:px-0 sm:pb-0'>
-          <Calendar
-            mode='single'
-            selected={selectedDate}
-            onSelect={(day: Date | undefined) => {
-              if (!day) {
-                updateFilters({ scheduled_at: null });
-                return;
-              }
-              const d = new Date(day);
-              d.setHours(0, 0, 0, 0);
-              updateFilters({
-                scheduled_at: instantToYmdInBusinessTz(d.getTime())
-              });
-              setDatePopoverOpen(false);
-            }}
-            numberOfMonths={1}
-            initialFocus={false}
-            className='w-full max-w-full'
-            classNames={tripsDateFilterCalendarClassNames}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
+  const dateFilterPicker = (
+    <DateRangePicker
+      value={selectedDateRange}
+      onChange={handleDateRangeChange}
+      triggerClassName='h-10 min-h-10 min-w-0 flex-1 md:h-8 md:min-h-0 md:flex-initial'
+      placeholder='Zeitraum wählen'
+    />
   );
 
   const advancedFilterSelects = (
@@ -532,7 +444,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
                   onChange={(event) => handleSearchChange(event.target.value)}
                   className='h-10 min-h-10 min-w-0 flex-1'
                 />
-                {dateFilterPopover}
+                {dateFilterPicker}
                 <CollapsibleTrigger asChild>
                   <Button
                     type='button'
@@ -577,7 +489,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             />
 
             <div className='flex w-full min-w-0 gap-2 md:w-auto md:shrink-0'>
-              {dateFilterPopover}
+              {dateFilterPicker}
               {renderColumnVisibilityPopover(
                 'h-10 min-h-10 min-w-0 flex-1 justify-between gap-1.5 text-xs font-normal md:h-8 md:min-h-0 md:min-w-[8.5rem] md:flex-initial'
               )}

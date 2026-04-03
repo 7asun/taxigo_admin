@@ -331,6 +331,30 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'kts_document_applies',
+    accessorKey: 'kts_document_applies',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='KTS' />
+    ),
+    cell: ({ row }) => {
+      const applies = !!row.original.kts_document_applies;
+      if (!applies) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return (
+        <Badge
+          variant='secondary'
+          className='px-1.5 py-0 text-[10px] font-normal'
+          title='Krankentransportschein (KTS) — laut Fahrt markiert'
+        >
+          KTS
+        </Badge>
+      );
+    },
+    meta: { label: 'KTS', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
     id: 'actions',
     cell: ({ row }) => <CellAction data={row.original} />
   }

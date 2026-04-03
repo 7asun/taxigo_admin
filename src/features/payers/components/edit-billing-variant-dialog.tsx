@@ -27,6 +27,13 @@ import {
 } from '@/components/ui/form';
 import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import type { BillingVariant } from '../types/payer.types';
 import {
   BILLING_VARIANT_CODE_HINT,
@@ -36,7 +43,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 const formSchema = z.object({
-  name: z.string().min(1, { message: 'Name erforderlich' })
+  name: z.string().min(1, { message: 'Name erforderlich' }),
+  kts_variant: z.enum(['unset', 'yes', 'no'])
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -63,12 +71,20 @@ export function EditBillingVariantDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: '' }
+    defaultValues: { name: '', kts_variant: 'unset' }
   });
 
   useEffect(() => {
     if (open && variant) {
-      form.reset({ name: variant.name });
+      form.reset({
+        name: variant.name,
+        kts_variant:
+          variant.kts_default === true
+            ? 'yes'
+            : variant.kts_default === false
+              ? 'no'
+              : 'unset'
+      });
     }
   }, [open, variant, form]);
 
@@ -97,7 +113,13 @@ export function EditBillingVariantDialog({
       await updateBillingVariant({
         variantId: variant.id,
         name: data.name.trim(),
-        code
+        code,
+        kts_default:
+          data.kts_variant === 'unset'
+            ? null
+            : data.kts_variant === 'yes'
+              ? true
+              : false
       });
       toast.success('Unterart aktualisiert');
       onOpenChange(false);
@@ -139,6 +161,32 @@ export function EditBillingVariantDialog({
                   <Input {...field} autoFocus />
                 </FormControl>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='kts_variant'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>KTS-Standard (Unterart)</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='unset'>
+                      Nicht festlegen (Familie / Kostenträger)
+                    </SelectItem>
+                    <SelectItem value='yes'>Ja</SelectItem>
+                    <SelectItem value='no'>Nein</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  Stärkster Katalog-Level für die KTS-Voreinstellung.
+                </FormDescription>
               </FormItem>
             )}
           />

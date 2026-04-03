@@ -227,6 +227,16 @@ const EXPORT_COLUMNS: ExportColumn[] = [
     label: 'Betreuer',
     accessor: (t) => t.billing_betreuer ?? ''
   },
+  {
+    key: 'kts_document_applies',
+    label: 'KTS (Krankentransportschein)',
+    accessor: (t) =>
+      t.kts_document_applies === true
+        ? 'Ja'
+        : t.kts_document_applies === false
+          ? 'Nein'
+          : ''
+  },
   { key: 'price', label: 'Preis', accessor: (t) => t.price ?? '' },
 
   // Driver & Vehicle

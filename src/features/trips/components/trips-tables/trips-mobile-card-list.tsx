@@ -156,6 +156,15 @@ export function TripsMobileCardList<TData>({
                     >
                       {tripStatusLabels[status] ?? status}
                     </Badge>
+                    {trip.kts_document_applies ? (
+                      <Badge
+                        variant='secondary'
+                        className='px-1.5 py-0 text-[10px] font-normal'
+                        title='Krankentransportschein (KTS) — laut Fahrt markiert'
+                      >
+                        KTS
+                      </Badge>
+                    ) : null}
                     <CellAction data={trip} />
                   </div>
                 </div>

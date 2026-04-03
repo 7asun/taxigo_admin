@@ -17,6 +17,11 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ValidatedTripRow } from './bulk-upload-types';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
+import {
+  firstNonEmptyKtsCsvSource,
+  parseKtsCsvCell,
+  resolveKtsDefault
+} from '@/features/trips/lib/resolve-kts-default';
 
 interface ResolveBillingVariantsStepProps {
   rows: ValidatedTripRow<InsertTrip | null>[];
@@ -50,6 +55,20 @@ export function ResolveBillingVariantsStep({
       const vid = choices[r.rowNumber];
       if (!vid || !r.trip) continue;
       r.trip.billing_variant_id = vid;
+
+      const ktsRaw = firstNonEmptyKtsCsvSource(r.source);
+      const ktsParsed = parseKtsCsvCell(ktsRaw);
+      if (ktsParsed === 'empty' && r.variantResolution) {
+        const chosen = r.variantResolution.variants.find((v) => v.id === vid);
+        const res = resolveKtsDefault({
+          payerKtsDefault: r.variantResolution.payerKtsDefault,
+          familyBehaviorProfile: r.variantResolution.familyBehaviorProfile,
+          variantKtsDefault: chosen?.kts_default
+        });
+        r.trip.kts_document_applies = res.value;
+        r.trip.kts_source = res.source;
+      }
+
       r.issues = r.issues.filter((i) => i.type !== 'billing_variant_missing');
     }
     onContinue(rows);

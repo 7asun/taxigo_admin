@@ -25,6 +25,13 @@ The global default is set in [`query-client.ts`](query-client.ts). While data is
 - [`keys/trips.ts`](keys/trips.ts) — `tripKeys.detail(id)` for trip detail; `tripKeys.unplanned(filter)` / `tripKeys.unplannedRoot` for the dashboard **Offene Touren** list (`useUnplannedTrips`).
 - [`keys/reference.ts`](keys/reference.ts) — `referenceKeys.drivers()`, `referenceKeys.payers()`, `referenceKeys.billingTypes(payerId)` for small reference lists reused across Fahrten filters, `DriverSelectCell`, Kanban, and trip forms. Fetched via [`use-trip-reference-queries.ts`](../features/trips/hooks/use-trip-reference-queries.ts) with a longer `staleTime` (see that file).
 
+### Kostenträger: two query keys (admin vs trip UI)
+
+- **Admin list** ([`usePayers`](../features/payers/hooks/use-payers.ts)): `queryKey: ['payers']`, full rows including `billing_types(count)` for the Kostenträger page.
+- **Trip / filter reference** (`referenceKeys.payers()`): slim `id, name, kts_default` for **Neue Fahrt** and shared pickers.
+
+`updatePayer` / `createPayer` invalidate **both** keys so trip forms immediately see `kts_default` and the admin cache stays aligned. The detail sheet ([`payer-details-sheet.tsx`](../features/payers/components/payer-details-sheet.tsx)) also resolves the open row from the `usePayers()` cache so the UI updates after save without relying only on the parent’s click snapshot.
+
 ### Reference data invalidation
 
 Drivers/payers/billing types change rarely. **Usually no invalidation** — fresh data arrives on full reload or when the Query cache goes stale and refetches on focus. After admin actions that add/remove drivers or payers (if the UI stays mounted), call `queryClient.invalidateQueries({ queryKey: referenceKeys.root })` or narrow to e.g. `referenceKeys.drivers()`. If the app ever reuses one `QueryClient` across Clerk org switches without remounting, invalidate `referenceKeys` when the active organization changes so RLS-scoped lists cannot leak between tenants.

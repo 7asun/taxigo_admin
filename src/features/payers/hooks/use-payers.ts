@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PayersService } from '../api/payers.service';
 import type { PayerWithBillingCount } from '../types/payer.types';
 import { createClient } from '@/lib/supabase/client';
+import { referenceKeys } from '@/query/keys';
 
 export const PAYERS_QUERY_KEY = 'payers';
 
@@ -55,21 +56,20 @@ export function usePayers() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
     }
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({
-      id,
-      name,
-      number
-    }: {
+    mutationFn: (args: {
       id: string;
       name: string;
       number: string;
-    }) => PayersService.updatePayer(id, name, number),
+      kts_default: boolean | null;
+    }) => PayersService.updatePayer(args),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
     }
   });
 

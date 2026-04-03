@@ -93,6 +93,9 @@ export const ruleFormSchema = z
     payer_id: z.string().min(1, 'Kostenträger ist erforderlich'),
     /** Required on save like Neue Fahrt; auto-filled when the payer has a single Unterart. */
     billing_variant_id: z.string().min(1, 'Unterart ist erforderlich'),
+    kts_document_applies: z.boolean(),
+    /** True after dispatcher toggles KTS; false when only catalog cascade updates the switch. */
+    kts_manual: z.boolean(),
     pickup_time: z
       .string()
       .regex(
@@ -139,6 +142,8 @@ export function getRuleFormDefaults(
     is_active: boolean;
     payer_id?: string | null;
     billing_variant_id?: string | null;
+    kts_document_applies?: boolean | null;
+    kts_source?: string | null;
   } | null
 ): RuleFormValues {
   if (!initialData) {
@@ -146,6 +151,8 @@ export function getRuleFormDefaults(
       days: ['MO', 'TU', 'WE', 'TH', 'FR'],
       payer_id: '',
       billing_variant_id: '',
+      kts_document_applies: false,
+      kts_manual: false,
       pickup_time: '08:00',
       pickup_address: '',
       dropoff_address: '',
@@ -165,6 +172,8 @@ export function getRuleFormDefaults(
     days,
     payer_id: initialData.payer_id ?? '',
     billing_variant_id: initialData.billing_variant_id ?? '',
+    kts_document_applies: !!initialData.kts_document_applies,
+    kts_manual: (initialData.kts_source ?? '') === 'manual',
     pickup_time: initialData.pickup_time.substring(0, 5),
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,

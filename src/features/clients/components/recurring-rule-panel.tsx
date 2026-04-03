@@ -51,6 +51,11 @@ import {
   ruleFormSchema,
   getRuleFormDefaults
 } from './recurring-rule-form-body';
+import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import {
+  resolveKtsDefault,
+  type TripKtsSource
+} from '@/features/trips/lib/resolve-kts-default';
 
 interface RecurringRulePanelProps {
   clientId: string;
@@ -77,6 +82,9 @@ export function RecurringRulePanel({
     resolver: zodResolver(ruleFormSchema),
     defaultValues: getRuleFormDefaults(null)
   });
+
+  const payerWatch = form.watch('payer_id');
+  const { payers, billingTypes } = useTripFormData(payerWatch);
 
   // Load the existing rule when opening in edit mode
   React.useEffect(() => {
@@ -105,11 +113,26 @@ export function RecurringRulePanel({
       setIsSubmitting(true);
 
       const rruleString = `FREQ=WEEKLY;BYDAY=${values.days.join(',')}`;
+      const variant = billingTypes.find(
+        (b) => b.id === values.billing_variant_id
+      );
+      const payer = payers.find((p) => p.id === values.payer_id);
+      const ktsResolved = resolveKtsDefault({
+        payerKtsDefault: payer?.kts_default,
+        familyBehaviorProfile: variant?.behavior_profile,
+        variantKtsDefault: variant?.kts_default
+      });
+      const kts_source: TripKtsSource = values.kts_manual
+        ? 'manual'
+        : ktsResolved.source;
+
       const ruleData = {
         client_id: clientId,
         rrule_string: rruleString,
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id,
+        kts_document_applies: values.kts_document_applies,
+        kts_source,
         pickup_time: `${values.pickup_time}:00`,
         pickup_address: values.pickup_address,
         dropoff_address: values.dropoff_address,
