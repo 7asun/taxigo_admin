@@ -10,6 +10,7 @@
  * |--------|----------|
  * | `DateTimePicker` | One `Date` = full instant (e.g. create-trip `scheduled_at`). |
  * | `DatePicker` | Day as `yyyy-MM-dd` string; time comes from elsewhere (e.g. `<input type="time">`, Verschieben / Zeitabsprache). |
+ * | `DateRangePicker` | Date range selection with preset shortcuts (e.g. trips filter bar). |
  *
  * **Shared:** `dateTimePickerCalendarClassNames` (touch-friendly `Calendar` cells, works inside nested `Dialog`s).
  * **Narrow screens:** both use `useIsNarrowScreen(768)` and `MobileDateTimeSheet` for the date (and `DateTimePicker` also for time).
@@ -30,12 +31,22 @@ import {
 } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { format } from 'date-fns';
+import {
+  format,
+  startOfWeek,
+  addDays,
+  subWeeks,
+  addWeeks,
+  startOfMonth,
+  endOfMonth,
+  subMonths
+} from 'date-fns';
 import { de } from 'date-fns/locale';
-import { CalendarIcon, ChevronDownIcon, ClockIcon } from 'lucide-react';
+import { CalendarIcon, ChevronDownIcon, ClockIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { MobileDateTimeSheet } from '@/features/trips/components/create-trip/mobile-datetime-sheet';
+import type { DateRange } from 'react-day-picker';
 
 /**
  * Passed to `Calendar`’s `classNames` for both pickers so date popovers look identical
@@ -47,7 +58,7 @@ const dateTimePickerCalendarClassNames = {
     'min-h-11 min-w-[2.75rem] touch-manipulation p-0 text-base font-normal aria-selected:opacity-100 sm:min-h-9 sm:min-w-9 sm:text-sm md:size-8 md:min-h-8 md:min-w-8'
   ),
   head_cell:
-    'text-muted-foreground w-[2.75rem] rounded-md text-[0.85rem] font-normal sm:w-9 sm:text-[0.8rem] md:w-8',
+    'text-muted-foreground w-[2.75rem] rounded-md text-[0.85rem] font-normal sm:w-9 sm:text-[0.8rem] md:w-8 md:min-w-8',
   nav_button: cn(
     buttonVariants({ variant: 'outline' }),
     'min-h-11 min-w-11 touch-manipulation bg-transparent p-0 opacity-70 hover:opacity-100 sm:min-h-9 sm:min-w-9 md:size-7'
@@ -436,6 +447,319 @@ export function DatePicker({
           className='w-full max-w-full'
           classNames={dateTimePickerCalendarClassNames}
         />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// --- Date range picker with preset shortcuts (for filter bars)
+
+/** Preset option for quick range selection */
+export interface DateRangePreset {
+  label: string;
+  getRange: () => { from: Date; to: Date };
+}
+
+export interface DateRangePickerProps {
+  /** Selected date range */
+  value?: DateRange;
+  /** Called when range changes (undefined = cleared) */
+  onChange: (range: DateRange | undefined) => void;
+  disabled?: boolean;
+  id?: string;
+  triggerClassName?: string;
+  /** Optional custom presets; defaults to standard week/month presets */
+  presets?: DateRangePreset[];
+  placeholder?: string;
+}
+
+/** Default presets for date range selection */
+const defaultPresets: DateRangePreset[] = [
+  {
+    label: 'Heute',
+    getRange: () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(today);
+      end.setHours(23, 59, 59, 999);
+      return { from: today, to: end };
+    }
+  },
+  {
+    label: 'Diese Woche',
+    getRange: () => {
+      const from = startOfWeek(new Date(), { weekStartsOn: 1 });
+      from.setHours(0, 0, 0, 0);
+      const to = addDays(from, 6);
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    }
+  },
+  {
+    label: 'Letzte Woche',
+    getRange: () => {
+      const anchor = subWeeks(new Date(), 1);
+      const from = startOfWeek(anchor, { weekStartsOn: 1 });
+      from.setHours(0, 0, 0, 0);
+      const to = addDays(from, 6);
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    }
+  },
+  {
+    label: 'Nächste Woche',
+    getRange: () => {
+      const anchor = addWeeks(new Date(), 1);
+      const from = startOfWeek(anchor, { weekStartsOn: 1 });
+      from.setHours(0, 0, 0, 0);
+      const to = addDays(from, 6);
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    }
+  },
+  {
+    label: 'Dieser Monat',
+    getRange: () => {
+      const from = startOfMonth(new Date());
+      from.setHours(0, 0, 0, 0);
+      const to = endOfMonth(new Date());
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    }
+  },
+  {
+    label: 'Letzter Monat',
+    getRange: () => {
+      const anchor = subMonths(new Date(), 1);
+      const from = startOfMonth(anchor);
+      from.setHours(0, 0, 0, 0);
+      const to = endOfMonth(anchor);
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    }
+  }
+];
+
+function formatRangeDisplay(range: DateRange | undefined): string {
+  if (!range?.from) return '';
+  if (!range.to || range.from.getTime() === range.to.getTime()) {
+    return format(range.from, 'dd.MM.yyyy', { locale: de });
+  }
+  const sameMonth =
+    range.from.getMonth() === range.to.getMonth() &&
+    range.from.getFullYear() === range.to.getFullYear();
+  if (sameMonth) {
+    return `${format(range.from, 'dd.', { locale: de })} – ${format(range.to, 'dd.MM.yyyy', { locale: de })}`;
+  }
+  return `${format(range.from, 'dd.MM.', { locale: de })} – ${format(range.to, 'dd.MM.yyyy', { locale: de })}`;
+}
+
+/**
+ * Date range picker with preset shortcuts (Heute, Diese Woche, etc.).
+ * Returns a DateRange with from/to dates inclusive (time set to start/end of day).
+ */
+export function DateRangePicker({
+  value,
+  onChange,
+  disabled,
+  id = 'date-range-picker',
+  triggerClassName,
+  presets = defaultPresets,
+  placeholder = 'Zeitraum wählen'
+}: DateRangePickerProps) {
+  const narrow = useIsNarrowScreen(768);
+  const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const [dateSheetOpen, setDateSheetOpen] = React.useState(false);
+
+  const displayText = formatRangeDisplay(value) || placeholder;
+
+  const handlePreset = (preset: DateRangePreset) => {
+    const range = preset.getRange();
+    onChange(range);
+    setPopoverOpen(false);
+  };
+
+  const handleRangeSelect = (range: DateRange | undefined) => {
+    if (!range) {
+      onChange(undefined);
+      return;
+    }
+    // Normalize times: from=start of day, to=end of day
+    const normalized: DateRange = {
+      from: range.from
+        ? new Date(
+            range.from.getFullYear(),
+            range.from.getMonth(),
+            range.from.getDate(),
+            0,
+            0,
+            0,
+            0
+          )
+        : undefined,
+      to: range.to
+        ? new Date(
+            range.to.getFullYear(),
+            range.to.getMonth(),
+            range.to.getDate(),
+            23,
+            59,
+            59,
+            999
+          )
+        : undefined
+    };
+    onChange(normalized.from ? normalized : undefined);
+  };
+
+  const clearSelection = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange(undefined);
+  };
+
+  // Mobile: use sheet picker (single day for now - range via presets)
+  if (narrow) {
+    return (
+      <>
+        <Button
+          type='button'
+          id={id}
+          variant='outline'
+          disabled={disabled}
+          onClick={() => setDateSheetOpen(true)}
+          className={cn(
+            'h-10 min-h-10 w-full touch-manipulation justify-between text-left text-base font-normal md:h-9 md:min-h-0',
+            !value?.from && 'text-muted-foreground',
+            triggerClassName
+          )}
+        >
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <CalendarIcon className='h-3.5 w-3.5 shrink-0 opacity-60' />
+            <span className='min-w-0 truncate'>{displayText}</span>
+          </span>
+          <span className='flex items-center gap-1'>
+            {value?.from && (
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                className='h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                onClick={clearSelection}
+              >
+                <X className='h-3 w-3' />
+              </Button>
+            )}
+            <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
+          </span>
+        </Button>
+        <MobileDateTimeSheet
+          open={dateSheetOpen}
+          onOpenChange={setDateSheetOpen}
+          value={value?.from}
+          title='Zeitraum wählen'
+          mode='date'
+          onConfirm={(d) => {
+            const from = new Date(
+              d.getFullYear(),
+              d.getMonth(),
+              d.getDate(),
+              0,
+              0,
+              0,
+              0
+            );
+            const to = new Date(
+              d.getFullYear(),
+              d.getMonth(),
+              d.getDate(),
+              23,
+              59,
+              59,
+              999
+            );
+            onChange({ from, to });
+          }}
+        />
+      </>
+    );
+  }
+
+  return (
+    <Popover modal={false} open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type='button'
+          id={id}
+          variant='outline'
+          disabled={disabled}
+          className={cn(
+            'h-10 min-h-10 w-full touch-manipulation justify-between text-left font-normal md:h-9 md:min-h-0',
+            !value?.from && 'text-muted-foreground',
+            triggerClassName
+          )}
+        >
+          <span className='flex min-w-0 items-center gap-1.5'>
+            <CalendarIcon className='h-3.5 w-3.5 shrink-0 opacity-60' />
+            <span className='truncate'>{displayText}</span>
+          </span>
+          <span className='flex items-center gap-1'>
+            {value?.from && (
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon'
+                className='h-6 w-6 shrink-0 opacity-50 hover:opacity-100'
+                onClick={clearSelection}
+              >
+                <X className='h-3 w-3' />
+              </Button>
+            )}
+            <ChevronDownIcon className='h-3.5 w-3.5 shrink-0 opacity-50' />
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align='start'
+        side='bottom'
+        sideOffset={4}
+        collisionPadding={16}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={cn(
+          'z-[100] w-auto touch-manipulation overflow-y-auto overscroll-contain p-0',
+          'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]',
+          'max-w-[calc(100vw-1rem)] sm:max-w-[20rem]'
+        )}
+      >
+        <div className='flex flex-col gap-2 p-3'>
+          {/* Presets - compact grid */}
+          <div className='grid grid-cols-3 gap-1'>
+            {presets.map((preset) => (
+              <Button
+                key={preset.label}
+                type='button'
+                variant='outline'
+                size='sm'
+                className='h-7 px-1.5 text-[11px]'
+                onClick={() => handlePreset(preset)}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          {/* Range calendar */}
+          <div className='flex justify-center'>
+            <Calendar
+              mode='range'
+              selected={value}
+              onSelect={handleRangeSelect}
+              defaultMonth={value?.from}
+              initialFocus={false}
+              numberOfMonths={1}
+              className='w-full'
+              classNames={dateTimePickerCalendarClassNames}
+            />
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );

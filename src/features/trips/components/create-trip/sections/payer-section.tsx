@@ -189,18 +189,13 @@ export function CreateTripPayerSection() {
                     <SelectContent>
                       {variantsInEffectiveFamily.map((bt) => (
                         <SelectItem key={bt.id} value={bt.id}>
-                          <span className='flex flex-col gap-0 leading-tight'>
-                            <span className='flex items-center gap-2'>
-                              <span
-                                className='inline-block h-2 w-2 shrink-0 rounded-full'
-                                style={{ backgroundColor: bt.color }}
-                              />
-                              <span>
-                                {bt.billing_type_name} · {bt.name}
-                              </span>
-                            </span>
-                            <span className='text-muted-foreground pl-4 font-mono text-[10px]'>
-                              {bt.code}
+                          <span className='flex items-center gap-2'>
+                            <span
+                              className='inline-block h-2 w-2 shrink-0 rounded-full'
+                              style={{ backgroundColor: bt.color }}
+                            />
+                            <span>
+                              {bt.billing_type_name} · {bt.name}
                             </span>
                           </span>
                         </SelectItem>
