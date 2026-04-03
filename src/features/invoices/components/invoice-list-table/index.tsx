@@ -52,6 +52,14 @@ import { createInvoiceColumns } from './columns';
 import type { InvoiceListFilter } from '@/query/keys/invoices';
 import type { InvoiceWithPayer } from '../../types/invoice.types';
 
+function openInvoicePdfPreview(invoiceId: string): void {
+  window.open(
+    `/dashboard/invoices/${invoiceId}/preview`,
+    '_blank',
+    'noopener,noreferrer'
+  );
+}
+
 interface Payer {
   id: string;
   name: string;
@@ -80,6 +88,7 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
   // ── Table ─────────────────────────────────────────────────────────────────
   const columns = createInvoiceColumns({
     onView: (id) => router.push(`/dashboard/invoices/${id}`),
+    onPreview: openInvoicePdfPreview,
     onDownload: (id) => router.push(`/dashboard/invoices/${id}?download=true`)
   });
 
@@ -194,11 +203,7 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
             disabled={!previewInvoice}
             onClick={() => {
               if (!previewInvoice) return;
-              window.open(
-                `/dashboard/invoices/${previewInvoice.id}/preview`,
-                '_blank',
-                'noopener,noreferrer'
-              );
+              openInvoicePdfPreview(previewInvoice.id);
             }}
           >
             <Eye className='h-4 w-4' />
