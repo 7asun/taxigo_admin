@@ -213,6 +213,8 @@ export interface TripForInvoice {
   dropoff_address: string | null;
   /** Krankentransportschein — from trips.kts_document_applies */
   kts_document_applies: boolean;
+  /** Keine Rechnung — trip should not be invoiced via TaxiGo */
+  no_invoice_required: boolean;
 }
 
 // ─── 4. Zod Schemas (Invoice Builder Form) ────────────────────────────────────
@@ -288,6 +290,8 @@ export interface BuilderLineItem {
   billing_variant_name: string | null;
   /** True when the source trip is flagged as KTS-relevant (Krankentransportschein). */
   kts_document_applies: boolean;
+  /** From trips.no_invoice_required — shown as Hinweis in builder step 3 */
+  no_invoice_required: boolean;
 
   /**
    * Indicates which price source was used for this line item.

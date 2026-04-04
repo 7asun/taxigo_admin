@@ -113,6 +113,7 @@ export function Step3LineItems({
   }
 
   const ktsLineCount = lineItems.filter((i) => i.kts_document_applies).length;
+  const noInvLineCount = lineItems.filter((i) => i.no_invoice_required).length;
 
   return (
     <div className='space-y-4'>
@@ -143,6 +144,18 @@ export function Step3LineItems({
             enthält {ktsLineCount} {ktsLineCount === 1 ? 'Fahrt' : 'Fahrten'},
             die im System als KTS-relevant markiert sind. Bitte prüfen Sie
             Bescheinigung und Abrechnung vor dem Versand.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {noInvLineCount > 0 && (
+        <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+          <AlertTriangle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+          <AlertDescription>
+            <strong>Keine Rechnung:</strong> {noInvLineCount}{' '}
+            {noInvLineCount === 1 ? 'Fahrt ist' : 'Fahrten sind'} als „keine
+            Rechnung“ markiert. Bitte prüfen, ob diese Positionen wirklich auf
+            die Rechnung gehören.
           </AlertDescription>
         </Alert>
       )}
@@ -198,7 +211,9 @@ export function Step3LineItems({
                       </span>
                     </div>
                   )}
-                  {(item.billing_variant_name || item.kts_document_applies) && (
+                  {(item.billing_variant_name ||
+                    item.kts_document_applies ||
+                    item.no_invoice_required) && (
                     <div className='mt-1 flex flex-wrap gap-1'>
                       {item.billing_variant_name && (
                         <Badge
@@ -215,6 +230,15 @@ export function Step3LineItems({
                           title='Krankentransportschein (KTS) — laut Fahrt markiert'
                         >
                           KTS
+                        </Badge>
+                      )}
+                      {item.no_invoice_required && (
+                        <Badge
+                          variant='outline'
+                          className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+                          title='Fahrt: keine Rechnung erforderlich'
+                        >
+                          Keine Rechn.
                         </Badge>
                       )}
                     </div>

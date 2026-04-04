@@ -16,6 +16,8 @@ export interface BillingTypeBehavior {
   askCallingStationAndBetreuer?: boolean;
   /** KTS default for all Unterarten in this Familie unless variant sets `kts_default`. */
   kts_default?: 'yes' | 'no' | 'unset';
+  /** Default „keine Rechnung“ for this family unless variant overrides. */
+  no_invoice_required_default?: 'yes' | 'no' | 'unset';
   // Legacy single-string defaults (kept for backward compatibility)
   defaultPickup?: string | null;
   defaultDropoff?: string | null;
@@ -53,6 +55,8 @@ export interface BillingVariant {
   created_at: string;
   /** NULL = inherit from familie / payer cascade. */
   kts_default?: boolean | null;
+  /** NULL = inherit from familie / payer for no_invoice default. */
+  no_invoice_required_default?: boolean | null;
 }
 
 /** Admin tree: `billing_types` rows with nested variants (sorted in the service). */
@@ -68,6 +72,8 @@ export interface Payer {
   created_at: string;
   /** NULL = inherit (only variant + familie apply). */
   kts_default?: boolean | null;
+  /** NULL = inherit for default „keine Rechnung“. */
+  no_invoice_required_default?: boolean | null;
 }
 
 export interface PayerWithBillingCount extends Payer {

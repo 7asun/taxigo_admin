@@ -234,6 +234,8 @@ function copyRouteAndPassengerFields(
   | 'billing_calling_station'
   | 'kts_document_applies'
   | 'kts_source'
+  | 'no_invoice_required'
+  | 'no_invoice_source'
   | 'payment_method'
   | 'vehicle_id'
   | 'notes'
@@ -274,6 +276,8 @@ function copyRouteAndPassengerFields(
     billing_calling_station: source.billing_calling_station,
     kts_document_applies: !!source.kts_document_applies,
     kts_source: 'manual',
+    no_invoice_required: !!source.no_invoice_required,
+    no_invoice_source: 'manual',
     payment_method: source.payment_method,
     vehicle_id: source.vehicle_id,
     notes: source.notes,
@@ -301,6 +305,9 @@ function buildDuplicateInsert(
     company_id: source.company_id,
     created_by: createdBy,
     driver_id: null,
+    fremdfirma_id: null,
+    fremdfirma_payment_mode: null,
+    fremdfirma_cost: null,
     rule_id: null,
     group_id: null,
     scheduled_at: schedule.scheduled_at,

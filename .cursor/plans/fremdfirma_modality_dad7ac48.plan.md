@@ -1,140 +1,273 @@
 ---
 name: Fremdfirma modality
-overview: Add a company-scoped `fremdfirmen` catalog, link trips via `fremdfirma_id`, and implement trip-detail UI (switch + vendor select + safe driver/status behavior). Include SQL with COMMENTs, a feature doc, admin CRUD mirroring Kostenträger, and trip list display/filter hooks—without Kanban changes.
+overview: Implement Spec A + Spec B with recurring_rules mirroring in V1 (same pattern as KTS), mandatory fremdfirma_payment_mode chips in trips listing, and rule editor / cron / duplicate-rule behavior per locked decisions.
 todos:
-  - id: sql-migration
-    content: Add fremdfirmen table + trips.fremdfirma_id, indexes, COMMENT ON, RLS, GRANTs; regenerate database.types.ts
+  - id: sql-spec-a
+    content: "Migrations: payers + billing_variants no_invoice columns; behavior_profile + Zod; trips no_invoice_* + selbstzahler_collected_amount; regenerate types"
+    status: completed
+  - id: sql-spec-b
+    content: "Migrations: fremdfirmen + trips fremdfirma_* ; RLS/GRANTs/COMMENTs; regenerate types"
+    status: pending
+  - id: sql-recurring-rules
+    content: "Migration: extend recurring_rules (no_invoice_*, fremdfirma_*) AFTER fremdfirmen exists; COMMENT ON; regenerate types"
+    status: completed
+  - id: resolver-no-invoice
+    content: Add resolve-no-invoice-required.ts mirroring resolve-kts-default.ts; wire create-trip + detail sheet + recurring rule defaults
+    status: completed
+  - id: catalog-ui-spec-a
+    content: Payer sheet, billing-type-behavior-dialog, variant dialogs — no_invoice cascade like kts_default
     status: pending
   - id: feature-fremdfirmen
-    content: Create src/features/fremdfirmen (service, hooks, list UI, dashboard route, nav item)
-    status: pending
-  - id: trip-detail-ui
-    content: "Add trip-fremdfirma section in trip-detail-sheet: switch, select, driver read-only, update payload + recurring scope"
-    status: pending
+    content: src/features/fremdfirmen — service, hooks, CRUD UI, default_payment_mode; dashboard route + nav
+    status: completed
   - id: trip-status
-    content: Extend trip-status (or wrapper) so Fremdfirma + null driver does not wrongly demote assigned→pending
+    content: Extend trip-status.ts for fremdfirma_id + null driver; inline comment per Spec B
+    status: completed
+  - id: trip-ui-fremdfirma
+    content: trip-fremdfirma-section.tsx — switch, vendor, payment mode, cost rules, KTS/no_invoice hints (shared logic for rules)
     status: pending
-  - id: trips-list
-    content: Join fremdfirma in trips listing; driver column display; optional filter for outsourced trips
+  - id: trip-ui-no-invoice
+    content: Trip detail + create-trip — Keine Rechnung switch, cascade hints, KTS coexistence warning
+    status: pending
+  - id: recurring-rule-ui
+    content: "Extend recurring rule create/edit: Keine Rechnung + Fremdfirma section (reuse trip patterns); RULE 1–4 same as trip form"
+    status: pending
+  - id: recurring-cron
+    content: generate-recurring-trips/route.ts — mirror new rule columns into trip insert + inline comment block
+    status: pending
+  - id: recurring-rules-service
+    content: recurring-rules.service.ts + types — persist new columns on create/update
+    status: pending
+  - id: trips-list-mandatory-badge
+    content: "columns.tsx (+ listing select): mandatory chip/tooltip for fremdfirma_payment_mode when fremdfirma_id set; DE labels; selbstzahler_collected_amount comment block"
+    status: pending
+  - id: duplicate-return-trip
+    content: duplicate-trips — clear fremd*; copy no_invoice (source manual). build-return-trip-insert — copy no_invoice; omit fremd*
+    status: pending
+  - id: duplicate-recurring-rule
+    content: "If rule duplication exists or is added: clear fremdfirma_*; copy no_invoice_required with no_invoice_source = manual"
+    status: pending
+  - id: csv-bulk
+    content: bulk-upload — columns per Spec A + Spec B (fremdfirma by number resolve)
+    status: pending
+  - id: invoices-soft-warnings
+    content: invoice line items API + step-3 — Keine Rechnung badge + batch warning (Spec A 7.3)
     status: pending
   - id: docs
-    content: Add docs/fremdfirma.md and src/features/fremdfirmen/README.md
-    status: pending
+    content: docs/fremdfirma.md, docs/no-invoice-required.md, feature READMEs; recurring mirroring documented
+    status: completed
 isProject: false
 ---
 
-# Fremdfirma modality (MVP)
+# Integrated plan: Spec A + Spec B (Fremdfirma & Keine Rechnung)
 
-## Why SQL + comments
+## Source of truth (your specs)
 
-Yes—you **should** ship a migration with `**COMMENT ON TABLE` / `COMMENT ON COLUMN`**. The repo already uses this pattern (e.g. `[supabase/migrations/20260326120000_billing_families_and_variants.sql](supabase/migrations/20260326120000_billing_families_and_variants.sql)`, `[supabase/migrations/20260330120000_trips_billing_calling_station_betreuer.sql](supabase/migrations/20260330120000_trips_billing_calling_station_betreuer.sql)`). It keeps Supabase Studio self-documenting and matches how billing behavior is explained in German domain terms.
+- [implementation-suggestions/spec-a-no-invoice-required.md](implementation-suggestions/spec-a-no-invoice-required.md)
+- [implementation-suggestions/spec-b-fremdfirma.md](implementation-suggestions/spec-b-fremdfirma.md)
+
+This plan **merges** both and incorporates **locked V1 decisions** below.
 
 ---
 
-## Data model
+## Locked V1 decisions (this update)
 
-```mermaid
-flowchart LR
-  companies[companies]
-  fremdfirmen[fremdfirmen]
-  trips[trips]
-  companies --> fremdfirmen
-  fremdfirmen --> trips
+1. **Recurring rules mirroring** — **In scope for V1.** Follow the **same pattern** as `kts_document_applies` / `kts_source`: columns on `recurring_rules`, cron copies onto generated trips, rule editor UI for all fields, cross-flag rules identical to the trip form.
+2. **Trips listing payment mode** — **Mandatory** (not optional): every row with `fremdfirma_id IS NOT NULL` shows a compact **chip or tooltip** with the German label for `fremdfirma_payment_mode`.
+3. `**columns.tsx` comment** — At the **driver / Fremdfirma display** block, add the agreed **inline comment** about `selbstzahler_collected_amount` (no UI in V1).
+
+---
+
+## Strategic sequencing (dependency)
+
+Spec B **RULE 1** needs `**trips.no_invoice_required`** from Spec A. **Migration order:** create `**fremdfirmen`** before `**recurring_rules.fremdfirma_id`** FK (same migration file is fine: `CREATE fremdfirmen` → `ALTER trips` → `ALTER recurring_rules`).
+
+Recommended **merge order**:
+
+1. Spec A: DB + resolver + catalog UI + trip create/detail.
+2. Spec B: `fremdfirmen` + trips `fremdfirma_`*.
+3. **Recurring rules migration** + **cron** + **rule editor** + **recurring-rules.service**.
+4. Listing (mandatory badge), duplicate trip/return, duplicate rule (if applicable), CSV, invoices, docs.
+
+---
+
+## Recurring rules — V1 (implementation contract)
+
+### 1. Migration — extend `recurring_rules`
+
+**Must run after** `public.fremdfirmen` exists (FK).
+
+```sql
+ALTER TABLE recurring_rules
+ADD COLUMN no_invoice_required BOOLEAN NOT NULL DEFAULT FALSE,
+ADD COLUMN no_invoice_source VARCHAR(20) DEFAULT NULL,
+ADD COLUMN fremdfirma_id UUID REFERENCES fremdfirmen(id) ON DELETE SET NULL DEFAULT NULL,
+ADD COLUMN fremdfirma_payment_mode TEXT DEFAULT NULL
+  CHECK (fremdfirma_payment_mode IN (
+    'cash_per_trip', 'monthly_invoice', 'self_payer', 'kts_to_fremdfirma'
+  )),
+ADD COLUMN fremdfirma_cost NUMERIC(10, 2) DEFAULT NULL;
+
+COMMENT ON COLUMN recurring_rules.no_invoice_required IS
+  'Gespiegelt auf generierte Fahrten. Gleiche Semantik wie trips.no_invoice_required.';
+COMMENT ON COLUMN recurring_rules.fremdfirma_id IS
+  'Wenn gesetzt: generierte Fahrten werden dieser Fremdfirma zugewiesen.';
+COMMENT ON COLUMN recurring_rules.fremdfirma_payment_mode IS
+  'Abrechnungsart der Fremdfirma — wird auf generierte Fahrten gespiegelt.';
+COMMENT ON COLUMN recurring_rules.fremdfirma_cost IS
+  'Seed-Feld: vereinbarter Betrag — wird auf generierte Fahrten gespiegelt. Kein UI-Enforcement.';
 ```
 
+Add `**COMMENT ON COLUMN**` for `no_invoice_source` for parity with trips (mirror Spec A vocabulary).
 
+### 2. Cron — extend trip insert payload
 
-- `**fremdfirmen**` (mirror `[payers](src/types/database.types.ts)` shape): `id`, `company_id` → `companies`, `name`, optional `number`/`sort_order`, `is_active`, `created_at`, `**settlement_mode**` `text` with `CHECK (settlement_mode IN ('per_trip','monthly'))` default `'per_trip'` (supports your future reconciliation; no extra UI required in v1 beyond optional display or edit).
-- `**trips.fremdfirma_id**` `uuid` `REFERENCES fremdfirmen(id) ON DELETE SET NULL`, index `(company_id, fremdfirma_id)` where useful for reporting (partial index optional).
+In `[src/app/api/cron/generate-recurring-trips/route.ts](src/app/api/cron/generate-recurring-trips/route.ts)`, add to the same object that already sets `kts_document_applies` / `kts_source`:
 
-**Semantics:** A trip is “Fremdfirma” when `fremdfirma_id IS NOT NULL`. **Kostenträger / billing** stays unchanged (out of scope except preserving fields).
+```typescript
+no_invoice_required: rule.no_invoice_required,
+no_invoice_source: rule.no_invoice_source,
+fremdfirma_id: rule.fremdfirma_id ?? null,
+fremdfirma_payment_mode: rule.fremdfirma_payment_mode ?? null,
+fremdfirma_cost: rule.fremdfirma_cost ?? null,
+```
 
-**Driver field:** You asked for **driver = Fremd** without necessarily creating a fake login. Recommended MVP approach:
+**Inline comment** (place above or beside the mirrored fields):
 
-1. **Do not** require a sentinel `accounts` row in v1 (avoids `auth.users` coupling).
-2. When Fremdfirma is active, set `**driver_id` to `null`** and rely on `**fremdfirma_id`** as the execution source of truth.
-3. **Extend** `[getStatusWhenDriverChanges](src/features/trips/lib/trip-status.ts)` (or add a thin wrapper used only from the detail sheet / Fremdfirma updates) so that **unassigning the internal driver does not force `assigned → pending` when `fremdfirma_id` is set**—treat “extern zugewiesen” as assigned for workflow purposes. Document this in code comments (this is the subtlest part of the feature).
+```typescript
+// no_invoice_required, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost
+// are mirrored from recurring_rules — same pattern as kts_document_applies.
+// Admin can override on individual generated trips after creation.
+```
 
-Optional **phase 1b** (if you later need literal `driver_id` for every report): add `companies.fremd_placeholder_driver_id` → `accounts` and set it once per company via admin UI; when toggling Fremdfirma on, set `driver_id` to that UUID. Not required for a coherent MVP if status logic + list display are fixed.
+**Cron-generated trips with `fremdfirma_id`:** ensure insert payload also sets `**driver_id: null`**, `**needs_driver_assignment: false`**, and **status** consistent with Spec B (extern = assigned workflow — align with `trip-status` rules so generated rows do not flip to `pending` incorrectly).
 
----
+### 3. Rule editor UI
 
-## SQL migration file (deliverables)
+**Code anchors (existing):**
 
-Single new migration, e.g. `supabase/migrations/YYYYMMDD000000_fremdfirmen_and_trips_fremdfirma_id.sql`, containing:
+- `[src/features/clients/components/recurring-rule-form-body.tsx](src/features/clients/components/recurring-rule-form-body.tsx)`
+- `[src/features/clients/components/recurring-rule-billing-fields.tsx](src/features/clients/components/recurring-rule-billing-fields.tsx)` — already “same UX as Neue Fahrt” for Kostenträger; **extend** here or via extracted shared components
+- `[src/features/clients/components/recurring-rule-sheet.tsx](src/features/clients/components/recurring-rule-sheet.tsx)` / `[recurring-rule-panel.tsx](src/features/clients/components/recurring-rule-panel.tsx)`
+- `[src/features/trips/api/recurring-rules.service.ts](src/features/trips/api/recurring-rules.service.ts)` — **create/update** must include new columns
 
-- `CREATE TABLE public.fremdfirmen (...)` with constraints and `**COMMENT ON`** for table and columns (DE/EN short, same tone as billing migrations).
-- `ALTER TABLE public.trips ADD COLUMN fremdfirma_id ...`; index; `**COMMENT ON COLUMN`**.
-- **RLS**: enable RLS on `fremdfirmen`; policies scoped by `**company_id = current_user_company_id()`** (same helper as in `[supabase/migrations/20260318100000_add_users_driver_profiles_rls.sql](supabase/migrations/20260318100000_add_users_driver_profiles_rls.sql)`) for `SELECT/INSERT/UPDATE/DELETE` as appropriate for **admin** users—align with how `payers` are secured in your deployed project (if payers policies live only remotely, document “apply same pattern” in the feature doc).
-- **GRANT**s consistent with `[billing_variants` migration](supabase/migrations/20260326120000_billing_families_and_variants.sql).
+**Requirements:**
 
-After applying: regenerate `[src/types/database.types.ts](src/types/database.types.ts)` via your usual Supabase codegen command.
+- **Keine Rechnung** switch: same behavior as trip form; cascade pre-fill via `**resolveNoInvoiceRequiredDefault`** when payer/family/variant change.
+- **Fremdfirma** block: same as `[trip-fremdfirma-section.tsx](src/features/fremdfirmen/components/trip-fremdfirma-section.tsx)` (switch, vendor, payment mode, cost field). Prefer **shared hooks or subcomponents** so RULE 1–4 do not diverge between trip and rule forms.
+- **RULE 1–4** apply **identically** (reactive layer for `no_invoice_required` + `fremdfirma_id` + payment mode + cost visibility).
 
----
+### 4. Duplicate recurring rule behavior
 
-## App architecture (maintainability)
+- **Clear:** `fremdfirma_id`, `fremdfirma_payment_mode`, `fremdfirma_cost`
+- **Copy:** `no_invoice_required` with `**no_invoice_source = 'manual'`** (same idea as trip duplication)
 
-
-| Area                                         | Location                                                                                                                                                                                                                            |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Feature module (vendor CRUD + hooks + types) | `**src/features/fremdfirmen/`** (parallel to `[src/features/payers/](src/features/payers/)`)                                                                                                                                        |
-| Trip UI only                                 | `**src/features/fremdfirmen/components/trip-fremdfirma-section.tsx`** (or under `trip-detail-sheet/components/`) imported by `[trip-detail-sheet.tsx](src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx)`                  |
-| Status / assignment rules                    | `[src/features/trips/lib/trip-status.ts](src/features/trips/lib/trip-status.ts)` (+ call sites if signature changes)                                                                                                                |
-| Trip fetch / patch                           | `[src/features/trips/api/trips.service.ts](src/features/trips/api/trips.service.ts)` (`getTripById` select adds `fremdfirma:fremdfirmen(*)`)                                                                                        |
-| Reference data                               | Extend `[src/features/trips/api/trip-reference-data.ts](src/features/trips/api/trip-reference-data.ts)` + `[use-trip-reference-queries.ts](src/features/trips/hooks/use-trip-reference-queries.ts)` with `fetchActiveFremdfirmen()` |
-
-
-**Service layer:** `FremdfirmenService` in `src/features/fremdfirmen/api/fremdfirmen.service.ts` mirroring `PayersService` patterns (`createClient`, `toQueryError`, `company_id` from same source as payers page—reuse existing org/company resolution used when creating payers).
-
-**Navigation:** New item under Account next to Kostenträger in `[src/config/nav-config.ts](src/config/nav-config.ts)`; route `**src/app/dashboard/fremdfirmen/page.tsx`** rendering a list + add/edit dialog (reuse shadcn patterns from payers).
-
-**Query keys:** If the project uses a central query key factory for trips/payers, add keys for `fremdfirmen` list (see `[src/query/README.md](src/query/README.md)`).
+**Codebase note:** There is **no** recurring-rule duplicate flow found today (`duplicate` / `clone` rule grep empty). **If** duplication is added later or exists under another name, apply this contract; otherwise treat this todo as **verify + document skip**.
 
 ---
 
-## Trip detail sheet behavior (UX contract)
+## Trips listing — mandatory `fremdfirma_payment_mode` badge
 
-Implement next to the existing **Fahrer** block in `[trip-detail-sheet.tsx](src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx)` (~lines 1205–1238):
+**Requirement:** For **every** row where `**fremdfirma_id IS NOT NULL`**, show a **compact chip** and/or **tooltip** with the payment mode using **German** labels:
 
-- **Switch** “Fremdfirma”: when **on**, show **required** `Select` of active `fremdfirmen` for the company; when **off**, clear `fremdfirma_id` and restore driver handling to normal.
-- **Driver control:** When `fremdfirma_id` is set: show driver as **read-only label** e.g. “Extern (Fremdfirma)” + vendor name; **disable** the driver `Select` (per your spec). When turning **off**, re-enable driver select.
-- **Save path:** Single `updateTrip` payload including `fremdfirma_id`, `driver_id` (null when external), `needs_driver_assignment` (set **false** when external, similar to `[duplicate-trips.ts](src/features/trips/lib/duplicate-trips.ts)`), and **status** via updated helper so Fremdfirma assignment does not incorrectly revert to `pending`.
-- **Recurring trips:** Wrap updates in existing `**runWithRecurringScope`** like `handleDriverChange` so series edits stay consistent.
 
-**Linked Hin/Rück:** No automatic copy of `fremdfirma_id` from partner leg (aligned with [trips-rueckfahrt-detail-sheet.md](docs/trips-rueckfahrt-detail-sheet.md): schedule/driver are leg-specific).
+| Enum                | Label             |
+| ------------------- | ----------------- |
+| `cash_per_trip`     | Bar pro Fahrt     |
+| `monthly_invoice`   | Monatsrechnung    |
+| `self_payer`        | Selbstzahler      |
+| `kts_to_fremdfirma` | KTS an Fremdfirma |
 
----
 
-## Trips list / table (minimal “production ready”)
+**Files:** `[src/features/trips/components/trips-tables/columns.tsx](src/features/trips/components/trips-tables/columns.tsx)` (and ensure `[trips-listing.tsx](src/features/trips/components/trips-listing.tsx)` / mobile card list **select** includes `fremdfirma_payment_mode` + join `fremdfirmen` as needed).
 
-Kanban explicitly **out of scope**, but the **table** currently shows driver via `driver_id` (`[trips-listing.tsx](src/features/trips/components/trips-listing.tsx)`, `[columns.tsx](src/features/trips/components/trips-tables/columns.tsx)`). Add:
+**Centralize** label mapping in a small helper (e.g. `src/features/fremdfirmen/lib/fremdfirma-payment-mode-labels.ts`) to avoid drift between trip form, rule form, and table.
 
-- Join `fremdfirma:fremdfirmen(name)` in the listing query when feasible.
-- Display rule: if `fremdfirma_id` present, show **“Extern · {name}”** (or similar) instead of empty driver.
-- Optional filter `**fremdfirma_id` or `external=1`** in `[trips-filters-bar.tsx](src/features/trips/components/trips-filters-bar.tsx)` / URL params—small scope, high value for “all outsourced trips.”
+### Inline comment in `columns.tsx` (driver / Fremdfirma block)
 
----
+```typescript
+// V1: selbstzahler_collected_amount exists on trips but has no UI.
+// Do not expose in any form field until cash collection feature is scoped.
+// Column exists for future cash reporting only.
+```
 
-## Documentation
-
-- `**docs/fremdfirma.md`**: Problem, data model, UX rules, Hin/Rück independence, what is **not** in v1 (Barzahler, Kanban, inbound Fremd invoices, margin dashboard), and **how to extend** settlement modes.
-- `**src/features/fremdfirmen/README.md`**: Short pointer to the doc + folder map (same pattern as `[src/features/trips/trip-reschedule/README.md](src/features/trips/trip-reschedule/README.md)`).
-
-**Inline comments:** Keep to **non-obvious** spots: `trip-status` extension, recurring save, and one block in the trip section explaining the driver-disabled rule.
+Place this at the **driver / Fremdfirma display** section as requested (not on unrelated columns).
 
 ---
 
-## Out of scope (explicit)
+## Codebase verification (summary)
 
-- Barzahler / cash behavior.
-- Kanban badges/columns.
-- Fremdfirma inbound invoice upload / monthly bundle allocation.
-- Changing invoice PDF generation (you said internal-only for subcontractor naming).
+
+| Topic                | Finding                                                                                                  | Plan adjustment                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **KTS → recurring**  | Cron already mirrors KTS from `recurring_rules`                                                          | Extend **same** insert object for no_invoice + Fremdfirma      |
+| **Rule UI**          | `[recurring-rule-billing-fields.tsx](src/features/clients/components/recurring-rule-billing-fields.tsx)` | Extend for Keine Rechnung + Fremdfirma + shared RULE logic     |
+| **Duplicate trips**  | `[duplicate-trips.ts](src/features/trips/lib/duplicate-trips.ts)`                                        | Clear `fremdfirma_`*; copy `no_invoice_*` with `manual` source |
+| **Linked Rückfahrt** | `[build-return-trip-insert.ts](src/features/trips/lib/build-return-trip-insert.ts)`                      | Copy `no_invoice_`*; omit `fremdfirma_*`                       |
+| **trip-status**      | `[trip-status.ts](src/features/trips/lib/trip-status.ts)`                                                | Fremdfirma guard when `fremdfirma_id` set                      |
+
 
 ---
 
-## Duplicate / bulk / create-trip follow-ups (defer or light touch)
+## Data model (unchanged summary)
 
-- **Duplicate trips:** Clear `fremdfirma_id` when clearing `driver_id` (consistent with manual reassignment).
-- **Bulk upload / create-trip form:** No change in v1 unless you want parity; otherwise document “set in detail sheet only” in `docs/fremdfirma.md`.
+- Spec A: payers / `behavior_profile` / `billing_variants` / `trips` columns for no-invoice cascade.
+- Spec B: `fremdfirmen`, `trips.fremdfirma_id`, `fremdfirma_payment_mode`, `fremdfirma_cost`.
+- **Plus** `recurring_rules` columns listed above (V1 locked).
+
+**Regenerate** `[src/types/database.types.ts](src/types/database.types.ts)` after migrations.
+
+---
+
+## Interaction matrix (implementation contracts)
+
+Same RULE 1–4 as before; **both** trip forms **and** recurring rule forms must implement them (shared implementation strongly recommended).
+
+---
+
+## UX (trip sheet / create form)
+
+Unchanged from prior plan; **listing** now **requires** payment-mode chip (see above).
+
+---
+
+## CSV, duplicate trip, Rückfahrt
+
+- **CSV:** Spec A + Spec B columns; `fremdfirma_number` resolve.
+- **Duplicate trip:** Fremdfirma cleared; no_invoice copied (manual source).
+- **Rückfahrt insert:** Copy no_invoice from outbound; Fremdfirma null.
+
+---
+
+## V2 / out of scope / docs
+
+- V2 reconciliation tables (Spec B §11) — still out of V1.
+- Kanban Fremdfirma — out of scope.
+- **Docs:** Document recurring mirroring and post-generation overrides (cron comment + user-facing `docs/`).
+
+---
+
+## Spec corrections / clarifications (senior review)
+
+1. ~~Recurring mirror optional~~ — **Superseded:** V1 **includes** full recurring mirroring per locked decision.
+2. **Spec A** resolver shape should match KTS inputs (payer, family, variant).
+3. `**no_invoice_source`** vocabulary consistent across trips, rules, CSV, duplicate paths.
+4. **No sentinel driver** — `driver_id = null` + `fremdfirma_id` + status fix.
+
+---
+
+## Implementation order (for execution phase)
+
+1. Migrations Spec A → types.
+2. Resolver + catalog UI (Spec A).
+3. Trip create/detail: Keine Rechnung + KTS warning.
+4. Migrations Spec B (`fremdfirmen` + trips) → types.
+5. Migration `**recurring_rules` extension** → types.
+6. `fremdfirmen` CRUD + nav + label helper for payment modes.
+7. `trip-status` + `**trip-fremdfirma-section`** + create-trip parity.
+8. `**recurring-rules.service`** + rule form UI + shared RULE 1–4 logic.
+9. **Cron** mirror fields + inline comment.
+10. Trips listing: join + **mandatory** payment badge + `**columns.tsx` selbstzahler comment**.
+11. Duplicate trip / return; duplicate rule if applicable.
+12. CSV + invoices + docs.
 

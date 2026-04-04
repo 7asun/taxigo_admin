@@ -135,7 +135,13 @@ import {
   resolveKtsDefault,
   type TripKtsSource
 } from '@/features/trips/lib/resolve-kts-default';
+import {
+  resolveNoInvoiceRequiredDefault,
+  type TripNoInvoiceSource
+} from '@/features/trips/lib/resolve-no-invoice-required';
 import type { TripDirection } from '@/features/trips/lib/trip-direction';
+import { TripFremdfirmaSection } from '@/features/fremdfirmen/components/trip-fremdfirma-section';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 /**
  * `POST /api/trips/duplicate` returns ids in insert order: for Hin+Rück, `[outboundId, returnId]`
@@ -196,6 +202,11 @@ export function TripDetailSheet({
   const [ktsDocumentAppliesDraft, setKtsDocumentAppliesDraft] = useState(false);
   const [ktsCatalogHint, setKtsCatalogHint] = useState<string | null>(null);
   const ktsUserLockedRef = useRef(false);
+  const [noInvoiceRequiredDraft, setNoInvoiceRequiredDraft] = useState(false);
+  const [noInvoiceCatalogHint, setNoInvoiceCatalogHint] = useState<
+    string | null
+  >(null);
+  const noInvoiceUserLockedRef = useRef(false);
   const [pickupRouteExpanded, setPickupRouteExpanded] = useState(false);
   const [dropoffRouteExpanded, setDropoffRouteExpanded] = useState(false);
   const [dateYmdDraft, setDateYmdDraft] = useState<string>('');
@@ -283,6 +294,43 @@ export function TripDetailSheet({
       setKtsCatalogHint(`Voreingestellt aus Kostenträger: ${payer.name}`);
     } else {
       setKtsCatalogHint(null);
+    }
+  }, [
+    billingChangedFromTrip,
+    payerDraft,
+    billingVariantDraft,
+    payers,
+    billingVariants
+  ]);
+
+  useEffect(() => {
+    if (noInvoiceUserLockedRef.current) return;
+    if (!billingChangedFromTrip) return;
+    if (!payerDraft || !billingVariantDraft) {
+      setNoInvoiceCatalogHint(null);
+      return;
+    }
+    const payer = payers.find((p) => p.id === payerDraft);
+    const variant = billingVariants.find((b) => b.id === billingVariantDraft);
+    if (!payer || !variant) return;
+    const r = resolveNoInvoiceRequiredDefault({
+      payerNoInvoiceDefault: payer.no_invoice_required_default,
+      familyBehaviorProfile: variant.behavior_profile,
+      variantNoInvoiceDefault: variant.no_invoice_required_default
+    });
+    setNoInvoiceRequiredDraft(r.value);
+    if (!r.value) {
+      setNoInvoiceCatalogHint(null);
+    } else if (r.source === 'variant') {
+      setNoInvoiceCatalogHint(`Voreingestellt aus Unterart: ${variant.name}`);
+    } else if (r.source === 'familie') {
+      setNoInvoiceCatalogHint(
+        `Voreingestellt aus Abrechnungsfamilie: ${variant.billing_type_name}`
+      );
+    } else if (r.source === 'payer') {
+      setNoInvoiceCatalogHint(`Voreingestellt aus Kostenträger: ${payer.name}`);
+    } else {
+      setNoInvoiceCatalogHint(null);
     }
   }, [
     billingChangedFromTrip,
@@ -395,6 +443,9 @@ export function TripDetailSheet({
     setKtsDocumentAppliesDraft(!!trip.kts_document_applies);
     ktsUserLockedRef.current = false;
     setKtsCatalogHint(null);
+    setNoInvoiceRequiredDraft(!!trip.no_invoice_required);
+    noInvoiceUserLockedRef.current = false;
+    setNoInvoiceCatalogHint(null);
     if (trip.scheduled_at) {
       setDateYmdDraft(format(new Date(trip.scheduled_at), 'yyyy-MM-dd'));
     } else if (trip.requested_date) {
@@ -484,7 +535,8 @@ export function TripDetailSheet({
         };
         const derivedStatus = getStatusWhenDriverChanges(
           trip.status,
-          newDriverId
+          newDriverId,
+          { fremdfirmaId: trip.fremdfirma_id }
         );
         if (derivedStatus) payload.status = derivedStatus;
         await tripsService.updateTrip(trip.id, payload);
@@ -657,6 +709,14 @@ export function TripDetailSheet({
             ? 'manual'
             : ktsResolvedP.source;
 
+          const noInvResolvedP = resolveNoInvoiceRequiredDefault({
+            payerNoInvoiceDefault: ktsPayerRowP?.no_invoice_required_default,
+            familyBehaviorProfile: ktsRowP?.behavior_profile,
+            variantNoInvoiceDefault: ktsRowP?.no_invoice_required_default
+          });
+          const noInvoiceSourceP: TripNoInvoiceSource =
+            noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedP.source;
+
           let partnerPatch = buildPartnerSyncPatchFromDrafts({
             trip,
             clientIdDraft,
@@ -677,6 +737,8 @@ export function TripDetailSheet({
             billingBetreuerDraft,
             ktsDocumentAppliesDraft,
             ktsSourceForSave: ktsSourceP,
+            noInvoiceRequiredDraft,
+            noInvoiceSourceForSave: noInvoiceSourceP,
             lastPickupResolved: lastPickupResolved.current,
             lastDropoffResolved: lastDropoffResolved.current
           });
@@ -721,6 +783,10 @@ export function TripDetailSheet({
       dropoffStationDraft,
       billingCallingStationDraft,
       billingBetreuerDraft,
+      ktsDocumentAppliesDraft,
+      noInvoiceRequiredDraft,
+      payers,
+      billingVariants,
       lastPickupResolved,
       lastDropoffResolved,
       updateTripMutation,
@@ -773,6 +839,7 @@ export function TripDetailSheet({
       normalizeNotes(billingBetreuerDraft) !==
         normalizeNotes(trip.billing_betreuer ?? '') ||
       ktsDocumentAppliesDraft !== !!trip.kts_document_applies ||
+      noInvoiceRequiredDraft !== !!trip.no_invoice_required ||
       dateYmdDraft !== currentDateYmd ||
       (!!trip &&
         !trip.scheduled_at &&
@@ -801,6 +868,14 @@ export function TripDetailSheet({
         ? 'manual'
         : ktsResolvedSave.source;
 
+      const noInvResolvedSave = resolveNoInvoiceRequiredDefault({
+        payerNoInvoiceDefault: ktsPayerRow?.no_invoice_required_default,
+        familyBehaviorProfile: ktsRow?.behavior_profile,
+        variantNoInvoiceDefault: ktsRow?.no_invoice_required_default
+      });
+      const noInvoiceSourceForSave: TripNoInvoiceSource =
+        noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedSave.source;
+
       const built = await buildTripDetailsPatch({
         trip,
         payerDraft,
@@ -822,7 +897,9 @@ export function TripDetailSheet({
         billingCallingStationDraft,
         billingBetreuerDraft,
         ktsDocumentAppliesDraft,
-        ktsSourceForSave
+        ktsSourceForSave,
+        noInvoiceRequiredDraft,
+        noInvoiceSourceForSave
       });
       if (built.isEmpty) {
         toast.info('Keine Änderungen zum Speichern.');
@@ -1296,7 +1373,7 @@ export function TripDetailSheet({
                     <Select
                       value={trip.driver_id || 'unassigned'}
                       onValueChange={handleDriverChange}
-                      disabled={isUpdatingDriver}
+                      disabled={isUpdatingDriver || !!trip.fremdfirma_id}
                     >
                       <SelectTrigger className='border-border h-8 text-xs font-semibold'>
                         <SelectValue placeholder='Fahrer auswählen' />
@@ -1320,6 +1397,13 @@ export function TripDetailSheet({
                       </SelectContent>
                     </Select>
                   </DetailItem>
+                  <TripFremdfirmaSection
+                    trip={trip}
+                    ktsActive={ktsDocumentAppliesDraft}
+                    noInvoiceRequired={noInvoiceRequiredDraft}
+                    runWithRecurringScope={runWithRecurringScope}
+                    onAfterSave={refreshAfterTripSave}
+                  />
                   <div className='col-span-2 flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2'>
                     <div className='min-w-[8rem] flex-1 space-y-1'>
                       <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
@@ -1428,6 +1512,36 @@ export function TripDetailSheet({
                         }}
                       />
                     </div>
+                  ) : null}
+                  {payerDraft ? (
+                    <div className='col-span-2 flex flex-row items-center justify-between gap-3 rounded-lg border border-dashed p-3'>
+                      <div className='min-w-0 space-y-1'>
+                        <div className='text-muted-foreground text-xs font-medium'>
+                          Keine Rechnung
+                        </div>
+                        {noInvoiceCatalogHint && noInvoiceRequiredDraft ? (
+                          <p className='text-muted-foreground text-[11px]'>
+                            {noInvoiceCatalogHint}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Switch
+                        checked={noInvoiceRequiredDraft}
+                        onCheckedChange={(c) => {
+                          noInvoiceUserLockedRef.current = true;
+                          if (!c) setNoInvoiceCatalogHint(null);
+                          setNoInvoiceRequiredDraft(c);
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {ktsDocumentAppliesDraft && noInvoiceRequiredDraft ? (
+                    <Alert className='col-span-2 border-amber-200/80 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/30'>
+                      <AlertDescription className='text-xs'>
+                        KTS und „Keine Rechnung“ sind beide aktiv — bitte
+                        prüfen, ob die Abrechnung so beabsichtigt ist.
+                      </AlertDescription>
+                    </Alert>
                   ) : null}
                   <DetailItem
                     icon={<Phone className='h-3.5 w-3.5' />}

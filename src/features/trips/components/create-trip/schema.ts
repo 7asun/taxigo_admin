@@ -46,7 +46,9 @@ export const tripFormSchema = z
     billing_calling_station: z.string().optional(),
     billing_betreuer: z.string().optional(),
     /** Krankentransportschein / KTS — see `resolveKtsDefault` + `trips.kts_source`. */
-    kts_document_applies: z.boolean().default(false)
+    kts_document_applies: z.boolean().default(false),
+    /** Nur relevant wenn Kostenträger/Unterart „Keine Rechnung“ vorsieht (Neue Fahrt). */
+    no_invoice_required: z.boolean().default(false)
   })
   .superRefine((data, ctx) => {
     if (data.return_mode === 'exact') {

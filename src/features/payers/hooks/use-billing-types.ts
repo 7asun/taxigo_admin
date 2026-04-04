@@ -60,13 +60,15 @@ export function useBillingTypes(payerId: string | undefined | null) {
       code?: string;
       sortOrder?: number;
       kts_default?: boolean | null;
+      no_invoice_required_default?: boolean | null;
     }) =>
       PayersService.createBillingVariant(
         args.familyId,
         args.name,
         args.code,
         args.sortOrder,
-        args.kts_default
+        args.kts_default,
+        args.no_invoice_required_default
       ),
     onSuccess: invalidateAll
   });
@@ -104,12 +106,14 @@ export function useBillingTypes(payerId: string | undefined | null) {
       name: string;
       code: string;
       kts_default: boolean | null;
+      no_invoice_required_default?: boolean | null;
     }) =>
       PayersService.updateBillingVariant(
         args.variantId,
         args.name,
         args.code,
-        args.kts_default
+        args.kts_default,
+        args.no_invoice_required_default
       ),
     onSuccess: invalidateAll
   });

@@ -132,7 +132,9 @@ export function PayerDetailsSheet({
         id: displayPayer.id,
         name: editName,
         number: editNumber || displayPayer.number || '',
-        kts_default: displayPayer.kts_default ?? null
+        kts_default: displayPayer.kts_default ?? null,
+        no_invoice_required_default:
+          displayPayer.no_invoice_required_default ?? null
       });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
@@ -148,11 +150,29 @@ export function PayerDetailsSheet({
         id: displayPayer.id,
         name: displayPayer.name,
         number: displayPayer.number ?? '',
-        kts_default: v === 'unset' ? null : v === 'yes'
+        kts_default: v === 'unset' ? null : v === 'yes',
+        no_invoice_required_default:
+          displayPayer.no_invoice_required_default ?? null
       });
       toast.success('KTS-Standard gespeichert');
     } catch {
       toast.error('KTS-Standard konnte nicht gespeichert werden');
+    }
+  };
+
+  const handleNoInvoiceDefaultChange = async (v: 'unset' | 'yes' | 'no') => {
+    if (!displayPayer) return;
+    try {
+      await updatePayer({
+        id: displayPayer.id,
+        name: displayPayer.name,
+        number: displayPayer.number ?? '',
+        kts_default: displayPayer.kts_default ?? null,
+        no_invoice_required_default: v === 'unset' ? null : v === 'yes'
+      });
+      toast.success('Standard „Keine Rechnung“ gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
     }
   };
 
@@ -181,6 +201,13 @@ export function PayerDetailsSheet({
     displayPayer.kts_default === true
       ? 'yes'
       : displayPayer.kts_default === false
+        ? 'no'
+        : 'unset';
+
+  const noInvoiceSelectValue =
+    displayPayer.no_invoice_required_default === true
+      ? 'yes'
+      : displayPayer.no_invoice_required_default === false
         ? 'no'
         : 'unset';
 
@@ -284,6 +311,34 @@ export function PayerDetailsSheet({
             <p className='text-muted-foreground mt-2 text-xs'>
               Gilt nur wenn Abrechnungsfamilie und Unterart kein eigenes KTS
               setzen (Kaskade in Verhalten / Unterart). Wird sofort gespeichert.
+            </p>
+          </div>
+
+          <div className='bg-card rounded-xl border p-5 shadow-sm'>
+            <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+              Keine Rechnung (Kostenträger)
+            </label>
+            <Select
+              value={noInvoiceSelectValue}
+              onValueChange={(v) =>
+                void handleNoInvoiceDefaultChange(v as 'unset' | 'yes' | 'no')
+              }
+              disabled={isUpdating}
+            >
+              <SelectTrigger className='h-9 w-full max-w-sm'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='unset'>Nicht festlegen (vererbt)</SelectItem>
+                <SelectItem value='yes'>
+                  Ja — „Keine Rechnung“ voreinstellen
+                </SelectItem>
+                <SelectItem value='no'>Nein</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className='text-muted-foreground mt-2 text-xs'>
+              Kaskade wie KTS: Unterart und Familie können überschreiben. Wird
+              sofort gespeichert.
             </p>
           </div>
 

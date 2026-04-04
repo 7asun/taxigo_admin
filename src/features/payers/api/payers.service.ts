@@ -24,6 +24,7 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requireDropoffStation: false,
   askCallingStationAndBetreuer: false,
   kts_default: 'unset',
+  no_invoice_required_default: 'unset',
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,
@@ -41,7 +42,9 @@ export class PayersService {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('payers')
-      .select('id, name, number, kts_default, billing_types(count)')
+      .select(
+        'id, name, number, kts_default, no_invoice_required_default, billing_types(count)'
+      )
       .order('name');
 
     if (error) {
@@ -81,6 +84,7 @@ export class PayersService {
     name: string;
     number: string;
     kts_default: boolean | null;
+    no_invoice_required_default?: boolean | null;
   }): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
@@ -88,7 +92,10 @@ export class PayersService {
       .update({
         name: args.name,
         number: args.number,
-        kts_default: args.kts_default
+        kts_default: args.kts_default,
+        ...(args.no_invoice_required_default !== undefined
+          ? { no_invoice_required_default: args.no_invoice_required_default }
+          : {})
       })
       .eq('id', args.id);
 
@@ -124,7 +131,8 @@ export class PayersService {
           code,
           sort_order,
           created_at,
-          kts_default
+          kts_default,
+          no_invoice_required_default
         )
       `
       )
@@ -236,7 +244,8 @@ export class PayersService {
     name: string,
     rawCode: string | null | undefined,
     sortOrder?: number,
-    ktsDefault?: boolean | null
+    ktsDefault?: boolean | null,
+    noInvoiceDefault?: boolean | null
   ): Promise<void> {
     const supabase = createClient();
     const trimmedName = name.trim();
@@ -276,7 +285,8 @@ export class PayersService {
       name: trimmedName,
       code,
       sort_order: sortOrder ?? 0,
-      kts_default: ktsDefault ?? null
+      kts_default: ktsDefault ?? null,
+      no_invoice_required_default: noInvoiceDefault ?? null
     });
 
     if (error) {
@@ -289,7 +299,8 @@ export class PayersService {
     variantId: string,
     name: string,
     rawCode: string,
-    ktsDefault: boolean | null
+    ktsDefault: boolean | null,
+    noInvoiceDefault?: boolean | null
   ): Promise<void> {
     const code = normalizeBillingVariantCodeInput(rawCode);
     if (!isValidBillingVariantCode(code)) {
@@ -299,7 +310,14 @@ export class PayersService {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_variants')
-      .update({ name: name.trim(), code, kts_default: ktsDefault })
+      .update({
+        name: name.trim(),
+        code,
+        kts_default: ktsDefault,
+        ...(noInvoiceDefault !== undefined
+          ? { no_invoice_required_default: noInvoiceDefault }
+          : {})
+      })
       .eq('id', variantId);
 
     if (error) {

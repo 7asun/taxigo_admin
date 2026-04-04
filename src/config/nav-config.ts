@@ -58,6 +58,12 @@ export const navItems: NavItem[] = [
         url: '/dashboard/payers',
         icon: 'billing',
         shortcut: ['k', 'k']
+      },
+      {
+        title: 'Fremdfirmen',
+        url: '/dashboard/fremdfirmen',
+        icon: 'fremdfirma',
+        shortcut: ['f', 'r']
       }
     ]
   },

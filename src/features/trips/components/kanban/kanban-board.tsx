@@ -461,7 +461,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
             (change.driver_id !== undefined
               ? getStatusWhenDriverChanges(
                   trip?.status ?? 'pending',
-                  change.driver_id
+                  change.driver_id,
+                  { fremdfirmaId: trip?.fremdfirma_id }
                 )
               : undefined);
           const payload: Parameters<typeof tripsService.updateTrip>[1] = {};

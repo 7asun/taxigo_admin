@@ -8,6 +8,8 @@ export interface PayerOption {
   name: string;
   /** Kostenträger KTS default; NULL = unset in cascade. */
   kts_default: boolean | null;
+  /** NULL = unset in no_invoice cascade. */
+  no_invoice_required_default: boolean | null;
 }
 
 /**
@@ -26,6 +28,21 @@ export interface BillingVariantOption {
   behavior_profile?: unknown;
   /** Unterart-level KTS; NULL = inherit. */
   kts_default: boolean | null;
+  /** Unterart-level „keine Rechnung“; NULL = inherit. */
+  no_invoice_required_default: boolean | null;
+}
+
+export type FremdfirmaPaymentMode =
+  | 'cash_per_trip'
+  | 'monthly_invoice'
+  | 'self_payer'
+  | 'kts_to_fremdfirma';
+
+export interface FremdfirmaOption {
+  id: string;
+  name: string;
+  number: string | null;
+  default_payment_mode: FremdfirmaPaymentMode;
 }
 
 export interface DriverOption {

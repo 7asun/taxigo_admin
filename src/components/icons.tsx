@@ -37,7 +37,8 @@ import {
   IconStar,
   IconBox,
   IconPalette,
-  IconRoute
+  IconRoute,
+  IconTruck
 } from '@tabler/icons-react';
 
 export type Icon = React.ComponentType<IconProps>;
@@ -50,6 +51,7 @@ export const Icons = {
   product: IconBox,
   palette: IconPalette,
   trips: IconRoute,
+  fremdfirma: IconTruck,
   spinner: IconLoader2,
   kanban: IconLayoutKanban,
   chevronLeft: IconChevronLeft,

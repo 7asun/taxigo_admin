@@ -57,6 +57,7 @@ export type Database = {
           id: string;
           kts_default: boolean | null;
           name: string;
+          no_invoice_required_default: boolean | null;
           sort_order: number;
         };
         Insert: {
@@ -66,6 +67,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name: string;
+          no_invoice_required_default?: boolean | null;
           sort_order?: number;
         };
         Update: {
@@ -75,6 +77,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name?: string;
+          no_invoice_required_default?: boolean | null;
           sort_order?: number;
         };
         Relationships: [
@@ -191,6 +194,47 @@ export type Database = {
           name?: string;
         };
         Relationships: [];
+      };
+      fremdfirmen: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          default_payment_mode: string;
+          id: string;
+          is_active: boolean;
+          name: string;
+          number: string | null;
+          sort_order: number;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          default_payment_mode?: string;
+          id?: string;
+          is_active?: boolean;
+          name: string;
+          number?: string | null;
+          sort_order?: number;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          default_payment_mode?: string;
+          id?: string;
+          is_active?: boolean;
+          name?: string;
+          number?: string | null;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'fremdfirmen_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       driver_documents: {
         Row: {
@@ -401,6 +445,7 @@ export type Database = {
           id: string;
           kts_default: boolean | null;
           name: string;
+          no_invoice_required_default: boolean | null;
           number: string;
         };
         Insert: {
@@ -409,6 +454,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name: string;
+          no_invoice_required_default?: boolean | null;
           number?: string;
         };
         Update: {
@@ -417,6 +463,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name?: string;
+          no_invoice_required_default?: boolean | null;
           number?: string;
         };
         Relationships: [
@@ -448,6 +495,11 @@ export type Database = {
           billing_variant_id: string | null;
           kts_document_applies: boolean;
           kts_source: string | null;
+          no_invoice_required: boolean;
+          no_invoice_source: string | null;
+          fremdfirma_id: string | null;
+          fremdfirma_payment_mode: string | null;
+          fremdfirma_cost: number | null;
         };
         Insert: {
           id?: string;
@@ -467,6 +519,11 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          fremdfirma_cost?: number | null;
         };
         Update: {
           id?: string;
@@ -486,6 +543,11 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          fremdfirma_cost?: number | null;
         };
         Relationships: [
           {
@@ -507,6 +569,13 @@ export type Database = {
             columns: ['payer_id'];
             isOneToOne: false;
             referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'recurring_rules_fremdfirma_id_fkey';
+            columns: ['fremdfirma_id'];
+            isOneToOne: false;
+            referencedRelation: 'fremdfirmen';
             referencedColumns: ['id'];
           }
         ];
@@ -812,6 +881,12 @@ export type Database = {
           billing_variant_id: string | null;
           kts_document_applies: boolean;
           kts_source: string | null;
+          fremdfirma_cost: number | null;
+          fremdfirma_id: string | null;
+          fremdfirma_payment_mode: string | null;
+          no_invoice_required: boolean;
+          no_invoice_source: string | null;
+          selbstzahler_collected_amount: number | null;
           client_id: string | null;
           client_name: string | null;
           client_phone: string | null;
@@ -871,6 +946,12 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          fremdfirma_cost?: number | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          selbstzahler_collected_amount?: number | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -930,6 +1011,12 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          fremdfirma_cost?: number | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          selbstzahler_collected_amount?: number | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -1007,6 +1094,13 @@ export type Database = {
             columns: ['driver_id'];
             isOneToOne: false;
             referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'trips_fremdfirma_id_fkey';
+            columns: ['fremdfirma_id'];
+            isOneToOne: false;
+            referencedRelation: 'fremdfirmen';
             referencedColumns: ['id'];
           },
           {

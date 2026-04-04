@@ -65,6 +65,7 @@ export async function fetchTripsForBuilder(
       pickup_address,
       dropoff_address,
       kts_document_applies,
+      no_invoice_required,
       billing_variant:billing_variants(id, code, name),
       client:clients(id, first_name, last_name, price_tag)
     `
@@ -169,6 +170,7 @@ export function buildLineItemsFromTrips(
       billing_variant_code: trip.billing_variant?.code ?? null,
       billing_variant_name: trip.billing_variant?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
+      no_invoice_required: trip.no_invoice_required === true,
       // Track which price source was used for this line item
       // 'client_price_tag' — from clients.price_tag (highest priority)
       // 'trip_price' — from trips.price (fallback)

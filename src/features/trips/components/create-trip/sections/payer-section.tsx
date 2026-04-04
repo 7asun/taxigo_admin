@@ -19,6 +19,7 @@ import {
 import { CreditCard } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTripFormSections } from '../trip-form-sections-context';
 
 export function CreateTripPayerSection() {
@@ -36,7 +37,10 @@ export function CreateTripPayerSection() {
     setBillingFamilyId,
     billingBehavior,
     ktsCatalogHint,
-    markKtsUserTouched
+    markKtsUserTouched,
+    noInvoiceCatalogHint,
+    markNoInvoiceUserTouched,
+    catalogNoInvoiceApplies
   } = useTripFormSections();
 
   /** Multi-family Abrechnungsfamilie; single-family flows use `effectiveFamilyId` only. */
@@ -262,6 +266,49 @@ export function CreateTripPayerSection() {
           )}
         />
       )}
+
+      {watchedPayerId && catalogNoInvoiceApplies ? (
+        <FormField
+          control={form.control as any}
+          name='no_invoice_required'
+          render={({ field }) => (
+            <FormItem className='bg-muted/30 mt-3 rounded-lg border p-3'>
+              <div className='flex flex-row items-center justify-between gap-3'>
+                <div className='min-w-0 space-y-1'>
+                  <FormLabel className='text-sm'>Keine Rechnung</FormLabel>
+                  {noInvoiceCatalogHint && field.value ? (
+                    <p className='text-muted-foreground text-xs'>
+                      {noInvoiceCatalogHint}
+                    </p>
+                  ) : null}
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={(c) => {
+                      markNoInvoiceUserTouched({ clearHint: !c });
+                      field.onChange(c);
+                    }}
+                  />
+                </FormControl>
+              </div>
+              <FormMessage className='text-xs' />
+            </FormItem>
+          )}
+        />
+      ) : null}
+
+      {watchedPayerId &&
+      catalogNoInvoiceApplies &&
+      form.watch('kts_document_applies') &&
+      form.watch('no_invoice_required') ? (
+        <Alert className='mt-3 border-amber-200/80 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/30'>
+          <AlertDescription className='text-xs'>
+            KTS und „Keine Rechnung“ sind beide aktiv — bitte prüfen, ob die
+            Abrechnung so beabsichtigt ist.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {billingBehavior.askCallingStationAndBetreuer && (
         <div className='mt-3 flex w-full flex-row gap-2 sm:gap-3'>
