@@ -5,16 +5,23 @@
  * appendix page, and shared footer. Layout detail lives in section components
  * and pdf-styles (DIN-oriented margins, § 14 UStG fields).
  *
- * Data prep: recipient/salutation from payer vs client mode; route grouping
- * and direction labels via buildInvoicePdfSummary; totals via calculateInvoiceTotals.
+ * Recipient layout (Spec C): `per_client` keeps the passenger as primary
+ * addressee; optional frozen snapshot block for Rechnungsempfänger.
+ * `monthly` / `single_trip` use the snapshot as the sole legal window addressee
+ * when present, else legacy payer address.
  */
 
 import { Document, Page } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
+import type { PriceResolution } from '../../types/pricing.types';
 
 import { buildInvoicePdfSummary } from './lib/build-invoice-pdf-summary';
+import {
+  recipientFromRechnungsempfaengerSnapshot,
+  secondaryLegalFromSnapshot
+} from './lib/rechnungsempfaenger-pdf';
 import {
   buildInvoicePdfSenderOneLine,
   formatInvoicePdfDate
@@ -36,6 +43,50 @@ export interface InvoicePdfDocumentProps {
   outroText?: string | null;
 }
 
+function priceResolutionFromLineItem(
+  li: InvoiceDetail['line_items'][number]
+): PriceResolution {
+  const snap = li.price_resolution_snapshot;
+  if (snap && typeof snap === 'object' && !Array.isArray(snap)) {
+    const o = snap as Record<string, unknown>;
+    const unit =
+      typeof o.unit_price_net === 'number' ? o.unit_price_net : li.unit_price;
+    const qty = typeof o.quantity === 'number' ? o.quantity : li.quantity;
+    const net = typeof o.net === 'number' ? o.net : null;
+    const gross = typeof o.gross === 'number' ? o.gross : null;
+    const tr = typeof o.tax_rate === 'number' ? o.tax_rate : li.tax_rate;
+    const su = o.strategy_used;
+    const src = o.source;
+    return {
+      gross,
+      net,
+      tax_rate: tr,
+      strategy_used: (typeof su === 'string'
+        ? su
+        : li.pricing_strategy_used) as PriceResolution['strategy_used'],
+      source: (typeof src === 'string'
+        ? src
+        : li.pricing_source) as PriceResolution['source'],
+      note: typeof o.note === 'string' ? o.note : undefined,
+      unit_price_net: unit,
+      quantity: qty
+    };
+  }
+  const u = li.unit_price;
+  const q = li.quantity;
+  const netTotal = Math.round(u * q * 100) / 100;
+  return {
+    gross: Math.round(netTotal * (1 + li.tax_rate) * 100) / 100,
+    net: netTotal,
+    tax_rate: li.tax_rate,
+    strategy_used: (li.pricing_strategy_used ??
+      'trip_price_fallback') as PriceResolution['strategy_used'],
+    source: (li.pricing_source ?? 'trip_price') as PriceResolution['source'],
+    unit_price_net: u,
+    quantity: q
+  };
+}
+
 export function InvoicePdfDocument({
   invoice,
   paymentQrDataUrl = null,
@@ -46,36 +97,35 @@ export function InvoicePdfDocument({
   const payer = invoice.payer;
   const client = invoice.client;
 
-  // Use invoice text blocks if available, otherwise fall back to props
   const resolvedIntroText = introText ?? invoice.intro_block?.content ?? null;
   const resolvedOutroText = outroText ?? invoice.outro_block?.content ?? null;
 
-  const isClientBilled =
-    (invoice.mode === 'per_client' || invoice.mode === 'single_trip') &&
-    !!client;
+  const isPerClientBilled = invoice.mode === 'per_client' && !!client;
 
-  const recipientCompanyName = isClientBilled
+  const recipientCompanyName = isPerClientBilled
     ? (client?.company_name?.trim() ?? '')
     : '';
-  const recipientPersonName = isClientBilled
+  const recipientPersonName = isPerClientBilled
     ? `${client?.first_name || ''} ${client?.last_name || ''}`.trim()
     : (payer?.name ?? '—');
   const recipientName = recipientPersonName || recipientCompanyName || '—';
 
-  const recipientStreet = isClientBilled ? client?.street : payer?.street;
-  const recipientStreetNumber = isClientBilled
+  const recipientStreet = isPerClientBilled ? client?.street : payer?.street;
+  const recipientStreetNumber = isPerClientBilled
     ? client?.street_number
     : payer?.street_number;
-  const recipientZipCode = isClientBilled ? client?.zip_code : payer?.zip_code;
-  const recipientCity = isClientBilled ? client?.city : payer?.city;
-  const recipientPhone = isClientBilled ? client?.phone : null;
+  const recipientZipCode = isPerClientBilled
+    ? client?.zip_code
+    : payer?.zip_code;
+  const recipientCity = isPerClientBilled ? client?.city : payer?.city;
+  const recipientPhone = isPerClientBilled ? client?.phone : null;
 
-  const customerNumber = isClientBilled
+  const customerNumber = isPerClientBilled
     ? (client?.customer_number ?? '')
     : (payer?.number ?? '');
 
   let salutation = 'Sehr geehrte Damen und Herren,';
-  if (isClientBilled && client?.last_name) {
+  if (isPerClientBilled && client?.last_name) {
     if (client.greeting_style === 'Herr') {
       salutation = `Sehr geehrter Herr ${client.last_name},`;
     } else if (client.greeting_style === 'Frau') {
@@ -83,25 +133,79 @@ export function InvoicePdfDocument({
     }
   }
 
-  const lineItemsForCalc = invoice.line_items.map((li) => ({
-    ...li,
-    trip_id: null,
-    line_date: null,
-    description: '',
-    client_name: null,
-    pickup_address: null,
-    dropoff_address: null,
-    distance_km: null,
-    billing_variant_code: null,
-    billing_variant_name: null,
-    kts_document_applies: false,
+  const snapPrimary = recipientFromRechnungsempfaengerSnapshot(
+    invoice.rechnungsempfaenger_snapshot
+  );
+  const secondaryLegal = isPerClientBilled
+    ? secondaryLegalFromSnapshot(invoice.rechnungsempfaenger_snapshot)
+    : null;
+
+  const payerWindowRecipient = {
+    companyName: '',
+    personName: payer?.name ?? '—',
+    displayName: payer?.name ?? '—',
+    street: payer?.street ?? '',
+    streetNumber: payer?.street_number ?? '',
+    zipCode: payer?.zip_code ?? '',
+    city: payer?.city ?? '',
+    phone: null as string | null,
+    addressLine2: null as string | null
+  };
+
+  const clientWindowRecipient = {
+    companyName: recipientCompanyName,
+    personName: recipientPersonName,
+    displayName: recipientName,
+    street: client?.street ?? '',
+    streetNumber: client?.street_number ?? '',
+    zipCode: client?.zip_code ?? '',
+    city: client?.city ?? '',
+    phone: recipientPhone,
+    addressLine2: null as string | null
+  };
+
+  const snapshotWindowRecipient = snapPrimary
+    ? {
+        companyName: '',
+        personName: snapPrimary.displayName,
+        displayName: snapPrimary.displayName,
+        street: snapPrimary.street,
+        streetNumber: snapPrimary.streetNumber,
+        zipCode: snapPrimary.zipCode,
+        city: snapPrimary.city,
+        phone: snapPrimary.phone,
+        addressLine2: snapPrimary.addressLine2
+      }
+    : null;
+
+  const coverRecipient = isPerClientBilled
+    ? clientWindowRecipient
+    : (snapshotWindowRecipient ?? payerWindowRecipient);
+
+  const lineItemsForCalc: BuilderLineItem[] = invoice.line_items.map((li) => ({
+    trip_id: li.trip_id,
+    position: li.position,
+    line_date: li.line_date,
+    description: li.description,
+    client_name: li.client_name,
+    pickup_address: li.pickup_address,
+    dropoff_address: li.dropoff_address,
+    distance_km: li.distance_km,
+    unit_price: li.unit_price,
+    quantity: li.quantity,
+    tax_rate: li.tax_rate,
+    billing_variant_code: li.billing_variant_code,
+    billing_variant_name: li.billing_variant_name,
+    kts_document_applies: li.kts_override,
+    no_invoice_warning: false,
+    price_resolution: priceResolutionFromLineItem(li),
+    kts_override: li.kts_override,
     price_source: null,
-    warnings: [] as const
+    warnings: []
   }));
 
-  const { subtotal, total, breakdown } = calculateInvoiceTotals(
-    lineItemsForCalc as unknown as BuilderLineItem[]
-  );
+  const { subtotal, total, breakdown } =
+    calculateInvoiceTotals(lineItemsForCalc);
 
   const { summaryItems, placeHints, routeDirectionLabels } =
     buildInvoicePdfSummary(invoice);
@@ -127,16 +231,8 @@ export function InvoicePdfDocument({
         <InvoicePdfCoverHeader
           companyProfile={cp}
           senderFit={senderFit}
-          recipient={{
-            companyName: recipientCompanyName,
-            personName: recipientPersonName,
-            displayName: recipientName,
-            street: recipientStreet ?? '',
-            streetNumber: recipientStreetNumber ?? '',
-            zipCode: recipientZipCode ?? '',
-            city: recipientCity ?? '',
-            phone: recipientPhone
-          }}
+          recipient={coverRecipient}
+          secondaryLegalRecipient={secondaryLegal}
           invoiceNumber={invoice.invoice_number}
           invoiceCreatedAtIso={invoice.created_at}
           periodFromIso={invoice.period_from}

@@ -51,6 +51,64 @@ import { formatTaxRate } from '../../lib/tax-calculator';
 import { getWarningLabel } from '../../lib/invoice-validators';
 import type { BuilderLineItem } from '../../types/invoice.types';
 
+function priceResolutionBadge(
+  item: BuilderLineItem
+): { label: string; className: string } | null {
+  const s = item.price_resolution.strategy_used;
+  if (s === 'kts_override') {
+    return {
+      label: 'KTS · 0 €',
+      className:
+        'border-blue-500/30 bg-blue-500/10 text-blue-800 dark:text-blue-200'
+    };
+  }
+  if (s === 'client_price_tag') {
+    return {
+      label: 'Kunden-Preis',
+      className:
+        'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300'
+    };
+  }
+  if (s === 'trip_price_fallback') {
+    return {
+      label: 'Fahrt-Preis',
+      className:
+        'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+    };
+  }
+  if (s === 'manual_trip_price') {
+    return {
+      label: 'Manuell',
+      className: 'border-muted-foreground/30 bg-muted/50 text-muted-foreground'
+    };
+  }
+  if (s === 'tiered_km') {
+    return {
+      label: 'Staffel km',
+      className: 'border-violet-500/30 bg-violet-500/10 text-violet-800'
+    };
+  }
+  if (s === 'fixed_below_threshold_then_km') {
+    return {
+      label: 'Fix + km',
+      className: 'border-violet-500/30 bg-violet-500/10 text-violet-800'
+    };
+  }
+  if (s === 'time_based') {
+    return {
+      label: 'Zeit',
+      className: 'border-amber-500/30 bg-amber-500/10 text-amber-900'
+    };
+  }
+  if (s === 'no_price') {
+    return null;
+  }
+  return {
+    label: 'Regel',
+    className: 'border-muted-foreground/30 bg-muted/40 text-muted-foreground'
+  };
+}
+
 /** Formats a number as a Euro currency string in German locale. */
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', {
@@ -113,7 +171,7 @@ export function Step3LineItems({
   }
 
   const ktsLineCount = lineItems.filter((i) => i.kts_document_applies).length;
-  const noInvLineCount = lineItems.filter((i) => i.no_invoice_required).length;
+  const noInvLineCount = lineItems.filter((i) => i.no_invoice_warning).length;
 
   return (
     <div className='space-y-4'>
@@ -213,7 +271,7 @@ export function Step3LineItems({
                   )}
                   {(item.billing_variant_name ||
                     item.kts_document_applies ||
-                    item.no_invoice_required) && (
+                    item.no_invoice_warning) && (
                     <div className='mt-1 flex flex-wrap gap-1'>
                       {item.billing_variant_name && (
                         <Badge
@@ -232,7 +290,7 @@ export function Step3LineItems({
                           KTS
                         </Badge>
                       )}
-                      {item.no_invoice_required && (
+                      {item.no_invoice_warning && (
                         <Badge
                           variant='outline'
                           className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
@@ -283,23 +341,22 @@ export function Step3LineItems({
                       {item.unit_price !== null ? (
                         <div className='flex flex-col items-end gap-0.5'>
                           <span>{formatEur(item.unit_price)}</span>
-                          {/* Price source badge — shows which source was used
-                              'client_price_tag' = from clients.price_tag (highest priority)
-                              'trip_price' = from trips.price (fallback) */}
-                          {item.price_source && (
-                            <Badge
-                              variant='outline'
-                              className={`px-1.5 py-0 text-[10px] font-normal ${
-                                item.price_source === 'client_price_tag'
-                                  ? 'border-green-500/30 bg-green-500/10 text-green-700'
-                                  : 'border-blue-500/30 bg-blue-500/10 text-blue-700'
-                              }`}
-                            >
-                              {item.price_source === 'client_price_tag'
-                                ? 'Kunden-Preis'
-                                : 'Fahrt-Preis'}
-                            </Badge>
-                          )}
+                          {(() => {
+                            const b = priceResolutionBadge(item);
+                            return b ? (
+                              <Badge
+                                variant='outline'
+                                className={`px-1.5 py-0 text-[10px] font-normal ${b.className}`}
+                                title={
+                                  item.price_resolution.note
+                                    ? item.price_resolution.note
+                                    : undefined
+                                }
+                              >
+                                {b.label}
+                              </Badge>
+                            ) : null;
+                          })()}
                         </div>
                       ) : (
                         <span className='font-medium text-amber-500'>
@@ -319,7 +376,8 @@ export function Step3LineItems({
                           <Tooltip key={w}>
                             <TooltipTrigger asChild>
                               <div className='cursor-help text-amber-500'>
-                                {w === 'missing_price' ? (
+                                {w === 'missing_price' ||
+                                w === 'no_invoice_trip' ? (
                                   <AlertTriangle className='h-4 w-4' />
                                 ) : (
                                   <Info className='h-4 w-4' />

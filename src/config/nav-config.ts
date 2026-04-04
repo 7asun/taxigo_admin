@@ -64,6 +64,12 @@ export const navItems: NavItem[] = [
         url: '/dashboard/fremdfirmen',
         icon: 'fremdfirma',
         shortcut: ['f', 'r']
+      },
+      {
+        title: 'Rechnungsempfänger',
+        url: '/dashboard/rechnungsempfaenger',
+        icon: 'billing',
+        shortcut: ['r', 'e']
       }
     ]
   },

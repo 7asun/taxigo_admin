@@ -134,6 +134,24 @@ export const styles = StyleSheet.create({
     color: PDF_COLORS.text,
     marginBottom: 1
   },
+  secondaryLegalBlock: {
+    marginTop: 14,
+    paddingTop: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: PDF_COLORS.border,
+    width: '100%'
+  },
+  secondaryLegalLabel: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    marginBottom: 4
+  },
+  secondaryLegalName: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginBottom: 2,
+    fontWeight: 'bold'
+  },
 
   // ── Logo (links oben im Kopf, nicht absolut)
   logoLeft: {

@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier -c -w .",
     "prepare": "husky",
-    "db:types": "npx supabase gen types typescript --local > src/types/database.types.ts"
+    "db:types": "npx supabase gen types typescript --local > src/types/database.types.ts",
+    "test": "bun test src/features/invoices/lib/__tests__"
   },
   "lint-staged": {
     "**/*.{js,jsx,tsx,ts,css,less,scss,sass}": [

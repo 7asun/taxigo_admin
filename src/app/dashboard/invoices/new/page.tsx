@@ -53,7 +53,8 @@ export default async function NewInvoicePage() {
         id,
         name,
         number,
-        billing_types(id, name)
+        rechnungsempfaenger_id,
+        billing_types(id, name, rechnungsempfaenger_id)
       `
       )
       .order('name'),

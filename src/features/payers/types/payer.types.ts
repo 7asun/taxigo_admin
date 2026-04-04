@@ -43,6 +43,7 @@ export interface BillingFamily {
   color: string;
   behavior_profile: BillingTypeBehavior;
   created_at: string;
+  rechnungsempfaenger_id?: string | null;
 }
 
 /** Unterart row under `billing_types`; `code` is stable for CSV / future invoicing. */
@@ -57,6 +58,7 @@ export interface BillingVariant {
   kts_default?: boolean | null;
   /** NULL = inherit from familie / payer for no_invoice default. */
   no_invoice_required_default?: boolean | null;
+  rechnungsempfaenger_id?: string | null;
 }
 
 /** Admin tree: `billing_types` rows with nested variants (sorted in the service). */
@@ -74,6 +76,7 @@ export interface Payer {
   kts_default?: boolean | null;
   /** NULL = inherit for default „keine Rechnung“. */
   no_invoice_required_default?: boolean | null;
+  rechnungsempfaenger_id?: string | null;
 }
 
 export interface PayerWithBillingCount extends Payer {

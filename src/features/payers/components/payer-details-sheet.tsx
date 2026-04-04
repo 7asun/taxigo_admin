@@ -13,7 +13,8 @@ import {
   Settings2,
   Trash2,
   FileText,
-  ExternalLink
+  ExternalLink,
+  CircleDollarSign
 } from 'lucide-react';
 import {
   Sheet,
@@ -61,6 +62,14 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
+import { useBillingPricingRules } from '../hooks/use-billing-pricing-rules';
+import { PricingRuleDialog } from './pricing-rule-dialog';
+import { PricingRuleDeleteButton } from './pricing-rule-delete-button';
+import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import type {
+  BillingPricingRuleRow,
+  PricingRuleScope
+} from '../api/billing-pricing-rules.api';
 
 interface PayerDetailsSheetProps {
   payer: PayerWithBillingCount | null;
@@ -111,6 +120,20 @@ export function PayerDetailsSheet({
   >(null);
   const [isSavingTextBlocks, setIsSavingTextBlocks] = useState(false);
 
+  const {
+    data: pricingRules = [],
+    refetch: refetchPricing,
+    deleteRule,
+    isDeleting: isDeletingRule
+  } = useBillingPricingRules(payer?.id);
+  const { data: recipients = [], isLoading: recipientsLoading } =
+    useRechnungsempfaengerOptions();
+
+  const [pricingDialog, setPricingDialog] = useState<{
+    scope: PricingRuleScope;
+    editing: BillingPricingRuleRow | null;
+  } | null>(null);
+
   const displayPayer = useMemo((): PayerWithBillingCount | null => {
     if (!payer) return null;
     const fromCache = payersList?.find((p) => p.id === payer.id);
@@ -134,7 +157,8 @@ export function PayerDetailsSheet({
         number: editNumber || displayPayer.number || '',
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
-          displayPayer.no_invoice_required_default ?? null
+          displayPayer.no_invoice_required_default ?? null,
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
       });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
@@ -152,7 +176,8 @@ export function PayerDetailsSheet({
         number: displayPayer.number ?? '',
         kts_default: v === 'unset' ? null : v === 'yes',
         no_invoice_required_default:
-          displayPayer.no_invoice_required_default ?? null
+          displayPayer.no_invoice_required_default ?? null,
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
       });
       toast.success('KTS-Standard gespeichert');
     } catch {
@@ -168,7 +193,8 @@ export function PayerDetailsSheet({
         name: displayPayer.name,
         number: displayPayer.number ?? '',
         kts_default: displayPayer.kts_default ?? null,
-        no_invoice_required_default: v === 'unset' ? null : v === 'yes'
+        no_invoice_required_default: v === 'unset' ? null : v === 'yes',
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
       });
       toast.success('Standard „Keine Rechnung“ gespeichert');
     } catch {
@@ -211,6 +237,38 @@ export function PayerDetailsSheet({
         ? 'no'
         : 'unset';
 
+  const payerLevelRules = pricingRules.filter(
+    (r) =>
+      r.payer_id === displayPayer.id &&
+      !r.billing_type_id &&
+      !r.billing_variant_id
+  );
+
+  const ruleForBillingType = (typeId: string) =>
+    pricingRules.find(
+      (r) => r.billing_type_id === typeId && !r.billing_variant_id
+    ) ?? null;
+
+  const ruleForVariant = (variantId: string) =>
+    pricingRules.find((r) => r.billing_variant_id === variantId) ?? null;
+
+  const handleRechnungsempfaengerPayer = async (value: string) => {
+    try {
+      await updatePayer({
+        id: displayPayer.id,
+        name: displayPayer.name,
+        number: displayPayer.number ?? '',
+        kts_default: displayPayer.kts_default ?? null,
+        no_invoice_required_default:
+          displayPayer.no_invoice_required_default ?? null,
+        rechnungsempfaenger_id: value === '__none__' ? null : value
+      });
+      toast.success('Rechnungsempfänger gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    }
+  };
+
   return (
     <Sheet
       open={open}
@@ -219,8 +277,8 @@ export function PayerDetailsSheet({
         if (!val) setIsEditing(false);
       }}
     >
-      <SheetContent className='w-[90vw] overflow-y-auto px-8 sm:max-w-xl sm:px-12'>
-        <SheetHeader className='mb-6'>
+      <SheetContent className='flex h-full max-h-[100dvh] w-[90vw] flex-col gap-0 overflow-hidden px-8 sm:max-w-xl sm:px-12'>
+        <SheetHeader className='mb-6 shrink-0'>
           <div className='flex items-center justify-between'>
             <div className='flex-1'>
               {isEditing ? (
@@ -271,242 +329,381 @@ export function PayerDetailsSheet({
           </div>
         </SheetHeader>
 
-        <div className='space-y-8'>
-          <div className='bg-card rounded-xl border p-5 shadow-sm'>
-            <div className='flex items-center gap-4'>
-              <div className='bg-muted rounded-lg p-3'>
-                <Receipt className='text-muted-foreground h-6 w-6' />
-              </div>
-              <div className='flex-1'>
-                <div className='text-foreground text-lg font-bold'>
-                  {displayPayer.number || '–'}
+        <div className='min-h-0 flex-1 overflow-y-auto pb-8'>
+          <div className='space-y-8'>
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='flex items-center gap-4'>
+                <div className='bg-muted rounded-lg p-3'>
+                  <Receipt className='text-muted-foreground h-6 w-6' />
                 </div>
-                <div className='text-muted-foreground text-sm'>
-                  Kostenträgernummer
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className='bg-card rounded-xl border p-5 shadow-sm'>
-            <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
-              KTS-Standard (Kostenträger)
-            </label>
-            <Select
-              value={ktsSelectValue}
-              onValueChange={(v) =>
-                void handleKtsDefaultChange(v as 'unset' | 'yes' | 'no')
-              }
-              disabled={isUpdating}
-            >
-              <SelectTrigger className='h-9 w-full max-w-sm'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='unset'>Nicht festlegen (vererbt)</SelectItem>
-                <SelectItem value='yes'>Ja — KTS voreinstellen</SelectItem>
-                <SelectItem value='no'>Nein</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className='text-muted-foreground mt-2 text-xs'>
-              Gilt nur wenn Abrechnungsfamilie und Unterart kein eigenes KTS
-              setzen (Kaskade in Verhalten / Unterart). Wird sofort gespeichert.
-            </p>
-          </div>
-
-          <div className='bg-card rounded-xl border p-5 shadow-sm'>
-            <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
-              Keine Rechnung (Kostenträger)
-            </label>
-            <Select
-              value={noInvoiceSelectValue}
-              onValueChange={(v) =>
-                void handleNoInvoiceDefaultChange(v as 'unset' | 'yes' | 'no')
-              }
-              disabled={isUpdating}
-            >
-              <SelectTrigger className='h-9 w-full max-w-sm'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='unset'>Nicht festlegen (vererbt)</SelectItem>
-                <SelectItem value='yes'>
-                  Ja — „Keine Rechnung“ voreinstellen
-                </SelectItem>
-                <SelectItem value='no'>Nein</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className='text-muted-foreground mt-2 text-xs'>
-              Kaskade wie KTS: Unterart und Familie können überschreiben. Wird
-              sofort gespeichert.
-            </p>
-          </div>
-
-          <div>
-            <div className='mb-4 flex items-center justify-between'>
-              <h3 className='text-lg font-semibold'>Abrechnungsfamilien</h3>
-              <Button
-                size='sm'
-                className='h-8 gap-1'
-                onClick={() => setIsAddFamilyOpen(true)}
-              >
-                <Plus className='h-3.5 w-3.5' />
-                Neue Familie
-              </Button>
-            </div>
-
-            <div className='space-y-4'>
-              {isLoading ? (
-                <>
-                  <Skeleton className='h-24 w-full rounded-xl' />
-                  <Skeleton className='h-24 w-full rounded-xl' />
-                </>
-              ) : !families?.length ? (
-                <div className='flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center'>
-                  <div className='bg-muted mb-3 flex h-12 w-12 items-center justify-center rounded-full'>
-                    <Receipt className='text-muted-foreground/50 h-6 w-6' />
+                <div className='flex-1'>
+                  <div className='text-foreground text-lg font-bold'>
+                    {displayPayer.number || '–'}
                   </div>
-                  <h4 className='text-muted-foreground/80 mb-1 font-medium'>
-                    Noch keine Familien
-                  </h4>
-                  <p className='text-muted-foreground max-w-[240px] text-xs'>
-                    „Neue Familie“ legt die Abrechnungsart + erste Unterart
-                    inkl. CSV-Code an.
-                  </p>
+                  <div className='text-muted-foreground text-sm'>
+                    Kostenträgernummer
+                  </div>
                 </div>
+              </div>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+                KTS-Standard (Kostenträger)
+              </label>
+              <Select
+                value={ktsSelectValue}
+                onValueChange={(v) =>
+                  void handleKtsDefaultChange(v as 'unset' | 'yes' | 'no')
+                }
+                disabled={isUpdating}
+              >
+                <SelectTrigger className='h-9 w-full max-w-sm'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='unset'>
+                    Nicht festlegen (vererbt)
+                  </SelectItem>
+                  <SelectItem value='yes'>Ja — KTS voreinstellen</SelectItem>
+                  <SelectItem value='no'>Nein</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Gilt nur wenn Abrechnungsfamilie und Unterart kein eigenes KTS
+                setzen (Kaskade in Verhalten / Unterart). Wird sofort
+                gespeichert.
+              </p>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+                Keine Rechnung (Kostenträger)
+              </label>
+              <Select
+                value={noInvoiceSelectValue}
+                onValueChange={(v) =>
+                  void handleNoInvoiceDefaultChange(v as 'unset' | 'yes' | 'no')
+                }
+                disabled={isUpdating}
+              >
+                <SelectTrigger className='h-9 w-full max-w-sm'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='unset'>
+                    Nicht festlegen (vererbt)
+                  </SelectItem>
+                  <SelectItem value='yes'>
+                    Ja — „Keine Rechnung“ voreinstellen
+                  </SelectItem>
+                  <SelectItem value='no'>Nein</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Kaskade wie KTS: Unterart und Familie können überschreiben. Wird
+                sofort gespeichert.
+              </p>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+                Rechnungsempfänger (Kostenträger)
+              </label>
+              {recipientsLoading ? (
+                <Skeleton className='h-9 w-full max-w-sm' />
               ) : (
-                families.map((family) => (
-                  <FamilyBlock
-                    key={family.id}
-                    family={family}
-                    isDeleting={isDeleting}
-                    onOpenBehavior={() => setBehaviorFamily(family)}
-                    onEditFamily={() => setEditFamily(family)}
-                    onEditVariant={(v) =>
-                      setEditVariant({ familyName: family.name, variant: v })
-                    }
-                    onAddVariant={() =>
-                      setVariantDialog({
-                        familyId: family.id,
-                        familyName: family.name,
-                        nextSort:
-                          Math.max(
-                            0,
-                            ...family.billing_variants.map((v) => v.sort_order)
-                          ) + 1
-                      })
-                    }
-                    onDeleteVariant={(id) => deleteBillingVariant(id)}
-                    onDeleteFamily={() => deleteBillingFamily(family.id)}
-                  />
-                ))
+                <Select
+                  value={
+                    displayPayer.rechnungsempfaenger_id
+                      ? displayPayer.rechnungsempfaenger_id
+                      : '__none__'
+                  }
+                  onValueChange={(v) => void handleRechnungsempfaengerPayer(v)}
+                  disabled={isUpdating}
+                >
+                  <SelectTrigger className='h-9 w-full max-w-sm'>
+                    <SelectValue placeholder='Keiner' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='__none__'>Keiner</SelectItem>
+                    {recipients.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Wird von Familie/Unterart überschrieben. Stammdaten unter
+                Account → Rechnungsempfänger.
+              </p>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='mb-3 flex items-center justify-between'>
+                <h3 className='text-lg font-semibold'>
+                  Preisregeln (Kostenträger)
+                </h3>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  className='gap-1'
+                  onClick={() =>
+                    setPricingDialog({
+                      scope: { kind: 'payer', payerId: displayPayer.id },
+                      editing: payerLevelRules[0] ?? null
+                    })
+                  }
+                >
+                  <CircleDollarSign className='h-3.5 w-3.5' />
+                  {payerLevelRules[0] ? 'Bearbeiten' : 'Neu'}
+                </Button>
+              </div>
+              {payerLevelRules.length === 0 ? (
+                <p className='text-muted-foreground text-sm'>
+                  Keine Kostenträger-Preisregel — es gilt Preis-Tag / Fahrpreis
+                  / Abrechnungsfamilie.
+                </p>
+              ) : (
+                <ul className='space-y-2 text-sm'>
+                  {payerLevelRules.map((r) => (
+                    <li
+                      key={r.id}
+                      className='flex items-center justify-between gap-2 border-b pb-2'
+                    >
+                      <span>
+                        <Badge variant='secondary'>{r.strategy}</Badge>
+                        {r.is_active ? null : (
+                          <span className='text-muted-foreground ml-2'>
+                            inaktiv
+                          </span>
+                        )}
+                      </span>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          onClick={() =>
+                            setPricingDialog({
+                              scope: {
+                                kind: 'payer',
+                                payerId: displayPayer.id
+                              },
+                              editing: r
+                            })
+                          }
+                        >
+                          Bearbeiten
+                        </Button>
+                        <PricingRuleDeleteButton
+                          rule={r}
+                          deleteRule={deleteRule}
+                          isDeleting={isDeletingRule}
+                          onDeleted={() => {
+                            if (pricingDialog?.editing?.id === r.id) {
+                              setPricingDialog(null);
+                            }
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
-          </div>
 
-          {/* Invoice Text Templates Section */}
-          <div className='bg-card rounded-xl border p-5 shadow-sm'>
-            <div className='mb-4 flex items-center justify-between'>
-              <div className='flex items-center gap-2'>
-                <FileText className='text-muted-foreground h-5 w-5' />
-                <h3 className='text-lg font-semibold'>Rechnungsvorlagen</h3>
-              </div>
-              <Button variant='outline' size='sm' asChild className='gap-1'>
-                <Link
-                  href='/dashboard/settings/invoice-templates'
-                  target='_blank'
+            <div>
+              <div className='mb-4 flex items-center justify-between'>
+                <h3 className='text-lg font-semibold'>Abrechnungsfamilien</h3>
+                <Button
+                  size='sm'
+                  className='h-8 gap-1'
+                  onClick={() => setIsAddFamilyOpen(true)}
                 >
-                  <ExternalLink className='h-3.5 w-3.5' />
-                  Vorlagen verwalten
-                </Link>
-              </Button>
+                  <Plus className='h-3.5 w-3.5' />
+                  Neue Familie
+                </Button>
+              </div>
+
+              <div className='space-y-4'>
+                {isLoading ? (
+                  <>
+                    <Skeleton className='h-24 w-full rounded-xl' />
+                    <Skeleton className='h-24 w-full rounded-xl' />
+                  </>
+                ) : !families?.length ? (
+                  <div className='flex flex-col items-center justify-center rounded-xl border border-dashed py-10 text-center'>
+                    <div className='bg-muted mb-3 flex h-12 w-12 items-center justify-center rounded-full'>
+                      <Receipt className='text-muted-foreground/50 h-6 w-6' />
+                    </div>
+                    <h4 className='text-muted-foreground/80 mb-1 font-medium'>
+                      Noch keine Familien
+                    </h4>
+                    <p className='text-muted-foreground max-w-[240px] text-xs'>
+                      „Neue Familie“ legt die Abrechnungsart + erste Unterart
+                      inkl. CSV-Code an.
+                    </p>
+                  </div>
+                ) : (
+                  families.map((family) => (
+                    <FamilyBlock
+                      key={family.id}
+                      family={family}
+                      isDeleting={isDeleting}
+                      typeRule={ruleForBillingType(family.id)}
+                      ruleForVariant={ruleForVariant}
+                      onOpenBehavior={() => setBehaviorFamily(family)}
+                      onEditFamily={() => setEditFamily(family)}
+                      onEditVariant={(v) =>
+                        setEditVariant({ familyName: family.name, variant: v })
+                      }
+                      onAddVariant={() =>
+                        setVariantDialog({
+                          familyId: family.id,
+                          familyName: family.name,
+                          nextSort:
+                            Math.max(
+                              0,
+                              ...family.billing_variants.map(
+                                (v) => v.sort_order
+                              )
+                            ) + 1
+                        })
+                      }
+                      onDeleteVariant={(id) => deleteBillingVariant(id)}
+                      onDeleteFamily={() => deleteBillingFamily(family.id)}
+                      onOpenPricingFamily={() =>
+                        setPricingDialog({
+                          scope: {
+                            kind: 'billing_type',
+                            payerId: displayPayer.id,
+                            billingTypeId: family.id
+                          },
+                          editing: ruleForBillingType(family.id)
+                        })
+                      }
+                      onOpenPricingVariant={(v) =>
+                        setPricingDialog({
+                          scope: {
+                            kind: 'billing_variant',
+                            payerId: displayPayer.id,
+                            billingVariantId: v.id
+                          },
+                          editing: ruleForVariant(v.id)
+                        })
+                      }
+                    />
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className='space-y-4'>
-              {/* Intro Block Selector */}
-              <div className='space-y-2'>
-                <label className='text-sm font-medium'>
-                  Standard Einleitung
-                </label>
-                {isLoadingTextBlocks ? (
-                  <Skeleton className='h-10 w-full' />
-                ) : (
-                  <Select
-                    value={selectedIntroBlockId ?? 'default'}
-                    onValueChange={(value) =>
-                      setSelectedIntroBlockId(
-                        value === 'default' ? null : value
-                      )
-                    }
+            {/* Invoice Text Templates Section */}
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='mb-4 flex items-center justify-between'>
+                <div className='flex items-center gap-2'>
+                  <FileText className='text-muted-foreground h-5 w-5' />
+                  <h3 className='text-lg font-semibold'>Rechnungsvorlagen</h3>
+                </div>
+                <Button variant='outline' size='sm' asChild className='gap-1'>
+                  <Link
+                    href='/dashboard/settings/invoice-templates'
+                    target='_blank'
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder='Unternehmens-Standard verwenden...' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='default'>
-                        Unternehmens-Standard
-                      </SelectItem>
-                      {textBlocks
-                        ?.filter((b) => b.type === 'intro')
-                        .map((block) => (
-                          <SelectItem key={block.id} value={block.id}>
-                            {block.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className='text-muted-foreground text-xs'>
-                  Einleitungstext für Rechnungen an diesen Kostenträger.
-                </p>
+                    <ExternalLink className='h-3.5 w-3.5' />
+                    Vorlagen verwalten
+                  </Link>
+                </Button>
               </div>
 
-              {/* Outro Block Selector */}
-              <div className='space-y-2'>
-                <label className='text-sm font-medium'>
-                  Standard Schlussformel
-                </label>
-                {isLoadingTextBlocks ? (
-                  <Skeleton className='h-10 w-full' />
-                ) : (
-                  <Select
-                    value={selectedOutroBlockId ?? 'default'}
-                    onValueChange={(value) =>
-                      setSelectedOutroBlockId(
-                        value === 'default' ? null : value
-                      )
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder='Unternehmens-Standard verwenden...' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='default'>
-                        Unternehmens-Standard
-                      </SelectItem>
-                      {textBlocks
-                        ?.filter((b) => b.type === 'outro')
-                        .map((block) => (
-                          <SelectItem key={block.id} value={block.id}>
-                            {block.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className='text-muted-foreground text-xs'>
-                  Schlussformel für Rechnungen an diesen Kostenträger.
-                </p>
-              </div>
+              <div className='space-y-4'>
+                {/* Intro Block Selector */}
+                <div className='space-y-2'>
+                  <label className='text-sm font-medium'>
+                    Standard Einleitung
+                  </label>
+                  {isLoadingTextBlocks ? (
+                    <Skeleton className='h-10 w-full' />
+                  ) : (
+                    <Select
+                      value={selectedIntroBlockId ?? 'default'}
+                      onValueChange={(value) =>
+                        setSelectedIntroBlockId(
+                          value === 'default' ? null : value
+                        )
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Unternehmens-Standard verwenden...' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='default'>
+                          Unternehmens-Standard
+                        </SelectItem>
+                        {textBlocks
+                          ?.filter((b) => b.type === 'intro')
+                          .map((block) => (
+                            <SelectItem key={block.id} value={block.id}>
+                              {block.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className='text-muted-foreground text-xs'>
+                    Einleitungstext für Rechnungen an diesen Kostenträger.
+                  </p>
+                </div>
 
-              <Button
-                onClick={handleSaveTextBlocks}
-                disabled={isSavingTextBlocks || isLoadingTextBlocks}
-                size='sm'
-                className='mt-2'
-              >
-                {isSavingTextBlocks ? 'Speichern...' : 'Vorlagen speichern'}
-              </Button>
+                {/* Outro Block Selector */}
+                <div className='space-y-2'>
+                  <label className='text-sm font-medium'>
+                    Standard Schlussformel
+                  </label>
+                  {isLoadingTextBlocks ? (
+                    <Skeleton className='h-10 w-full' />
+                  ) : (
+                    <Select
+                      value={selectedOutroBlockId ?? 'default'}
+                      onValueChange={(value) =>
+                        setSelectedOutroBlockId(
+                          value === 'default' ? null : value
+                        )
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Unternehmens-Standard verwenden...' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='default'>
+                          Unternehmens-Standard
+                        </SelectItem>
+                        {textBlocks
+                          ?.filter((b) => b.type === 'outro')
+                          .map((block) => (
+                            <SelectItem key={block.id} value={block.id}>
+                              {block.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className='text-muted-foreground text-xs'>
+                    Schlussformel für Rechnungen an diesen Kostenträger.
+                  </p>
+                </div>
+
+                <Button
+                  onClick={handleSaveTextBlocks}
+                  disabled={isSavingTextBlocks || isLoadingTextBlocks}
+                  size='sm'
+                  className='mt-2'
+                >
+                  {isSavingTextBlocks ? 'Speichern...' : 'Vorlagen speichern'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -566,6 +763,16 @@ export function PayerDetailsSheet({
         open={!!editVariant}
         onOpenChange={(isOpen) => !isOpen && setEditVariant(null)}
       />
+
+      {pricingDialog && (
+        <PricingRuleDialog
+          open={!!pricingDialog}
+          onOpenChange={(o) => !o && setPricingDialog(null)}
+          scope={pricingDialog.scope}
+          editing={pricingDialog.editing}
+          onSaved={() => void refetchPricing()}
+        />
+      )}
     </Sheet>
   );
 }
@@ -573,21 +780,29 @@ export function PayerDetailsSheet({
 function FamilyBlock({
   family,
   isDeleting,
+  typeRule,
+  ruleForVariant,
   onOpenBehavior,
   onEditFamily,
   onEditVariant,
   onAddVariant,
   onDeleteVariant,
-  onDeleteFamily
+  onDeleteFamily,
+  onOpenPricingFamily,
+  onOpenPricingVariant
 }: {
   family: BillingFamilyWithVariants;
   isDeleting: boolean;
+  typeRule: BillingPricingRuleRow | null;
+  ruleForVariant: (variantId: string) => BillingPricingRuleRow | null;
   onOpenBehavior: () => void;
   onEditFamily: () => void;
   onEditVariant: (v: BillingVariant) => void;
   onAddVariant: () => void;
   onDeleteVariant: (id: string) => Promise<void>;
   onDeleteFamily: () => Promise<void>;
+  onOpenPricingFamily: () => void;
+  onOpenPricingVariant: (v: BillingVariant) => void;
 }) {
   const variantCount = family.billing_variants?.length ?? 0;
 
@@ -639,6 +854,19 @@ function FamilyBlock({
           </Button>
           <Button
             variant='ghost'
+            size='icon'
+            className='text-muted-foreground hover:text-foreground h-8 w-8'
+            onClick={onOpenPricingFamily}
+            title={
+              typeRule
+                ? `Preisregel: ${typeRule.strategy}`
+                : 'Preisregel (Familie)'
+            }
+          >
+            <CircleDollarSign className='h-4 w-4' />
+          </Button>
+          <Button
+            variant='ghost'
             size='sm'
             className='h-8 gap-1 px-2'
             onClick={onAddVariant}
@@ -681,8 +909,43 @@ function FamilyBlock({
         </div>
       </div>
 
-      {/* Einzelne Standard-Unterart: Liste ausblenden; „Unterart“ oben legt weitere an. */}
-      {variantCount > 1 ? (
+      {/* Mehrere Unterarten: Liste. Eine Unterart: eine Zeile mit Preis + Bearbeiten. */}
+      {variantCount === 1 ? (
+        <ul className='divide-y'>
+          {(family.billing_variants || []).map((v) => (
+            <li
+              key={v.id}
+              className='flex items-center justify-between gap-2 px-4 py-2.5 text-sm'
+            >
+              <div className='min-w-0 flex-1'>
+                <span className='font-medium'>{v.name}</span>
+                <span className='text-muted-foreground ml-2 text-xs'>
+                  <code className='text-[10px]'>{v.code}</code>
+                </span>
+              </div>
+              <div className='flex shrink-0 items-center gap-2'>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground h-8 w-8'
+                  onClick={() => onOpenPricingVariant(v)}
+                  title='Preisregel (Unterart)'
+                >
+                  <CircleDollarSign className='h-3.5 w-3.5' />
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground h-8 w-8'
+                  onClick={() => onEditVariant(v)}
+                >
+                  <Pencil className='h-3.5 w-3.5' />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : variantCount > 1 ? (
         <ul className='divide-y'>
           {(family.billing_variants || []).map((v) => (
             <li
@@ -703,6 +966,19 @@ function FamilyBlock({
                 >
                   {v.code}
                 </Badge>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground h-8 w-8'
+                  onClick={() => onOpenPricingVariant(v)}
+                  title={
+                    ruleForVariant(v.id)
+                      ? `Preisregel: ${ruleForVariant(v.id)?.strategy}`
+                      : 'Preisregel (Unterart)'
+                  }
+                >
+                  <CircleDollarSign className='h-3.5 w-3.5' />
+                </Button>
                 <Button
                   variant='ghost'
                   size='icon'

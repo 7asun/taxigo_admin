@@ -13,10 +13,10 @@
  *   - "Rechnung erstellen" button (disabled while saving)
  */
 
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, AlertTriangle, FileText } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, FileText, Info } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,26 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
+import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
+import {
+  PRICE_RESOLUTION_SOURCE_LABELS_DE,
+  pricingStrategyUsedLabelDe
+} from '@/features/invoices/lib/pricing-strategy-labels-de';
+import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
 
 /** Step 4 local schema — only the invoice meta fields. */
 const step4Schema = z.object({
@@ -48,7 +68,9 @@ const step4Schema = z.object({
     .number({ message: 'Bitte eine Zahl eingeben' })
     .int()
     .min(1, 'Mindestens 1 Tag')
-    .max(90, 'Maximal 90 Tage')
+    .max(90, 'Maximal 90 Tage'),
+  /** `'none'` = Katalog (erste Fahrt); sonst UUID des Rechnungsempfängers */
+  rechnungsempfaenger_id: z.string().optional()
 });
 
 type Step4Values = z.infer<typeof step4Schema>;
@@ -58,6 +80,23 @@ const formatEur = (v: number) =>
   new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(
     v
   );
+
+function formatRecipientFullAddress(row: {
+  address_line1: string | null;
+  address_line2: string | null;
+  postal_code: string | null;
+  city: string | null;
+  country: string | null;
+}): string {
+  const line1 = [row.address_line1, row.address_line2]
+    .filter(Boolean)
+    .join(', ');
+  const loc = [row.postal_code, row.city].filter(Boolean).join(' ');
+  const parts = [line1, loc, row.country].filter(
+    (x) => x && String(x).trim().length > 0
+  );
+  return parts.join(' · ');
+}
 
 interface Step4ConfirmProps {
   subtotal: number;
@@ -74,6 +113,11 @@ interface Step4ConfirmProps {
   payerIntroBlockId?: string | null;
   /** Payer's default outro block (pre-selected if exists) */
   payerOutroBlockId?: string | null;
+  /** Katalog-Auflösung (Variante → Familie → Kostenträger) aus der ersten geladenen Fahrt */
+  defaultRechnungsempfaengerId?: string | null;
+  /** Gleiche ID wie Katalog-Default — für „Manuell überschrieben“ */
+  catalogRecipientId?: string | null;
+  lineItems: BuilderLineItem[];
 }
 
 /**
@@ -90,10 +134,15 @@ export function Step4Confirm({
   onBack,
   onConfirm,
   payerIntroBlockId,
-  payerOutroBlockId
+  payerOutroBlockId,
+  defaultRechnungsempfaengerId,
+  catalogRecipientId = defaultRechnungsempfaengerId ?? null,
+  lineItems
 }: Step4ConfirmProps) {
   const { data: textBlocks, isLoading: isLoadingTextBlocks } =
     useAllInvoiceTextBlocks();
+  const { data: empfaengerOptions, isLoading: isLoadingEmpfaenger } =
+    useRechnungsempfaengerOptions();
 
   const form = useForm<Step4Values>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,9 +150,34 @@ export function Step4Confirm({
     defaultValues: {
       intro_block_id: payerIntroBlockId || 'none',
       outro_block_id: payerOutroBlockId || 'none',
-      payment_due_days: defaultPaymentDays
+      payment_due_days: defaultPaymentDays,
+      rechnungsempfaenger_id:
+        defaultRechnungsempfaengerId != null &&
+        defaultRechnungsempfaengerId.length > 0
+          ? defaultRechnungsempfaengerId
+          : 'none'
     }
   });
+
+  const empSelectRaw = useWatch({
+    control: form.control,
+    name: 'rechnungsempfaenger_id'
+  });
+
+  const effectiveRecipientId =
+    empSelectRaw === 'none' || empSelectRaw === undefined || empSelectRaw === ''
+      ? catalogRecipientId
+      : empSelectRaw;
+
+  const effectiveRow = (empfaengerOptions ?? []).find(
+    (r) => r.id === effectiveRecipientId
+  );
+
+  const isManualOverride =
+    typeof empSelectRaw === 'string' &&
+    empSelectRaw !== 'none' &&
+    empSelectRaw.length > 0 &&
+    (catalogRecipientId == null || empSelectRaw !== catalogRecipientId);
 
   return (
     <div className='space-y-6'>
@@ -152,12 +226,106 @@ export function Step4Confirm({
         </p>
       </div>
 
+      {/* Positionen — Preisstrategie (Tooltip) */}
+      {lineItems.length > 0 && (
+        <div className='space-y-2'>
+          <h3 className='text-sm font-medium'>Positionen</h3>
+          <div className='max-h-48 overflow-y-auto rounded-md border'>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className='w-10'>#</TableHead>
+                  <TableHead>Beschreibung</TableHead>
+                  <TableHead className='text-right'>Preis</TableHead>
+                  <TableHead className='w-10' />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lineItems.map((item) => {
+                  const srcLabel =
+                    PRICE_RESOLUTION_SOURCE_LABELS_DE[
+                      item.price_resolution.source
+                    ] ?? item.price_resolution.source;
+                  const stratLabel = pricingStrategyUsedLabelDe(
+                    item.price_resolution.strategy_used
+                  );
+                  const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
+                  return (
+                    <TableRow key={item.position}>
+                      <TableCell className='text-muted-foreground text-xs'>
+                        {item.position}
+                      </TableCell>
+                      <TableCell className='max-w-[200px] truncate text-sm'>
+                        {item.description}
+                      </TableCell>
+                      <TableCell className='text-right text-sm'>
+                        {item.unit_price !== null &&
+                        item.unit_price !== undefined
+                          ? formatEur(item.unit_price)
+                          : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type='button'
+                                className='text-muted-foreground hover:text-foreground inline-flex'
+                                aria-label='Preisdetails'
+                              >
+                                <Info className='h-4 w-4' />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side='left' className='max-w-xs'>
+                              <p className='text-xs'>{tip}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
       {/* Editable meta fields */}
       <Form
         form={form}
         onSubmit={form.handleSubmit(onConfirm)}
         className='space-y-4'
       >
+        {!isLoadingEmpfaenger && (
+          <div className='bg-muted/40 space-y-2 rounded-lg border p-4'>
+            <h3 className='text-sm font-medium'>Rechnungsempfänger</h3>
+            {effectiveRecipientId && effectiveRow ? (
+              <>
+                <div className='flex flex-wrap items-baseline gap-2'>
+                  <p className='text-sm font-medium'>{effectiveRow.name}</p>
+                  {isManualOverride ? (
+                    <span className='text-muted-foreground text-xs'>
+                      Manuell überschrieben
+                    </span>
+                  ) : null}
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {formatRecipientFullAddress(effectiveRow)}
+                </p>
+              </>
+            ) : (
+              <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                <AlertTriangle className='h-4 w-4 text-amber-600' />
+                <AlertDescription>
+                  Kein Rechnungsempfänger — bitte unten wählen oder Stammdaten
+                  prüfen.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+
         {/* Payment days override */}
         <FormField
           control={form.control}
@@ -179,6 +347,41 @@ export function Step4Confirm({
                 Unternehmenseinstellungen)
               </FormDescription>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='rechnungsempfaenger_id'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Rechnungsempfänger (Anpassung)</FormLabel>
+              <FormControl>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={isLoadingEmpfaenger || isCreating}
+                >
+                  <SelectTrigger className='w-full max-w-md'>
+                    <SelectValue placeholder='Empfänger wählen' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='none'>
+                      Automatisch (Katalog — erste Fahrt)
+                    </SelectItem>
+                    {(empfaengerOptions ?? []).map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormControl>
+              <FormDescription>
+                Überschreibt nur diese Rechnung — Katalog-Zuordnungen am
+                Kostenträger bleiben unverändert. Wird mit Adresse eingefroren.
+              </FormDescription>
             </FormItem>
           )}
         />

@@ -21,6 +21,10 @@ import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import { generateNextInvoiceNumber } from '../lib/invoice-number';
+import {
+  RechnungsempfaengerService,
+  rechnungsempfaengerRowToSnapshot
+} from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
 import type {
   InvoiceRow,
   InvoiceWithPayer,
@@ -124,7 +128,8 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
         id, invoice_id, trip_id, position, line_date, description,
         client_name, pickup_address, dropoff_address, distance_km,
         unit_price, quantity, total_price, tax_rate,
-        billing_variant_code, billing_variant_name, created_at
+        billing_variant_code, billing_variant_name, created_at,
+        pricing_strategy_used, pricing_source, kts_override, price_resolution_snapshot
       )
     `
     )
@@ -193,6 +198,8 @@ export interface CreateInvoicePayload {
   subtotal: number;
   taxAmount: number;
   total: number;
+  /** Resolved recipient FK (catalog cascade or step-4 override); snapshot frozen here. */
+  rechnungsempfaengerId: string | null;
 }
 
 /**
@@ -216,6 +223,16 @@ export async function createInvoice(
   // Generate the next sequential invoice number
   const invoiceNumber = await generateNextInvoiceNumber();
 
+  const empId = payload.rechnungsempfaengerId;
+  // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+  let rechnungsempfaenger_snapshot: Record<string, unknown> | null = null;
+  if (empId) {
+    const row = await RechnungsempfaengerService.getById(empId);
+    if (row) {
+      rechnungsempfaenger_snapshot = rechnungsempfaengerRowToSnapshot(row);
+    }
+  }
+
   const { data, error } = await supabase
     .from('invoices')
     .insert({
@@ -233,7 +250,9 @@ export async function createInvoice(
       subtotal: payload.subtotal,
       tax_amount: payload.taxAmount,
       total: payload.total,
-      status: 'draft' // always starts as draft
+      status: 'draft', // always starts as draft
+      rechnungsempfaenger_id: empId,
+      rechnungsempfaenger_snapshot
     })
     .select()
     .single();

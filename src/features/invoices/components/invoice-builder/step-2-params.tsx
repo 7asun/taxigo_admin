@@ -16,7 +16,7 @@ import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +44,9 @@ import type { DateRange } from 'react-day-picker';
 import { ClientAutoSuggest } from '@/components/ui/client-auto-suggest';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { useClientPayers } from '../../hooks/use-client-payers';
+import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import { resolveRechnungsempfaenger } from '../../lib/resolve-rechnungsempfaenger';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { InvoiceMode } from '../../types/invoice.types';
 
 // ─── Local schema for step 2 form ─────────────────────────────────────────────
@@ -63,7 +66,12 @@ interface Payer {
   id: string;
   name: string;
   number: string;
-  billing_types?: { id: string; name: string }[];
+  rechnungsempfaenger_id?: string | null;
+  billing_types?: {
+    id: string;
+    name: string;
+    rechnungsempfaenger_id?: string | null;
+  }[];
 }
 
 interface Client {
@@ -113,8 +121,28 @@ export function Step2Params({
 
   // Get billing types for the currently selected payer
   const selectedPayerId = form.watch('payer_id');
+  const billingTypeIdRaw = form.watch('billing_type_id');
+  const billingTypeIdNorm =
+    billingTypeIdRaw && String(billingTypeIdRaw).length > 0
+      ? String(billingTypeIdRaw)
+      : null;
   const selectedPayer = payers.find((p) => p.id === selectedPayerId);
   const billingTypes = selectedPayer?.billing_types ?? [];
+
+  const { data: empfaengerCatalog = [], isLoading: empfaengerLoading } =
+    useRechnungsempfaengerOptions();
+
+  const step2RecipientPreview = useMemo(() => {
+    if (!selectedPayerId || !selectedPayer) return null;
+    const bt = billingTypeIdNorm
+      ? selectedPayer.billing_types?.find((b) => b.id === billingTypeIdNorm)
+      : null;
+    return resolveRechnungsempfaenger({
+      billingVariantRechnungsempfaengerId: null,
+      billingTypeRechnungsempfaengerId: bt?.rechnungsempfaenger_id ?? null,
+      payerRechnungsempfaengerId: selectedPayer.rechnungsempfaenger_id ?? null
+    });
+  }, [selectedPayerId, selectedPayer, billingTypeIdNorm]);
 
   // Watch client_id to fetch historical combinations
   const selectedClientId = form.watch('client_id');
@@ -384,6 +412,45 @@ export function Step2Params({
             )}
           </>
         )}
+
+        {/* Rechnungsempfänger-Vorschau (Katalog: Familie → Kostenträger; Unterart erst nach Fahrtenladen) */}
+        {selectedPayerId && selectedPayer && !empfaengerLoading ? (
+          step2RecipientPreview?.rechnungsempfaengerId ? (
+            <div className='bg-muted/40 rounded-lg border px-4 py-3 text-sm'>
+              <p>
+                <span className='font-medium'>Rechnungsempfänger: </span>
+                {(() => {
+                  const row = empfaengerCatalog.find(
+                    (e) => e.id === step2RecipientPreview.rechnungsempfaengerId
+                  );
+                  const city = row?.city?.trim();
+                  const name = row?.name ?? '—';
+                  return city && city.length > 0 ? `${name} · ${city}` : name;
+                })()}
+              </p>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Voreingestellt aus{' '}
+                {step2RecipientPreview.source === 'billing_type'
+                  ? 'Abrechnungsfamilie'
+                  : step2RecipientPreview.source === 'payer'
+                    ? 'Kostenträger'
+                    : step2RecipientPreview.source === 'variant'
+                      ? 'Unterart'
+                      : 'Katalog'}
+                . Die endgültige Zuordnung kann sich nach Unterart der ersten
+                Fahrt unterscheiden.
+              </p>
+            </div>
+          ) : (
+            <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+              <AlertTriangle className='h-4 w-4 text-amber-600' />
+              <AlertDescription className='text-amber-950 dark:text-amber-100'>
+                Kein Rechnungsempfänger konfiguriert — bitte in Stammdaten
+                prüfen
+              </AlertDescription>
+            </Alert>
+          )
+        ) : null}
 
         {/* Date range (always at the bottom) — same control as trips filter bar */}
         <FormItem>

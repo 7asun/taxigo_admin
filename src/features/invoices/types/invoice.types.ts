@@ -19,6 +19,8 @@
 
 import { z } from 'zod';
 
+import type { PriceResolution } from '@/features/invoices/types/pricing.types';
+
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
 /**
@@ -74,6 +76,9 @@ export interface InvoiceRow {
   paid_at: string | null;
   cancelled_at: string | null;
   cancels_invoice_id: string | null; // FK to original invoice (Stornorechnung chain)
+  rechnungsempfaenger_id: string | null;
+  /** Frozen recipient JSON at creation — §14 UStG; do not mutate after issue. */
+  rechnungsempfaenger_snapshot: Record<string, unknown> | null;
 }
 
 /**
@@ -98,6 +103,10 @@ export interface InvoiceLineItemRow {
   billing_variant_code: string | null; // e.g. "V01"
   billing_variant_name: string | null; // e.g. "Vollversorgung"
   created_at: string;
+  pricing_strategy_used: string | null;
+  pricing_source: string | null;
+  kts_override: boolean;
+  price_resolution_snapshot: Record<string, unknown> | null;
 }
 
 // ─── 3. Enriched / Joined Types (for UI) ──────────────────────────────────────
@@ -190,14 +199,23 @@ export interface InvoiceDetail extends InvoiceRow {
  */
 export interface TripForInvoice {
   id: string;
+  payer_id: string;
   scheduled_at: string | null; // used as line_date
   price: number | null; // manual driver price
   driving_distance_km: number | null; // for tax rate calculation
   billing_variant_id: string | null;
+  payer?: {
+    rechnungsempfaenger_id: string | null;
+  } | null;
   billing_variant?: {
     id: string;
     code: string;
     name: string;
+    billing_type_id: string;
+    rechnungsempfaenger_id: string | null;
+    billing_type?: {
+      rechnungsempfaenger_id: string | null;
+    } | null;
   } | null;
   // Client snapshot fields — includes price_tag for invoice price resolution
   // price_tag is the highest priority source for pricing
@@ -258,7 +276,9 @@ export const invoiceBuilderSchema = z.object({
     .number({ message: 'Bitte eine Zahl eingeben' })
     .int()
     .min(1, 'Mindestens 1 Tag')
-    .max(90, 'Maximal 90 Tage')
+    .max(90, 'Maximal 90 Tage'),
+
+  rechnungsempfaenger_id: z.string().uuid().nullable().optional()
 });
 
 /** Inferred TypeScript type from the builder Zod schema. */
@@ -290,14 +310,15 @@ export interface BuilderLineItem {
   billing_variant_name: string | null;
   /** True when the source trip is flagged as KTS-relevant (Krankentransportschein). */
   kts_document_applies: boolean;
-  /** From trips.no_invoice_required — shown as Hinweis in builder step 3 */
-  no_invoice_required: boolean;
+  /** Derived from trips.no_invoice_required at build time — soft warning in step 3 */
+  no_invoice_warning: boolean;
+  /** Full price resolution for audit / display (also persisted as JSON on save). */
+  price_resolution: PriceResolution;
+  /** True when KTS forced €0 for this line */
+  kts_override: boolean;
 
   /**
-   * Indicates which price source was used for this line item.
-   * 'client_price_tag' — from clients.price_tag (highest priority)
-   * 'trip_price' — from trips.price (fallback)
-   * null — no price set (manual entry required)
+   * @deprecated Use price_resolution / pricing_source — kept for legacy UI until fully migrated
    */
   price_source: 'client_price_tag' | 'trip_price' | null;
 
@@ -318,7 +339,8 @@ export interface BuilderLineItem {
 export type LineItemWarning =
   | 'missing_price'
   | 'missing_distance'
-  | 'zero_price';
+  | 'zero_price'
+  | 'no_invoice_trip';
 
 /** Tax breakdown grouped by rate — used in the totals block of the PDF. */
 export interface TaxBreakdown {

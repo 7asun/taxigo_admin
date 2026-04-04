@@ -23,7 +23,14 @@ export interface InvoicePdfCoverHeaderProps {
     zipCode: string;
     city: string;
     phone: string | null;
+    addressLine2?: string | null;
   };
+  /** Nur bei `per_client`: zweiter Block unter dem Fahrgast (Snapshot). */
+  secondaryLegalRecipient?: {
+    label: string;
+    displayName: string;
+    lines: string[];
+  } | null;
   invoiceNumber: string;
   invoiceCreatedAtIso: string;
   periodFromIso: string;
@@ -39,7 +46,8 @@ export function InvoicePdfCoverHeader({
   invoiceCreatedAtIso,
   periodFromIso,
   periodToIso,
-  customerNumber
+  customerNumber,
+  secondaryLegalRecipient = null
 }: InvoicePdfCoverHeaderProps) {
   const {
     companyName: recipientCompanyName,
@@ -49,7 +57,8 @@ export function InvoicePdfCoverHeader({
     streetNumber: recipientStreetNumber,
     zipCode: recipientZipCode,
     city: recipientCity,
-    phone: recipientPhone
+    phone: recipientPhone,
+    addressLine2: recipientAddressLine2
   } = recipient;
 
   return (
@@ -91,10 +100,29 @@ export function InvoicePdfCoverHeader({
           <Text style={styles.addressLine}>
             {recipientStreet} {recipientStreetNumber}
           </Text>
+          {recipientAddressLine2 ? (
+            <Text style={styles.addressLine}>{recipientAddressLine2}</Text>
+          ) : null}
           <Text style={styles.addressLine}>
             {recipientZipCode} {recipientCity}
           </Text>
         </View>
+
+        {secondaryLegalRecipient ? (
+          <View style={styles.secondaryLegalBlock}>
+            <Text style={styles.secondaryLegalLabel}>
+              {secondaryLegalRecipient.label}
+            </Text>
+            <Text style={styles.secondaryLegalName}>
+              {secondaryLegalRecipient.displayName}
+            </Text>
+            {secondaryLegalRecipient.lines.map((ln, i) => (
+              <Text key={`${i}-${ln}`} style={styles.addressLine}>
+                {ln}
+              </Text>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.headerRight}>

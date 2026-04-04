@@ -1,11 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Loader2, CircleDollarSign } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -41,11 +41,21 @@ import {
   suggestBillingVariantCode
 } from '../lib/billing-variant-code';
 import { Badge } from '@/components/ui/badge';
+import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import type { PricingStrategy } from '@/features/invoices/types/pricing.types';
+import { useBillingPricingRules } from '../hooks/use-billing-pricing-rules';
+import {
+  PricingRuleDialog,
+  PRICING_STRATEGY_LABELS_DE
+} from './pricing-rule-dialog';
+import { PricingRuleDeleteButton } from './pricing-rule-delete-button';
+import type { BillingPricingRuleRow } from '../api/billing-pricing-rules.api';
 
 const formSchema = z.object({
   name: z.string().min(1, { message: 'Name erforderlich' }),
   kts_variant: z.enum(['unset', 'yes', 'no']),
-  no_invoice_variant: z.enum(['unset', 'yes', 'no'])
+  no_invoice_variant: z.enum(['unset', 'yes', 'no']),
+  rechnungsempfaenger_id: z.string().optional()
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -69,13 +79,29 @@ export function EditBillingVariantDialog({
   onOpenChange
 }: EditBillingVariantDialogProps) {
   const { updateBillingVariant, isUpdatingVariant } = useBillingTypes(payerId);
+  const { data: recipients = [] } = useRechnungsempfaengerOptions();
+  const {
+    data: pricingRules = [],
+    refetch: refetchPricing,
+    deleteRule,
+    isDeleting: isDeletingRule
+  } = useBillingPricingRules(open && variant ? payerId : null);
+  const [pricingOpen, setPricingOpen] = useState(false);
+
+  const variantPricingRule = useMemo((): BillingPricingRuleRow | null => {
+    if (!variant) return null;
+    return (
+      pricingRules.find((r) => r.billing_variant_id === variant.id) ?? null
+    );
+  }, [variant, pricingRules]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
       kts_variant: 'unset',
-      no_invoice_variant: 'unset'
+      no_invoice_variant: 'unset',
+      rechnungsempfaenger_id: ''
     }
   });
 
@@ -94,7 +120,8 @@ export function EditBillingVariantDialog({
             ? 'yes'
             : variant.no_invoice_required_default === false
               ? 'no'
-              : 'unset'
+              : 'unset',
+        rechnungsempfaenger_id: variant.rechnungsempfaenger_id ?? ''
       });
     }
   }, [open, variant, form]);
@@ -136,7 +163,11 @@ export function EditBillingVariantDialog({
             ? null
             : data.no_invoice_variant === 'yes'
               ? true
-              : false
+              : false,
+        rechnungsempfaenger_id:
+          data.rechnungsempfaenger_id && data.rechnungsempfaenger_id.length > 0
+            ? data.rechnungsempfaenger_id
+            : null
       });
       toast.success('Unterart aktualisiert');
       onOpenChange(false);
@@ -149,122 +180,216 @@ export function EditBillingVariantDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(val) => !isUpdatingVariant && onOpenChange(val)}
-    >
-      <DialogContent className='sm:max-w-[400px]'>
-        <DialogHeader>
-          <DialogTitle>Unterart bearbeiten</DialogTitle>
-          <DialogDescription>
-            Familie:{' '}
-            <span className='text-foreground font-medium'>{familyName}</span>.
-            Der CSV-Code passt sich an, wenn Sie den Anzeigenamen ändern.
-          </DialogDescription>
-        </DialogHeader>
-        <Form
-          {...form}
-          form={form as any}
-          onSubmit={form.handleSubmit(onSubmit)}
-          className='space-y-4'
-        >
-          <FormField
-            control={form.control}
-            name='name'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Anzeigename</FormLabel>
-                <FormControl>
-                  <Input {...field} autoFocus />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='kts_variant'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>KTS-Standard (Unterart)</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value='unset'>
-                      Nicht festlegen (Familie / Kostenträger)
-                    </SelectItem>
-                    <SelectItem value='yes'>Ja</SelectItem>
-                    <SelectItem value='no'>Nein</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>
-                  Stärkster Katalog-Level für die KTS-Voreinstellung.
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='no_invoice_variant'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Keine Rechnung (Unterart)</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value='unset'>
-                      Nicht festlegen (Familie / Kostenträger)
-                    </SelectItem>
-                    <SelectItem value='yes'>Ja</SelectItem>
-                    <SelectItem value='no'>Nein</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>
-                  Stärkster Katalog-Level für „Keine Rechnung“.
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-          <div className='space-y-1.5'>
-            <p className='text-sm font-medium'>CSV-Code</p>
-            <Badge
-              variant='secondary'
-              className='font-mono text-xs tracking-wide uppercase'
-            >
-              {resolvedCode}
-            </Badge>
-            <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
-          </div>
-          <DialogFooter>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={() => onOpenChange(false)}
-              disabled={isUpdatingVariant}
-            >
-              Abbrechen
-            </Button>
-            <Button type='submit' disabled={isUpdatingVariant}>
-              {isUpdatingVariant ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  Speichern…
-                </>
-              ) : (
-                'Speichern'
-              )}
-            </Button>
-          </DialogFooter>
-        </Form>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(val) => !isUpdatingVariant && onOpenChange(val)}
+      >
+        <DialogContent className='flex max-h-[90vh] flex-col gap-0 p-0 sm:max-w-[400px]'>
+          <DialogHeader className='shrink-0 border-b px-6 pt-6 pr-14 pb-4'>
+            <DialogTitle>Unterart bearbeiten</DialogTitle>
+            <DialogDescription>
+              Familie:{' '}
+              <span className='text-foreground font-medium'>{familyName}</span>.
+              Der CSV-Code passt sich an, wenn Sie den Anzeigenamen ändern.
+            </DialogDescription>
+          </DialogHeader>
+          <Form
+            {...form}
+            form={form as any}
+            onSubmit={form.handleSubmit(onSubmit)}
+            className='flex min-h-0 flex-1 flex-col'
+          >
+            <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4'>
+              <FormField
+                control={form.control}
+                name='name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Anzeigename</FormLabel>
+                    <FormControl>
+                      <Input {...field} autoFocus />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='kts_variant'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>KTS-Standard (Unterart)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='unset'>
+                          Nicht festlegen (Familie / Kostenträger)
+                        </SelectItem>
+                        <SelectItem value='yes'>Ja</SelectItem>
+                        <SelectItem value='no'>Nein</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Stärkster Katalog-Level für die KTS-Voreinstellung.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='no_invoice_variant'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Keine Rechnung (Unterart)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='unset'>
+                          Nicht festlegen (Familie / Kostenträger)
+                        </SelectItem>
+                        <SelectItem value='yes'>Ja</SelectItem>
+                        <SelectItem value='no'>Nein</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Stärkster Katalog-Level für „Keine Rechnung“.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='rechnungsempfaenger_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rechnungsempfänger (optional)</FormLabel>
+                    <Select
+                      value={
+                        field.value && field.value.length > 0
+                          ? field.value
+                          : '__none__'
+                      }
+                      onValueChange={(v) =>
+                        field.onChange(v === '__none__' ? '' : v)
+                      }
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Keiner' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='__none__'>Keiner</SelectItem>
+                        {recipients.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
+                )}
+              />
+
+              {variant ? (
+                <div className='bg-muted/40 space-y-2 rounded-lg border p-3'>
+                  <p className='text-sm font-medium'>Preisregel (Unterart)</p>
+                  <p className='text-muted-foreground text-xs'>
+                    {variantPricingRule ? (
+                      <>
+                        Aktiv:{' '}
+                        <span className='text-foreground font-medium'>
+                          {PRICING_STRATEGY_LABELS_DE[
+                            variantPricingRule.strategy as PricingStrategy
+                          ] ?? variantPricingRule.strategy}
+                        </span>
+                      </>
+                    ) : (
+                      'Keine Regel — es gilt Familie / Kostenträger / Fahrt.'
+                    )}
+                  </p>
+                  <div className='flex flex-wrap gap-2'>
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='gap-1'
+                      onClick={() => setPricingOpen(true)}
+                    >
+                      <CircleDollarSign className='h-3.5 w-3.5' />
+                      {variantPricingRule
+                        ? 'Preisregel bearbeiten'
+                        : 'Preisregel anlegen'}
+                    </Button>
+                    {variantPricingRule ? (
+                      <PricingRuleDeleteButton
+                        rule={variantPricingRule}
+                        deleteRule={deleteRule}
+                        isDeleting={isDeletingRule}
+                        onDeleted={() => setPricingOpen(false)}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className='space-y-1.5'>
+                <p className='text-sm font-medium'>CSV-Code</p>
+                <Badge
+                  variant='secondary'
+                  className='font-mono text-xs tracking-wide uppercase'
+                >
+                  {resolvedCode}
+                </Badge>
+                <FormDescription>{BILLING_VARIANT_CODE_HINT}</FormDescription>
+              </div>
+            </div>
+            <DialogFooter className='bg-background shrink-0 border-t px-6 py-4'>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => onOpenChange(false)}
+                disabled={isUpdatingVariant}
+              >
+                Abbrechen
+              </Button>
+              <Button type='submit' disabled={isUpdatingVariant}>
+                {isUpdatingVariant ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    Speichern…
+                  </>
+                ) : (
+                  'Speichern'
+                )}
+              </Button>
+            </DialogFooter>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {variant ? (
+        <PricingRuleDialog
+          open={pricingOpen}
+          onOpenChange={setPricingOpen}
+          scope={{
+            kind: 'billing_variant',
+            payerId,
+            billingVariantId: variant.id
+          }}
+          editing={variantPricingRule}
+          onSaved={() => void refetchPricing()}
+        />
+      ) : null}
+    </>
   );
 }

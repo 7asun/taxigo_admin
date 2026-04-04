@@ -34,7 +34,12 @@ interface Payer {
   id: string;
   name: string;
   number: string;
-  billing_types?: { id: string; name: string }[];
+  rechnungsempfaenger_id?: string | null;
+  billing_types?: {
+    id: string;
+    name: string;
+    rechnungsempfaenger_id?: string | null;
+  }[];
   default_intro_block_id?: string | null;
   default_outro_block_id?: string | null;
 }
@@ -92,7 +97,8 @@ export function InvoiceBuilder({
     handleStep3Complete,
     updateLineItemPrice,
     createInvoice,
-    isCreating
+    isCreating,
+    catalogRecipientId
   } = useInvoiceBuilder(companyId, (newId) => {
     // Navigate to the detail page after successful creation
     router.push(`/dashboard/invoices/${newId}`);
@@ -215,6 +221,9 @@ export function InvoiceBuilder({
             onConfirm={(step4Values) => createInvoice(step4Values)}
             payerIntroBlockId={selectedPayer?.default_intro_block_id}
             payerOutroBlockId={selectedPayer?.default_outro_block_id}
+            defaultRechnungsempfaengerId={catalogRecipientId}
+            catalogRecipientId={catalogRecipientId}
+            lineItems={lineItems}
           />
         )}
       </div>
