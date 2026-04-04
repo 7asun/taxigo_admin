@@ -24,6 +24,7 @@ import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-dat
 import { getTripDirection } from '@/features/trips/lib/trip-direction';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import type { Database } from '@/types/database.types';
+import { resolveDrivingMetricsWithCache } from '@/lib/google-directions';
 
 export type {
   DuplicateScheduleMode,
@@ -201,6 +202,16 @@ export function partitionIntoDuplicateUnits(trips: Trip[]): DuplicateUnit[] {
   return units;
 }
 
+/**
+ * Copies all route, passenger, and billing fields from a source trip into a plain
+ * object suitable for `InsertTrip`.
+ *
+ * **Driving metrics are copied verbatim** (`driving_distance_km`,
+ * `driving_duration_seconds`). For trips that already have metrics populated this
+ * is the cheapest and most correct approach — zero extra DB or Google calls.
+ * If the source trip has null metrics but valid coordinates, `enrichInsertWithMetrics`
+ * will fill them in as a fallback before the insert is executed.
+ */
 function copyRouteAndPassengerFields(
   source: Trip
 ): Pick<
@@ -325,6 +336,44 @@ function buildDuplicateInsert(
   };
 }
 
+/**
+ * Post-processes a duplicate `InsertTrip` to populate driving metrics when the
+ * source trip did not have them (e.g. legacy trips created before metrics support).
+ *
+ * **Normal flow (source has metrics):** `copyRouteAndPassengerFields` already
+ * copied the fields; this function sees `driving_distance_km != null` and exits
+ * immediately — no Supabase query, no Google call.
+ *
+ * **Fallback flow (source metrics are null but coords exist):** calls
+ * `resolveDrivingMetricsWithCache`, which tries the DB cache first, then Google.
+ * Also clears `has_missing_geodata` since we now have full route data.
+ */
+async function enrichInsertWithMetrics(
+  insert: InsertTrip,
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  if (
+    insert.driving_distance_km == null &&
+    typeof insert.pickup_lat === 'number' &&
+    typeof insert.pickup_lng === 'number' &&
+    typeof insert.dropoff_lat === 'number' &&
+    typeof insert.dropoff_lng === 'number'
+  ) {
+    const metrics = await resolveDrivingMetricsWithCache(
+      insert.pickup_lat,
+      insert.pickup_lng,
+      insert.dropoff_lat,
+      insert.dropoff_lng,
+      supabase
+    );
+    if (metrics) {
+      insert.driving_distance_km = metrics.distanceKm;
+      insert.driving_duration_seconds = metrics.durationSeconds;
+      insert.has_missing_geodata = false;
+    }
+  }
+}
+
 export interface DuplicateTripsResult {
   createdIds: string[];
 }
@@ -401,6 +450,8 @@ export async function executeDuplicateTrips(
         createdBy
       );
 
+      await enrichInsertWithMetrics(insert, supabase);
+
       const { data: row, error } = await supabase
         .from('trips')
         .insert(insert)
@@ -467,6 +518,8 @@ export async function executeDuplicateTrips(
       createdBy
     );
 
+    await enrichInsertWithMetrics(outInsert, supabase);
+
     const { data: outRow, error: outErr } = await supabase
       .from('trips')
       .insert(outInsert)
@@ -481,6 +534,8 @@ export async function executeDuplicateTrips(
       { link_type: 'return', linked_trip_id: outRow.id },
       createdBy
     );
+
+    await enrichInsertWithMetrics(retInsert, supabase);
 
     const { data: retRow, error: retErr } = await supabase
       .from('trips')

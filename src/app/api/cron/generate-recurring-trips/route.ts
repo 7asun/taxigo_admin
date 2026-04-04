@@ -15,7 +15,7 @@ import {
   type GeocodedAddressLineResult
 } from '@/lib/google-geocoding';
 import {
-  getDrivingMetrics,
+  resolveDrivingMetricsWithCache,
   type DrivingMetrics
 } from '@/lib/google-directions';
 import {
@@ -156,14 +156,18 @@ export async function GET() {
       let driving_duration_seconds: number | null = null;
       if (pickupGeo && dropoffGeo) {
         const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+        // Two-tier caching:
+        // 1. In-memory (drivingMetricsCache) to avoid redundant DB queries for the same route in this cron run.
+        // 2. DB-cache (resolveDrivingMetricsWithCache) to reuse historical calculations and avoid Google API calls.
         if (!drivingMetricsCache.has(metricsKey)) {
           drivingMetricsCache.set(
             metricsKey,
-            await getDrivingMetrics(
+            await resolveDrivingMetricsWithCache(
               pickupGeo.lat,
               pickupGeo.lng,
               dropoffGeo.lat,
-              dropoffGeo.lng
+              dropoffGeo.lng,
+              supabase
             )
           );
         }
