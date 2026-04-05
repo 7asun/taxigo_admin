@@ -1,23 +1,18 @@
 /**
  * use-invoice-builder.ts
  *
- * State machine hook for the 4-step invoice builder wizard.
+ * Client state for the invoice builder (long-form: all sections visible).
  *
- * ─── Step overview ─────────────────────────────────────────────────────────
- *   Step 1 — Mode selection: Monatlich / Einzelfahrt / Fahrgast
- *   Step 2 — Parameters: Payer + billing_type + date range (+ client for per_client)
- *   Step 3 — Line item preview: editable table, warning badges for missing prices
- *   Step 4 — Confirm: invoice number preview, notes, Zahlungsziel, CREATE button
- *
- * ─── Data flow ─────────────────────────────────────────────────────────────
- *   Step 2 form submit → fetchQuery(referenceKeys.billingPricingRules) + fetchTripsForBuilder → buildLineItemsFromTrips()
- *   Step 3 edits       → local state (no API call until step 4)
- *   Step 4 submit      → createInvoice() → insertLineItems() → navigate to detail
+ * Flow:
+ *   Section 1 (mode) → merge into step2Values
+ *   Section 2 submit → full step2Values → trips query → lineItems
+ *   Section 3        → inline edits only
+ *   Section 4 submit → createInvoice() → insertLineItems() → navigate
  */
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { invoiceKeys, referenceKeys } from '@/query/keys';
@@ -34,10 +29,10 @@ import { createInvoice } from '../api/invoices.api';
 import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
-  InvoiceBuilderStep,
   InvoiceBuilderFormValues,
   BuilderLineItem
 } from '../types/invoice.types';
+import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
 type Step2Values = Pick<
@@ -59,7 +54,7 @@ function legacyPriceSourceFromResolution(
 }
 
 /**
- * Main state machine hook for the invoice builder wizard.
+ * State for the long-form invoice builder (all sections on one page).
  */
 export function useInvoiceBuilder(
   companyId: string,
@@ -67,13 +62,19 @@ export function useInvoiceBuilder(
 ) {
   const queryClient = useQueryClient();
 
-  const [currentStep, setCurrentStep] = useState<InvoiceBuilderStep>(1);
   const [step2Values, setStep2Values] = useState<Step2Values | null>(null);
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>([]);
   /** Catalog cascade (variant → type → payer) from the first fetched trip. */
   const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
     null
   );
+
+  useEffect(() => {
+    if (!step2ValuesReadyForTripsFetch(step2Values)) {
+      setLineItems([]);
+      setCatalogRecipientId(null);
+    }
+  }, [step2Values]);
 
   const tripsQuery = useQuery({
     queryKey: step2Values
@@ -117,7 +118,7 @@ export function useInvoiceBuilder(
 
       return items;
     },
-    enabled: !!step2Values,
+    enabled: step2ValuesReadyForTripsFetch(step2Values),
     staleTime: 5 * 60 * 1000
   });
 
@@ -141,27 +142,20 @@ export function useInvoiceBuilder(
     []
   );
 
-  const goToStep = useCallback((step: InvoiceBuilderStep) => {
-    setCurrentStep(step);
-  }, []);
-
   const handleStep1Complete = useCallback(
     (mode: InvoiceBuilderFormValues['mode']) => {
-      setStep2Values(
-        (prev) => ({ ...(prev as Step2Values), mode }) as Step2Values
-      );
-      setCurrentStep(2);
+      setStep2Values((prev) => {
+        if (prev?.mode !== undefined && prev.mode !== mode) {
+          return { mode } as Step2Values;
+        }
+        return { ...(prev || {}), mode } as Step2Values;
+      });
     },
     []
   );
 
   const handleStep2Complete = useCallback((values: Step2Values) => {
     setStep2Values(values);
-    setCurrentStep(3);
-  }, []);
-
-  const handleStep3Complete = useCallback(() => {
-    setCurrentStep(4);
   }, []);
 
   const totals = calculateInvoiceTotals(lineItems);
@@ -229,7 +223,6 @@ export function useInvoiceBuilder(
   });
 
   return {
-    currentStep,
     step2Values,
     lineItems,
     catalogRecipientId,
@@ -240,10 +233,8 @@ export function useInvoiceBuilder(
     isTripsError: tripsQuery.isError,
     tripsCount: lineItems.length,
 
-    goToStep,
     handleStep1Complete,
     handleStep2Complete,
-    handleStep3Complete,
     updateLineItemPrice,
 
     createInvoice: createMutation.mutate,

@@ -281,7 +281,7 @@ export function InvoicePdfDocument({
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
       </Page>
 
-      <Page size='A4' style={styles.page} wrap>
+      <Page size='A4' style={styles.appendixPage} wrap>
         <InvoicePdfAppendix
           invoiceNumber={invoice.invoice_number}
           invoiceCreatedAtIso={invoice.created_at}

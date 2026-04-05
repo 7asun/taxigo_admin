@@ -26,9 +26,8 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AlertTriangle, ArrowLeft, Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -128,8 +127,6 @@ interface Step3LineItemsProps {
   total: number;
   missingPrices: boolean;
   isLoadingTrips: boolean;
-  onBack: () => void;
-  onNext: () => void;
   /** Called when the user edits a price inline. */
   onUpdatePrice: (position: number, price: number) => void;
 }
@@ -144,8 +141,6 @@ export function Step3LineItems({
   total,
   missingPrices,
   isLoadingTrips,
-  onBack,
-  onNext,
   onUpdatePrice
 }: Step3LineItemsProps) {
   // Track which position is being edited (only one at a time)
@@ -181,13 +176,12 @@ export function Step3LineItems({
 
   return (
     <div className='space-y-4'>
-      <div>
-        <h2 className='text-lg font-semibold'>Rechnungspositionen prüfen</h2>
+      {lineItems.length > 0 ? (
         <p className='text-muted-foreground text-sm'>
           {lineItems.length} Fahrten gefunden. Preise können inline bearbeitet
           werden.
         </p>
-      </div>
+      ) : null}
 
       {/* Missing price warning banner */}
       {missingPrices && (
@@ -225,9 +219,9 @@ export function Step3LineItems({
       )}
 
       {/* Line items table */}
-      <div className='relative max-h-[55vh] overflow-y-auto rounded-md border'>
+      <div className='max-h-[320px] overflow-x-auto overflow-y-auto rounded-md border'>
         <Table>
-          <TableHeader className='bg-muted sticky top-0 z-10'>
+          <TableHeader className='bg-muted'>
             <TableRow>
               <TableHead className='w-8'>#</TableHead>
               <TableHead>Beschreibung</TableHead>
@@ -409,7 +403,7 @@ export function Step3LineItems({
           </TableBody>
 
           {/* Running totals */}
-          <TableFooter className='bg-muted sticky bottom-0 z-10'>
+          <TableFooter className='bg-muted'>
             <TableRow>
               <TableCell colSpan={4} className='text-sm font-medium'>
                 Netto
@@ -439,20 +433,6 @@ export function Step3LineItems({
             </TableRow>
           </TableFooter>
         </Table>
-      </div>
-
-      {/* Navigation */}
-      <div className='flex justify-between'>
-        <Button
-          type='button'
-          variant='ghost'
-          onClick={onBack}
-          className='gap-2'
-        >
-          <ArrowLeft className='h-4 w-4' />
-          Zurück
-        </Button>
-        <Button onClick={onNext}>Weiter zur Bestätigung</Button>
       </div>
     </div>
   );

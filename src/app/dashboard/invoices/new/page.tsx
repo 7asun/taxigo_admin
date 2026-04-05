@@ -82,21 +82,15 @@ export default async function NewInvoicePage() {
   ]);
 
   return (
-    <div className='w-full flex-1 overflow-y-auto'>
-      <div className='mx-auto max-w-4xl space-y-6 p-4 md:p-8 md:pt-6'>
-        <div className='flex items-center justify-between space-y-2'>
-          <h2 className='text-3xl font-bold tracking-tight'>Neue Rechnung</h2>
-        </div>
-
-        <InvoiceBuilder
-          companyId={companyId}
-          payers={payersRes.data ?? []}
-          clients={clientsRes.data ?? []}
-          defaultPaymentDays={companyProfile?.default_payment_days ?? 14}
-          companyProfile={companyProfile ?? null}
-          companyProfileMissing={isProfileMissing}
-        />
-      </div>
+    <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+      <InvoiceBuilder
+        companyId={companyId}
+        payers={payersRes.data ?? []}
+        clients={clientsRes.data ?? []}
+        defaultPaymentDays={companyProfile?.default_payment_days ?? 14}
+        companyProfile={companyProfile ?? null}
+        companyProfileMissing={isProfileMissing}
+      />
     </div>
   );
 }

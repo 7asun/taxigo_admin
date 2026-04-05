@@ -46,6 +46,32 @@ function formatAppendixDate(
   }
 }
 
+function robustAddressSplit(raw: string | null | undefined): {
+  street: string;
+  city: string | null;
+} {
+  if (!raw?.trim()) return { street: '—', city: null };
+  const trimmed = raw.trim();
+
+  // Find the first occurrence of a German zip code (5 digits) followed by a space
+  const zipRegex = /\b\d{5}\s/;
+  const match = trimmed.match(zipRegex);
+
+  if (match && match.index !== undefined) {
+    let street = trimmed.slice(0, match.index).trim();
+    const cityLine = trimmed.slice(match.index).trim();
+
+    // Clean up trailing comma from street if present
+    if (street.endsWith(',')) {
+      street = street.slice(0, -1).trim();
+    }
+
+    return { street: street || '—', city: cityLine };
+  }
+
+  return { street: trimmed, city: null };
+}
+
 export function InvoicePdfAppendix({
   invoiceNumber,
   invoiceCreatedAtIso,
@@ -83,18 +109,11 @@ export function InvoicePdfAppendix({
           <Text style={[styles.appendixColGross, styles.tableHeaderText]}>
             Brutto
           </Text>
-          <Text style={[styles.appendixColKts, styles.tableHeaderText]}>
-            KTS
-          </Text>
-          <Text style={[styles.appendixColDriver, styles.tableHeaderText]}>
-            Fahrer
-          </Text>
           <Text style={[styles.appendixColDir, styles.tableHeaderText]}>
             H/R
           </Text>
         </View>
       </View>
-      <View style={styles.appendixContentSpacer} />
 
       {lineItems.map((item, idx) => {
         const tripMeta = parseTripMetaSnapshot(
@@ -104,14 +123,17 @@ export function InvoicePdfAppendix({
         const gross = lineGrossEurForPdfLineItem(item);
         const kts = item.kts_override === true;
         const moneyExtras = kts ? [styles.appendixMoneyMuted] : [];
-        const von = truncateInvoicePdfText(item.pickup_address, 35);
-        const nach = truncateInvoicePdfText(item.dropoff_address, 35);
+        const von = robustAddressSplit(item.pickup_address);
+        const nach = robustAddressSplit(item.dropoff_address);
+        const roundedKm =
+          item.distance_km != null
+            ? Math.round(Number(item.distance_km) * 100) / 100
+            : null;
         const kmLabel =
-          item.distance_km != null && !Number.isNaN(item.distance_km)
-            ? `${item.distance_km} km`
+          roundedKm != null && !Number.isNaN(roundedKm)
+            ? `${roundedKm.toString().replace('.', ',')} km`
             : '';
         const dirLabel = tripMetaDirectionPdfLabel(tripMeta);
-        const driverLabel = tripMeta?.driver_name?.trim() ?? '';
 
         return (
           <View
@@ -127,8 +149,18 @@ export function InvoicePdfAppendix({
               <Text style={styles.appendixColClient}>
                 {item.client_name?.trim() || '—'}
               </Text>
-              <Text style={styles.appendixColAddr}>{von || '—'}</Text>
-              <Text style={styles.appendixColAddr}>{nach || '—'}</Text>
+              <View style={styles.appendixColAddr}>
+                <Text>{von.street}</Text>
+                {von.city && (
+                  <Text style={styles.appendixColAddrCity}>{von.city}</Text>
+                )}
+              </View>
+              <View style={styles.appendixColAddr}>
+                <Text>{nach.street}</Text>
+                {nach.city && (
+                  <Text style={styles.appendixColAddrCity}>{nach.city}</Text>
+                )}
+              </View>
               <Text style={styles.appendixColKm}>{kmLabel}</Text>
               <Text style={[styles.appendixColNet, ...moneyExtras]}>
                 {formatInvoicePdfEur(net)}
@@ -139,8 +171,6 @@ export function InvoicePdfAppendix({
               <Text style={[styles.appendixColGross, ...moneyExtras]}>
                 {formatInvoicePdfEur(gross)}
               </Text>
-              <Text style={styles.appendixColKts}>{kts ? '✓' : ''}</Text>
-              <Text style={styles.appendixColDriver}>{driverLabel}</Text>
               <Text style={styles.appendixColDir}>{dirLabel}</Text>
             </View>
             {kts ? (

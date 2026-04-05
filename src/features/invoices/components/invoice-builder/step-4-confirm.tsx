@@ -10,22 +10,21 @@
  *   - Totals recap (Netto / MwSt / Brutto)
  *   - Editable: Notes (Notizen) + Zahlungsziel (payment days override)
  *   - Warning if prices are missing (non-blocking)
- *   - "Rechnung erstellen" button (disabled while saving)
- *   - Live PDF preview (debounced) — desktop: side panel; mobile: sheet
+ *   - "Rechnung erstellen" button (disabled while saving / when section locked)
+ *   - PDF preview lives in the builder shell (debounced).
  */
 
-import { useMemo, useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { useEffect, useMemo } from 'react';
+import { useForm, useWatch, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, AlertTriangle, FileText, Info } from 'lucide-react';
+import { AlertTriangle, FileText, Info } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Form,
   FormControl,
   FormDescription,
   FormField,
@@ -40,12 +39,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
 import {
@@ -67,13 +60,8 @@ import {
   pricingStrategyUsedLabelDe
 } from '@/features/invoices/lib/pricing-strategy-labels-de';
 import { lineItemNetAmountForDisplay } from '@/features/invoices/lib/line-item-net-display';
-import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  buildDraftInvoiceDetailForPdf,
-  type InvoiceBuilderStep2Snapshot
-} from '@/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf';
-import { InvoiceBuilderStep4PdfPreview } from './invoice-builder-step4-pdf-preview';
-import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
+import type { InvoiceBuilderStep4PdfOverlay } from './use-invoice-builder-pdf-preview';
+import type { BuilderLineItem } from '../../types/invoice.types';
 
 /** Step 4 local schema — only the invoice meta fields. */
 const step4Schema = z.object({
@@ -122,7 +110,6 @@ interface Step4ConfirmProps {
   defaultPaymentDays: number;
   missingPrices: boolean;
   isCreating: boolean;
-  onBack: () => void;
   onConfirm: (values: Step4Values) => void;
   /** Payer's default intro block (pre-selected if exists) */
   payerIntroBlockId?: string | null;
@@ -133,11 +120,12 @@ interface Step4ConfirmProps {
   /** Gleiche ID wie Katalog-Default — für „Manuell überschrieben“ */
   catalogRecipientId?: string | null;
   lineItems: BuilderLineItem[];
-  companyId: string;
-  companyProfile: InvoiceDetail['company_profile'] | null;
-  step2Values: InvoiceBuilderStep2Snapshot | null;
-  payers: NonNullable<InvoiceDetail['payer']>[];
-  clients: NonNullable<InvoiceDetail['client']>[];
+  /** Syncs watched fields to the shell PDF preview. */
+  onStep4PdfOverlayChange?: (overlay: InvoiceBuilderStep4PdfOverlay) => void;
+  /** When false, overlay is not pushed (e.g. Bestätigung section not open). */
+  pdfOverlayEnabled?: boolean;
+  /** Disable primary action while section is locked or other guard fails. */
+  submitDisabled?: boolean;
 }
 
 /**
@@ -151,25 +139,20 @@ export function Step4Confirm({
   defaultPaymentDays,
   missingPrices,
   isCreating,
-  onBack,
   onConfirm,
   payerIntroBlockId,
   payerOutroBlockId,
   defaultRechnungsempfaengerId,
   catalogRecipientId = defaultRechnungsempfaengerId ?? null,
   lineItems,
-  companyId,
-  companyProfile,
-  step2Values,
-  payers,
-  clients
+  onStep4PdfOverlayChange,
+  pdfOverlayEnabled = true,
+  submitDisabled = false
 }: Step4ConfirmProps) {
   const { data: textBlocks, isLoading: isLoadingTextBlocks } =
     useAllInvoiceTextBlocks();
   const { data: empfaengerOptions, isLoading: isLoadingEmpfaenger } =
     useRechnungsempfaengerOptions();
-  const isMobile = useIsMobile();
-  const [previewOpen, setPreviewOpen] = useState(false);
 
   const form = useForm<Step4Values>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -242,172 +225,133 @@ export function Step4Confirm({
     return `RE-${y}-${m}-XXXX`;
   }, []);
 
-  const draftInvoice = useMemo(() => {
-    if (!companyProfile || !step2Values) return null;
-    return buildDraftInvoiceDetailForPdf({
-      companyId,
-      companyProfile,
-      step2: step2Values,
-      lineItems,
-      payers,
-      clients,
+  useEffect(() => {
+    if (!pdfOverlayEnabled) return;
+    onStep4PdfOverlayChange?.({
       paymentDueDays: paymentDueResolved,
       introText: introContent,
       outroText: outroContent,
-      recipientRow: effectiveRow,
-      placeholderInvoiceNumber
+      recipientRow: effectiveRow
     });
   }, [
-    companyProfile,
-    step2Values,
-    lineItems,
-    payers,
-    clients,
+    pdfOverlayEnabled,
+    onStep4PdfOverlayChange,
     paymentDueResolved,
     introContent,
     outroContent,
-    effectiveRow,
-    placeholderInvoiceNumber,
-    companyId
+    effectiveRow
   ]);
-
-  const previewProps = {
-    draftInvoice,
-    introText: introContent,
-    outroText: outroContent
-  };
 
   return (
     <div className='space-y-6'>
-      <div>
-        <h2 className='text-lg font-semibold'>Rechnung bestätigen</h2>
-        <p className='text-muted-foreground text-sm'>
-          Prüfen Sie die Zusammenfassung und erstellen Sie die Rechnung.
-        </p>
-      </div>
+      <div className='min-w-0 space-y-6'>
+        {/* Advisory warning if prices are missing */}
+        {missingPrices && (
+          <Alert>
+            <AlertTriangle className='h-4 w-4' />
+            <AlertDescription>
+              Einige Positionen haben keinen Preis (werden als 0,00 €
+              gespeichert). Die Rechnung kann trotzdem erstellt werden.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <div className='lg:grid lg:grid-cols-[1fr_min(46%,520px)] lg:items-start lg:gap-8'>
-        <div className='min-w-0 space-y-6'>
-          {/* Advisory warning if prices are missing */}
-          {missingPrices && (
-            <Alert>
-              <AlertTriangle className='h-4 w-4' />
-              <AlertDescription>
-                Einige Positionen haben keinen Preis (werden als 0,00 €
-                gespeichert). Die Rechnung kann trotzdem erstellt werden.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Totals summary (read-only) */}
-          <div className='bg-muted/50 space-y-2 rounded-lg p-4'>
-            <div className='flex justify-between text-sm'>
-              <span className='text-muted-foreground'>
-                {lineItemCount} Positionen · Netto
-              </span>
-              <span>{formatEur(subtotal)}</span>
-            </div>
-            <div className='flex justify-between text-sm'>
-              <span className='text-muted-foreground'>MwSt.</span>
-              <span>{formatEur(taxAmount)}</span>
-            </div>
-            <Separator />
-            <div className='flex justify-between font-bold'>
-              <span>Gesamtbetrag</span>
-              <span>{formatEur(total)}</span>
-            </div>
+        {/* Totals summary (read-only) */}
+        <div className='bg-muted/50 space-y-2 rounded-lg p-4'>
+          <div className='flex justify-between text-sm'>
+            <span className='text-muted-foreground'>
+              {lineItemCount} Positionen · Netto
+            </span>
+            <span>{formatEur(subtotal)}</span>
           </div>
-
-          {/* Invoice number info */}
-          <div className='bg-card border-border rounded-lg border px-4 py-3'>
-            <p className='text-muted-foreground text-xs'>Rechnungsnummer</p>
-            <p className='text-sm font-medium'>
-              Wird automatisch vergeben ({placeholderInvoiceNumber})
-            </p>
+          <div className='flex justify-between text-sm'>
+            <span className='text-muted-foreground'>MwSt.</span>
+            <span>{formatEur(taxAmount)}</span>
           </div>
+          <Separator />
+          <div className='flex justify-between font-bold'>
+            <span>Gesamtbetrag</span>
+            <span>{formatEur(total)}</span>
+          </div>
+        </div>
 
-          {/* Positionen — Preisstrategie (Tooltip) */}
-          {lineItems.length > 0 && (
-            <div className='space-y-2'>
-              <h3 className='text-sm font-medium'>Positionen</h3>
-              <div className='max-h-48 overflow-y-auto rounded-md border'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className='w-10'>#</TableHead>
-                      <TableHead>Beschreibung</TableHead>
-                      <TableHead className='text-right'>Preis</TableHead>
-                      <TableHead className='w-10' />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {lineItems.map((item) => {
-                      const srcLabel =
-                        PRICE_RESOLUTION_SOURCE_LABELS_DE[
-                          item.price_resolution.source
-                        ] ?? item.price_resolution.source;
-                      const stratLabel = pricingStrategyUsedLabelDe(
-                        item.price_resolution.strategy_used
-                      );
-                      const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
-                      return (
-                        <TableRow key={item.position}>
-                          <TableCell className='text-muted-foreground text-xs'>
-                            {item.position}
-                          </TableCell>
-                          <TableCell className='max-w-[200px] truncate text-sm'>
-                            {item.description}
-                          </TableCell>
-                          <TableCell className='text-right text-sm'>
-                            {(() => {
-                              const net = lineItemNetAmountForDisplay(item);
-                              return net !== null ? formatEur(net) : '—';
-                            })()}
-                          </TableCell>
-                          <TableCell>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type='button'
-                                    className='text-muted-foreground hover:text-foreground inline-flex'
-                                    aria-label='Preisdetails'
-                                  >
-                                    <Info className='h-4 w-4' />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent
-                                  side='left'
-                                  className='max-w-xs'
+        {/* Invoice number info */}
+        <div className='bg-card border-border rounded-lg border px-4 py-3'>
+          <p className='text-muted-foreground text-xs'>Rechnungsnummer</p>
+          <p className='text-sm font-medium'>
+            Wird automatisch vergeben ({placeholderInvoiceNumber})
+          </p>
+        </div>
+
+        {/* Positionen — Preisstrategie (Tooltip) */}
+        {lineItems.length > 0 && (
+          <div className='space-y-2'>
+            <h3 className='text-sm font-medium'>Positionen</h3>
+            <div className='max-h-[200px] overflow-y-auto rounded-md border'>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className='w-10'>#</TableHead>
+                    <TableHead>Beschreibung</TableHead>
+                    <TableHead className='text-right'>Preis</TableHead>
+                    <TableHead className='w-10' />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lineItems.map((item) => {
+                    const srcLabel =
+                      PRICE_RESOLUTION_SOURCE_LABELS_DE[
+                        item.price_resolution.source
+                      ] ?? item.price_resolution.source;
+                    const stratLabel = pricingStrategyUsedLabelDe(
+                      item.price_resolution.strategy_used
+                    );
+                    const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
+                    return (
+                      <TableRow key={item.position}>
+                        <TableCell className='text-muted-foreground text-xs'>
+                          {item.position}
+                        </TableCell>
+                        <TableCell className='max-w-[200px] truncate text-sm'>
+                          {item.description}
+                        </TableCell>
+                        <TableCell className='text-right text-sm'>
+                          {(() => {
+                            const net = lineItemNetAmountForDisplay(item);
+                            return net !== null ? formatEur(net) : '—';
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type='button'
+                                  className='text-muted-foreground hover:text-foreground inline-flex'
+                                  aria-label='Preisdetails'
                                 >
-                                  <p className='text-xs'>{tip}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                                  <Info className='h-4 w-4' />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side='left' className='max-w-xs'>
+                                <p className='text-xs'>{tip}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
-          )}
+          </div>
+        )}
 
-          {isMobile ? (
-            <Button
-              type='button'
-              variant='outline'
-              className='w-full'
-              onClick={() => setPreviewOpen(true)}
-            >
-              Vorschau anzeigen
-            </Button>
-          ) : null}
-
-          {/* Editable meta fields */}
-          <Form
-            form={form}
+        {/* Editable meta fields */}
+        <FormProvider {...form}>
+          <form
+            id='invoice-step4-form'
             onSubmit={form.handleSubmit(onConfirm)}
             className='space-y-4'
           >
@@ -582,42 +526,18 @@ export function Step4Confirm({
               />
             </div>
 
-            {/* Navigation */}
-            <div className='flex justify-between pt-2'>
+            <div className='border-border flex justify-end border-t pt-4'>
               <Button
-                type='button'
-                variant='ghost'
-                onClick={onBack}
+                type='submit'
+                disabled={isCreating || submitDisabled}
                 className='gap-2'
               >
-                <ArrowLeft className='h-4 w-4' />
-                Zurück
-              </Button>
-              <Button type='submit' disabled={isCreating} className='gap-2'>
                 {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
               </Button>
             </div>
-          </Form>
-        </div>
-
-        {!isMobile ? (
-          <aside className='sticky top-2 hidden min-w-0 space-y-2 lg:block'>
-            <h3 className='text-sm font-medium'>PDF-Vorschau</h3>
-            <InvoiceBuilderStep4PdfPreview {...previewProps} />
-          </aside>
-        ) : null}
+          </form>
+        </FormProvider>
       </div>
-
-      <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
-        <SheetContent side='bottom' className='h-[88vh] overflow-hidden'>
-          <SheetHeader>
-            <SheetTitle>PDF-Vorschau</SheetTitle>
-          </SheetHeader>
-          <div className='mt-4 h-[calc(88vh-4rem)] overflow-auto'>
-            <InvoiceBuilderStep4PdfPreview {...previewProps} />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

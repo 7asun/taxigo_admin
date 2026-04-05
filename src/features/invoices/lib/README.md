@@ -28,6 +28,12 @@ End-to-end order used by the invoice builder (see `useInvoiceBuilder` and `invoi
 
 See [docs/pricing-engine.md](../../../../docs/pricing-engine.md).
 
+## Builder UI & PDF (Phase 5)
+
+- **Wizard shell:** [`components/invoice-builder/index.tsx`](../components/invoice-builder/index.tsx) — step indicator + step components (Phase 5b will redesign layout per [`implementation-suggestions/phase5b-prompt.md`](../../../../implementation-suggestions/phase5b-prompt.md)).
+- **Live PDF preview:** [`use-invoice-builder-pdf-preview.tsx`](../components/invoice-builder/use-invoice-builder-pdf-preview.tsx) + [`invoice-builder-pdf-panel.tsx`](../components/invoice-builder/invoice-builder-pdf-panel.tsx), draft model [`build-draft-invoice-detail-for-pdf.ts`](../components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) (from step 3 when lines exist); `companyProfile` is server-loaded on [`app/dashboard/invoices/new/page.tsx`](../../../../app/dashboard/invoices/new/page.tsx).
+- **DB:** Apply `supabase/migrations/20260407120000_invoice_line_items_trip_meta_snapshot.sql` for `trip_meta_snapshot` on new inserts. Detail reads use `invoice_line_items(*)` in `getInvoiceDetail` — see [docs/invoices-module.md](../../../../docs/invoices-module.md) § Phase 5.
+
 ## Other
 
 - **`invoice-number.ts`** — Sequential `RE-YYYY-MM-NNNN`.

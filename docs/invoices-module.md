@@ -58,6 +58,16 @@ This is the heart of the verifier. The wizard queries the real `trips` matching 
 ### Step 4: Confirmation (`Step4Confirm`)
 Calculates the final Netto and Brutto summaries using a tax breakdown (separating 7% and 19% items). It overrides the default `payment_due_days` (inherited from the Company Profile) if needed, and officially triggers the DB insertion.
 
+### Phase 5 (current) — PDF hardening + builder live preview
+
+- **Recipient / §14:** `InvoicePdfDocument` uses frozen `rechnungsempfaenger_snapshot` per [docs/rechnungsempfaenger.md](rechnungsempfaenger.md) (dual block for `per_client`, snapshot-only window for `monthly` / `single_trip`, payer fallback + `console.warn` when snapshot is missing on legacy rows).
+- **Appendix table:** [`invoice-pdf-appendix.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix.tsx) — fixed columns (Datum, Fahrgast, Von/Nach, Strecke, Netto, MwSt., Brutto, KTS, Fahrer, Hin/Rück); line net uses `price_resolution_snapshot.net` when present ([`invoice-pdf-line-amounts.ts`](../src/features/invoices/components/invoice-pdf/lib/invoice-pdf-line-amounts.ts)); KTS rows show €0 + note.
+- **Trip meta snapshot:** Optional JSONB `invoice_line_items.trip_meta_snapshot` (migration `20260407120000_invoice_line_items_trip_meta_snapshot.sql`) — frozen driver + direction for PDF, **separate** from `price_resolution_snapshot`. **Creating** invoices requires this migration applied so `insertLineItems` can persist the column.
+- **Detail fetch:** `getInvoiceDetail` loads line items with `line_items:invoice_line_items(*)` so PostgREST does not fail if optional columns are not migrated yet; after migration, `(*)` still returns `trip_meta_snapshot`.
+- **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) (600 ms debounce) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
+
+**Next (Phase 5b):** Shell redesign — persistent right-hand PDF panel from step 1 and vertical step rail; see [implementation-suggestions/phase5b-prompt.md](../implementation-suggestions/phase5b-prompt.md).
+
 ---
 
 ## 3. Pricing & Tax Calculation Layer
@@ -118,7 +128,7 @@ netto = brutto / (1 + tax_rate)
 
 ### Data Fetching Constraints (`invoices.api.ts`)
 Due to strict foreign key relationships, complex objects like the `company_profile` cannot be recursively joined in a single PostgREST pass from the `invoices` table.
-- `getInvoiceDetail` sequentially fetches the invoice (with payloads and snapshot lines), and then cleanly fetches the `company_profile` using the invoice's `company_id`.
+- `getInvoiceDetail` sequentially fetches the invoice (with payer, client, and **`line_items:invoice_line_items(*)`** — wildcard avoids errors when new line-item columns are added before every environment has run migrations), then fetches `company_profile` using the invoice's `company_id`.
 
 ### Invoice PDF (`@react-pdf/renderer`)
 
@@ -137,7 +147,8 @@ Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/
 | Cover header | `invoice-pdf-cover-header.tsx` | Logo, sender line, address window, Rechnungsdaten |
 | Cover body | `invoice-pdf-cover-body.tsx` | Subject, summary table, VAT totals, payment + optional SEPA QR |
 | Footer | `invoice-pdf-footer.tsx` | Fixed footer + `Seite x / y` |
-| Appendix | `invoice-pdf-appendix.tsx` | Fixed appendix header + per–line-item table |
+| Appendix | `invoice-pdf-appendix.tsx` | Fixed appendix header + per–line-item detail table (Phase 5 columns + `trip_meta_snapshot`) |
+| Draft adapter | `build-draft-invoice-detail-for-pdf.ts` | Synthetic `InvoiceDetail` for builder live preview only |
 | Format helpers | `lib/invoice-pdf-format.ts` | EUR, dates, IBAN display, sender one-liner |
 | Places / routes | `lib/invoice-pdf-places.ts` | Canonical addresses, hint map, airport label |
 | Summary build | `lib/build-invoice-pdf-summary.ts` | Grouped routes, Hinfahrt/Rückfahrt labels, net line amount |
@@ -157,4 +168,4 @@ Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/
 
 ---
 
-*Phase 2 Documentation Finalized - v2.0 Architecture*
+*Architecture notes updated through Phase 5 (+ Phase 5b prompt linked).*

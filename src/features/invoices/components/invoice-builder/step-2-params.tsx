@@ -13,15 +13,14 @@
  */
 
 import { useMemo } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Form,
   FormControl,
   FormDescription,
   FormField,
@@ -85,7 +84,6 @@ interface Step2ParamsProps {
   payers: Payer[];
   clients: Client[];
   isLoadingTrips: boolean;
-  onBack: () => void;
   onNext: (values: {
     payer_id: string;
     billing_type_id: string | null;
@@ -102,7 +100,6 @@ export function Step2Params({
   payers,
   clients,
   isLoadingTrips,
-  onBack,
   onNext
 }: Step2ParamsProps) {
   const { searchClients } = useTripFormData();
@@ -206,290 +203,279 @@ export function Step2Params({
 
   return (
     <div className='space-y-6'>
-      <div>
-        <h2 className='text-lg font-semibold'>Parameter festlegen</h2>
-        <p className='text-muted-foreground text-sm'>
-          Wählen Sie Kostenträger und Zeitraum.
-        </p>
-      </div>
-
-      <Form
-        form={form}
-        onSubmit={form.handleSubmit(onSubmit)}
-        className='space-y-5'
-      >
-        {/* ─── per_client Mode Flow ────────────────────────────────────── */}
-        {mode === 'per_client' && (
-          <>
-            <FormField
-              control={form.control}
-              name='client_id'
-              render={({ field }) => {
-                const selectedClient = clients.find(
-                  (c) => c.id === field.value
-                );
-                const displayValue = selectedClient
-                  ? [selectedClient.first_name, selectedClient.last_name]
-                      .filter(Boolean)
-                      .join(' ')
-                  : '';
-
-                return (
-                  <FormItem>
-                    <FormLabel>
-                      Fahrgast <span className='text-destructive'>*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <ClientAutoSuggest
-                        value={displayValue}
-                        onSelect={(client) => {
-                          field.onChange(client?.id ?? '');
-                          // Reset payer logic when client changes
-                          form.setValue('payer_id', '');
-                          form.clearErrors('payer_id');
-                          form.setValue('billing_type_id', null);
-                        }}
-                        onNameChange={() => {}}
-                        searchClients={searchClients}
-                        placeholder='Fahrgast suchen…'
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }}
-            />
-
-            {selectedClientId && (
+      <FormProvider {...form}>
+        <form
+          id='invoice-step2-form'
+          onSubmit={form.handleSubmit(onSubmit)}
+          className='space-y-5'
+        >
+          {/* ─── per_client Mode Flow ────────────────────────────────────── */}
+          {mode === 'per_client' && (
+            <>
               <FormField
                 control={form.control}
-                name='payer_id'
+                name='client_id'
                 render={({ field }) => {
-                  const currentBillingTypeId = form.watch('billing_type_id');
-                  const combinedValue = field.value
-                    ? `${field.value}|${currentBillingTypeId || ''}`
+                  const selectedClient = clients.find(
+                    (c) => c.id === field.value
+                  );
+                  const displayValue = selectedClient
+                    ? [selectedClient.first_name, selectedClient.last_name]
+                        .filter(Boolean)
+                        .join(' ')
                     : '';
 
                   return (
                     <FormItem>
                       <FormLabel>
-                        Abrechnung <span className='text-destructive'>*</span>
+                        Fahrgast <span className='text-destructive'>*</span>
                       </FormLabel>
-                      <Select
-                        value={combinedValue}
-                        onValueChange={(val) => {
-                          const [pId, bId] = val.split('|');
-                          field.onChange(pId);
-                          form.setValue('billing_type_id', bId || null, {
-                            shouldValidate: true
-                          });
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={
-                                isLoadingCombinations
-                                  ? 'Wird geladen…'
-                                  : 'Abrechnung wählen…'
-                              }
-                            />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {clientCombinations.length === 0 &&
-                          !isLoadingCombinations ? (
-                            <SelectItem
-                              value='none'
-                              disabled
-                              className='text-sm opacity-70'
-                            >
-                              Keine bisherigen Abrechnungen gefunden
-                            </SelectItem>
-                          ) : (
-                            clientCombinations.map((comb) => {
-                              const payerObj = payers.find(
-                                (p) => p.id === comb.payer_id
-                              );
-                              const payerName = payerObj?.name || 'Unbekannt';
-                              const btName = payerObj?.billing_types?.find(
-                                (b) => b.id === comb.billing_type_id
-                              )?.name;
-                              const label = btName
-                                ? `${payerName} (${btName})`
-                                : payerName;
-                              const valStr = `${comb.payer_id}|${comb.billing_type_id || ''}`;
-                              return (
-                                <SelectItem key={valStr} value={valStr}>
-                                  {label}
-                                </SelectItem>
-                              );
-                            })
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Bisherige Kombinationen für diesen Fahrgast.
-                      </FormDescription>
+                      <FormControl>
+                        <ClientAutoSuggest
+                          value={displayValue}
+                          onSelect={(client) => {
+                            field.onChange(client?.id ?? '');
+                            // Reset payer logic when client changes
+                            form.setValue('payer_id', '');
+                            form.clearErrors('payer_id');
+                            form.setValue('billing_type_id', null);
+                          }}
+                          onNameChange={() => {}}
+                          searchClients={searchClients}
+                          placeholder='Fahrgast suchen…'
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   );
                 }}
               />
-            )}
-            <Separator />
-          </>
-        )}
 
-        {/* ─── Standard Mode Flow (ALL OTHER MODES) ────────────────────── */}
-        {mode !== 'per_client' && (
-          <>
-            {/* Payer picker */}
-            <FormField
-              control={form.control}
-              name='payer_id'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Kostenträger <span className='text-destructive'>*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Kostenträger wählen…' />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {payers.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name} ({p.number})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              {selectedClientId && (
+                <FormField
+                  control={form.control}
+                  name='payer_id'
+                  render={({ field }) => {
+                    const currentBillingTypeId = form.watch('billing_type_id');
+                    const combinedValue = field.value
+                      ? `${field.value}|${currentBillingTypeId || ''}`
+                      : '';
+
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          Abrechnung <span className='text-destructive'>*</span>
+                        </FormLabel>
+                        <Select
+                          value={combinedValue}
+                          onValueChange={(val) => {
+                            const [pId, bId] = val.split('|');
+                            field.onChange(pId);
+                            form.setValue('billing_type_id', bId || null, {
+                              shouldValidate: true
+                            });
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  isLoadingCombinations
+                                    ? 'Wird geladen…'
+                                    : 'Abrechnung wählen…'
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {clientCombinations.length === 0 &&
+                            !isLoadingCombinations ? (
+                              <SelectItem
+                                value='none'
+                                disabled
+                                className='text-sm opacity-70'
+                              >
+                                Keine bisherigen Abrechnungen gefunden
+                              </SelectItem>
+                            ) : (
+                              clientCombinations.map((comb) => {
+                                const payerObj = payers.find(
+                                  (p) => p.id === comb.payer_id
+                                );
+                                const payerName = payerObj?.name || 'Unbekannt';
+                                const btName = payerObj?.billing_types?.find(
+                                  (b) => b.id === comb.billing_type_id
+                                )?.name;
+                                const label = btName
+                                  ? `${payerName} (${btName})`
+                                  : payerName;
+                                const valStr = `${comb.payer_id}|${comb.billing_type_id || ''}`;
+                                return (
+                                  <SelectItem key={valStr} value={valStr}>
+                                    {label}
+                                  </SelectItem>
+                                );
+                              })
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Bisherige Kombinationen für diesen Fahrgast.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
               )}
-            />
+              <Separator />
+            </>
+          )}
 
-            {/* Billing type filter (optional) */}
-            {billingTypes.length > 0 && (
+          {/* ─── Standard Mode Flow (ALL OTHER MODES) ────────────────────── */}
+          {mode !== 'per_client' && (
+            <>
+              {/* Payer picker */}
               <FormField
                 control={form.control}
-                name='billing_type_id'
+                name='payer_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Abrechnungsart (optional)</FormLabel>
+                    <FormLabel>
+                      Kostenträger <span className='text-destructive'>*</span>
+                    </FormLabel>
                     <FormControl>
                       <Select
-                        value={field.value ?? 'all'}
-                        onValueChange={(val) =>
-                          field.onChange(val === 'all' ? null : val)
-                        }
+                        value={field.value}
+                        onValueChange={field.onChange}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder='Alle Abrechnungsarten' />
+                          <SelectValue placeholder='Kostenträger wählen…' />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value='all'>
-                            Alle Abrechnungsarten
-                          </SelectItem>
-                          {billingTypes.map((bt) => (
-                            <SelectItem key={bt.id} value={bt.id}>
-                              {bt.name}
+                          {payers.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name} ({p.number})
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </FormControl>
-                    <FormDescription>
-                      Nur Fahrten dieser Abrechnungsart einbeziehen.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
-          </>
-        )}
 
-        {/* Rechnungsempfänger-Vorschau (Katalog: Familie → Kostenträger; Unterart erst nach Fahrtenladen) */}
-        {selectedPayerId && selectedPayer && !empfaengerLoading ? (
-          step2RecipientPreview?.rechnungsempfaengerId ? (
-            <div className='bg-muted/40 rounded-lg border px-4 py-3 text-sm'>
-              <p>
-                <span className='font-medium'>Rechnungsempfänger: </span>
-                {(() => {
-                  const row = empfaengerCatalog.find(
-                    (e) => e.id === step2RecipientPreview.rechnungsempfaengerId
-                  );
-                  const city = row?.city?.trim();
-                  const name = row?.name ?? '—';
-                  return city && city.length > 0 ? `${name} · ${city}` : name;
-                })()}
-              </p>
-              <p className='text-muted-foreground mt-1 text-xs'>
-                Voreingestellt aus{' '}
-                {step2RecipientPreview.source === 'billing_type'
-                  ? 'Abrechnungsfamilie'
-                  : step2RecipientPreview.source === 'payer'
-                    ? 'Kostenträger'
-                    : step2RecipientPreview.source === 'variant'
-                      ? 'Unterart'
-                      : 'Katalog'}
-                . Die endgültige Zuordnung kann sich nach Unterart der ersten
-                Fahrt unterscheiden.
-              </p>
-            </div>
-          ) : (
-            <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
-              <AlertTriangle className='h-4 w-4 text-amber-600' />
-              <AlertDescription className='text-amber-950 dark:text-amber-100'>
-                Kein Rechnungsempfänger konfiguriert — bitte in Stammdaten
-                prüfen
-              </AlertDescription>
-            </Alert>
-          )
-        ) : null}
-
-        {/* Date range (always at the bottom) — same control as trips filter bar */}
-        <FormItem>
-          <FormLabel>
-            Zeitraum <span className='text-destructive'>*</span>
-          </FormLabel>
-          <FormControl>
-            <DateRangePicker
-              value={step2DateRange}
-              onChange={handleStep2DateRangeChange}
-              presets={invoiceDateRangePresets}
-              placeholder='Zeitraum wählen'
-            />
-          </FormControl>
-          {(form.formState.errors.period_from ||
-            form.formState.errors.period_to) && (
-            <p className='text-destructive text-sm font-medium'>
-              {form.formState.errors.period_from?.message ??
-                form.formState.errors.period_to?.message}
-            </p>
+              {/* Billing type filter (optional) */}
+              {billingTypes.length > 0 && (
+                <FormField
+                  control={form.control}
+                  name='billing_type_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Abrechnungsart (optional)</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value ?? 'all'}
+                          onValueChange={(val) =>
+                            field.onChange(val === 'all' ? null : val)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder='Alle Abrechnungsarten' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='all'>
+                              Alle Abrechnungsarten
+                            </SelectItem>
+                            {billingTypes.map((bt) => (
+                              <SelectItem key={bt.id} value={bt.id}>
+                                {bt.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormDescription>
+                        Nur Fahrten dieser Abrechnungsart einbeziehen.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </>
           )}
-        </FormItem>
 
-        {/* Navigation */}
-        <div className='flex justify-between pt-2'>
-          <Button
-            type='button'
-            variant='ghost'
-            onClick={onBack}
-            className='gap-2'
-          >
-            <ArrowLeft className='h-4 w-4' />
-            Zurück
-          </Button>
-          <Button type='submit' disabled={isLoadingTrips}>
-            {isLoadingTrips ? 'Fahrten werden geladen…' : 'Fahrten laden'}
-          </Button>
-        </div>
-      </Form>
+          {/* Rechnungsempfänger-Vorschau (Katalog: Familie → Kostenträger; Unterart erst nach Fahrtenladen) */}
+          {selectedPayerId && selectedPayer && !empfaengerLoading ? (
+            step2RecipientPreview?.rechnungsempfaengerId ? (
+              <div className='bg-muted/40 rounded-lg border px-4 py-3 text-sm'>
+                <p>
+                  <span className='font-medium'>Rechnungsempfänger: </span>
+                  {(() => {
+                    const row = empfaengerCatalog.find(
+                      (e) =>
+                        e.id === step2RecipientPreview.rechnungsempfaengerId
+                    );
+                    const city = row?.city?.trim();
+                    const name = row?.name ?? '—';
+                    return city && city.length > 0 ? `${name} · ${city}` : name;
+                  })()}
+                </p>
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  Voreingestellt aus{' '}
+                  {step2RecipientPreview.source === 'billing_type'
+                    ? 'Abrechnungsfamilie'
+                    : step2RecipientPreview.source === 'payer'
+                      ? 'Kostenträger'
+                      : step2RecipientPreview.source === 'variant'
+                        ? 'Unterart'
+                        : 'Katalog'}
+                  . Die endgültige Zuordnung kann sich nach Unterart der ersten
+                  Fahrt unterscheiden.
+                </p>
+              </div>
+            ) : (
+              <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                <AlertTriangle className='h-4 w-4 text-amber-600' />
+                <AlertDescription className='text-amber-950 dark:text-amber-100'>
+                  Kein Rechnungsempfänger konfiguriert — bitte in Stammdaten
+                  prüfen
+                </AlertDescription>
+              </Alert>
+            )
+          ) : null}
+
+          {/* Date range (always at the bottom) — same control as trips filter bar */}
+          <FormItem>
+            <FormLabel>
+              Zeitraum <span className='text-destructive'>*</span>
+            </FormLabel>
+            <FormControl>
+              <DateRangePicker
+                value={step2DateRange}
+                onChange={handleStep2DateRangeChange}
+                presets={invoiceDateRangePresets}
+                placeholder='Zeitraum wählen'
+              />
+            </FormControl>
+            {(form.formState.errors.period_from ||
+              form.formState.errors.period_to) && (
+              <p className='text-destructive text-sm font-medium'>
+                {form.formState.errors.period_from?.message ??
+                  form.formState.errors.period_to?.message}
+              </p>
+            )}
+          </FormItem>
+
+          <div className='flex justify-end pt-2'>
+            <Button type='submit' disabled={isLoadingTrips}>
+              {isLoadingTrips ? 'Fahrten werden geladen…' : 'Fahrten laden'}
+            </Button>
+          </div>
+        </form>
+      </FormProvider>
     </div>
   );
 }

@@ -57,6 +57,16 @@ export const styles = StyleSheet.create({
     paddingRight: 45,
     lineHeight: 1.45
   },
+  appendixPage: {
+    fontFamily: 'Helvetica',
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    paddingTop: 169, // 57 (base) + 112 (former appendixContentSpacer height)
+    paddingBottom: 148,
+    paddingLeft: 45,
+    paddingRight: 45,
+    lineHeight: 1.45
+  },
 
   // ── Kopf: Logo, Slogan darunter (links) | Meta + Steuer rechts; Absenderzeile; Empfänger (Fenster)
   headerRow: {
@@ -300,9 +310,14 @@ export const styles = StyleSheet.create({
 
   /** Appendix detail table — widths sum ~100% */
   appendixColPos: { width: '4%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColDate: { width: '7%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColClient: { width: '10%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColAddr: { width: '13%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColDate: { width: '9%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColClient: { width: '15%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColAddr: { width: '20%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColAddrCity: {
+    fontSize: 6,
+    color: PDF_COLORS.muted,
+    marginTop: 1
+  },
   appendixColKm: {
     width: '5%',
     fontSize: PDF_FONT_SIZES.xs,
@@ -323,12 +338,6 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.xs,
     textAlign: 'right'
   },
-  appendixColKts: {
-    width: '5%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'center'
-  },
-  appendixColDriver: { width: '10%', fontSize: PDF_FONT_SIZES.xs },
   appendixColDir: {
     width: '5%',
     fontSize: PDF_FONT_SIZES.xs,
@@ -486,9 +495,6 @@ export const styles = StyleSheet.create({
     top: 57,
     left: 45,
     right: 45
-  },
-  appendixContentSpacer: {
-    height: 112
   },
 
   // ── Header Top Right ───────────────────────────────────────────────────────
