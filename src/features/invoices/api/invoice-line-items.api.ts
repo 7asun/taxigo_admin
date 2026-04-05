@@ -26,6 +26,7 @@ import { resolveTaxRate } from '../lib/tax-calculator';
 import { resolvePricingRule } from '../lib/resolve-pricing-rule';
 import { resolveTripPrice as resolveTripPricePure } from '../lib/resolve-trip-price';
 import { validateLineItems } from '../lib/invoice-validators';
+import { buildTripMetaFromTrip } from '../lib/trip-meta-snapshot';
 import type { BillingPricingRuleLike } from '../types/pricing.types';
 import type { PriceResolution } from '../types/pricing.types';
 import type {
@@ -123,6 +124,9 @@ export async function fetchTripsForBuilder(
       dropoff_address,
       kts_document_applies,
       no_invoice_required,
+      link_type,
+      linked_trip_id,
+      driver:accounts!trips_driver_id_fkey(name),
       payer:payers(rechnungsempfaenger_id),
       billing_variant:billing_variants(
         id, code, name, billing_type_id, rechnungsempfaenger_id,
@@ -263,6 +267,7 @@ export function buildLineItemsFromTrips(
       no_invoice_warning: trip.no_invoice_required === true,
       price_resolution: priceResolution,
       kts_override,
+      trip_meta: buildTripMetaFromTrip(trip),
       price_source: legacyPriceSource(priceResolution.source),
       _totalPrice:
         unitPrice !== null && unitPrice !== undefined
@@ -280,7 +285,7 @@ export function buildLineItemsFromTrips(
   );
 }
 
-function frozenPriceResolutionForInsert(
+export function frozenPriceResolutionForInsert(
   item: BuilderLineItem
 ): PriceResolution {
   const u = item.unit_price;
@@ -375,7 +380,11 @@ export async function insertLineItems(
       pricing_strategy_used: frozen.strategy_used,
       pricing_source: frozen.source,
       kts_override: item.kts_override,
-      price_resolution_snapshot: frozen as unknown as Record<string, unknown>
+      // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+      price_resolution_snapshot: frozen as unknown as Record<string, unknown>,
+      trip_meta_snapshot: item.trip_meta
+        ? (item.trip_meta as unknown as Record<string, unknown>)
+        : null
     };
   });
 

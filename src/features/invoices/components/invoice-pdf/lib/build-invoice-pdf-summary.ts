@@ -14,6 +14,8 @@
 
 import type { InvoiceDetail } from '../../../types/invoice.types';
 
+import { lineNetEurForPdfLineItem } from './invoice-pdf-line-amounts';
+
 import {
   buildInvoicePdfPlaceHintMap,
   buildInvoicePdfRouteSecondaryLine,
@@ -64,7 +66,7 @@ interface RouteGroupAgg {
  * IMPORTANT: This excludes tax rate to ensure Hinfahrt/Rückfahrt pairs match
  * regardless of tax rate differences. Tax rate validation happens separately.
  */
-function buildAddressOnlyRouteKey(
+export function buildAddressOnlyRouteKey(
   from: CanonicalPlace,
   to: CanonicalPlace
 ): string {
@@ -122,10 +124,7 @@ export function buildInvoicePdfSummary(
     }
 
     routeGroups[routeKey].count += 1;
-    routeGroups[routeKey].total_price += calculateInvoicePdfNetAmount(
-      item.unit_price,
-      item.quantity
-    );
+    routeGroups[routeKey].total_price += lineNetEurForPdfLineItem(item);
   });
 
   /**

@@ -4,13 +4,19 @@ Shared invoice logic (pure where possible).
 
 ## Usage pattern (rules → snapshot)
 
-End-to-end order used by the invoice builder (see also `invoice-line-items.api.ts`):
+End-to-end order used by the invoice builder (see `useInvoiceBuilder` and `invoice-line-items.api.ts`):
 
-1. **Load rules** — TanStack `fetchQuery` / `referenceKeys.billingPricingRules(payerId)` with `queryFn: () => listPricingRulesForPayer(payerId)` (shared cache with Kostenträger admin).
-2. **Load trips** — `fetchTripsForBuilder(params)`; map rows with `mapBillingPricingRuleRowsToLike`. Optional `fetchBuilderTripsAndRules(params, preloadedRules)` skips a second rules fetch when rules are already in memory.
-3. **Pick one rule per trip** — `resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId })`.
+1. **Load rules (canonical cache)** — `queryClient.fetchQuery({ queryKey: referenceKeys.billingPricingRules(payerId), queryFn: () => listPricingRulesForPayer(payerId), staleTime: 30_000 })`. Same key as `useBillingPricingRules` in Kostenträger admin, so invalidations stay in sync. Map DB rows with `mapBillingPricingRuleRowsToLike`.
+2. **Load trips** — `fetchTripsForBuilder(params)` (billing-type filter resolves variant IDs via `billing_variants.billing_type_id`, never by comparing type id to `billing_variant_id`).
+3. **Pick one rule per trip** — `resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId })` (variant → type → payer).
 4. **Resolve price + attach warnings** — `resolveTaxRate` then `resolveTripPrice` inside `buildLineItemsFromTrips`; then `validateLineItems` for step-3 badges.
-5. **Freeze on save** — `createInvoice` (header + recipient snapshot), then `insertLineItems` writing `price_resolution_snapshot` and denormalized pricing columns per line.
+5. **Freeze on save** — `createInvoice` (header + `rechnungsempfaenger_snapshot`), then `insertLineItems` (`price_resolution_snapshot` + denormalized pricing columns). Both snapshot sites carry the §14 UStG immutability comment in code.
+
+**Optional helper:** `fetchBuilderTripsAndRules(params, preloadedRules)` loads trips and reuses an in-memory rules array when you already fetched via step 1 (avoids a second `listPricingRulesForPayer`).
+
+### German strategy labels (shared module)
+
+`PRICING_STRATEGY_LABELS_DE`, `PRICE_RESOLUTION_SOURCE_LABELS_DE`, and `pricingStrategyUsedLabelDe` live in **`pricing-strategy-labels-de.ts`** (this folder). The Kostenträger Preisregel-Dialog re-exports `PRICING_STRATEGY_LABELS_DE` for backward-compatible imports from `./pricing-rule-dialog`.
 
 ## Pricing (Spec C)
 

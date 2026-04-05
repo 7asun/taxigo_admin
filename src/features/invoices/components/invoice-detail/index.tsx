@@ -39,6 +39,7 @@ import { InvoiceActions } from './invoice-actions';
 import { InvoicePdfDocument } from '../invoice-pdf/InvoicePdfDocument';
 import { generatePaymentQrDataUrl } from '../invoice-pdf/generate-payment-qr-data-url';
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
+import { usePathname } from 'next/navigation';
 import { useInvoiceDetail } from '../../hooks/use-invoice';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceStatus } from '../../types/invoice.types';
@@ -75,6 +76,7 @@ interface InvoiceDetailViewProps {
  */
 export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { data: invoice, isLoading, isError } = useInvoiceDetail(invoiceId);
   const [paymentQrDataUrl, setPaymentQrDataUrl] = useState<string | null>(null);
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
@@ -85,6 +87,7 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
       setPdfLogoUrl(null);
       return;
     }
+
     let cancelled = false;
     void generatePaymentQrDataUrl(invoice).then((url) => {
       if (!cancelled) setPaymentQrDataUrl(url);

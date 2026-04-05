@@ -16,9 +16,13 @@
 
 'use client';
 
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { invoiceKeys } from '@/query/keys';
+import { useBreadcrumbStore } from '@/hooks/use-breadcrumb-store';
 import {
   getInvoiceDetail,
   updateInvoiceStatus,
@@ -34,11 +38,34 @@ import type { InvoiceDetail } from '../types/invoice.types';
  * @param id - Invoice UUID. Pass undefined to skip fetching (e.g. while routing).
  */
 export function useInvoiceDetail(id: string | undefined) {
-  return useQuery({
+  const { setCustomTitle, clearCustomTitle } = useBreadcrumbStore();
+
+  const query = useQuery({
     queryKey: id ? invoiceKeys.full(id) : ['invoices', 'full', 'skip'],
     queryFn: () => getInvoiceDetail(id!),
     enabled: !!id // only fetch when ID is available
   });
+
+  useEffect(() => {
+    const invoice = query.data;
+    if (!invoice || !id) return;
+
+    // Use a fixed path for breadcrumb override so it works for all sub-pages
+    const invoicePath = `/dashboard/invoices/${id}`;
+    const period = `${format(new Date(invoice.period_from), 'dd.MM.yy', {
+      locale: de
+    })} – ${format(new Date(invoice.period_to), 'dd.MM.yy', { locale: de })}`;
+
+    setCustomTitle(invoicePath, `${invoice.invoice_number} (${period})`);
+
+    return () => {
+      // Small delay on cleanup to avoid flicker during fast transitions
+      // between the same root resource (e.g. Detail -> Preview)
+      clearCustomTitle(invoicePath);
+    };
+  }, [query.data, id, setCustomTitle, clearCustomTitle]);
+
+  return query;
 }
 
 /**

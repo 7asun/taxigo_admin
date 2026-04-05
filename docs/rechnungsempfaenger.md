@@ -7,10 +7,34 @@ Catalog table `rechnungsempfaenger` holds optional **legal invoice addressees** 
 - List / CRUD: **Dashboard → Rechnungsempfänger** (`/dashboard/rechnungsempfaenger`).
 - Assignment: recipient select on payer sheet and on billing family / variant dialogs (`rechnungsempfaenger_id` FKs).
 
-## Invoice builder (step 4)
+## Builder integration
 
-- **Automatisch (Katalog — erste Fahrt)** uses the cascade from the **first loaded trip** after step 2.
-- A specific recipient overrides that default. The chosen row is stored as `invoices.rechnungsempfaenger_id` and a frozen JSON snapshot in `invoices.rechnungsempfaenger_snapshot` at creation (§14 UStG immutability).
+The catalog cascade (**variant → billing type → payer**) is implemented in `resolve-rechnungsempfaenger.ts` as a **pure** function: callers pass the three optional FK targets from loaded catalog rows; there is no DB access inside the resolver.
+
+### Step 2 — recipient preview (before trips)
+
+After Kostenträger (and optional Abrechnungsfamilie) are chosen, the UI shows a **non-binding preview** using `resolveRechnungsempfaenger` with **only** `billingTypeRechnungsempfaengerId` and `payerRechnungsempfaengerId` ( **`billingVariantRechnungsempfaengerId` is omitted / null** ).
+
+**Intentional deviation:** the wizard has **no Unterart (billing variant) picker** in step 2. Variant-level `rechnungsempfaenger_id` is unknown until trips are loaded; each trip carries its `billing_variant_id` and joined recipient FKs. The preview therefore implements **billing type → payer** only, with a short hint that the first trip’s Unterart may still change the resolved recipient after **Fahrten laden**.
+
+### Step 3 — catalog default for the invoice
+
+When trips load, `useInvoiceBuilder` resolves the recipient from the **first trip’s** joined variant / type / payer FKs and stores `catalogRecipientId`. That value drives step 4 defaults and the **Automatisch (Katalog — erste Fahrt)** behaviour unless the user overrides.
+
+### Step 4 — confirmation block and override
+
+Step 4 shows a read-only **Rechnungsempfänger** block: resolved **name** and **full address** from the catalog row for the effective recipient. The dropdown **Rechnungsempfänger (Anpassung)** only changes **`invoices.rechnungsempfaenger_id`** (and the frozen snapshot) for **this** invoice; it does **not** mutate payer / family / variant assignments.
+
+**„Manuell überschrieben“** appears when the selected UUID in the dropdown is **not** equal to `catalogRecipientId` (the cascade from the first trip). Choosing a different catalog row is an explicit per-invoice override; keeping the pre-selected UUID is not labelled as override.
+
+### Persistence (§14 UStG)
+
+At creation, `createInvoice` sets `rechnungsempfaenger_id` and `rechnungsempfaenger_snapshot` once; both are immutable on issued invoices.
+
+## Invoice builder (legacy summary)
+
+- **Automatisch** uses `catalogRecipientId` from the first loaded trip when the user leaves the recipient select on the automatic option.
+- A specific recipient overrides that default for this invoice only.
 
 ## PDF layout
 

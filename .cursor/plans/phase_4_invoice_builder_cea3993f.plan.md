@@ -4,19 +4,19 @@ overview: The codebase already implements the core of Phase 4 (trip fetch fix, r
 todos:
   - id: verify-types-docs
     content: Verify database.types + read pricing docs/resolvers; grep KTS note consumers if changing copy
-    status: pending
+    status: cancelled
   - id: cache-billing-rules
     content: Wire builder trips query to referenceKeys.billingPricingRules via ensureQueryData/fetchQuery
-    status: pending
+    status: cancelled
   - id: step2-recipient-preview
     content: Extend new invoice page payer select; Step2 resolveRechnungsempfaenger + UI (type→payer only)
-    status: pending
+    status: cancelled
   - id: step4-recipient-pricing
     content: "Step4: recipient summary block, manual-override label, compact lines + strategy/source tooltips"
-    status: pending
+    status: cancelled
   - id: polish-labels-comments
     content: "Optional: move PRICING_STRATEGY_LABELS_DE to shared module; KTS note + §14 comments"
-    status: pending
+    status: cancelled
 isProject: false
 ---
 

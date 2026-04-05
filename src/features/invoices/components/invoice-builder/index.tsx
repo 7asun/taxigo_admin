@@ -28,12 +28,9 @@ import { Step1Mode } from './step-1-mode';
 import { Step2Params } from './step-2-params';
 import { Step3LineItems } from './step-3-line-items';
 import { Step4Confirm } from './step-4-confirm';
-import type { InvoiceMode } from '../../types/invoice.types';
+import type { InvoiceDetail, InvoiceMode } from '../../types/invoice.types';
 
-interface Payer {
-  id: string;
-  name: string;
-  number: string;
+type Payer = NonNullable<InvoiceDetail['payer']> & {
   rechnungsempfaenger_id?: string | null;
   billing_types?: {
     id: string;
@@ -42,13 +39,9 @@ interface Payer {
   }[];
   default_intro_block_id?: string | null;
   default_outro_block_id?: string | null;
-}
+};
 
-interface Client {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-}
+type Client = NonNullable<InvoiceDetail['client']>;
 
 interface InvoiceBuilderProps {
   companyId: string;
@@ -56,6 +49,8 @@ interface InvoiceBuilderProps {
   clients: Client[];
   /** Default payment days from company_profiles.default_payment_days */
   defaultPaymentDays: number;
+  /** Full company profile for PDF live preview (server-loaded). */
+  companyProfile: InvoiceDetail['company_profile'] | null;
   /**
    * If true, the company profile is incomplete — show a warning with link
    * to /dashboard/settings/company instead of the wizard.
@@ -80,6 +75,7 @@ export function InvoiceBuilder({
   payers,
   clients,
   defaultPaymentDays,
+  companyProfile,
   companyProfileMissing
 }: InvoiceBuilderProps) {
   const router = useRouter();
@@ -224,6 +220,11 @@ export function InvoiceBuilder({
             defaultRechnungsempfaengerId={catalogRecipientId}
             catalogRecipientId={catalogRecipientId}
             lineItems={lineItems}
+            companyId={companyId}
+            companyProfile={companyProfile}
+            step2Values={step2Values}
+            payers={payers}
+            clients={clients}
           />
         )}
       </div>

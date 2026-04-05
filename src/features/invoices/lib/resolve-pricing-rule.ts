@@ -18,7 +18,7 @@ export function resolvePricingRule(
 ): BillingPricingRuleLike | null {
   const { rules, payerId, billingTypeId, billingVariantId } = input;
 
-  // STEP 1 — variant scope row: only billing_variant_id is set (CHECK)
+  // STEP 1 — Unterart wins: most specific catalog level for mixed families on one payer.
   if (billingVariantId) {
     const v = rules.find(
       (r) => r.billing_variant_id === billingVariantId && r.is_active
@@ -26,7 +26,7 @@ export function resolvePricingRule(
     if (v) return v;
   }
 
-  // STEP 2 — billing_type scope row: only billing_type_id is set
+  // STEP 2 — Abrechnungsfamilie when no variant rule applies (shared default for all variants of that type).
   if (billingTypeId) {
     const t = rules.find(
       (r) =>
@@ -38,7 +38,7 @@ export function resolvePricingRule(
     if (t) return t;
   }
 
-  // STEP 3 — payer scope row: only payer_id is set
+  // STEP 3 — Kostenträger-wide fallback when neither variant nor type set a rule.
   const p = rules.find(
     (r) =>
       r.payer_id === payerId &&

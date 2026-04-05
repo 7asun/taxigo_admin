@@ -24,8 +24,10 @@ export default async function InvoiceDetailPage({
 }: InvoiceDetailPageProps) {
   const resolvedParams = await params;
   return (
-    <div className='mx-auto max-w-5xl space-y-6 p-8 pt-6'>
-      <InvoiceDetailView invoiceId={resolvedParams.id} />
+    <div className='flex min-h-0 w-full flex-1 flex-col overflow-y-auto'>
+      <div className='mx-auto w-full max-w-5xl space-y-6 p-8 pt-6'>
+        <InvoiceDetailView invoiceId={resolvedParams.id} />
+      </div>
     </div>
   );
 }

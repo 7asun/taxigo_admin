@@ -4,39 +4,52 @@
  */
 
 import { View, Text } from '@react-pdf/renderer';
+import { format, parseISO } from 'date-fns';
+import { de } from 'date-fns/locale';
 
 import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceDetail } from '../../types/invoice.types';
 
 import {
-  calculateInvoicePdfNetAmount,
-  type InvoicePdfRouteDirectionLabel
-} from './lib/build-invoice-pdf-summary';
-import {
-  formatInvoicePdfDate,
   formatInvoicePdfEur,
-  formatInvoicePdfTime
+  truncateInvoicePdfText
 } from './lib/invoice-pdf-format';
 import {
-  canonicalizeInvoicePdfPlace,
-  type InvoicePdfPlaceHintMap
-} from './lib/invoice-pdf-places';
+  lineGrossEurForPdfLineItem,
+  lineNetEurForPdfLineItem
+} from './lib/invoice-pdf-line-amounts';
+import {
+  parseTripMetaSnapshot,
+  tripMetaDirectionPdfLabel
+} from '@/features/invoices/lib/trip-meta-snapshot';
 import { styles } from './pdf-styles';
 
 export interface InvoicePdfAppendixProps {
   invoiceNumber: string;
   invoiceCreatedAtIso: string;
   lineItems: InvoiceDetail['line_items'];
-  placeHints: InvoicePdfPlaceHintMap;
-  routeDirectionLabels: Record<string, InvoicePdfRouteDirectionLabel>;
+}
+
+function formatAppendixDate(
+  iso: string | null | undefined,
+  fallbackIso: string
+): string {
+  const raw = iso ?? fallbackIso;
+  try {
+    return format(
+      parseISO(raw.includes('T') ? raw : `${raw}T12:00:00`),
+      'dd.MM.yyyy',
+      { locale: de }
+    );
+  } catch {
+    return format(new Date(raw), 'dd.MM.yyyy', { locale: de });
+  }
 }
 
 export function InvoicePdfAppendix({
   invoiceNumber,
   invoiceCreatedAtIso,
-  lineItems,
-  placeHints,
-  routeDirectionLabels
+  lineItems
 }: InvoicePdfAppendixProps) {
   return (
     <>
@@ -45,70 +58,96 @@ export function InvoicePdfAppendix({
         <Text style={styles.notesLabel}>Zu Rechnung {invoiceNumber}</Text>
 
         <View style={[styles.tableHeader, { marginTop: 15 }]}>
-          <Text style={[styles.colPos, styles.tableHeaderText]}>#</Text>
-          <Text style={[styles.colDate, styles.tableHeaderText]}>Datum</Text>
-          <Text style={[styles.colDesc, styles.tableHeaderText]}>
-            Fahrtbeschreibung
+          <Text style={[styles.appendixColPos, styles.tableHeaderText]}>#</Text>
+          <Text style={[styles.appendixColDate, styles.tableHeaderText]}>
+            Datum
           </Text>
-          <Text style={[styles.colTime, styles.tableHeaderText]}>Uhrzeit</Text>
-          <Text style={[styles.colMwst, styles.tableHeaderText]}>
-            MwSt.{'\n'}Satz
+          <Text style={[styles.appendixColClient, styles.tableHeaderText]}>
+            Fahrgast
           </Text>
-          <Text style={[styles.colTotal, styles.tableHeaderText]}>
-            Netto-{'\n'}betrag
+          <Text style={[styles.appendixColAddr, styles.tableHeaderText]}>
+            Von
           </Text>
-          <Text style={[styles.colGross, styles.tableHeaderText]}>
-            Brutto-{'\n'}betrag
+          <Text style={[styles.appendixColAddr, styles.tableHeaderText]}>
+            Nach
+          </Text>
+          <Text style={[styles.appendixColKm, styles.tableHeaderText]}>
+            Strecke
+          </Text>
+          <Text style={[styles.appendixColNet, styles.tableHeaderText]}>
+            Netto
+          </Text>
+          <Text style={[styles.appendixColTax, styles.tableHeaderText]}>
+            MwSt.
+          </Text>
+          <Text style={[styles.appendixColGross, styles.tableHeaderText]}>
+            Brutto
+          </Text>
+          <Text style={[styles.appendixColKts, styles.tableHeaderText]}>
+            KTS
+          </Text>
+          <Text style={[styles.appendixColDriver, styles.tableHeaderText]}>
+            Fahrer
+          </Text>
+          <Text style={[styles.appendixColDir, styles.tableHeaderText]}>
+            H/R
           </Text>
         </View>
       </View>
       <View style={styles.appendixContentSpacer} />
 
       {lineItems.map((item, idx) => {
-        const pickup = canonicalizeInvoicePdfPlace(
-          item.pickup_address || item.description,
-          placeHints
+        const tripMeta = parseTripMetaSnapshot(
+          item.trip_meta_snapshot as Record<string, unknown> | null | undefined
         );
-        const dropoff = canonicalizeInvoicePdfPlace(
-          item.dropoff_address || item.description,
-          placeHints
-        );
-        const routeKey = `${pickup.key} -> ${dropoff.key} [${item.tax_rate}]`;
-        const directionLabel = routeDirectionLabels[routeKey] ?? 'Fahrt';
-        const dateLabel = item.line_date
-          ? formatInvoicePdfDate(item.line_date)
-          : formatInvoicePdfDate(invoiceCreatedAtIso);
+        const net = lineNetEurForPdfLineItem(item);
+        const gross = lineGrossEurForPdfLineItem(item);
+        const kts = item.kts_override === true;
+        const moneyExtras = kts ? [styles.appendixMoneyMuted] : [];
+        const von = truncateInvoicePdfText(item.pickup_address, 35);
+        const nach = truncateInvoicePdfText(item.dropoff_address, 35);
+        const kmLabel =
+          item.distance_km != null && !Number.isNaN(item.distance_km)
+            ? `${item.distance_km} km`
+            : '';
+        const dirLabel = tripMetaDirectionPdfLabel(tripMeta);
+        const driverLabel = tripMeta?.driver_name?.trim() ?? '';
 
         return (
           <View
             key={item.id}
-            style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
+            style={[idx % 2 === 1 ? styles.tableRowAlt : {}]}
             wrap={false}
           >
-            <Text style={styles.colPos}>{item.position}</Text>
-            <Text style={styles.colDate}>
-              {item.line_date ? formatInvoicePdfDate(item.line_date) : '—'}
-            </Text>
-            <View style={styles.colDesc}>
-              <Text style={styles.routePrimary}>
-                {`Fahrt vom ${dateLabel} - ${directionLabel}`}
+            <View style={styles.tableRow}>
+              <Text style={styles.appendixColPos}>{item.position}</Text>
+              <Text style={styles.appendixColDate}>
+                {formatAppendixDate(item.line_date, invoiceCreatedAtIso)}
               </Text>
-              <Text style={styles.routeSecondary}>
-                {`${pickup.primary} -> ${dropoff.primary}`}
+              <Text style={styles.appendixColClient}>
+                {item.client_name?.trim() || '—'}
               </Text>
+              <Text style={styles.appendixColAddr}>{von || '—'}</Text>
+              <Text style={styles.appendixColAddr}>{nach || '—'}</Text>
+              <Text style={styles.appendixColKm}>{kmLabel}</Text>
+              <Text style={[styles.appendixColNet, ...moneyExtras]}>
+                {formatInvoicePdfEur(net)}
+              </Text>
+              <Text style={styles.appendixColTax}>
+                {formatTaxRate(item.tax_rate)}
+              </Text>
+              <Text style={[styles.appendixColGross, ...moneyExtras]}>
+                {formatInvoicePdfEur(gross)}
+              </Text>
+              <Text style={styles.appendixColKts}>{kts ? '✓' : ''}</Text>
+              <Text style={styles.appendixColDriver}>{driverLabel}</Text>
+              <Text style={styles.appendixColDir}>{dirLabel}</Text>
             </View>
-            <Text style={styles.colTime}>
-              {item.line_date ? formatInvoicePdfTime(item.line_date) : '—'}
-            </Text>
-            <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
-            <Text style={styles.colTotal}>
-              {formatInvoicePdfEur(
-                calculateInvoicePdfNetAmount(item.unit_price, item.quantity)
-              )}
-            </Text>
-            <Text style={styles.colGross}>
-              {formatInvoicePdfEur(item.total_price)}
-            </Text>
+            {kts ? (
+              <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
+                <Text style={styles.appendixKtsNote}>Abgerechnet über KTS</Text>
+              </View>
+            ) : null}
           </View>
         );
       })}

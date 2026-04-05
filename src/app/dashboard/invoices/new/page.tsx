@@ -36,7 +36,14 @@ export default async function NewInvoicePage() {
   // Used to populate step 4, and acts as a guard if they haven't set up the profile.
   const { data: companyProfile } = await supabase
     .from('company_profiles')
-    .select('default_payment_days, legal_name, tax_id')
+    .select(
+      `
+        legal_name, street, street_number, zip_code, city,
+        tax_id, vat_id, bank_name, bank_iban, bank_bic,
+        logo_path, logo_url, slogan, phone, inhaber, email, website,
+        default_payment_days
+      `
+    )
     .eq('company_id', companyId)
     .single();
 
@@ -53,6 +60,12 @@ export default async function NewInvoicePage() {
         id,
         name,
         number,
+        street,
+        street_number,
+        zip_code,
+        city,
+        contact_person,
+        email,
         rechnungsempfaenger_id,
         billing_types(id, name, rechnungsempfaenger_id)
       `
@@ -62,7 +75,9 @@ export default async function NewInvoicePage() {
     // Clients
     supabase
       .from('clients')
-      .select('id, first_name, last_name')
+      .select(
+        'id, first_name, last_name, company_name, greeting_style, customer_number, street, street_number, zip_code, city, email, phone'
+      )
       .order('last_name')
   ]);
 
@@ -78,6 +93,7 @@ export default async function NewInvoicePage() {
           payers={payersRes.data ?? []}
           clients={clientsRes.data ?? []}
           defaultPaymentDays={companyProfile?.default_payment_days ?? 14}
+          companyProfile={companyProfile ?? null}
           companyProfileMissing={isProfileMissing}
         />
       </div>

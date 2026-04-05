@@ -49,6 +49,10 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import { getWarningLabel } from '../../lib/invoice-validators';
+import {
+  lineItemNetAmountForDisplay,
+  unitNetFromEditedLineNet
+} from '../../lib/line-item-net-display';
 import type { BuilderLineItem } from '../../types/invoice.types';
 
 function priceResolutionBadge(
@@ -149,15 +153,17 @@ export function Step3LineItems({
   // Local input value during edit
   const [editValue, setEditValue] = useState('');
 
-  const startEdit = (position: number, currentPrice: number | null) => {
+  const startEdit = (position: number, item: BuilderLineItem) => {
     setEditingPosition(position);
-    setEditValue(currentPrice !== null ? String(currentPrice) : '');
+    const display = lineItemNetAmountForDisplay(item);
+    setEditValue(display !== null ? String(display) : '');
   };
 
   const commitEdit = (position: number) => {
+    const item = lineItems.find((i) => i.position === position);
     const parsed = parseFloat(editValue.replace(',', '.'));
-    if (!isNaN(parsed)) {
-      onUpdatePrice(position, parsed);
+    if (!isNaN(parsed) && item) {
+      onUpdatePrice(position, unitNetFromEditedLineNet(item, parsed));
     }
     setEditingPosition(null);
   };
@@ -221,7 +227,7 @@ export function Step3LineItems({
       {/* Line items table */}
       <div className='relative max-h-[55vh] overflow-y-auto rounded-md border'>
         <Table>
-          <TableHeader className='bg-muted/50 sticky top-0 z-10'>
+          <TableHeader className='bg-muted sticky top-0 z-10'>
             <TableRow>
               <TableHead className='w-8'>#</TableHead>
               <TableHead>Beschreibung</TableHead>
@@ -233,172 +239,177 @@ export function Step3LineItems({
           </TableHeader>
 
           <TableBody>
-            {lineItems.map((item) => (
-              <TableRow
-                key={item.position}
-                // Amber highlight for items still missing a price
-                className={
-                  item.warnings.includes('missing_price')
-                    ? 'bg-amber-500/5'
-                    : undefined
-                }
-              >
-                {/* Position number */}
-                <TableCell className='text-muted-foreground text-xs'>
-                  {item.position}
-                </TableCell>
+            {lineItems.map((item) => {
+              const displayNet = lineItemNetAmountForDisplay(item);
+              return (
+                <TableRow
+                  key={item.position}
+                  // Amber highlight for items still missing a price
+                  className={
+                    item.warnings.includes('missing_price')
+                      ? 'bg-amber-500/5'
+                      : undefined
+                  }
+                >
+                  {/* Position number */}
+                  <TableCell className='text-muted-foreground text-xs'>
+                    {item.position}
+                  </TableCell>
 
-                {/* Description + date + addresses */}
-                <TableCell>
-                  <div className='text-sm font-medium'>{item.description}</div>
-                  {item.line_date && (
-                    <div className='text-muted-foreground text-xs'>
-                      {format(new Date(item.line_date), 'EEE, dd.MM.yyyy', {
-                        locale: de
-                      })}
+                  {/* Description + date + addresses */}
+                  <TableCell>
+                    <div className='text-sm font-medium'>
+                      {item.description}
                     </div>
-                  )}
-                  {item.pickup_address && item.dropoff_address && (
-                    <div className='text-muted-foreground bg-muted/40 mt-1 inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs'>
-                      <span className='max-w-[150px] truncate'>
-                        {item.pickup_address}
-                      </span>
-                      <span className='opacity-50'>→</span>
-                      <span className='max-w-[150px] truncate'>
-                        {item.dropoff_address}
-                      </span>
-                    </div>
-                  )}
-                  {(item.billing_variant_name ||
-                    item.kts_document_applies ||
-                    item.no_invoice_warning) && (
-                    <div className='mt-1 flex flex-wrap gap-1'>
-                      {item.billing_variant_name && (
-                        <Badge
-                          variant='outline'
-                          className='px-1.5 py-0 text-[10px] font-normal'
-                        >
-                          {item.billing_variant_name}
-                        </Badge>
-                      )}
-                      {item.kts_document_applies && (
-                        <Badge
-                          variant='secondary'
-                          className='px-1.5 py-0 text-[10px] font-normal'
-                          title='Krankentransportschein (KTS) — laut Fahrt markiert'
-                        >
-                          KTS
-                        </Badge>
-                      )}
-                      {item.no_invoice_warning && (
-                        <Badge
-                          variant='outline'
-                          className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
-                          title='Fahrt: keine Rechnung erforderlich'
-                        >
-                          Keine Rechn.
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </TableCell>
-
-                {/* Distance */}
-                <TableCell className='text-sm'>
-                  {item.distance_km !== null
-                    ? `${item.distance_km.toFixed(1)} km`
-                    : '—'}
-                </TableCell>
-
-                {/* Tax rate */}
-                <TableCell className='text-sm'>
-                  {formatTaxRate(item.tax_rate)}
-                </TableCell>
-
-                {/* Price — shows source badge when resolved automatically */}
-                <TableCell className='text-right'>
-                  {editingPosition === item.position ? (
-                    <Input
-                      autoFocus
-                      type='number'
-                      step='0.01'
-                      min='0'
-                      value={editValue}
-                      className='h-7 w-24 text-right text-sm'
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onBlur={() => commitEdit(item.position)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitEdit(item.position);
-                        if (e.key === 'Escape') setEditingPosition(null);
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type='button'
-                      className='hover:bg-muted rounded px-2 py-0.5 text-right text-sm'
-                      onClick={() => startEdit(item.position, item.unit_price)}
-                    >
-                      {item.unit_price !== null ? (
-                        <div className='flex flex-col items-end gap-0.5'>
-                          <span>{formatEur(item.unit_price)}</span>
-                          {(() => {
-                            const b = priceResolutionBadge(item);
-                            return b ? (
-                              <Badge
-                                variant='outline'
-                                className={`px-1.5 py-0 text-[10px] font-normal ${b.className}`}
-                                title={
-                                  item.price_resolution.note
-                                    ? item.price_resolution.note
-                                    : undefined
-                                }
-                              >
-                                {b.label}
-                              </Badge>
-                            ) : null;
-                          })()}
-                        </div>
-                      ) : (
-                        <span className='font-medium text-amber-500'>
-                          Fehlt
-                        </span>
-                      )}
-                    </button>
-                  )}
-                </TableCell>
-
-                {/* Warning badges */}
-                <TableCell>
-                  {item.warnings.length > 0 && (
-                    <TooltipProvider>
-                      <div className='flex gap-1'>
-                        {item.warnings.map((w) => (
-                          <Tooltip key={w}>
-                            <TooltipTrigger asChild>
-                              <div className='cursor-help text-amber-500'>
-                                {w === 'missing_price' ||
-                                w === 'no_invoice_trip' ? (
-                                  <AlertTriangle className='h-4 w-4' />
-                                ) : (
-                                  <Info className='h-4 w-4' />
-                                )}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className='text-xs'>{getWarningLabel(w)}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ))}
+                    {item.line_date && (
+                      <div className='text-muted-foreground text-xs'>
+                        {format(new Date(item.line_date), 'EEE, dd.MM.yyyy', {
+                          locale: de
+                        })}
                       </div>
-                    </TooltipProvider>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+                    )}
+                    {item.pickup_address && item.dropoff_address && (
+                      <div className='text-muted-foreground bg-muted/40 mt-1 inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs'>
+                        <span className='max-w-[150px] truncate'>
+                          {item.pickup_address}
+                        </span>
+                        <span className='opacity-50'>→</span>
+                        <span className='max-w-[150px] truncate'>
+                          {item.dropoff_address}
+                        </span>
+                      </div>
+                    )}
+                    {(item.billing_variant_name ||
+                      item.kts_document_applies ||
+                      item.no_invoice_warning) && (
+                      <div className='mt-1 flex flex-wrap gap-1'>
+                        {item.billing_variant_name && (
+                          <Badge
+                            variant='outline'
+                            className='px-1.5 py-0 text-[10px] font-normal'
+                          >
+                            {item.billing_variant_name}
+                          </Badge>
+                        )}
+                        {item.kts_document_applies && (
+                          <Badge
+                            variant='secondary'
+                            className='px-1.5 py-0 text-[10px] font-normal'
+                            title='Krankentransportschein (KTS) — laut Fahrt markiert'
+                          >
+                            KTS
+                          </Badge>
+                        )}
+                        {item.no_invoice_warning && (
+                          <Badge
+                            variant='outline'
+                            className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+                            title='Fahrt: keine Rechnung erforderlich'
+                          >
+                            Keine Rechn.
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+
+                  {/* Distance */}
+                  <TableCell className='text-sm'>
+                    {item.distance_km !== null
+                      ? `${item.distance_km.toFixed(1)} km`
+                      : '—'}
+                  </TableCell>
+
+                  {/* Tax rate */}
+                  <TableCell className='text-sm'>
+                    {formatTaxRate(item.tax_rate)}
+                  </TableCell>
+
+                  {/* Price — shows source badge when resolved automatically */}
+                  <TableCell className='text-right'>
+                    {editingPosition === item.position ? (
+                      <Input
+                        autoFocus
+                        type='number'
+                        step='0.01'
+                        min='0'
+                        value={editValue}
+                        className='h-7 w-24 text-right text-sm'
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => commitEdit(item.position)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitEdit(item.position);
+                          if (e.key === 'Escape') setEditingPosition(null);
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type='button'
+                        className='hover:bg-muted rounded px-2 py-0.5 text-right text-sm'
+                        onClick={() => startEdit(item.position, item)}
+                      >
+                        {displayNet !== null ? (
+                          <div className='flex flex-col items-end gap-0.5'>
+                            <span>{formatEur(displayNet)}</span>
+                            {(() => {
+                              const b = priceResolutionBadge(item);
+                              return b ? (
+                                <Badge
+                                  variant='outline'
+                                  className={`px-1.5 py-0 text-[10px] font-normal ${b.className}`}
+                                  title={
+                                    item.price_resolution.note
+                                      ? item.price_resolution.note
+                                      : undefined
+                                  }
+                                >
+                                  {b.label}
+                                </Badge>
+                              ) : null;
+                            })()}
+                          </div>
+                        ) : (
+                          <span className='font-medium text-amber-500'>
+                            Fehlt
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </TableCell>
+
+                  {/* Warning badges */}
+                  <TableCell>
+                    {item.warnings.length > 0 && (
+                      <TooltipProvider>
+                        <div className='flex gap-1'>
+                          {item.warnings.map((w) => (
+                            <Tooltip key={w}>
+                              <TooltipTrigger asChild>
+                                <div className='cursor-help text-amber-500'>
+                                  {w === 'missing_price' ||
+                                  w === 'no_invoice_trip' ? (
+                                    <AlertTriangle className='h-4 w-4' />
+                                  ) : (
+                                    <Info className='h-4 w-4' />
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className='text-xs'>{getWarningLabel(w)}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </div>
+                      </TooltipProvider>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
 
           {/* Running totals */}
-          <TableFooter className='sticky bottom-0 z-10'>
+          <TableFooter className='bg-muted sticky bottom-0 z-10'>
             <TableRow>
               <TableCell colSpan={4} className='text-sm font-medium'>
                 Netto

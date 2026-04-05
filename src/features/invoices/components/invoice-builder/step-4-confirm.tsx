@@ -11,8 +11,10 @@
  *   - Editable: Notes (Notizen) + Zahlungsziel (payment days override)
  *   - Warning if prices are missing (non-blocking)
  *   - "Rechnung erstellen" button (disabled while saving)
+ *   - Live PDF preview (debounced) — desktop: side panel; mobile: sheet
  */
 
+import { useMemo, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -38,6 +40,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle
+} from '@/components/ui/sheet';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
 import {
@@ -58,7 +66,14 @@ import {
   PRICE_RESOLUTION_SOURCE_LABELS_DE,
   pricingStrategyUsedLabelDe
 } from '@/features/invoices/lib/pricing-strategy-labels-de';
-import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
+import { lineItemNetAmountForDisplay } from '@/features/invoices/lib/line-item-net-display';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  buildDraftInvoiceDetailForPdf,
+  type InvoiceBuilderStep2Snapshot
+} from '@/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf';
+import { InvoiceBuilderStep4PdfPreview } from './invoice-builder-step4-pdf-preview';
+import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
 
 /** Step 4 local schema — only the invoice meta fields. */
 const step4Schema = z.object({
@@ -118,6 +133,11 @@ interface Step4ConfirmProps {
   /** Gleiche ID wie Katalog-Default — für „Manuell überschrieben“ */
   catalogRecipientId?: string | null;
   lineItems: BuilderLineItem[];
+  companyId: string;
+  companyProfile: InvoiceDetail['company_profile'] | null;
+  step2Values: InvoiceBuilderStep2Snapshot | null;
+  payers: NonNullable<InvoiceDetail['payer']>[];
+  clients: NonNullable<InvoiceDetail['client']>[];
 }
 
 /**
@@ -137,12 +157,19 @@ export function Step4Confirm({
   payerOutroBlockId,
   defaultRechnungsempfaengerId,
   catalogRecipientId = defaultRechnungsempfaengerId ?? null,
-  lineItems
+  lineItems,
+  companyId,
+  companyProfile,
+  step2Values,
+  payers,
+  clients
 }: Step4ConfirmProps) {
   const { data: textBlocks, isLoading: isLoadingTextBlocks } =
     useAllInvoiceTextBlocks();
   const { data: empfaengerOptions, isLoading: isLoadingEmpfaenger } =
     useRechnungsempfaengerOptions();
+  const isMobile = useIsMobile();
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const form = useForm<Step4Values>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,6 +191,21 @@ export function Step4Confirm({
     name: 'rechnungsempfaenger_id'
   });
 
+  const paymentDaysWatched = useWatch({
+    control: form.control,
+    name: 'payment_due_days'
+  });
+
+  const introIdW = useWatch({
+    control: form.control,
+    name: 'intro_block_id'
+  });
+
+  const outroIdW = useWatch({
+    control: form.control,
+    name: 'outro_block_id'
+  });
+
   const effectiveRecipientId =
     empSelectRaw === 'none' || empSelectRaw === undefined || empSelectRaw === ''
       ? catalogRecipientId
@@ -179,6 +221,62 @@ export function Step4Confirm({
     empSelectRaw.length > 0 &&
     (catalogRecipientId == null || empSelectRaw !== catalogRecipientId);
 
+  const paymentDueResolved =
+    typeof paymentDaysWatched === 'number' && !Number.isNaN(paymentDaysWatched)
+      ? paymentDaysWatched
+      : defaultPaymentDays;
+
+  const introContent = useMemo(() => {
+    if (!textBlocks || introIdW === 'none' || !introIdW) return null;
+    return textBlocks.find((b) => b.id === introIdW)?.content ?? null;
+  }, [textBlocks, introIdW]);
+
+  const outroContent = useMemo(() => {
+    if (!textBlocks || outroIdW === 'none' || !outroIdW) return null;
+    return textBlocks.find((b) => b.id === outroIdW)?.content ?? null;
+  }, [textBlocks, outroIdW]);
+
+  const placeholderInvoiceNumber = useMemo(() => {
+    const y = new Date().getFullYear();
+    const m = String(new Date().getMonth() + 1).padStart(2, '0');
+    return `RE-${y}-${m}-XXXX`;
+  }, []);
+
+  const draftInvoice = useMemo(() => {
+    if (!companyProfile || !step2Values) return null;
+    return buildDraftInvoiceDetailForPdf({
+      companyId,
+      companyProfile,
+      step2: step2Values,
+      lineItems,
+      payers,
+      clients,
+      paymentDueDays: paymentDueResolved,
+      introText: introContent,
+      outroText: outroContent,
+      recipientRow: effectiveRow,
+      placeholderInvoiceNumber
+    });
+  }, [
+    companyProfile,
+    step2Values,
+    lineItems,
+    payers,
+    clients,
+    paymentDueResolved,
+    introContent,
+    outroContent,
+    effectiveRow,
+    placeholderInvoiceNumber,
+    companyId
+  ]);
+
+  const previewProps = {
+    draftInvoice,
+    introText: introContent,
+    outroText: outroContent
+  };
+
   return (
     <div className='space-y-6'>
       <div>
@@ -188,303 +286,338 @@ export function Step4Confirm({
         </p>
       </div>
 
-      {/* Advisory warning if prices are missing */}
-      {missingPrices && (
-        <Alert>
-          <AlertTriangle className='h-4 w-4' />
-          <AlertDescription>
-            Einige Positionen haben keinen Preis (werden als 0,00 €
-            gespeichert). Die Rechnung kann trotzdem erstellt werden.
-          </AlertDescription>
-        </Alert>
-      )}
+      <div className='lg:grid lg:grid-cols-[1fr_min(46%,520px)] lg:items-start lg:gap-8'>
+        <div className='min-w-0 space-y-6'>
+          {/* Advisory warning if prices are missing */}
+          {missingPrices && (
+            <Alert>
+              <AlertTriangle className='h-4 w-4' />
+              <AlertDescription>
+                Einige Positionen haben keinen Preis (werden als 0,00 €
+                gespeichert). Die Rechnung kann trotzdem erstellt werden.
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {/* Totals summary (read-only) */}
-      <div className='bg-muted/50 space-y-2 rounded-lg p-4'>
-        <div className='flex justify-between text-sm'>
-          <span className='text-muted-foreground'>
-            {lineItemCount} Positionen · Netto
-          </span>
-          <span>{formatEur(subtotal)}</span>
-        </div>
-        <div className='flex justify-between text-sm'>
-          <span className='text-muted-foreground'>MwSt.</span>
-          <span>{formatEur(taxAmount)}</span>
-        </div>
-        <Separator />
-        <div className='flex justify-between font-bold'>
-          <span>Gesamtbetrag</span>
-          <span>{formatEur(total)}</span>
-        </div>
-      </div>
+          {/* Totals summary (read-only) */}
+          <div className='bg-muted/50 space-y-2 rounded-lg p-4'>
+            <div className='flex justify-between text-sm'>
+              <span className='text-muted-foreground'>
+                {lineItemCount} Positionen · Netto
+              </span>
+              <span>{formatEur(subtotal)}</span>
+            </div>
+            <div className='flex justify-between text-sm'>
+              <span className='text-muted-foreground'>MwSt.</span>
+              <span>{formatEur(taxAmount)}</span>
+            </div>
+            <Separator />
+            <div className='flex justify-between font-bold'>
+              <span>Gesamtbetrag</span>
+              <span>{formatEur(total)}</span>
+            </div>
+          </div>
 
-      {/* Invoice number info */}
-      <div className='bg-card border-border rounded-lg border px-4 py-3'>
-        <p className='text-muted-foreground text-xs'>Rechnungsnummer</p>
-        <p className='text-sm font-medium'>
-          {`Wird automatisch vergeben (RE-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-XXXX)`}
-        </p>
-      </div>
+          {/* Invoice number info */}
+          <div className='bg-card border-border rounded-lg border px-4 py-3'>
+            <p className='text-muted-foreground text-xs'>Rechnungsnummer</p>
+            <p className='text-sm font-medium'>
+              Wird automatisch vergeben ({placeholderInvoiceNumber})
+            </p>
+          </div>
 
-      {/* Positionen — Preisstrategie (Tooltip) */}
-      {lineItems.length > 0 && (
-        <div className='space-y-2'>
-          <h3 className='text-sm font-medium'>Positionen</h3>
-          <div className='max-h-48 overflow-y-auto rounded-md border'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className='w-10'>#</TableHead>
-                  <TableHead>Beschreibung</TableHead>
-                  <TableHead className='text-right'>Preis</TableHead>
-                  <TableHead className='w-10' />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lineItems.map((item) => {
-                  const srcLabel =
-                    PRICE_RESOLUTION_SOURCE_LABELS_DE[
-                      item.price_resolution.source
-                    ] ?? item.price_resolution.source;
-                  const stratLabel = pricingStrategyUsedLabelDe(
-                    item.price_resolution.strategy_used
-                  );
-                  const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
-                  return (
-                    <TableRow key={item.position}>
-                      <TableCell className='text-muted-foreground text-xs'>
-                        {item.position}
-                      </TableCell>
-                      <TableCell className='max-w-[200px] truncate text-sm'>
-                        {item.description}
-                      </TableCell>
-                      <TableCell className='text-right text-sm'>
-                        {item.unit_price !== null &&
-                        item.unit_price !== undefined
-                          ? formatEur(item.unit_price)
-                          : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type='button'
-                                className='text-muted-foreground hover:text-foreground inline-flex'
-                                aria-label='Preisdetails'
-                              >
-                                <Info className='h-4 w-4' />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side='left' className='max-w-xs'>
-                              <p className='text-xs'>{tip}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </TableCell>
+          {/* Positionen — Preisstrategie (Tooltip) */}
+          {lineItems.length > 0 && (
+            <div className='space-y-2'>
+              <h3 className='text-sm font-medium'>Positionen</h3>
+              <div className='max-h-48 overflow-y-auto rounded-md border'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className='w-10'>#</TableHead>
+                      <TableHead>Beschreibung</TableHead>
+                      <TableHead className='text-right'>Preis</TableHead>
+                      <TableHead className='w-10' />
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      {/* Editable meta fields */}
-      <Form
-        form={form}
-        onSubmit={form.handleSubmit(onConfirm)}
-        className='space-y-4'
-      >
-        {!isLoadingEmpfaenger && (
-          <div className='bg-muted/40 space-y-2 rounded-lg border p-4'>
-            <h3 className='text-sm font-medium'>Rechnungsempfänger</h3>
-            {effectiveRecipientId && effectiveRow ? (
-              <>
-                <div className='flex flex-wrap items-baseline gap-2'>
-                  <p className='text-sm font-medium'>{effectiveRow.name}</p>
-                  {isManualOverride ? (
-                    <span className='text-muted-foreground text-xs'>
-                      Manuell überschrieben
-                    </span>
-                  ) : null}
-                </div>
-                <p className='text-muted-foreground text-xs'>
-                  {formatRecipientFullAddress(effectiveRow)}
-                </p>
-              </>
-            ) : (
-              <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
-                <AlertTriangle className='h-4 w-4 text-amber-600' />
-                <AlertDescription>
-                  Kein Rechnungsempfänger — bitte unten wählen oder Stammdaten
-                  prüfen.
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        )}
-
-        {/* Payment days override */}
-        <FormField
-          control={form.control}
-          name='payment_due_days'
-          render={({ field }) => (
-            <FormItem className='max-w-xs'>
-              <FormLabel>Zahlungsziel (Tage)</FormLabel>
-              <FormControl>
-                <Input
-                  type='number'
-                  min={1}
-                  max={90}
-                  {...field}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                />
-              </FormControl>
-              <FormDescription>
-                Standard: {defaultPaymentDays} Tage (aus
-                Unternehmenseinstellungen)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
+                  </TableHeader>
+                  <TableBody>
+                    {lineItems.map((item) => {
+                      const srcLabel =
+                        PRICE_RESOLUTION_SOURCE_LABELS_DE[
+                          item.price_resolution.source
+                        ] ?? item.price_resolution.source;
+                      const stratLabel = pricingStrategyUsedLabelDe(
+                        item.price_resolution.strategy_used
+                      );
+                      const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
+                      return (
+                        <TableRow key={item.position}>
+                          <TableCell className='text-muted-foreground text-xs'>
+                            {item.position}
+                          </TableCell>
+                          <TableCell className='max-w-[200px] truncate text-sm'>
+                            {item.description}
+                          </TableCell>
+                          <TableCell className='text-right text-sm'>
+                            {(() => {
+                              const net = lineItemNetAmountForDisplay(item);
+                              return net !== null ? formatEur(net) : '—';
+                            })()}
+                          </TableCell>
+                          <TableCell>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type='button'
+                                    className='text-muted-foreground hover:text-foreground inline-flex'
+                                    aria-label='Preisdetails'
+                                  >
+                                    <Info className='h-4 w-4' />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side='left'
+                                  className='max-w-xs'
+                                >
+                                  <p className='text-xs'>{tip}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
-        />
 
-        <FormField
-          control={form.control}
-          name='rechnungsempfaenger_id'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Rechnungsempfänger (Anpassung)</FormLabel>
-              <FormControl>
-                <Select
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  disabled={isLoadingEmpfaenger || isCreating}
-                >
-                  <SelectTrigger className='w-full max-w-md'>
-                    <SelectValue placeholder='Empfänger wählen' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='none'>
-                      Automatisch (Katalog — erste Fahrt)
-                    </SelectItem>
-                    {(empfaengerOptions ?? []).map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormControl>
-              <FormDescription>
-                Überschreibt nur diese Rechnung — Katalog-Zuordnungen am
-                Kostenträger bleiben unverändert. Wird mit Adresse eingefroren.
-              </FormDescription>
-            </FormItem>
-          )}
-        />
+          {isMobile ? (
+            <Button
+              type='button'
+              variant='outline'
+              className='w-full'
+              onClick={() => setPreviewOpen(true)}
+            >
+              Vorschau anzeigen
+            </Button>
+          ) : null}
 
-        {/* Rechnungsvorlagen */}
-        <div className='space-y-4'>
-          <h3 className='text-sm font-medium'>Rechnungsvorlagen</h3>
-
-          {/* Intro Block */}
-          <FormField
-            control={form.control}
-            name='intro_block_id'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className='flex items-center gap-2'>
-                  <FileText className='h-4 w-4' />
-                  Einleitung
-                </FormLabel>
-                <FormControl>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={isLoadingTextBlocks || isCreating}
-                  >
-                    <SelectTrigger className='w-full'>
-                      <SelectValue placeholder='Vorlage wählen' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='none'>Keine Vorlage</SelectItem>
-                      {textBlocks
-                        ?.filter((b) => b.type === 'intro')
-                        .map((block) => (
-                          <SelectItem key={block.id} value={block.id}>
-                            {block.name}
-                            {block.is_default ? ' (Standard)' : ''}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <FormDescription>
-                  Wird als Einleitung im Rechnungstext verwendet.
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-
-          {/* Outro Block */}
-          <FormField
-            control={form.control}
-            name='outro_block_id'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className='flex items-center gap-2'>
-                  <FileText className='h-4 w-4' />
-                  Schlussformel
-                </FormLabel>
-                <FormControl>
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={isLoadingTextBlocks || isCreating}
-                  >
-                    <SelectTrigger className='w-full'>
-                      <SelectValue placeholder='Vorlage wählen' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value='none'>Keine Vorlage</SelectItem>
-                      {textBlocks
-                        ?.filter((b) => b.type === 'outro')
-                        .map((block) => (
-                          <SelectItem key={block.id} value={block.id}>
-                            {block.name}
-                            {block.is_default ? ' (Standard)' : ''}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </FormControl>
-                <FormDescription>
-                  Wird als Schlussformel im Rechnungstext verwendet.
-                </FormDescription>
-              </FormItem>
-            )}
-          />
-        </div>
-
-        {/* Navigation */}
-        <div className='flex justify-between pt-2'>
-          <Button
-            type='button'
-            variant='ghost'
-            onClick={onBack}
-            className='gap-2'
+          {/* Editable meta fields */}
+          <Form
+            form={form}
+            onSubmit={form.handleSubmit(onConfirm)}
+            className='space-y-4'
           >
-            <ArrowLeft className='h-4 w-4' />
-            Zurück
-          </Button>
-          <Button type='submit' disabled={isCreating} className='gap-2'>
-            {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
-          </Button>
+            {!isLoadingEmpfaenger && (
+              <div className='bg-muted/40 space-y-2 rounded-lg border p-4'>
+                <h3 className='text-sm font-medium'>Rechnungsempfänger</h3>
+                {effectiveRecipientId && effectiveRow ? (
+                  <>
+                    <div className='flex flex-wrap items-baseline gap-2'>
+                      <p className='text-sm font-medium'>{effectiveRow.name}</p>
+                      {isManualOverride ? (
+                        <span className='text-muted-foreground text-xs'>
+                          Manuell überschrieben
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className='text-muted-foreground text-xs'>
+                      {formatRecipientFullAddress(effectiveRow)}
+                    </p>
+                  </>
+                ) : (
+                  <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                    <AlertTriangle className='h-4 w-4 text-amber-600' />
+                    <AlertDescription>
+                      Kein Rechnungsempfänger — bitte unten wählen oder
+                      Stammdaten prüfen.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
+
+            {/* Payment days override */}
+            <FormField
+              control={form.control}
+              name='payment_due_days'
+              render={({ field }) => (
+                <FormItem className='max-w-xs'>
+                  <FormLabel>Zahlungsziel (Tage)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={1}
+                      max={90}
+                      {...field}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Standard: {defaultPaymentDays} Tage (aus
+                    Unternehmenseinstellungen)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='rechnungsempfaenger_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rechnungsempfänger (Anpassung)</FormLabel>
+                  <FormControl>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={isLoadingEmpfaenger || isCreating}
+                    >
+                      <SelectTrigger className='w-full max-w-md'>
+                        <SelectValue placeholder='Empfänger wählen' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='none'>
+                          Automatisch (Katalog — erste Fahrt)
+                        </SelectItem>
+                        {(empfaengerOptions ?? []).map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormDescription>
+                    Überschreibt nur diese Rechnung — Katalog-Zuordnungen am
+                    Kostenträger bleiben unverändert. Wird mit Adresse
+                    eingefroren.
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+
+            {/* Rechnungsvorlagen */}
+            <div className='space-y-4'>
+              <h3 className='text-sm font-medium'>Rechnungsvorlagen</h3>
+
+              <FormField
+                control={form.control}
+                name='intro_block_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-2'>
+                      <FileText className='h-4 w-4' />
+                      Einleitung
+                    </FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={isLoadingTextBlocks || isCreating}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Vorlage wählen' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='none'>Keine Vorlage</SelectItem>
+                          {textBlocks
+                            ?.filter((b) => b.type === 'intro')
+                            .map((block) => (
+                              <SelectItem key={block.id} value={block.id}>
+                                {block.name}
+                                {block.is_default ? ' (Standard)' : ''}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormDescription>
+                      Wird als Einleitung im Rechnungstext verwendet.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='outro_block_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className='flex items-center gap-2'>
+                      <FileText className='h-4 w-4' />
+                      Schlussformel
+                    </FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={isLoadingTextBlocks || isCreating}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Vorlage wählen' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='none'>Keine Vorlage</SelectItem>
+                          {textBlocks
+                            ?.filter((b) => b.type === 'outro')
+                            .map((block) => (
+                              <SelectItem key={block.id} value={block.id}>
+                                {block.name}
+                                {block.is_default ? ' (Standard)' : ''}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormDescription>
+                      Wird als Schlussformel im Rechnungstext verwendet.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* Navigation */}
+            <div className='flex justify-between pt-2'>
+              <Button
+                type='button'
+                variant='ghost'
+                onClick={onBack}
+                className='gap-2'
+              >
+                <ArrowLeft className='h-4 w-4' />
+                Zurück
+              </Button>
+              <Button type='submit' disabled={isCreating} className='gap-2'>
+                {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
+              </Button>
+            </div>
+          </Form>
         </div>
-      </Form>
+
+        {!isMobile ? (
+          <aside className='sticky top-2 hidden min-w-0 space-y-2 lg:block'>
+            <h3 className='text-sm font-medium'>PDF-Vorschau</h3>
+            <InvoiceBuilderStep4PdfPreview {...previewProps} />
+          </aside>
+        ) : null}
+      </div>
+
+      <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
+        <SheetContent side='bottom' className='h-[88vh] overflow-hidden'>
+          <SheetHeader>
+            <SheetTitle>PDF-Vorschau</SheetTitle>
+          </SheetHeader>
+          <div className='mt-4 h-[calc(88vh-4rem)] overflow-auto'>
+            <InvoiceBuilderStep4PdfPreview {...previewProps} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

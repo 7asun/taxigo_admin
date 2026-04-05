@@ -29,6 +29,49 @@ At invoice creation, each `invoice_line_items` row stores:
 
 The builder uses `buildLineItemsFromTrips` → `insertLineItems` in `src/features/invoices/api/invoice-line-items.api.ts`. Manual price edits in step 3 refresh `price_resolution` (strategy `manual_trip_price`) before insert.
 
+## Builder integration
+
+The invoice wizard does **not** call the resolvers from React with ad hoc fetches. All catalog rules for the selected Kostenträger are loaded once, cached under TanStack Query, then passed into pure functions.
+
+### Trip fetch when filtering by Abrechnungsfamilie
+
+`fetchTripsForBuilder` must never compare `trips.billing_variant_id` to `billing_types.id` (different identifiers). The correct pattern: load all `billing_variants.id` for the selected `billing_type_id`, then `.in('billing_variant_id', variantIdsForType)`. If the family has no variants, the function returns an empty trip list.
+
+### Loading rules (shared cache)
+
+In `useInvoiceBuilder`, the trips query uses:
+
+- `queryClient.fetchQuery({ queryKey: referenceKeys.billingPricingRules(payerId), queryFn: () => listPricingRulesForPayer(payerId), staleTime: 30_000 })`
+
+That is the **same key** as `useBillingPricingRules` on the Kostenträger admin screen (`src/features/payers/hooks/use-billing-pricing-rules.ts`), so pricing rule edits invalidate one cache entry for both UIs. Rows are mapped to `BillingPricingRuleLike` via `mapBillingPricingRuleRowsToLike` in `invoice-line-items.api.ts`.
+
+### `buildLineItemsFromTrips` call order
+
+For each `TripForInvoice`:
+
+1. **`resolveTaxRate(trip.driving_distance_km)`** — VAT rate for the line (7% / 19%).
+2. **`resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId })`** — picks at most one active row: **variant → billing type → payer** (see `resolve-pricing-rule.ts`). `billingTypeId` / `billingVariantId` come from the joined `billing_variant` on the trip.
+3. **`resolveTripPrice(tripInput, taxRate, rule | null)`** — applies the locked P0–P4 price cascade and returns a full **`PriceResolution`** (strategy, source, net, gross, `unit_price_net`, `quantity`, optional `note`).
+
+`buildLineItemsFromTrips` then maps that into a **`BuilderLineItem`**: `unit_price` from `unit_price_net`, `kts_override` when `strategy_used === 'kts_override'`, `no_invoice_warning` from `trips.no_invoice_required`, and attaches `warnings` from `validateLineItems`.
+
+### Persisting to `invoice_line_items`
+
+On **Rechnung erstellen**, `insertLineItems` writes one row per line:
+
+| Column | Source |
+|--------|--------|
+| `pricing_strategy_used` | `price_resolution.strategy_used` (after freezing manual edits) |
+| `pricing_source` | `price_resolution.source` |
+| `kts_override` | `BuilderLineItem.kts_override` |
+| `price_resolution_snapshot` | Full `PriceResolution` JSON (immutable audit trail) |
+
+Manual unit price edits in step 3 run through `applyManualUnitNetToResolution` so the snapshot stays consistent with the edited net before insert.
+
+### Builder validation: KTS and `zero_price`
+
+Step 3 warnings come from `validateLineItem` in `invoice-validators.ts`. A line with **`unit_price === 0`** normally gets a **`zero_price`** advisory — except when **`kts_override === true`**. KTS lines are intentionally €0 net; skipping `zero_price` avoids a misleading “Preis ist 0 €” flag for legally correct KTS rows.
+
 ## Worked examples (numerical)
 
 Assumptions are stated per row. Tax rate is only needed where gross ↔ net applies. Rounding follows the implementation (`Math.round(x * 100) / 100` where documented in code).

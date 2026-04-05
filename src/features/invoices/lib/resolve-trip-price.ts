@@ -41,6 +41,7 @@ function roundMoneyOnce(raw: number): number {
   return Math.round(raw * 100) / 100;
 }
 
+/** Maps which catalog level produced the active rule — stored as PriceResolution.source for audit. */
 function ruleScopeSource(rule: BillingPricingRuleLike): PriceResolutionSource {
   if (rule.billing_variant_id) return 'variant';
   if (rule.billing_type_id) return 'billing_type';
@@ -164,7 +165,7 @@ function executeStrategy(
 
   switch (strategy) {
     case 'client_price_tag': {
-      // P1 already consumed price_tag; here only trip.price fallback applies
+      // Misnamed strategy: if we got here, price_tag was absent — use trip.price as net if present.
       if (trip.price != null) {
         return resolution(
           {
@@ -180,6 +181,7 @@ function executeStrategy(
       return null;
     }
     case 'manual_trip_price': {
+      // Explicit rule to invoice stored driver net price only.
       if (trip.price == null) return null;
       const n = trip.price;
       return resolution(
@@ -194,8 +196,10 @@ function executeStrategy(
       );
     }
     case 'no_price':
+      // Deliberately no automatic amount — dispatcher must enter in builder or line stays unresolved.
       return null;
     case 'tiered_km': {
+      // Distance required: cannot price km tiers without driving_distance_km.
       if (dist === null || dist === undefined) return null;
       const c = cfg as TieredKmConfig;
       const totalNet = tieredNetTotal(dist, c.tiers);
@@ -214,6 +218,7 @@ function executeStrategy(
     case 'fixed_below_threshold_then_km': {
       if (dist === null || dist === undefined) return null;
       const c = cfg as FixedBelowThresholdThenKmConfig;
+      // Below threshold: flat net regardless of km (quantity 1).
       if (dist < c.threshold_km) {
         const n = roundMoneyOnce(c.fixed_price);
         return resolution(
@@ -227,6 +232,7 @@ function executeStrategy(
           taxRate
         );
       }
+      // At/above threshold: full distance priced with km tiers (quantity = km).
       const totalNet = tieredNetTotal(dist, c.km_tiers);
       const unit = roundMoneyOnce(totalNet / dist);
       return resolution(
@@ -241,22 +247,26 @@ function executeStrategy(
       );
     }
     case 'time_based': {
+      // Need trip instant for Berlin wall-clock and holiday calendar match.
       if (!sched) return null;
       const c = cfg as TimeBasedConfig;
       const ymd = berlinYmd(sched);
       const onHoliday = c.holidays.includes(ymd);
       let billOutsideHours = false;
+      // Configured holiday + closed rule ⇒ treat like outside working hours (surcharge).
       if (onHoliday && c.holiday_rule === 'closed') {
         billOutsideHours = true;
       } else {
         const wk = weekdayKeyInBerlin(sched);
         const wh = c.working_hours[wk];
+        // Day disabled in config ⇒ entire day counts as outside (surcharge).
         if (wh === null || wh === undefined) {
           billOutsideHours = true;
         } else {
           const tMin = minutesInBerlin(sched);
           const start = parseHHmmToMinutes(wh.start);
           const end = parseHHmmToMinutes(wh.end);
+          // Half-open window [start, end): outside before start or from end onward.
           if (tMin < start || tMin >= end) {
             billOutsideHours = true;
           }
@@ -330,13 +340,13 @@ export function resolveTripPrice(
     };
   }
 
-  // Priority 2 — billing rule
+  // Priority 2 — catalog rule strategies (skipped entirely when price_tag already won at P1).
   if (rule && rule.is_active) {
     const r = executeStrategy(rule, rule.strategy, trip, taxRate);
     if (r) return r;
   }
 
-  // Priority 3 — trip.price net fallback
+  // Priority 3 — stored trip net when no rule produced an amount (or rule returned null).
   if (trip.price !== null && trip.price !== undefined) {
     const n = trip.price;
     return resolution(
@@ -351,7 +361,7 @@ export function resolveTripPrice(
     );
   }
 
-  // Priority 4 — unresolved
+  // Priority 4 — nothing left to price; builder shows missing_price until manual entry.
   return {
     gross: null,
     net: null,

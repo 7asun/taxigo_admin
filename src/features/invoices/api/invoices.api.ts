@@ -111,6 +111,8 @@ export async function listInvoices(
 export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
   const supabase = createClient();
 
+  // Line items: use (*) so PostgREST does not fail when optional columns (e.g. trip_meta_snapshot)
+  // are not migrated yet; after migration, (*) still returns those fields.
   const { data, error } = await supabase
     .from('invoices')
     .select(
@@ -124,13 +126,7 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
         id, first_name, last_name, company_name, greeting_style, customer_number,
         street, street_number, zip_code, city, email, phone
       ),
-      line_items:invoice_line_items(
-        id, invoice_id, trip_id, position, line_date, description,
-        client_name, pickup_address, dropoff_address, distance_km,
-        unit_price, quantity, total_price, tax_rate,
-        billing_variant_code, billing_variant_name, created_at,
-        pricing_strategy_used, pricing_source, kts_override, price_resolution_snapshot
-      )
+      line_items:invoice_line_items(*)
     `
     )
     .eq('id', id)
@@ -252,6 +248,7 @@ export async function createInvoice(
       total: payload.total,
       status: 'draft', // always starts as draft
       rechnungsempfaenger_id: empId,
+      // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
       rechnungsempfaenger_snapshot
     })
     .select()

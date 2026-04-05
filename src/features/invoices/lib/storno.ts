@@ -131,7 +131,8 @@ export async function createStornorechnung(
       kts_override: item.kts_override,
       price_resolution_snapshot: negatePriceResolutionSnapshot(
         item.price_resolution_snapshot
-      )
+      ),
+      trip_meta_snapshot: item.trip_meta_snapshot ?? null
     }));
 
     const { error: lineItemsError } = await supabase

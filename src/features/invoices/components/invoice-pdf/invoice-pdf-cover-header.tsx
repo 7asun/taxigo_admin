@@ -1,6 +1,8 @@
 /**
  * PDF page 1 — top block: branding + sender line + window address (left),
  * Rechnungsdaten meta grid (right). Uses flex layout from pdf-styles.
+ *
+ * Window addressee is composed in InvoicePdfDocument from frozen snapshots (§14 UStG).
  */
 
 import { View, Text, Image } from '@react-pdf/renderer';

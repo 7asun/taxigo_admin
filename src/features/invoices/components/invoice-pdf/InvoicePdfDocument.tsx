@@ -31,7 +31,11 @@ import { InvoicePdfCoverBody } from './invoice-pdf-cover-body';
 import { InvoicePdfCoverHeader } from './invoice-pdf-cover-header';
 import { InvoicePdfFooter } from './invoice-pdf-footer';
 import { styles } from './pdf-styles';
+import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
+
+/** Avoid spamming console when the same invoice PDF re-renders. */
+const legacyMissingRecipientSnapshotWarned = new Set<string>();
 
 export interface InvoicePdfDocumentProps {
   invoice: InvoiceDetail;
@@ -178,9 +182,26 @@ export function InvoicePdfDocument({
       }
     : null;
 
-  const coverRecipient = isPerClientBilled
-    ? clientWindowRecipient
-    : (snapshotWindowRecipient ?? payerWindowRecipient);
+  if (
+    !isPerClientBilled &&
+    !snapPrimary &&
+    invoice.id &&
+    !legacyMissingRecipientSnapshotWarned.has(invoice.id)
+  ) {
+    legacyMissingRecipientSnapshotWarned.add(invoice.id);
+    console.warn(
+      '[InvoicePdf] rechnungsempfaenger_snapshot fehlt (monatlich/einzelne Fahrt) — Fallback auf Kostenträger-Adresse (Legacy).'
+    );
+  }
+
+  let coverRecipient;
+  if (isPerClientBilled) {
+    // §14 UStG: use frozen snapshot — never read live payer/client data for legal addressee
+    coverRecipient = clientWindowRecipient;
+  } else {
+    // §14 UStG: use frozen snapshot — never read live payer/client data for legal addressee
+    coverRecipient = snapshotWindowRecipient ?? payerWindowRecipient;
+  }
 
   const lineItemsForCalc: BuilderLineItem[] = invoice.line_items.map((li) => ({
     trip_id: li.trip_id,
@@ -200,6 +221,9 @@ export function InvoicePdfDocument({
     no_invoice_warning: false,
     price_resolution: priceResolutionFromLineItem(li),
     kts_override: li.kts_override,
+    trip_meta: parseTripMetaSnapshot(
+      li.trip_meta_snapshot as Record<string, unknown> | null | undefined
+    ),
     price_source: null,
     warnings: []
   }));
@@ -207,8 +231,7 @@ export function InvoicePdfDocument({
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);
 
-  const { summaryItems, placeHints, routeDirectionLabels } =
-    buildInvoicePdfSummary(invoice);
+  const { summaryItems, placeHints } = buildInvoicePdfSummary(invoice);
 
   const dueDateMs =
     new Date(invoice.created_at).getTime() +
@@ -263,8 +286,6 @@ export function InvoicePdfDocument({
           invoiceNumber={invoice.invoice_number}
           invoiceCreatedAtIso={invoice.created_at}
           lineItems={invoice.line_items}
-          placeHints={placeHints}
-          routeDirectionLabels={routeDirectionLabels}
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

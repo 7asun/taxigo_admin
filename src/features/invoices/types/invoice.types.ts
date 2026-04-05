@@ -20,6 +20,7 @@
 import { z } from 'zod';
 
 import type { PriceResolution } from '@/features/invoices/types/pricing.types';
+import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
@@ -107,6 +108,8 @@ export interface InvoiceLineItemRow {
   pricing_source: string | null;
   kts_override: boolean;
   price_resolution_snapshot: Record<string, unknown> | null;
+  /** Frozen trip PDF fields (driver, direction) — §14 UStG; separate from pricing snapshot. */
+  trip_meta_snapshot?: TripMetaSnapshot | Record<string, unknown> | null;
 }
 
 // ─── 3. Enriched / Joined Types (for UI) ──────────────────────────────────────
@@ -233,6 +236,9 @@ export interface TripForInvoice {
   kts_document_applies: boolean;
   /** Keine Rechnung — trip should not be invoiced via TaxiGo */
   no_invoice_required: boolean;
+  link_type: string | null;
+  linked_trip_id: string | null;
+  driver?: { name: string | null } | null;
 }
 
 // ─── 4. Zod Schemas (Invoice Builder Form) ────────────────────────────────────
@@ -292,39 +298,76 @@ export type InvoiceBuilderStep = 1 | 2 | 3 | 4;
 /**
  * A validated line item that the builder has prepared for saving.
  * Derived from TripForInvoice — but editable by the user in step 3.
+ *
+ * Pricing fields (`price_resolution`, `kts_override`, `unit_price`, `quantity`, …) are
+ * produced by `buildLineItemsFromTrips` unless the user edits the net unit in step 3
+ * (`applyManualUnitNetToResolution`).
  */
 export interface BuilderLineItem {
   /** Source trip ID — null for manually added items. */
   trip_id: string | null;
+  /** 1-based row order; assigned when building from the fetched trip list. */
   position: number;
+  /** Snapshot of `trips.scheduled_at` (ISO) for display and PDF. */
   line_date: string | null;
+  /** Human-readable line title built in `buildLineItemsFromTrips` (date + client). */
   description: string;
+  /** Passenger name snapshot from `trips.client` at build time. */
   client_name: string | null;
   pickup_address: string | null;
   dropoff_address: string | null;
+  /** `trips.driving_distance_km` — feeds tax rate and per-km strategies. */
   distance_km: number | null;
-  unit_price: number | null; // null = still needs to be set (shows ⚠️)
+  /**
+   * Net unit price for the line (€). Mirrors `price_resolution.unit_price_net` until the
+   * user overrides in step 3; `null` means unresolved / missing (step-3 `missing_price`).
+   */
+  unit_price: number | null;
+  /**
+   * Billing quantity from `PriceResolution.quantity` (usually `1`; equals km for per-km rules).
+   */
   quantity: number;
-  tax_rate: number; // 0.07 or 0.19
+  /** VAT rate from `resolveTaxRate(driving_distance_km)` — not from the pricing rule. */
+  tax_rate: number;
+  /** From joined `billing_variants.code` on the trip. */
   billing_variant_code: string | null;
+  /** From joined `billing_variants.name` on the trip. */
   billing_variant_name: string | null;
-  /** True when the source trip is flagged as KTS-relevant (Krankentransportschein). */
+  /**
+   * Copy of `trips.kts_document_applies` — informational badge; actual €0 KTS pricing is
+   * reflected in `price_resolution` / `kts_override`.
+   */
   kts_document_applies: boolean;
-  /** Derived from trips.no_invoice_required at build time — soft warning in step 3 */
+  /**
+   * Copy of `trips.no_invoice_required` — soft advisory only; does not block the wizard.
+   */
   no_invoice_warning: boolean;
-  /** Full price resolution for audit / display (also persisted as JSON on save). */
+  /**
+   * Full output of `resolveTripPrice` for this trip (strategy, source, net, gross, notes).
+   * Persisted as `invoice_line_items.price_resolution_snapshot` on insert; step-4 tooltips
+   * read `strategy_used` and `source` from here.
+   */
   price_resolution: PriceResolution;
-  /** True when KTS forced €0 for this line */
+  /**
+   * `true` when `price_resolution.strategy_used === 'kts_override'` (KTS branch in
+   * `resolveTripPrice`). Skips the `zero_price` validator warning for €0 lines.
+   */
   kts_override: boolean;
 
   /**
-   * @deprecated Use price_resolution / pricing_source — kept for legacy UI until fully migrated
+   * Trip-only PDF snapshot; persisted as `trip_meta_snapshot` on insert — §14 UStG.
+   */
+  trip_meta: TripMetaSnapshot | null;
+
+  /**
+   * Legacy subset of `price_resolution.source` for incremental UI migration
+   * (`client_price_tag` | `trip_price` only).
+   * @deprecated Prefer `price_resolution.source` and DB `pricing_source`.
    */
   price_source: 'client_price_tag' | 'trip_price' | null;
 
   /**
-   * Validation warnings for this line item.
-   * Set by invoice-validators.ts. Shown as badges in step 3.
+   * Advisory codes from `validateLineItem` (missing price, distance, no-invoice trip, …).
    */
   warnings: LineItemWarning[];
 }

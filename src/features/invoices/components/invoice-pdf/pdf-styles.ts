@@ -298,6 +298,51 @@ export const styles = StyleSheet.create({
   colTotal: { width: '19%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
   colGross: { width: '16%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
 
+  /** Appendix detail table — widths sum ~100% */
+  appendixColPos: { width: '4%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColDate: { width: '7%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColClient: { width: '10%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColAddr: { width: '13%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColKm: {
+    width: '5%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'right'
+  },
+  appendixColNet: {
+    width: '8%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'right'
+  },
+  appendixColTax: {
+    width: '6%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'right'
+  },
+  appendixColGross: {
+    width: '8%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'right'
+  },
+  appendixColKts: {
+    width: '5%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'center'
+  },
+  appendixColDriver: { width: '10%', fontSize: PDF_FONT_SIZES.xs },
+  appendixColDir: {
+    width: '5%',
+    fontSize: PDF_FONT_SIZES.xs,
+    textAlign: 'center'
+  },
+  appendixKtsNote: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    marginTop: 2
+  },
+  appendixMoneyMuted: {
+    color: PDF_COLORS.muted
+  },
+
   tableHeaderText: {
     color: '#334155',
     fontSize: PDF_FONT_SIZES.sm,
@@ -443,7 +488,7 @@ export const styles = StyleSheet.create({
     right: 45
   },
   appendixContentSpacer: {
-    height: 94
+    height: 112
   },
 
   // ── Header Top Right ───────────────────────────────────────────────────────
