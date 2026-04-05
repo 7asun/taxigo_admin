@@ -67,6 +67,17 @@ export const styles = StyleSheet.create({
     paddingRight: 45,
     lineHeight: 1.45
   },
+  /** A4 landscape — same vertical rhythm as appendixPage; horizontal padding matches DIN margins. */
+  appendixPageLandscape: {
+    fontFamily: 'Helvetica',
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    paddingTop: 169,
+    paddingBottom: 148,
+    paddingLeft: 36,
+    paddingRight: 36,
+    lineHeight: 1.45
+  },
 
   // ── Kopf: Logo, Slogan darunter (links) | Meta + Steuer rechts; Absenderzeile; Empfänger (Fenster)
   headerRow: {
@@ -265,8 +276,10 @@ export const styles = StyleSheet.create({
   },
 
   // ── Line items table ───────────────────────────────────────────────────────
+  // width: '100%' on header/row so @react-pdf flex rows span content width; required with dynamic col widths.
   tableHeader: {
     flexDirection: 'row',
+    width: '100%',
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1.5,
     borderBottomColor: '#94a3b8',
@@ -275,6 +288,7 @@ export const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
+    width: '100%',
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderBottomWidth: 0.5,
@@ -284,9 +298,6 @@ export const styles = StyleSheet.create({
     backgroundColor: PDF_COLORS.lightGray
   },
 
-  // Summary Table tweaks
-  colQty: { width: '9%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
-  colRoute: { width: '55%', paddingRight: 8 },
   routePrimary: {
     fontSize: PDF_FONT_SIZES.sm,
     color: PDF_COLORS.text,
@@ -299,49 +310,11 @@ export const styles = StyleSheet.create({
     marginTop: 2
   },
 
-  // Column widths (appendix widths must sum to 100%)
-  colPos: { width: '5%', fontSize: PDF_FONT_SIZES.sm },
-  colDate: { width: '10%', fontSize: PDF_FONT_SIZES.sm },
-  colDesc: { width: '38%', paddingRight: 8 },
-  colTime: { width: '8%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
-  colMwst: { width: '12%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colTotal: { width: '19%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colGross: { width: '16%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-
-  /** Appendix detail table — widths sum ~100% */
-  appendixColPos: { width: '4%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColDate: { width: '9%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColClient: { width: '15%', fontSize: PDF_FONT_SIZES.xs },
-  appendixColAddr: { width: '20%', fontSize: PDF_FONT_SIZES.xs },
+  /** Second line under street in appendix address cells */
   appendixColAddrCity: {
     fontSize: 6,
     color: PDF_COLORS.muted,
     marginTop: 1
-  },
-  appendixColKm: {
-    width: '5%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'right'
-  },
-  appendixColNet: {
-    width: '8%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'right'
-  },
-  appendixColTax: {
-    width: '6%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'right'
-  },
-  appendixColGross: {
-    width: '8%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'right'
-  },
-  appendixColDir: {
-    width: '5%',
-    fontSize: PDF_FONT_SIZES.xs,
-    textAlign: 'center'
   },
   appendixKtsNote: {
     fontSize: PDF_FONT_SIZES.xs,

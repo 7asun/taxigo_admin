@@ -47,12 +47,23 @@ export function tripMetaDirectionPdfLabel(
 }
 
 export function parseTripMetaSnapshot(
-  raw: Record<string, unknown> | null | undefined
+  raw: TripMetaSnapshot | Record<string, unknown> | string | null | undefined
 ): TripMetaSnapshot | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const rawObj = obj as Record<string, unknown>;
   const driver_name =
-    typeof raw.driver_name === 'string' ? raw.driver_name.trim() || null : null;
-  const d = raw.direction;
+    typeof rawObj.driver_name === 'string'
+      ? rawObj.driver_name.trim() || null
+      : null;
+  const d = rawObj.direction;
   const direction =
     d === 'hin' || d === 'rueck' ? (d as TripDirectionSnapshot) : null;
   if (!driver_name && !direction) return null;

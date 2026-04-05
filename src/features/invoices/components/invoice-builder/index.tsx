@@ -1,8 +1,28 @@
 'use client';
 
 /**
- * Invoice builder — long-form layout, sticky PDF column in page scroll,
- * per-section Collapsible open state (only locked sections are forced closed).
+ * invoice-builder/index.tsx
+ *
+ * Invoice builder shell — orchestrates all five sections as a single
+ * progressive-disclosure scroll form with a sticky PDF preview on the right.
+ *
+ * Section order and unlock conditions:
+ *   ① Abrechnungsmodus  — always unlocked
+ *   ② Parameter         — unlocks when billingMode is selected
+ *   ③ Positionen        — unlocks when payer_id + date_range are set
+ *   ④ PDF-Vorlage       — unlocks when Section 3 is complete (line items loaded, no blocking errors)
+ *   ⑤ Bestätigung       — unlocks after the user clicks “Weiter zur Bestätigung” on Section 4
+ *
+ * Auto-scroll: 300ms after each section’s unlock condition becomes true for the first time,
+ * scrolling the next section into view with smooth behavior (left column only).
+ *
+ * State lifted here (not in child components):
+ *   builderColumnProfile — resolved PdfColumnProfile from Section 4 (`Step4Vorlage` →
+ *                          `onColumnProfileChange`). Read by `useInvoiceBuilderPdfPreview` as
+ *                          `columnProfile` for `InvoicePdfDocument` / draft detail. Initialized to
+ *                          the system default so the preview is valid before Section 4 opens.
+ *
+ * Must not embed pricing or Supabase calls — children and hooks own domain logic.
  */
 
 import {
@@ -13,6 +33,11 @@ import {
   useState,
   type RefObject
 } from 'react';
+import type {
+  PdfColumnOverridePayload,
+  PdfColumnProfile
+} from '@/features/invoices/types/pdf-vorlage.types';
+import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -40,13 +65,15 @@ import {
   isInvoiceBuilderSection1Complete,
   isInvoiceBuilderSection2Complete,
   isInvoiceBuilderSection3Complete,
-  isInvoiceBuilderSection4Unlocked
+  isInvoiceBuilderSection4Unlocked,
+  isInvoiceBuilderSection5Unlocked
 } from '@/features/invoices/lib/invoice-builder-section-guards';
 import { useInvoiceBuilder } from '../../hooks/use-invoice-builder';
 import { Step1Mode } from './step-1-mode';
 import { Step2Params } from './step-2-params';
 import { Step3LineItems } from './step-3-line-items';
 import { Step4Confirm } from './step-4-confirm';
+import { Step4Vorlage } from './step-4-vorlage';
 import { InvoiceBuilderPdfPanel } from './invoice-builder-pdf-panel';
 import {
   useInvoiceBuilderPdfPreview,
@@ -64,11 +91,12 @@ type Payer = NonNullable<InvoiceDetail['payer']> & {
   }[];
   default_intro_block_id?: string | null;
   default_outro_block_id?: string | null;
+  pdf_vorlage_id?: string | null;
 };
 
 type Client = NonNullable<InvoiceDetail['client']>;
 
-type SectionNum = 1 | 2 | 3 | 4;
+type SectionNum = 1 | 2 | 3 | 4 | 5;
 
 interface InvoiceBuilderProps {
   companyId: string;
@@ -83,7 +111,8 @@ const SECTION_SCROLL_IDS: Record<SectionNum, string> = {
   1: 'invoice-builder-section-1',
   2: 'invoice-builder-section-2',
   3: 'invoice-builder-section-3',
-  4: 'invoice-builder-section-4'
+  4: 'invoice-builder-section-4',
+  5: 'invoice-builder-section-5'
 };
 
 function formatEurDe(value: number): string {
@@ -232,18 +261,33 @@ export function InvoiceBuilder({
     1: true,
     2: false,
     3: false,
-    4: false
+    4: false,
+    5: false
   });
+
+  /** True after “Weiter zur Bestätigung” on PDF-Vorlage; unlocks Section 5 and drives dot 5. */
+  const [pdfStepAcknowledged, setPdfStepAcknowledged] = useState(false);
+  /**
+   * Lifted from Section 4 (PDF-Vorlage). Initialized to the system default so
+   * the preview has a valid profile before the dispatcher opens Section 4.
+   * Updated via Step4Vorlage whenever Vorlage or custom columns change.
+   */
+  const [builderColumnProfile, setBuilderColumnProfile] =
+    useState<PdfColumnProfile>(() => resolvePdfColumnProfile(null, null, null));
+  const pdfOverrideRef = useRef<PdfColumnOverridePayload | null>(null);
 
   const section1Ref = useRef<HTMLElement | null>(null);
   const section2Ref = useRef<HTMLElement | null>(null);
   const section3Ref = useRef<HTMLElement | null>(null);
   const section4Ref = useRef<HTMLElement | null>(null);
+  const section5Ref = useRef<HTMLElement | null>(null);
   /** Scrollable column — never use scrollIntoView on sections; it scrolls dashboard ancestors. */
   const leftColumnScrollRef = useRef<HTMLDivElement | null>(null);
 
   const prevSection1Complete = useRef(false);
   const prevSection2Complete = useRef(false);
+  const prevSection3Complete = useRef(false);
+  const prevPdfStepAcknowledged = useRef(false);
 
   const {
     step2Values,
@@ -277,15 +321,18 @@ export function InvoiceBuilder({
     isTripsError
   );
   const section4Unlocked = isInvoiceBuilderSection4Unlocked(section3Complete);
+  const section5Unlocked =
+    isInvoiceBuilderSection5Unlocked(pdfStepAcknowledged);
 
   const isLocked = useCallback(
     (n: SectionNum) => {
       if (n === 1) return false;
       if (n === 2) return !section1Complete;
       if (n === 3) return !section2Complete;
-      return !section3Complete;
+      if (n === 4) return !section3Complete;
+      return !section5Unlocked;
     },
-    [section1Complete, section2Complete, section3Complete]
+    [section1Complete, section2Complete, section3Complete, section5Unlocked]
   );
 
   const setSection = useCallback((n: SectionNum, open: boolean) => {
@@ -329,6 +376,23 @@ export function InvoiceBuilder({
     }
   }, [section4Unlocked]);
 
+  // Reacts to Section 3 becoming incomplete: close downstream sections and clear override ack.
+  useEffect(() => {
+    if (!section3Complete) {
+      setPdfStepAcknowledged(false);
+      setSectionOpen((s) => ({ ...s, 4: false, 5: false }));
+      pdfOverrideRef.current = null;
+    }
+  }, [section3Complete]);
+
+  // Payer change: reset PDF step ack, clear override ref, and reset column profile to system default
+  // until Step4Vorlage re-resolves for the new payer / Vorlage.
+  useEffect(() => {
+    setPdfStepAcknowledged(false);
+    pdfOverrideRef.current = null;
+    setBuilderColumnProfile(resolvePdfColumnProfile(null, null, null));
+  }, [step2Values?.payer_id]);
+
   const handleStep4PdfOverlay = useCallback(
     (overlay: InvoiceBuilderStep4PdfOverlay) => {
       setStep4Overlay(overlay);
@@ -336,7 +400,16 @@ export function InvoiceBuilder({
     []
   );
 
-  const applyStep4PdfOverlay = section4Unlocked && sectionOpen[4];
+  const handlePdfOverridePersist = useCallback(
+    (o: PdfColumnOverridePayload | null) => {
+      pdfOverrideRef.current = o;
+    },
+    []
+  );
+
+  /** Meta fields (Zahlungsziel, Textblöcke) apply only while Bestätigung (Section 5) is open. */
+  const applyStep4PdfOverlay =
+    section4Unlocked && pdfStepAcknowledged && sectionOpen[5];
 
   const { pdf, draftInvoice } = useInvoiceBuilderPdfPreview({
     companyId,
@@ -350,7 +423,8 @@ export function InvoiceBuilder({
     payerIntroBlockId: selectedPayer?.default_intro_block_id,
     payerOutroBlockId: selectedPayer?.default_outro_block_id,
     step4Overlay,
-    applyStep4Overlay: applyStep4PdfOverlay
+    applyStep4Overlay: applyStep4PdfOverlay,
+    columnProfile: builderColumnProfile
   });
 
   const section2SummaryText = useMemo(
@@ -390,11 +464,42 @@ export function InvoiceBuilder({
     prevSection2Complete.current = section2Complete;
   }, [section2Complete, scrollSectionElementIntoLeftColumn]);
 
+  // Reacts to Section 3 first completing: open PDF-Vorlage (Section 4) and scroll it into view.
+  useEffect(() => {
+    if (!section3Complete) {
+      prevSection3Complete.current = false;
+      return undefined;
+    }
+    if (prevSection3Complete.current) return undefined;
+    prevSection3Complete.current = true;
+    setSectionOpen((s) => ({ ...s, 3: false, 4: true }));
+    const id = window.setTimeout(() => {
+      scrollSectionElementIntoLeftColumn(section4Ref.current, 'smooth');
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [section3Complete, scrollSectionElementIntoLeftColumn]);
+
+  // Reacts to user advancing from PDF-Vorlage: open Bestätigung (Section 5) and scroll it into view.
+  useEffect(() => {
+    if (!pdfStepAcknowledged) {
+      prevPdfStepAcknowledged.current = false;
+      return undefined;
+    }
+    if (prevPdfStepAcknowledged.current) return undefined;
+    prevPdfStepAcknowledged.current = true;
+    setSectionOpen((s) => ({ ...s, 4: false, 5: true }));
+    const id = window.setTimeout(() => {
+      scrollSectionElementIntoLeftColumn(section5Ref.current, 'smooth');
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [pdfStepAcknowledged, scrollSectionElementIntoLeftColumn]);
+
   const sectionCompletionDots = [
     section1Complete,
     section2Complete,
     section3Complete,
-    section4Unlocked
+    section4Unlocked,
+    pdfStepAcknowledged
   ] as const;
 
   const scrollToSection = useCallback(
@@ -435,7 +540,7 @@ export function InvoiceBuilder({
         <div className='border-border shrink-0 border-b px-6 py-4'>
           <h1 className='text-lg font-semibold'>Neue Rechnung</h1>
         </div>
-        {/* Scrollable area containing all four BuilderSectionCards */}
+        {/* Scrollable area containing all five BuilderSectionCards */}
         <div
           ref={leftColumnScrollRef}
           className='min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4'
@@ -446,7 +551,7 @@ export function InvoiceBuilder({
               'border-border flex justify-center gap-3 rounded-xl border py-2.5 backdrop-blur-sm'
             )}
           >
-            {([1, 2, 3, 4] as const).map((n) => (
+            {([1, 2, 3, 4, 5] as const).map((n) => (
               <button
                 key={n}
                 type='button'
@@ -533,7 +638,7 @@ export function InvoiceBuilder({
                       }, 300);
                     }}
                   >
-                    Weiter zur Bestätigung
+                    Weiter zu PDF-Vorlage
                   </Button>
                 </div>
               ) : null
@@ -553,13 +658,60 @@ export function InvoiceBuilder({
           <BuilderSectionCard
             id={SECTION_SCROLL_IDS[4]}
             sectionRef={section4Ref}
-            title='Bestätigung'
+            title='PDF-Vorlage'
             locked={isLocked(4)}
             completed={false}
             showFertigBadge={false}
             summary={null}
             open={sectionOpen[4]}
             onOpenChange={(o) => setSection(4, o)}
+            footer={
+              section4Unlocked && !pdfStepAcknowledged ? (
+                <div className='border-border flex justify-end border-t pt-4'>
+                  <Button
+                    type='button'
+                    onClick={() => {
+                      setPdfStepAcknowledged(true);
+                    }}
+                  >
+                    Weiter zur Bestätigung
+                  </Button>
+                </div>
+              ) : null
+            }
+          >
+            <Step4Vorlage
+              companyId={companyId}
+              payerPdfVorlageId={selectedPayer?.pdf_vorlage_id}
+              unlocked={section4Unlocked}
+              onColumnProfileChange={setBuilderColumnProfile}
+              onPdfOverrideChange={handlePdfOverridePersist}
+            />
+          </BuilderSectionCard>
+
+          <BuilderSectionCard
+            id={SECTION_SCROLL_IDS[5]}
+            sectionRef={section5Ref}
+            title='Bestätigung'
+            locked={isLocked(5)}
+            completed={false}
+            showFertigBadge={false}
+            summary={null}
+            open={sectionOpen[5]}
+            onOpenChange={(o) => setSection(5, o)}
+            footer={
+              pdfStepAcknowledged ? (
+                <div className='border-border flex justify-end border-t pt-4'>
+                  <Button
+                    type='submit'
+                    form='invoice-step4-form'
+                    disabled={isCreating || !section4Unlocked}
+                  >
+                    {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
+                  </Button>
+                </div>
+              ) : null
+            }
           >
             <Step4Confirm
               subtotal={totals.subtotal}
@@ -570,7 +722,10 @@ export function InvoiceBuilder({
               missingPrices={missingPrices}
               isCreating={isCreating}
               submitDisabled={isCreating || !section4Unlocked}
-              onConfirm={(step4Values) => createInvoice(step4Values)}
+              hideSubmitButton
+              onConfirm={(step4Values) =>
+                createInvoice(step4Values, pdfOverrideRef.current)
+              }
               payerIntroBlockId={selectedPayer?.default_intro_block_id}
               payerOutroBlockId={selectedPayer?.default_outro_block_id}
               defaultRechnungsempfaengerId={catalogRecipientId}

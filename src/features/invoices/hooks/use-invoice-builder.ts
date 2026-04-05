@@ -7,7 +7,7 @@
  *   Section 1 (mode) → merge into step2Values
  *   Section 2 submit → full step2Values → trips query → lineItems
  *   Section 3        → inline edits only
- *   Section 4 submit → createInvoice() → insertLineItems() → navigate
+ *   Section 5 submit (form in §4) → createInvoice(..., pdfColumnOverride) → insertLineItems() → navigate
  */
 
 'use client';
@@ -26,12 +26,14 @@ import {
   applyManualUnitNetToResolution
 } from '../api/invoice-line-items.api';
 import { createInvoice } from '../api/invoices.api';
+import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
 import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
   InvoiceBuilderFormValues,
   BuilderLineItem
 } from '../types/invoice.types';
+import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
 import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
@@ -162,16 +164,19 @@ export function useInvoiceBuilder(
   const missingPrices = hasMissingPrices(lineItems);
 
   const createMutation = useMutation({
-    mutationFn: async (
+    mutationFn: async (args: {
       step4Values: Pick<
         InvoiceBuilderFormValues,
         | 'intro_block_id'
         | 'outro_block_id'
         | 'payment_due_days'
         | 'rechnungsempfaenger_id'
-      >
-    ) => {
+      >;
+      pdfColumnOverride: PdfColumnOverridePayload | null;
+    }) => {
       if (!step2Values) throw new Error('Schritt 2 nicht abgeschlossen');
+
+      const { step4Values, pdfColumnOverride } = args;
 
       const intro_block_id =
         step4Values.intro_block_id === 'none'
@@ -196,13 +201,21 @@ export function useInvoiceBuilder(
         rechnungsempfaenger_id: rechnungsempfaengerId ?? null
       };
 
+      let pdfPayload: Record<string, unknown> | null = null;
+      if (pdfColumnOverride) {
+        pdfPayload = pdfColumnOverrideSchema.parse(
+          pdfColumnOverride
+        ) as unknown as Record<string, unknown>;
+      }
+
       const invoice = await createInvoice({
         companyId,
         formValues: fullValues,
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
         total: totals.total,
-        rechnungsempfaengerId: rechnungsempfaengerId ?? null
+        rechnungsempfaengerId: rechnungsempfaengerId ?? null,
+        pdfColumnOverride: pdfPayload
       });
 
       await insertLineItems(invoice.id, lineItems);
@@ -237,7 +250,16 @@ export function useInvoiceBuilder(
     handleStep2Complete,
     updateLineItemPrice,
 
-    createInvoice: createMutation.mutate,
+    createInvoice: (
+      step4Values: Pick<
+        InvoiceBuilderFormValues,
+        | 'intro_block_id'
+        | 'outro_block_id'
+        | 'payment_due_days'
+        | 'rechnungsempfaenger_id'
+      >,
+      pdfColumnOverride: PdfColumnOverridePayload | null
+    ) => createMutation.mutate({ step4Values, pdfColumnOverride }),
     isCreating: createMutation.isPending
   };
 }

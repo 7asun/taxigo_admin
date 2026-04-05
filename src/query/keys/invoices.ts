@@ -73,5 +73,11 @@ export const invoiceKeys = {
 
     /** Single text block by ID. */
     detail: (id: string) => ['invoice-text-blocks', 'detail', id] as const
+  },
+
+  /** PDF column Vorlagen (pdf_vorlagen) for settings + builder. */
+  pdfVorlagen: {
+    all: ['pdf-vorlagen'] as const,
+    list: (companyId: string) => ['pdf-vorlagen', 'list', companyId] as const
   }
 };

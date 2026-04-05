@@ -1,5 +1,16 @@
 'use client';
 
+/**
+ * use-invoice-builder-pdf-preview.tsx
+ *
+ * Debounced @react-pdf hook for the invoice builder’s live preview. Composes
+ * draft InvoiceDetail from trips + Step 2 snapshot + optional Step 5 meta overlay.
+ *
+ * Must not call createInvoice or mutate TanStack Query caches — read-only hooks only.
+ *
+ * Related: {@link build-draft-invoice-detail-for-pdf.ts}, {@link InvoicePdfDocument.tsx}.
+ */
+
 import { useEffect, useMemo, useState } from 'react';
 import { usePDF } from '@react-pdf/renderer';
 
@@ -16,6 +27,7 @@ import type {
   BuilderLineItem,
   InvoiceDetail
 } from '@/features/invoices/types/invoice.types';
+import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 
 export interface InvoiceBuilderStep4PdfOverlay {
   paymentDueDays: number;
@@ -24,7 +36,7 @@ export interface InvoiceBuilderStep4PdfOverlay {
   recipientRow: RechnungsempfaengerRow | null | undefined;
 }
 
-export function useInvoiceBuilderPdfPreview(params: {
+export interface UseInvoiceBuilderPdfPreviewParams {
   companyId: string;
   companyProfile: InvoiceDetail['company_profile'] | null;
   step2Values: InvoiceBuilderStep2Snapshot | null;
@@ -36,9 +48,26 @@ export function useInvoiceBuilderPdfPreview(params: {
   payerIntroBlockId?: string | null;
   payerOutroBlockId?: string | null;
   step4Overlay: InvoiceBuilderStep4PdfOverlay | null;
-  /** When true (section 4 unlocked), Step 4 form fields override draft PDF inputs. */
+  /** When true, Step 5 (Bestätigung) form fields override draft PDF meta inputs. */
   applyStep4Overlay: boolean;
-}): {
+  /**
+   * columnProfile — resolved PDF column profile from Section 4 (PDF-Vorlage).
+   * Passed into buildDraftInvoiceDetailForPdf so the live preview reflects
+   * the dispatcher’s Vorlage/column selection in real time.
+   * Initialized to system default in index.tsx so this value is never null.
+   */
+  columnProfile: PdfColumnProfile;
+}
+
+/**
+ * Returns a debounced PDF instance and the current draft invoice for the builder preview.
+ *
+ * @param params — builder snapshot + overlay flags + column profile
+ * @returns pdf handle, draft row or null when preview inactive, livePreviewActive flag
+ */
+export function useInvoiceBuilderPdfPreview(
+  params: UseInvoiceBuilderPdfPreviewParams
+): {
   pdf: ReturnType<typeof usePDF>[0];
   draftInvoice: InvoiceDetail | null;
   livePreviewActive: boolean;
@@ -55,7 +84,8 @@ export function useInvoiceBuilderPdfPreview(params: {
     payerIntroBlockId,
     payerOutroBlockId,
     step4Overlay,
-    applyStep4Overlay
+    applyStep4Overlay,
+    columnProfile
   } = params;
 
   const { data: textBlocks } = useAllInvoiceTextBlocks();
@@ -64,6 +94,7 @@ export function useInvoiceBuilderPdfPreview(params: {
   /** Same as invoice detail PDF preview: @react-pdf fetches the logo; private bucket needs a signed URL. */
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
 
+  // Reacts to company logo path/url: resolves a short-lived signed URL for the PDF renderer.
   useEffect(() => {
     if (!companyProfile) {
       setPdfLogoUrl(null);
@@ -148,7 +179,8 @@ export function useInvoiceBuilderPdfPreview(params: {
       introText,
       outroText,
       recipientRow,
-      placeholderInvoiceNumber
+      placeholderInvoiceNumber,
+      columnProfile
     });
   }, [
     livePreviewActive,
@@ -162,9 +194,32 @@ export function useInvoiceBuilderPdfPreview(params: {
     introText,
     outroText,
     recipientRow,
-    placeholderInvoiceNumber
+    placeholderInvoiceNumber,
+    columnProfile
   ]);
 
+  const [paymentQrDataUrl, setPaymentQrDataUrl] = useState<string | null>(null);
+
+  // Reacts to draft invoice changes: generates a SEPA QR data URL for the payment block.
+  useEffect(() => {
+    if (!draftInvoice) {
+      setPaymentQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    import(
+      '@/features/invoices/components/invoice-pdf/generate-payment-qr-data-url'
+    ).then(({ generatePaymentQrDataUrl }) => {
+      void generatePaymentQrDataUrl(draftInvoice).then((url) => {
+        if (!cancelled) setPaymentQrDataUrl(url);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftInvoice]);
+
+  // Reacts to draft invoice or text overlay changes: debounces updatePdf so the worker is not flooded.
   useEffect(() => {
     if (!draftInvoice) return undefined;
     const t = window.setTimeout(() => {
@@ -173,12 +228,20 @@ export function useInvoiceBuilderPdfPreview(params: {
           invoice={draftInvoice}
           introText={introText}
           outroText={outroText}
-          paymentQrDataUrl={null}
+          paymentQrDataUrl={paymentQrDataUrl}
+          columnProfile={columnProfile}
         />
       );
     }, 600);
     return () => window.clearTimeout(t);
-  }, [draftInvoice, introText, outroText, updatePdf]);
+  }, [
+    draftInvoice,
+    introText,
+    outroText,
+    columnProfile,
+    updatePdf,
+    paymentQrDataUrl
+  ]);
 
   return { pdf, draftInvoice, livePreviewActive };
 }

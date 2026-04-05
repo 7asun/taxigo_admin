@@ -77,6 +77,8 @@ export interface Payer {
   /** NULL = inherit for default „keine Rechnung“. */
   no_invoice_required_default?: boolean | null;
   rechnungsempfaenger_id?: string | null;
+  /** PDF column Vorlage; null = company default / system fallback */
+  pdf_vorlage_id?: string | null;
 }
 
 export interface PayerWithBillingCount extends Payer {

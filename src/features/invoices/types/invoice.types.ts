@@ -21,6 +21,7 @@ import { z } from 'zod';
 
 import type { PriceResolution } from '@/features/invoices/types/pricing.types';
 import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
+import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
@@ -80,6 +81,11 @@ export interface InvoiceRow {
   rechnungsempfaenger_id: string | null;
   /** Frozen recipient JSON at creation — §14 UStG; do not mutate after issue. */
   rechnungsempfaenger_snapshot: Record<string, unknown> | null;
+  /**
+   * Optional per-invoice PDF column layout override (Phase 6).
+   * Null = resolve from Kostenträger Vorlage → company default → system fallback.
+   */
+  pdf_column_override?: Record<string, unknown> | null;
 }
 
 /**
@@ -150,6 +156,8 @@ export interface InvoiceDetail extends InvoiceRow {
     city: string | null;
     contact_person: string | null;
     email: string | null;
+    /** payers.pdf_vorlage_id — PDF column Vorlage; null = use company default / system */
+    pdf_vorlage_id?: string | null;
   } | null;
   client: {
     id: string;
@@ -194,6 +202,11 @@ export interface InvoiceDetail extends InvoiceRow {
   intro_block?: { id: string; content: string } | null;
   /** Rechnungsvorlagen - outro block content for PDF */
   outro_block?: { id: string; content: string } | null;
+  /**
+   * Resolved PDF column profile (not persisted). Populated when detail is loaded
+   * for preview/PDF (Phase 6e); optional until then.
+   */
+  column_profile?: PdfColumnProfile;
 }
 
 /**

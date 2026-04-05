@@ -68,6 +68,7 @@ export function usePayers() {
       kts_default: boolean | null;
       no_invoice_required_default?: boolean | null;
       rechnungsempfaenger_id?: string | null;
+      pdf_vorlage_id?: string | null;
     }) => PayersService.updatePayer(args),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });

@@ -96,7 +96,13 @@ export async function createStornorechnung(
       cancels_invoice_id: originalInvoice.id,
 
       rechnungsempfaenger_id: originalInvoice.rechnungsempfaenger_id,
-      rechnungsempfaenger_snapshot: originalInvoice.rechnungsempfaenger_snapshot
+      rechnungsempfaenger_snapshot:
+        originalInvoice.rechnungsempfaenger_snapshot,
+
+      // §14 UStG: A Stornorechnung must mirror the layout of the original invoice.
+      // Copying pdf_column_override ensures the Storno PDF uses the same column
+      // profile that produced the original — maintaining document consistency.
+      pdf_column_override: originalInvoice.pdf_column_override ?? null
     })
     .select('id')
     .single();

@@ -43,6 +43,8 @@ export interface InvoicePdfSummaryRow {
   quantity: number;
   descriptionPrimary: string;
   descriptionSecondary: string;
+  /** Same as descriptionPrimary — PDF catalog `description` column uses dataField `description`. */
+  description: string;
 }
 
 export interface InvoicePdfSummaryBuildResult {
@@ -173,6 +175,7 @@ export function buildInvoicePdfSummary(
       // Look up direction label using address-only route key
       const directionLabel = routeDirectionLabels[g.routeKey];
 
+      const descriptionPrimary = `${directionLabel}: ${g.from.primary} nach ${g.to.primary}`;
       return {
         id: g.id,
         position: idx + 1,
@@ -181,8 +184,9 @@ export function buildInvoicePdfSummary(
         tax_rate: g.tax_rate,
         total_price: g.total_price,
         quantity: g.quantity,
-        descriptionPrimary: `${directionLabel}: ${g.from.primary} nach ${g.to.primary}`,
-        descriptionSecondary: buildInvoicePdfRouteSecondaryLine(g.from, g.to)
+        descriptionPrimary,
+        descriptionSecondary: buildInvoicePdfRouteSecondaryLine(g.from, g.to),
+        description: descriptionPrimary
       };
     });
 

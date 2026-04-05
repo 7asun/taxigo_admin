@@ -66,6 +66,11 @@ import { useBillingPricingRules } from '../hooks/use-billing-pricing-rules';
 import { PricingRuleDialog } from './pricing-rule-dialog';
 import { PricingRuleDeleteButton } from './pricing-rule-delete-button';
 import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import { usePdfVorlagenList } from '@/features/invoices/hooks/use-pdf-vorlagen';
+import {
+  APPENDIX_LANDSCAPE_THRESHOLD,
+  PDF_COLUMN_MAP
+} from '@/features/invoices/lib/pdf-column-catalog';
 import type {
   BillingPricingRuleRow,
   PricingRuleScope
@@ -140,6 +145,34 @@ export function PayerDetailsSheet({
     return fromCache ?? payer;
   }, [payer, payersList]);
 
+  const { data: pdfVorlagen = [], isLoading: pdfVorlagenLoading } =
+    usePdfVorlagenList(displayPayer?.company_id ?? '');
+
+  const selectedPdfVorlage = useMemo(
+    () => pdfVorlagen.find((v) => v.id === displayPayer?.pdf_vorlage_id),
+    [pdfVorlagen, displayPayer?.pdf_vorlage_id]
+  );
+
+  const pdfColumnPreview = useMemo(() => {
+    if (!selectedPdfVorlage) {
+      return {
+        main: 'Unternehmens-Standard oder System-Standard',
+        ann: '—'
+      };
+    }
+    const main = selectedPdfVorlage.main_columns
+      .map((k) => PDF_COLUMN_MAP[k]?.uiLabel ?? k)
+      .join(' · ');
+    const ann = selectedPdfVorlage.appendix_columns
+      .map((k) => PDF_COLUMN_MAP[k]?.uiLabel ?? k)
+      .join(' · ');
+    const landscape =
+      selectedPdfVorlage.appendix_columns.length > APPENDIX_LANDSCAPE_THRESHOLD
+        ? ' (Querformat)'
+        : '';
+    return { main, ann: `${ann}${landscape}` };
+  }, [selectedPdfVorlage]);
+
   const startEditing = () => {
     if (displayPayer) {
       setEditName(displayPayer.name);
@@ -158,7 +191,8 @@ export function PayerDetailsSheet({
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
-        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
+        pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
       toast.success('Kostenträger aktualisiert');
       setIsEditing(false);
@@ -177,7 +211,8 @@ export function PayerDetailsSheet({
         kts_default: v === 'unset' ? null : v === 'yes',
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
-        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
+        pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
       toast.success('KTS-Standard gespeichert');
     } catch {
@@ -194,7 +229,8 @@ export function PayerDetailsSheet({
         number: displayPayer.number ?? '',
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default: v === 'unset' ? null : v === 'yes',
-        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
+        pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
       toast.success('Standard „Keine Rechnung“ gespeichert');
     } catch {
@@ -261,9 +297,29 @@ export function PayerDetailsSheet({
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
-        rechnungsempfaenger_id: value === '__none__' ? null : value
+        rechnungsempfaenger_id: value === '__none__' ? null : value,
+        pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
       toast.success('Rechnungsempfänger gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    }
+  };
+
+  const handlePdfVorlageChange = async (value: string) => {
+    if (!displayPayer) return;
+    try {
+      await updatePayer({
+        id: displayPayer.id,
+        name: displayPayer.name,
+        number: displayPayer.number ?? '',
+        kts_default: displayPayer.kts_default ?? null,
+        no_invoice_required_default:
+          displayPayer.no_invoice_required_default ?? null,
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
+        pdf_vorlage_id: value === '__none__' ? null : value
+      });
+      toast.success('PDF-Vorlage gespeichert');
     } catch {
       toast.error('Speichern fehlgeschlagen');
     }
@@ -439,6 +495,57 @@ export function PayerDetailsSheet({
                 Wird von Familie/Unterart überschrieben. Stammdaten unter
                 Account → Rechnungsempfänger.
               </p>
+            </div>
+
+            {/*
+              PDF-Spalten: Auflösung bei Rechnungserstellung —
+              1) Rechnungs-Override (Builder) → 2) diese Kostenträger-Vorlage →
+              3) Unternehmens-Standard-Vorlage → 4) System-Standard.
+            */}
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+                PDF-Vorlage
+              </label>
+              {pdfVorlagenLoading ? (
+                <Skeleton className='h-9 w-full max-w-sm' />
+              ) : (
+                <Select
+                  value={
+                    displayPayer.pdf_vorlage_id
+                      ? displayPayer.pdf_vorlage_id
+                      : '__none__'
+                  }
+                  onValueChange={(v) => void handlePdfVorlageChange(v)}
+                  disabled={isUpdating}
+                >
+                  <SelectTrigger className='h-9 w-full max-w-sm'>
+                    <SelectValue placeholder='Standard (Kaskade)' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='__none__'>
+                      Standard (Unternehmen / System)
+                    </SelectItem>
+                    {pdfVorlagen.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {v.name}
+                        {v.is_default ? ' (Unternehmens-Standard)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className='text-muted-foreground mt-3 space-y-1 text-xs leading-relaxed'>
+                <p>
+                  <span className='text-foreground font-medium'>
+                    Hauptrechnung:{' '}
+                  </span>
+                  {pdfColumnPreview.main}
+                </p>
+                <p>
+                  <span className='text-foreground font-medium'>Anhang: </span>
+                  {pdfColumnPreview.ann}
+                </p>
+              </div>
             </div>
 
             <div className='bg-card rounded-xl border p-5 shadow-sm'>

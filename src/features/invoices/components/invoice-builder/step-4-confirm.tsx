@@ -3,15 +3,14 @@
 /**
  * step-4-confirm.tsx
  *
- * Invoice builder — Step 4: Confirmation and creation.
+ * Invoice builder — Section 5 (Bestätigung): meta fields, recap, and submit.
  *
- * Shows a summary of what will be created:
- *   - Invoice number preview (RE-YYYY-MM-NNNN — shown as "wird automatisch vergeben")
- *   - Totals recap (Netto / MwSt / Brutto)
- *   - Editable: Notes (Notizen) + Zahlungsziel (payment days override)
- *   - Warning if prices are missing (non-blocking)
- *   - "Rechnung erstellen" button (disabled while saving / when section locked)
- *   - PDF preview lives in the builder shell (debounced).
+ * Renders inside the shell’s fifth BuilderSectionCard; the primary submit control
+ * may live in the card footer (hideSubmitButton) while the form id stays
+ * invoice-step4-form for accessibility.
+ *
+ * PDF preview is driven by the parent hook; this step emits overlay state so
+ * intro/outro/payment/recipient edits reflect in the live preview when enabled.
  */
 
 import { useEffect, useMemo } from 'react';
@@ -126,6 +125,8 @@ interface Step4ConfirmProps {
   pdfOverlayEnabled?: boolean;
   /** Disable primary action while section is locked or other guard fails. */
   submitDisabled?: boolean;
+  /** When true, the submit button is omitted (e.g. submit lives in Step 5). */
+  hideSubmitButton?: boolean;
 }
 
 /**
@@ -147,7 +148,8 @@ export function Step4Confirm({
   lineItems,
   onStep4PdfOverlayChange,
   pdfOverlayEnabled = true,
-  submitDisabled = false
+  submitDisabled = false,
+  hideSubmitButton = false
 }: Step4ConfirmProps) {
   const { data: textBlocks, isLoading: isLoadingTextBlocks } =
     useAllInvoiceTextBlocks();
@@ -526,15 +528,17 @@ export function Step4Confirm({
               />
             </div>
 
-            <div className='border-border flex justify-end border-t pt-4'>
-              <Button
-                type='submit'
-                disabled={isCreating || submitDisabled}
-                className='gap-2'
-              >
-                {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
-              </Button>
-            </div>
+            {!hideSubmitButton ? (
+              <div className='border-border flex justify-end border-t pt-4'>
+                <Button
+                  type='submit'
+                  disabled={isCreating || submitDisabled}
+                  className='gap-2'
+                >
+                  {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
+                </Button>
+              </div>
+            ) : null}
           </form>
         </FormProvider>
       </div>

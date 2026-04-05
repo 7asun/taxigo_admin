@@ -28,12 +28,14 @@ import {
   updateInvoiceStatus,
   type InvoiceStatusTransition
 } from '../api/invoices.api';
+import { enrichInvoiceDetailWithColumnProfile } from '../lib/enrich-invoice-detail-column-profile';
 import { createStornorechnung } from '../lib/storno';
 import type { InvoiceDetail } from '../types/invoice.types';
 
 /**
  * Fetches the full invoice detail (header + line items + payer + company profile).
- * Used on the invoice detail page and PDF download trigger.
+ * After `getInvoiceDetail`, attaches **`column_profile`** via {@link enrichInvoiceDetailWithColumnProfile}
+ * for PDF preview/print (Vorlage resolution stays out of `invoices.api.ts`).
  *
  * @param id - Invoice UUID. Pass undefined to skip fetching (e.g. while routing).
  */
@@ -42,7 +44,11 @@ export function useInvoiceDetail(id: string | undefined) {
 
   const query = useQuery({
     queryKey: id ? invoiceKeys.full(id) : ['invoices', 'full', 'skip'],
-    queryFn: () => getInvoiceDetail(id!),
+    queryFn: async () => {
+      const detail = await getInvoiceDetail(id!);
+      // PDF column profile is enriched outside invoices.api (frozen) — see enrichInvoiceDetailWithColumnProfile.
+      return enrichInvoiceDetailWithColumnProfile(detail);
+    },
     enabled: !!id // only fetch when ID is available
   });
 

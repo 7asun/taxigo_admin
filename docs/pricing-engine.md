@@ -27,6 +27,8 @@ At invoice creation, each `invoice_line_items` row stores:
 - `pricing_strategy_used`, `pricing_source`, `kts_override` — query-friendly.
 - `price_resolution_snapshot` — full frozen `PriceResolution` JSON for audit.
 
+The `price_resolution_snapshot` field is JSONB. PostgREST may return it as a string at runtime — `coerceLineItemJsonbSnapshots` in `src/features/invoices/components/invoice-pdf/pdf-column-layout.ts` handles this transparently before PDF rendering. Do not use `snapshot.net` in the PDF renderer as it is absent for several strategies; derive net from `total_price / (1 + tax_rate)` instead.
+
 The builder uses `buildLineItemsFromTrips` → `insertLineItems` in `src/features/invoices/api/invoice-line-items.api.ts`. Manual price edits in step 3 refresh `price_resolution` (strategy `manual_trip_price`) before insert.
 
 ## Builder integration

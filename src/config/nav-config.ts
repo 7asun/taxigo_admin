@@ -95,6 +95,12 @@ export const navItems: NavItem[] = [
         url: '/dashboard/settings/invoice-templates',
         icon: 'post',
         shortcut: ['r', 'v']
+      },
+      {
+        title: 'PDF-Vorlagen',
+        url: '/dashboard/settings/pdf-vorlagen',
+        icon: 'post',
+        shortcut: ['p', 'd']
       }
     ]
   },

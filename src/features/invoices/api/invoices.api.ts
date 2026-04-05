@@ -120,7 +120,8 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       *,
       payer:payers(
         id, name, number,
-        street, street_number, zip_code, city, contact_person, email
+        street, street_number, zip_code, city, contact_person, email,
+        pdf_vorlage_id
       ),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,
@@ -196,6 +197,11 @@ export interface CreateInvoicePayload {
   total: number;
   /** Resolved recipient FK (catalog cascade or step-4 override); snapshot frozen here. */
   rechnungsempfaengerId: string | null;
+  /**
+   * Per-invoice PDF column override (Step 5). Null = resolve from payer Vorlage /
+   * company default / system fallback at PDF time.
+   */
+  pdfColumnOverride?: Record<string, unknown> | null;
 }
 
 /**
@@ -249,7 +255,8 @@ export async function createInvoice(
       status: 'draft', // always starts as draft
       rechnungsempfaenger_id: empId,
       // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
-      rechnungsempfaenger_snapshot
+      rechnungsempfaenger_snapshot,
+      pdf_column_override: payload.pdfColumnOverride ?? null
     })
     .select()
     .single();

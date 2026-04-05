@@ -43,7 +43,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, rechnungsempfaenger_id, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
       )
       .order('name');
 
@@ -86,6 +86,7 @@ export class PayersService {
     kts_default: boolean | null;
     no_invoice_required_default?: boolean | null;
     rechnungsempfaenger_id?: string | null;
+    pdf_vorlage_id?: string | null;
   }): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
@@ -99,6 +100,9 @@ export class PayersService {
           : {}),
         ...(args.rechnungsempfaenger_id !== undefined
           ? { rechnungsempfaenger_id: args.rechnungsempfaenger_id }
+          : {}),
+        ...(args.pdf_vorlage_id !== undefined
+          ? { pdf_vorlage_id: args.pdf_vorlage_id }
           : {})
       })
       .eq('id', args.id);

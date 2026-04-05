@@ -1,6 +1,20 @@
 /**
- * Builds a synthetic {@link InvoiceDetail} for the Step 4 live PDF preview only.
- * Not persisted — §14 snapshots on the real invoice are written at create time.
+ * build-draft-invoice-detail-for-pdf.ts
+ *
+ * Constructs a partial InvoiceDetail object from in-progress builder state
+ * (Sections 3–5) for use in the live PDF preview. This draft is never persisted —
+ * it exists only to feed InvoicePdfDocument while the dispatcher is still filling
+ * in the form.
+ *
+ * Key difference from a real InvoiceDetail:
+ * - invoice_number is a placeholder until createInvoice runs
+ * - line_items come from BuilderLineItem[] (not from the DB)
+ * - column_profile comes from the builder’s Section 4 (PDF-Vorlage) state
+ *
+ * Must not write to the database or mutate builder inputs.
+ *
+ * Phase 6e: InvoicePdfDocument will use column_profile to render dynamic columns.
+ * Until then, the PDF keeps static columns and may ignore column_profile.
  */
 
 import { rechnungsempfaengerRowToSnapshot } from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
@@ -15,6 +29,7 @@ import type {
   InvoiceLineItemRow,
   InvoiceMode
 } from '@/features/invoices/types/invoice.types';
+import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 
 export interface InvoiceBuilderStep2Snapshot {
   mode: InvoiceMode;
@@ -57,6 +72,13 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
   };
 }
 
+/**
+ * Builds a synthetic invoice row for @react-pdf preview from builder state.
+ *
+ * @param params.companyId — tenant scope
+ * @param params.columnProfile — resolved PDF columns from Section 4; always stored on the draft
+ * @returns InvoiceDetail-shaped object safe for InvoicePdfDocument (not persisted)
+ */
 export function buildDraftInvoiceDetailForPdf(params: {
   companyId: string;
   companyProfile: InvoiceDetail['company_profile'];
@@ -69,6 +91,11 @@ export function buildDraftInvoiceDetailForPdf(params: {
   outroText: string | null;
   recipientRow: RechnungsempfaengerRow | null | undefined;
   placeholderInvoiceNumber: string;
+  /**
+   * Resolved PdfColumnProfile for this draft — same object the real invoice will
+   * carry after create (unless overridden again server-side).
+   */
+  columnProfile: PdfColumnProfile;
 }): InvoiceDetail {
   const {
     companyId,
@@ -81,7 +108,8 @@ export function buildDraftInvoiceDetailForPdf(params: {
     introText,
     outroText,
     recipientRow,
-    placeholderInvoiceNumber
+    placeholderInvoiceNumber,
+    columnProfile
   } = params;
 
   const { subtotal, taxAmount, total } = calculateInvoiceTotals(lineItems);
@@ -156,7 +184,9 @@ export function buildDraftInvoiceDetailForPdf(params: {
     line_items: draftLineItems,
     company_profile: companyProfile,
     intro_block: introText ? { id: 'preview-intro', content: introText } : null,
-    outro_block: outroText ? { id: 'preview-outro', content: outroText } : null
+    outro_block: outroText ? { id: 'preview-outro', content: outroText } : null,
+    // column_profile: Section 4 resolved profile for preview (Phase 6e table layout).
+    column_profile: columnProfile
   };
 
   return base as InvoiceDetail;

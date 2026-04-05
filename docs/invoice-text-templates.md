@@ -172,3 +172,14 @@ Created migration: `20260401190000_create_invoice_text_blocks.sql`
 - Adds columns to `payers` table
 - Adds RLS policies
 - Adds column comments
+
+## Relationship to PDF-Vorlagen (Phase 6)
+
+Text templates (`invoice_text_blocks`) and PDF-Vorlagen (`pdf_vorlagen`) are **separate systems** that both affect the invoice PDF:
+
+| System | Controls | Table | Priority chain |
+|--------|----------|-------|----------------|
+| Text templates | Intro / outro text content | `invoice_text_blocks` | payer default → company default → hardcoded |
+| PDF-Vorlagen | Column layout (which columns, what order, grouped vs flat) | `pdf_vorlagen` | invoice override → payer Vorlage → company default → system constants |
+
+Both are resolved independently in `InvoicePdfDocument` and passed as separate props to `InvoicePdfCoverBody`. They do not interact — a Vorlage does not reference a text template and vice versa.

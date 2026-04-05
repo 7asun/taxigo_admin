@@ -69,7 +69,7 @@ export function Step1Mode({ selectedMode, onSelect }: Step1ModeProps) {
             type='button'
             onClick={() => onSelect(mode)}
             className={cn(
-              'bg-card border-border flex min-w-0 flex-col items-start gap-2 rounded-xl border p-3 text-left transition-all',
+              'bg-card border-border flex min-w-0 flex-row items-center gap-3 rounded-xl border p-3 text-left transition-all',
               'hover:bg-muted',
               selectedMode === mode
                 ? 'border-primary bg-primary/5 ring-primary ring-1'

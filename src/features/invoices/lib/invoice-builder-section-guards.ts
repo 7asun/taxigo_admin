@@ -1,6 +1,8 @@
 /**
  * Section completion for the long-form invoice builder (progressive disclosure).
  * Mirrors the former step-gating rules without a step index.
+ *
+ * Section indices match invoice-builder/index.tsx: ④ PDF-Vorlage, ⑤ Bestätigung.
  */
 
 import type {
@@ -62,4 +64,17 @@ export function isInvoiceBuilderSection4Unlocked(
   section3Complete: boolean
 ): boolean {
   return section3Complete;
+}
+
+/**
+ * Section 5 (Bestätigung) unlocks after the user clicks “Weiter zur Bestätigung”
+ * on Section 4 (PDF-Vorlage).
+ *
+ * @param reachedFromPdfVorlage — pdfStepAcknowledged flag from the shell
+ * @returns whether the confirmation card may be opened / interacted with
+ */
+export function isInvoiceBuilderSection5Unlocked(
+  reachedFromPdfVorlage: boolean
+): boolean {
+  return reachedFromPdfVorlage;
 }

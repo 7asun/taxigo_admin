@@ -9,12 +9,18 @@
  * addressee; optional frozen snapshot block for Rechnungsempfänger.
  * `monthly` / `single_trip` use the snapshot as the sole legal window addressee
  * when present, else legacy payer address.
+ *
+ * **Phase 6e:** `effectiveProfile` = prop ?? `invoice.column_profile` ?? system default; drives dynamic
+ * main + appendix tables and appendix `Page` size (`A4_LANDSCAPE` when `appendix_is_landscape`).
+ * Optional `columnProfile` prop supports the builder live preview (draft invoices).
+ * Must not perform network I/O.
  */
 
 import { Document, Page } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
+import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
 import type { PriceResolution } from '../../types/pricing.types';
 
 import { buildInvoicePdfSummary } from './lib/build-invoice-pdf-summary';
@@ -26,13 +32,14 @@ import {
   buildInvoicePdfSenderOneLine,
   formatInvoicePdfDate
 } from './lib/invoice-pdf-format';
-import { InvoicePdfAppendix } from './invoice-pdf-appendix';
+import { A4_LANDSCAPE, InvoicePdfAppendix } from './invoice-pdf-appendix';
 import { InvoicePdfCoverBody } from './invoice-pdf-cover-body';
 import { InvoicePdfCoverHeader } from './invoice-pdf-cover-header';
 import { InvoicePdfFooter } from './invoice-pdf-footer';
 import { styles } from './pdf-styles';
 import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
+import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
 
 /** Avoid spamming console when the same invoice PDF re-renders. */
 const legacyMissingRecipientSnapshotWarned = new Set<string>();
@@ -45,6 +52,11 @@ export interface InvoicePdfDocumentProps {
   introText?: string | null;
   /** Optional outro text override from invoice_text_blocks */
   outroText?: string | null;
+  /**
+   * Builder preview: explicit column profile (usually matches invoice.column_profile).
+   * Phase 6e: drives dynamic main/appendix columns; until then unused at render time.
+   */
+  columnProfile?: PdfColumnProfile | null;
 }
 
 function priceResolutionFromLineItem(
@@ -95,8 +107,14 @@ export function InvoicePdfDocument({
   invoice,
   paymentQrDataUrl = null,
   introText = null,
-  outroText = null
+  outroText = null,
+  columnProfile: columnProfileProp = null
 }: InvoicePdfDocumentProps) {
+  const effectiveProfile =
+    columnProfileProp ??
+    invoice.column_profile ??
+    resolvePdfColumnProfile(null, null, null);
+
   const cp = invoice.company_profile;
   const payer = invoice.payer;
   const client = invoice.client;
@@ -231,7 +249,7 @@ export function InvoicePdfDocument({
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);
 
-  const { summaryItems, placeHints } = buildInvoicePdfSummary(invoice);
+  const { summaryItems } = buildInvoicePdfSummary(invoice);
 
   const dueDateMs =
     new Date(invoice.created_at).getTime() +
@@ -270,6 +288,8 @@ export function InvoicePdfDocument({
           dueDateFormatted={dueDateFormatted}
           companyProfile={cp}
           paymentQrDataUrl={paymentQrDataUrl}
+          invoice={invoice}
+          columnProfile={effectiveProfile}
           summaryItems={summaryItems}
           subtotal={subtotal}
           total={total}
@@ -281,11 +301,21 @@ export function InvoicePdfDocument({
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
       </Page>
 
-      <Page size='A4' style={styles.appendixPage} wrap>
+      {/* appendix_is_landscape from resolvePdfColumnProfile when appendix_columns.length > 7 */}
+      <Page
+        size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
+        style={
+          effectiveProfile.appendix_is_landscape
+            ? styles.appendixPageLandscape
+            : styles.appendixPage
+        }
+        wrap
+      >
         <InvoicePdfAppendix
           invoiceNumber={invoice.invoice_number}
           invoiceCreatedAtIso={invoice.created_at}
           lineItems={invoice.line_items}
+          columnProfile={effectiveProfile}
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

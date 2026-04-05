@@ -14,13 +14,34 @@ export type PdfLineItemAmountsInput = Pick<
   | 'price_resolution_snapshot'
 >;
 
+function priceResolutionRecord(
+  snap: PdfLineItemAmountsInput['price_resolution_snapshot']
+): Record<string, unknown> | null {
+  if (snap == null) return null;
+  if (typeof snap === 'string') {
+    try {
+      const v = JSON.parse(snap) as unknown;
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        return v as Record<string, unknown>;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof snap === 'object' && !Array.isArray(snap)) {
+    return snap as Record<string, unknown>;
+  }
+  return null;
+}
+
 export function lineNetEurForPdfLineItem(
   item: PdfLineItemAmountsInput
 ): number {
   if (item.kts_override) return 0;
-  const snap = item.price_resolution_snapshot;
-  if (snap && typeof snap === 'object' && !Array.isArray(snap)) {
-    const n = (snap as Record<string, unknown>).net;
+  const snap = priceResolutionRecord(item.price_resolution_snapshot);
+  if (snap) {
+    const n = snap.net;
     if (typeof n === 'number' && !Number.isNaN(n)) {
       return Math.round(n * 100) / 100;
     }

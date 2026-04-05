@@ -36,7 +36,9 @@ Human-readable numbers are generated in [`src/features/invoices/lib/invoice-numb
 
 ## 2. The Invoice Builder Wizard (State Machine)
 
-The creation of new invoices is handled entirely by a client-side 4-Step Wizard (`InvoiceBuilder`). Transacting intermediate data on the client ensures the database is only touched once the user fully confirms the final layout.
+The creation of new invoices is handled entirely by a client-side **5-step** wizard (`InvoiceBuilder`). Transacting intermediate data on the client ensures the database is only touched once the user fully confirms the final layout.
+
+**Lifted state:** `builderColumnProfile` (resolved `PdfColumnProfile`) is lifted to `invoice-builder/index.tsx` so the live PDF preview hook (`use-invoice-builder-pdf-preview.tsx`) can consume it from Step 1 onwards. Initialized to `resolvePdfColumnProfile(null, null, null)` (system default) so the preview is always valid before Step 4 is reached.
 
 ### Step 1: Mode Selection (`Step1Mode`)
 Defines the aggregation strategy for fetching trips:
@@ -55,10 +57,20 @@ This is the heart of the verifier. The wizard queries the real `trips` matching 
 - **Detailed Visibility**: The table renders the exact `pickup_address` → `dropoff_address` route so the dispatcher can visually verify the trip.
 - **Inline Editing**: If a trip has no price (`unit_price === null`), the row receives a ⚠️ Warning Badge. The dispatcher can click the "Fehlt" button to inject the price locally—without having to leave the wizard.
 
-### Step 4: Confirmation (`Step4Confirm`)
+### Step 4: PDF-Vorlage (`Step4Vorlage`)
+
+Allows the dispatcher to select a PDF-Vorlage and optionally override the column layout for this specific invoice before confirming.
+
+- Inherits the Vorlage from the selected Kostenträger (payer) if one is assigned, otherwise falls back to the company default, then the system default.
+- Displays a live PDF preview that updates in real time as columns are changed.
+- The dispatcher must click **"Weiter zur Bestätigung"** (`pdfStepAcknowledged`) to unlock Step 5 — this ensures conscious review of the PDF layout before committing.
+- Column overrides selected here are saved to `invoices.pdf_column_override` at invoice creation time (immutable snapshot, same pattern as line items).
+
+### Step 5: Bestätigung (`Step4Confirm`)
+
 Calculates the final Netto and Brutto summaries using a tax breakdown (separating 7% and 19% items). It overrides the default `payment_due_days` (inherited from the Company Profile) if needed, and officially triggers the DB insertion.
 
-### Phase 5 (current) — PDF hardening + builder live preview
+### Phase 5 & 5b (complete) — PDF hardening + builder shell
 
 - **Recipient / §14:** `InvoicePdfDocument` uses frozen `rechnungsempfaenger_snapshot` per [docs/rechnungsempfaenger.md](rechnungsempfaenger.md) (dual block for `per_client`, snapshot-only window for `monthly` / `single_trip`, payer fallback + `console.warn` when snapshot is missing on legacy rows).
 - **Appendix table:** [`invoice-pdf-appendix.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix.tsx) — fixed columns (Datum, Fahrgast, Von/Nach, Strecke, Netto, MwSt., Brutto, KTS, Fahrer, Hin/Rück); line net uses `price_resolution_snapshot.net` when present ([`invoice-pdf-line-amounts.ts`](../src/features/invoices/components/invoice-pdf/lib/invoice-pdf-line-amounts.ts)); KTS rows show €0 + note.
@@ -66,7 +78,72 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 - **Detail fetch:** `getInvoiceDetail` loads line items with `line_items:invoice_line_items(*)` so PostgREST does not fail if optional columns are not migrated yet; after migration, `(*)` still returns `trip_meta_snapshot`.
 - **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) (600 ms debounce) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
 
-**Next (Phase 5b):** Shell redesign — persistent right-hand PDF panel from step 1 and vertical step rail; see [implementation-suggestions/phase5b-prompt.md](../implementation-suggestions/phase5b-prompt.md).
+### Phase 6 (complete) — Dynamic PDF-Vorlagen (column layout system)
+
+#### Overview
+
+Phase 6 introduced a fully configurable PDF column system. Dispatchers and admins can now control which columns appear in the main invoice table and the appendix, in what order, and with what layout (grouped by route vs. flat per-trip). Dedicated reference: [pdf-vorlagen.md](pdf-vorlagen.md).
+
+#### Database additions (6a)
+
+- `pdf_vorlagen` — company-scoped Vorlage definitions: `main_columns` (ordered `text[]`), `appendix_columns` (ordered `text[]`), `main_layout` (`grouped` | `flat`), `is_default`, `name`. RLS scoped to `company_id`.
+- `payers.pdf_vorlage_id` — assigns a preferred Vorlage to a Kostenträger.
+- `invoices.pdf_column_override` — JSONB snapshot of the full resolved `PdfColumnProfile` at invoice creation time (immutable, mirrors the line-item snapshot pattern).
+
+#### 4-level resolution chain
+
+Priority order (highest to lowest):
+
+1. `invoices.pdf_column_override` — per-invoice dispatcher override (frozen at creation)
+2. `payers.pdf_vorlage_id` → linked `pdf_vorlagen` row
+3. `pdf_vorlagen WHERE is_default = true` — company-wide default Vorlage
+4. `SYSTEM_DEFAULT_*` constants in `pdf-column-catalog.ts` — hardcoded app fallback
+
+Implemented in `resolve-pdf-column-profile.ts`. The resolver returns `main_columns` **exactly as stored** — it never filters by layout compatibility. Layout filtering happens only at render time in `InvoicePdfCoverBody` via `mainTableKeys`.
+
+#### Single source of truth — `pdf-column-catalog.ts`
+
+Every PDF column is defined once in `PDF_COLUMN_CATALOG`. No other file defines column metadata independently. Adding a new column requires only one new entry here.
+
+Column flags:
+
+- `flatOnly: true` — only valid in flat main layout (trip-level fields like `client_name`, `trip_date`, `pickup_address`, `dropoff_address`, `distance_km`, `driver_name`, `billing_variant`, `description`, `unit_price_net`, `billing_type`)
+- `groupedOnly: true` — only valid in grouped layout (`route_leistung`, `quantity`)
+- `appendixOnly: true` — not shown in main page pickers
+
+#### Dynamic PDF renderer (6e)
+
+`InvoicePdfCoverBody` renders two modes:
+
+- **Grouped** (`main_layout: 'grouped'`): uses `InvoicePdfSummaryRow[]` from `buildInvoicePdfSummary()` — only grouped-safe columns rendered
+- **Flat** (`main_layout: 'flat'`): uses `InvoiceLineItemRow[]` directly — per-trip columns available
+
+`InvoicePdfAppendix` always renders flat line items regardless of `main_layout`. Auto-switches to landscape when `appendix_columns.length > APPENDIX_LANDSCAPE_THRESHOLD`.
+
+#### Key rendering rules (hard-won fixes)
+
+- `mainTableKeys` is the **single source array** for `calcColumnWidths`, the header row, and all data rows. Using different arrays for any of these three causes column misalignment after drag reorder.
+- `@react-pdf/renderer` flex rows require `width: '100%'` on row containers and `minWidth: 0, overflow: 'hidden'` on cells or columns overflow and misalign.
+- PostgREST returns JSONB columns (`trip_meta_snapshot`, `price_resolution_snapshot`) as strings despite TypeScript typing them as objects. `coerceLineItemJsonbSnapshots` parses them once per row before any `renderCellValue` call.
+- `net_price` is derived as `total_price / (1 + tax_rate)` — `price_resolution_snapshot.net` is absent for several pricing strategies and must not be used in the PDF renderer.
+
+#### Storno behavior
+
+`storno.ts` copies `pdf_column_override` from the original invoice to the Stornorechnung. Per §14 UStG, a Stornorechnung must mirror the layout of the original.
+
+#### Settings UI
+
+Route: `/dashboard/settings/pdf-vorlagen`
+
+- PanelList of all company Vorlagen (left) + editor panel (right)
+- dnd-kit sortable column chips for reordering
+- Separate column pickers for main page and appendix
+- Layout radio: `gruppiert` vs. `pro Fahrt`
+- Switching layout migrates existing columns: surviving valid keys are kept, incompatible columns dropped, never leaves list empty
+
+#### Payer assignment
+
+Kostenträger detail sheet includes a PDF-Vorlage Select in the settings section. Changing this sets `payers.pdf_vorlage_id`. All future invoices for this payer will use the assigned Vorlage unless the dispatcher overrides in Step 4.
 
 ---
 
@@ -145,9 +222,14 @@ Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/
 |-------|------|------|
 | Root composer | `InvoicePdfDocument.tsx` | `Document` + two `Page`s; recipient/salutation; totals + `buildInvoicePdfSummary` |
 | Cover header | `invoice-pdf-cover-header.tsx` | Logo, sender line, address window, Rechnungsdaten |
-| Cover body | `invoice-pdf-cover-body.tsx` | Subject, summary table, VAT totals, payment + optional SEPA QR |
+| Cover body | `invoice-pdf-cover-body.tsx` | Dynamic main table: grouped (`InvoicePdfSummaryRow`) or flat (`InvoiceLineItemRow`); `mainTableKeys` as single source array for widths + header + body |
 | Footer | `invoice-pdf-footer.tsx` | Fixed footer + `Seite x / y` |
-| Appendix | `invoice-pdf-appendix.tsx` | Fixed appendix header + per–line-item detail table (Phase 5 columns + `trip_meta_snapshot`) |
+| Appendix | `invoice-pdf-appendix.tsx` | Dynamic appendix: columns from `columnProfile.appendix_columns`; auto-landscape when > 7 columns; `coerceLineItemJsonbSnapshots` before render |
+| Column catalog | `pdf-column-catalog.ts` | Single source of truth for all PDF column definitions; `flatOnly`, `groupedOnly`, `appendixOnly` flags |
+| Column layout utils | `pdf-column-layout.ts` | `getNestedValue`, `coerceLineItemJsonbSnapshots`, `renderCellValue`, `renderGroupedCellValue`, `calcColumnWidths` |
+| Profile resolver | `resolve-pdf-column-profile.ts` | 4-level resolution chain; returns profile as stored (no layout filtering) |
+| Profile enricher | `enrich-invoice-detail-column-profile.ts` | Attaches `column_profile` to `InvoiceDetail` outside `invoices.api.ts` (frozen file) |
+| Vorlage API | `pdf-vorlagen.api.ts` | CRUD for `pdf_vorlagen`; delete blocked if payer references it; `setDefaultVorlage` clears other defaults first |
 | Draft adapter | `build-draft-invoice-detail-for-pdf.ts` | Synthetic `InvoiceDetail` for builder live preview only |
 | Format helpers | `lib/invoice-pdf-format.ts` | EUR, dates, IBAN display, sender one-liner |
 | Places / routes | `lib/invoice-pdf-places.ts` | Canonical addresses, hint map, airport label |
@@ -168,4 +250,4 @@ Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/
 
 ---
 
-*Architecture notes updated through Phase 5 (+ Phase 5b prompt linked).*
+*Architecture notes updated through Phase 6g (PDF-Vorlagen + dynamic column system).*
