@@ -723,9 +723,25 @@ export function InvoiceBuilder({
               isCreating={isCreating}
               submitDisabled={isCreating || !section4Unlocked}
               hideSubmitButton
-              onConfirm={(step4Values) =>
-                createInvoice(step4Values, pdfOverrideRef.current)
-              }
+              onConfirm={(step4Values) => {
+                // Phase 9c — layout snapshot: always write the full resolved profile
+                // (main_columns + appendix_columns + main_layout) to pdf_column_override
+                // so the invoice renders exactly as the dispatcher saw in the builder
+                // preview, regardless of later Vorlage changes (§14 UStG snapshot).
+                // When 'Spalten anpassen' is ON, preserve the user's custom column
+                // arrays; otherwise use the preview's resolved columns from
+                // builderColumnProfile. Tier 1 always wins for new invoices.
+                const snapshotOverride: PdfColumnOverridePayload = {
+                  main_columns:
+                    pdfOverrideRef.current?.main_columns ??
+                    builderColumnProfile.main_columns,
+                  appendix_columns:
+                    pdfOverrideRef.current?.appendix_columns ??
+                    builderColumnProfile.appendix_columns,
+                  main_layout: builderColumnProfile.main_layout
+                };
+                createInvoice(step4Values, snapshotOverride);
+              }}
               payerIntroBlockId={selectedPayer?.default_intro_block_id}
               payerOutroBlockId={selectedPayer?.default_outro_block_id}
               defaultRechnungsempfaengerId={catalogRecipientId}
