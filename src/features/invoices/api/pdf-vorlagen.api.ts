@@ -21,8 +21,16 @@ function rowFromDb(raw: Record<string, unknown>): PdfVorlageRow {
   const main = pdfColumnKeyArraySchema.parse(raw.main_columns);
   const appendix = pdfColumnKeyArraySchema.parse(raw.appendix_columns);
   const layoutRaw = raw.main_layout;
+  // Preserve all four known layout values; fall back to 'grouped' for legacy rows
+  // that pre-date Phase 9 (null or any other unexpected value from older migrations).
   const main_layout: PdfVorlageRow['main_layout'] =
-    layoutRaw === 'flat' ? 'flat' : 'grouped';
+    layoutRaw === 'flat'
+      ? 'flat'
+      : layoutRaw === 'single_row'
+        ? 'single_row'
+        : layoutRaw === 'grouped_by_billing_type'
+          ? 'grouped_by_billing_type'
+          : 'grouped';
   return {
     id: String(raw.id),
     company_id: String(raw.company_id),

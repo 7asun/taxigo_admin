@@ -1,52 +1,27 @@
 /**
- * Line net/gross for PDF tables — uses frozen price_resolution_snapshot.net when present
- * (tiered km), else unit_price × quantity. KTS lines are €0 net/gross.
+ * Line net/gross for PDF tables.
+ * Total line net uses persisted column values (unit_price × quantity + approach_fee_net).
  */
 
 import type { InvoiceLineItemRow } from '@/features/invoices/types/invoice.types';
 
 export type PdfLineItemAmountsInput = Pick<
   InvoiceLineItemRow,
-  | 'unit_price'
-  | 'quantity'
-  | 'tax_rate'
-  | 'kts_override'
-  | 'price_resolution_snapshot'
+  'unit_price' | 'quantity' | 'tax_rate' | 'kts_override' | 'approach_fee_net'
 >;
-
-function priceResolutionRecord(
-  snap: PdfLineItemAmountsInput['price_resolution_snapshot']
-): Record<string, unknown> | null {
-  if (snap == null) return null;
-  if (typeof snap === 'string') {
-    try {
-      const v = JSON.parse(snap) as unknown;
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        return v as Record<string, unknown>;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof snap === 'object' && !Array.isArray(snap)) {
-    return snap as Record<string, unknown>;
-  }
-  return null;
-}
 
 export function lineNetEurForPdfLineItem(
   item: PdfLineItemAmountsInput
 ): number {
   if (item.kts_override) return 0;
-  const snap = priceResolutionRecord(item.price_resolution_snapshot);
-  if (snap) {
-    const n = snap.net;
-    if (typeof n === 'number' && !Number.isNaN(n)) {
-      return Math.round(n * 100) / 100;
-    }
-  }
-  return Math.round((item.unit_price ?? 0) * item.quantity * 100) / 100;
+  // Returns total line net including approach fee. Use column values, not snapshot.net
+  // (snapshot.net is base transport only and may be null for some strategies).
+  return (
+    Math.round(
+      ((item.unit_price ?? 0) * item.quantity + (item.approach_fee_net ?? 0)) *
+        100
+    ) / 100
+  );
 }
 
 export function lineGrossEurForPdfLineItem(

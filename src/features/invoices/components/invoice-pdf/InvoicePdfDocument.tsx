@@ -23,7 +23,11 @@ import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
 import type { PriceResolution } from '../../types/pricing.types';
 
-import { buildInvoicePdfSummary } from './lib/build-invoice-pdf-summary';
+import {
+  buildInvoicePdfGroupedByBillingType,
+  buildInvoicePdfSingleRow,
+  buildInvoicePdfSummary
+} from './lib/build-invoice-pdf-summary';
 import {
   recipientFromRechnungsempfaengerSnapshot,
   secondaryLegalFromSnapshot
@@ -73,6 +77,9 @@ function priceResolutionFromLineItem(
     const tr = typeof o.tax_rate === 'number' ? o.tax_rate : li.tax_rate;
     const su = o.strategy_used;
     const src = o.source;
+    const af = o.approach_fee_net;
+    const approachFromSnap =
+      typeof af === 'number' && !Number.isNaN(af) ? af : undefined;
     return {
       gross,
       net,
@@ -85,21 +92,24 @@ function priceResolutionFromLineItem(
         : li.pricing_source) as PriceResolution['source'],
       note: typeof o.note === 'string' ? o.note : undefined,
       unit_price_net: unit,
-      quantity: qty
+      quantity: qty,
+      approach_fee_net: approachFromSnap ?? li.approach_fee_net ?? undefined
     };
   }
   const u = li.unit_price;
   const q = li.quantity;
   const netTotal = Math.round(u * q * 100) / 100;
+  const approach = li.approach_fee_net ?? 0;
   return {
-    gross: Math.round(netTotal * (1 + li.tax_rate) * 100) / 100,
+    gross: Math.round((netTotal + approach) * (1 + li.tax_rate) * 100) / 100,
     net: netTotal,
     tax_rate: li.tax_rate,
     strategy_used: (li.pricing_strategy_used ??
       'trip_price_fallback') as PriceResolution['strategy_used'],
     source: (li.pricing_source ?? 'trip_price') as PriceResolution['source'],
     unit_price_net: u,
-    quantity: q
+    quantity: q,
+    approach_fee_net: li.approach_fee_net ?? undefined
   };
 }
 
@@ -232,6 +242,7 @@ export function InvoicePdfDocument({
     distance_km: li.distance_km,
     unit_price: li.unit_price,
     quantity: li.quantity,
+    approach_fee_net: li.approach_fee_net ?? null,
     tax_rate: li.tax_rate,
     billing_variant_code: li.billing_variant_code,
     billing_variant_name: li.billing_variant_name,
@@ -249,7 +260,23 @@ export function InvoicePdfDocument({
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);
 
-  const { summaryItems } = buildInvoicePdfSummary(invoice);
+  // grouped_by_billing_type: one summary row per Abrechnungsart + tax_rate combination
+  // Splitting by tax_rate ensures no mixed-rate ambiguity — each row is always clean
+  // Uses same InvoicePdfSummaryRow shape as grouped — no renderer changes needed
+  const summaryItems =
+    effectiveProfile.main_layout === 'single_row'
+      ? [
+          buildInvoicePdfSingleRow(
+            invoice.line_items,
+            [
+              invoice.payer?.name ?? 'Abrechnung',
+              `${formatInvoicePdfDate(invoice.period_from)} – ${formatInvoicePdfDate(invoice.period_to)}`
+            ].join(' · ')
+          )
+        ]
+      : effectiveProfile.main_layout === 'grouped_by_billing_type'
+        ? buildInvoicePdfGroupedByBillingType(invoice.line_items)
+        : buildInvoicePdfSummary(invoice).summaryItems;
 
   const dueDateMs =
     new Date(invoice.created_at).getTime() +

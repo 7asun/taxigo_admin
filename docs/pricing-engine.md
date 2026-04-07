@@ -27,9 +27,38 @@ At invoice creation, each `invoice_line_items` row stores:
 - `pricing_strategy_used`, `pricing_source`, `kts_override` — query-friendly.
 - `price_resolution_snapshot` — full frozen `PriceResolution` JSON for audit.
 
-The `price_resolution_snapshot` field is JSONB. PostgREST may return it as a string at runtime — `coerceLineItemJsonbSnapshots` in `src/features/invoices/components/invoice-pdf/pdf-column-layout.ts` handles this transparently before PDF rendering. Do not use `snapshot.net` in the PDF renderer as it is absent for several strategies; derive net from `total_price / (1 + tax_rate)` instead.
+The `price_resolution_snapshot` field is JSONB. PostgREST may return it as a string at runtime — `coerceLineItemJsonbSnapshots` in `src/features/invoices/components/invoice-pdf/pdf-column-layout.ts` handles this transparently before PDF rendering.
+
+**Line net on the PDF (grouped and flat):** use **column math** — `(unit_price × quantity) + (approach_fee_net ?? 0)` — not `price_resolution_snapshot.net`, which is **base transport only** and may be null for some strategies. For a full-line gross check, `total_price` on the row already reflects tax on base + Anfahrt.
+
+Persisted columns:
+
+- `invoice_line_items.approach_fee_net` — optional net add-on per line (frozen at invoice creation).
+- `price_resolution_snapshot.approach_fee_net` — mirrors the resolver when present.
 
 The builder uses `buildLineItemsFromTrips` → `insertLineItems` in `src/features/invoices/api/invoice-line-items.api.ts`. Manual price edits in step 3 refresh `price_resolution` (strategy `manual_trip_price`) before insert.
+
+## Anfahrtspreis (Approach Fee)
+
+A flat per-trip **net** add-on configured on billing rules as `billing_pricing_rules.config.approach_fee_net` (optional, Zod-validated with every strategy config). It is **not** part of `PriceResolution.net` / `gross` — those remain **base transport only**.
+
+**Which strategies receive it from the resolver:** all paths **except**:
+
+- **`client_price_tag`** — the P1 `price_tag` is an **all-in** negotiated gross; adding Anfahrt would break the agreed amount.
+- **`kts_override`** — KTS lines are €0; Anfahrt must not apply.
+
+For every other resolution (including `tiered_km`, `fixed_below_threshold_then_km`, `time_based`, `manual_trip_price`, `trip_price_fallback`, `no_price` with rule present, etc.), if the active rule’s config contains a valid `approach_fee_net`, it is copied onto the returned `PriceResolution.approach_fee_net`.
+
+**Price math (per line):**
+
+- `total_line_net = (unit_price × quantity) + (approach_fee_net ?? 0)` (base from pricing strategy + optional Anfahrt).
+- `total_price` (DB gross) = `total_line_net × (1 + tax_rate)` (same rounding as `insertLineItems`).
+
+**Where stored:** `invoice_line_items.approach_fee_net` and `price_resolution_snapshot.approach_fee_net`.
+
+**Invariant:** `PriceResolution.net` = base transport only (never includes Anfahrt).
+
+More detail: [anfahrtspreis.md](anfahrtspreis.md).
 
 ## Builder integration
 

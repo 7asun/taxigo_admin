@@ -86,7 +86,7 @@ Phase 6 introduced a fully configurable PDF column system. Dispatchers and admin
 
 #### Database additions (6a)
 
-- `pdf_vorlagen` — company-scoped Vorlage definitions: `main_columns` (ordered `text[]`), `appendix_columns` (ordered `text[]`), `main_layout` (`grouped` | `flat`), `is_default`, `name`. RLS scoped to `company_id`.
+- `pdf_vorlagen` — company-scoped Vorlage definitions: `main_columns` (ordered `text[]`), `appendix_columns` (ordered `text[]`), `main_layout` (`grouped` | `flat` | `single_row` | `grouped_by_billing_type`), `is_default`, `name`. RLS scoped to `company_id`.
 - `payers.pdf_vorlage_id` — assigns a preferred Vorlage to a Kostenträger.
 - `invoices.pdf_column_override` — JSONB snapshot of the full resolved `PdfColumnProfile` at invoice creation time (immutable, mirrors the line-item snapshot pattern).
 
@@ -113,10 +113,12 @@ Column flags:
 
 #### Dynamic PDF renderer (6e)
 
-`InvoicePdfCoverBody` renders two modes:
+`InvoicePdfCoverBody` renders:
 
-- **Grouped** (`main_layout: 'grouped'`): uses `InvoicePdfSummaryRow[]` from `buildInvoicePdfSummary()` — only grouped-safe columns rendered
-- **Flat** (`main_layout: 'flat'`): uses `InvoiceLineItemRow[]` directly — per-trip columns available
+- **Grouped** (`main_layout: 'grouped'`): `InvoicePdfSummaryRow[]` from `buildInvoicePdfSummary()` — grouped-safe columns only
+- **Single row** (`main_layout: 'single_row'`): one `InvoicePdfSummaryRow` from `buildInvoicePdfSingleRow()` (same column pool as grouped; all trips collapsed)
+- **Nach Abrechnungsart** (`main_layout: 'grouped_by_billing_type'`): `InvoicePdfSummaryRow[]` from `buildInvoicePdfGroupedByBillingType()` — one row per `(billing_variant_name ?? billing_variant_code ?? 'Unbekannt', tax_rate)` combination; uses the same grouped column pool
+- **Flat** (`main_layout: 'flat'`): `InvoiceLineItemRow[]` — per-trip columns
 
 `InvoicePdfAppendix` always renders flat line items regardless of `main_layout`. Auto-switches to landscape when `appendix_columns.length > APPENDIX_LANDSCAPE_THRESHOLD`.
 
@@ -125,7 +127,34 @@ Column flags:
 - `mainTableKeys` is the **single source array** for `calcColumnWidths`, the header row, and all data rows. Using different arrays for any of these three causes column misalignment after drag reorder.
 - `@react-pdf/renderer` flex rows require `width: '100%'` on row containers and `minWidth: 0, overflow: 'hidden'` on cells or columns overflow and misalign.
 - PostgREST returns JSONB columns (`trip_meta_snapshot`, `price_resolution_snapshot`) as strings despite TypeScript typing them as objects. `coerceLineItemJsonbSnapshots` parses them once per row before any `renderCellValue` call.
-- `net_price` is derived as `total_price / (1 + tax_rate)` — `price_resolution_snapshot.net` is absent for several pricing strategies and must not be used in the PDF renderer.
+- Per-line net for grouping and aggregates uses **`(unit_price × quantity) + (approach_fee_net ?? 0)`** (`lineNetEurForPdfLineItem`). Do not use `price_resolution_snapshot.net` for that total — it is base-only and may be null. Where a single gross-backed net is needed, `total_price / (1 + tax_rate)` still matches the stored line gross.
+
+#### Phase 9 — grouped_by_billing_type layout
+
+Fourth `main_layout` value: groups invoice cover rows by Abrechnungsart instead of route.
+
+**`main_layout` modes:**
+
+| `main_layout` | Description |
+|---|---|
+| `grouped` | Grouped by route (Hinfahrt/Rückfahrt address pairs) |
+| `flat` | One row per trip |
+| `single_row` | All trips collapsed into one summary row |
+| `grouped_by_billing_type` | One row per (Abrechnungsart, MwSt.-Satz) combination — if a billing type has trips at both 7% and 19%, they appear as two separate rows |
+
+**Grouping key:** `billing_variant_name ?? billing_variant_code ?? 'Unbekannt'` combined with `tax_rate`. This composite key guarantees every output row has exactly one tax rate — no approximations, no hidden mixed-rate scenarios.
+
+**`from`/`to` fields:** set to empty `CanonicalPlace`; origin/destination addresses are not meaningful at billing-category level.
+
+**`total_km`:** `null` when any trip in the group has a null `distance_km` (rendered as `—`); mirrors route-group semantics.
+
+**Future path:** when `billing_type_name` is added to `invoice_line_items` as a snapshotted column, the grouping key should be changed to `billing_type_name + tax_rate` to enable family-level grouping (one row per Abrechnungsfamilie per tax rate).
+
+#### Phase 8 — Anfahrtspreis + extended summary
+
+- **`single_row`:** third `main_layout` — entire invoice as **one** summary row (label from payer + period on the cover, not a `subject` field).
+- **`InvoicePdfSummaryRow`:** adds `total_km`, `has_null_km`, `approach_costs_net`, `transport_costs_net`, `total_costs_gross` (transport net = total line net minus summed approach; gross uses the same tax rounding as the rest of the PDF).
+- **Catalog keys** (grouped / `single_row`): `trip_count`, `total_km`, `approach_costs`, `transport_costs`, `total_net`, `total_gross`; flat layout can expose `approach_fee_line` where applicable. See `pdf-column-catalog.ts` and [anfahrtspreis.md](anfahrtspreis.md).
 
 #### Storno behavior
 
@@ -138,7 +167,7 @@ Route: `/dashboard/settings/pdf-vorlagen`
 - PanelList of all company Vorlagen (left) + editor panel (right)
 - dnd-kit sortable column chips for reordering
 - Separate column pickers for main page and appendix
-- Layout radio: `gruppiert` vs. `pro Fahrt`
+- Layout radio: `gruppiert`, `eine Zeile (Gesamtübersicht)`, `pro Fahrt`, `nach Abrechnungsart`
 - Switching layout migrates existing columns: surviving valid keys are kept, incompatible columns dropped, never leaves list empty
 
 #### Payer assignment

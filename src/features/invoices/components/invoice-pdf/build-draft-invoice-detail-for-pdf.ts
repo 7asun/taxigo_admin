@@ -57,7 +57,11 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
     distance_km: item.distance_km,
     unit_price: u,
     quantity: q,
-    total_price: Math.round(u * q * (1 + item.tax_rate) * 100) / 100,
+    approach_fee_net: item.approach_fee_net ?? null,
+    total_price:
+      Math.round(
+        (u * q + (item.approach_fee_net ?? 0)) * (1 + item.tax_rate) * 100
+      ) / 100,
     tax_rate: item.tax_rate,
     billing_variant_code: item.billing_variant_code,
     billing_variant_name: item.billing_variant_name,

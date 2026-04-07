@@ -105,10 +105,12 @@ export interface InvoiceLineItemRow {
   distance_km: number | null; // driving distance (from trips.driving_distance_km)
   unit_price: number; // price per unit (per trip or per km)
   quantity: number; // usually 1; or distance_km for per-km pricing
-  total_price: number; // Bruttobetrag snapshot = unit_price × quantity × (1 + tax_rate)
+  total_price: number; // Bruttobetrag = (unit_price × quantity + approach_fee_net) × (1 + tax_rate)
   tax_rate: number; // 0.07 or 0.19 (decimal fraction)
   billing_variant_code: string | null; // e.g. "V01"
   billing_variant_name: string | null; // e.g. "Vollversorgung"
+  /** Net Anfahrtspreis snapshot. Null before Phase 8 or when none — treat as 0. */
+  approach_fee_net: number | null;
   created_at: string;
   pricing_strategy_used: string | null;
   pricing_source: string | null;
@@ -230,6 +232,8 @@ export interface TripForInvoice {
     billing_type_id: string;
     rechnungsempfaenger_id: string | null;
     billing_type?: {
+      /** Family name (e.g. "Krankenfahrt") — used by formatBillingDisplayLabel to promote "Standard" variants. */
+      name: string | null;
       rechnungsempfaenger_id: string | null;
     } | null;
   } | null;
@@ -336,6 +340,8 @@ export interface BuilderLineItem {
    * user overrides in step 3; `null` means unresolved / missing (step-3 `missing_price`).
    */
   unit_price: number | null;
+  /** Net Anfahrtspreis for this trip. Null if resolver omitted it (no rule fee or tag/KTS path). */
+  approach_fee_net: number | null;
   /**
    * Billing quantity from `PriceResolution.quantity` (usually `1`; equals km for per-km rules).
    */

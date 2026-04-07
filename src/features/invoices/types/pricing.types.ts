@@ -35,11 +35,16 @@ export interface KmTier {
   price_per_km: number;
 }
 
-export interface TieredKmConfig {
+/** Optional Anfahrtspreis on billing rule `config` JSON (all strategies may carry it). */
+export interface ApproachFeeConfig {
+  approach_fee_net?: number | null;
+}
+
+export interface TieredKmConfig extends ApproachFeeConfig {
   tiers: KmTier[];
 }
 
-export interface FixedBelowThresholdThenKmConfig {
+export interface FixedBelowThresholdThenKmConfig extends ApproachFeeConfig {
   threshold_km: number;
   fixed_price: number;
   km_tiers: KmTier[];
@@ -56,7 +61,7 @@ export type TimeBasedWorkingHours = Partial<
   Record<WeekdayKey, DayWorkingHours | null>
 >;
 
-export interface TimeBasedConfig {
+export interface TimeBasedConfig extends ApproachFeeConfig {
   fixed_fee: number;
   working_hours: TimeBasedWorkingHours;
   holiday_rule: 'closed' | 'normal';
@@ -64,7 +69,7 @@ export interface TimeBasedConfig {
 }
 
 export type BillingPricingRuleConfig =
-  | Record<string, never>
+  | (Record<string, never> & ApproachFeeConfig)
   | TieredKmConfig
   | FixedBelowThresholdThenKmConfig
   | TimeBasedConfig;
@@ -86,6 +91,7 @@ export interface BillingPricingRuleLike {
  */
 export interface PriceResolution {
   gross: number | null;
+  /** Base transport net only — excludes Anfahrtspreis. */
   net: number | null;
   tax_rate: number;
   strategy_used: PriceStrategyUsed;
@@ -95,6 +101,11 @@ export interface PriceResolution {
   unit_price_net: number | null;
   /** Billing quantity (1 for flat; driving_distance_km for per-km). */
   quantity: number;
+  /**
+   * Flat Anfahrtspreis (net) in addition to base transport. Omitted when none applies.
+   * Not included in `net` / `gross`. Line total net = `net` + `(approach_fee_net ?? 0)` at persistence.
+   */
+  approach_fee_net?: number | null;
 }
 
 export interface RechnungsempfaengerCatalogRow {

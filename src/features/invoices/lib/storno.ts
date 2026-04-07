@@ -24,7 +24,7 @@ function negatePriceResolutionSnapshot(
 ): Record<string, unknown> | null {
   if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return snap;
   const o = { ...snap } as Record<string, unknown>;
-  for (const k of ['net', 'gross', 'unit_price_net']) {
+  for (const k of ['net', 'gross', 'unit_price_net', 'approach_fee_net']) {
     const v = o[k];
     if (typeof v === 'number') o[k] = -Math.abs(v);
   }
@@ -129,6 +129,8 @@ export async function createStornorechnung(
       unit_price: -Math.abs(item.unit_price),
       quantity: item.quantity,
       total_price: -Math.abs(item.total_price),
+      approach_fee_net:
+        item.approach_fee_net != null ? -Math.abs(item.approach_fee_net) : null,
       tax_rate: item.tax_rate,
       billing_variant_code: item.billing_variant_code,
       billing_variant_name: item.billing_variant_name,

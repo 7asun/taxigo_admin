@@ -273,11 +273,6 @@ export function renderCellValue(
   }
 }
 
-function groupedNetFromGross(gross: number, taxRate: number): number {
-  if (!taxRate || taxRate <= -1) return gross;
-  return Math.round((gross / (1 + taxRate)) * 100) / 100;
-}
-
 function rawForGroupedRow(
   row: InvoicePdfSummaryRow,
   col: PdfColumnDef
@@ -285,7 +280,8 @@ function rawForGroupedRow(
   const vs = col.valueSource;
   if (vs === 'summary_quantity_x') return row.quantity;
   if (vs === 'line_net_eur') {
-    return groupedNetFromGross(row.total_price, row.tax_rate);
+    // `InvoicePdfSummaryRow.total_price` is aggregated line net (incl. Anfahrt), not gross.
+    return row.total_price;
   }
   if (vs === 'grouped_route_leistung') return null;
   return getNestedValue(row, col.dataField);

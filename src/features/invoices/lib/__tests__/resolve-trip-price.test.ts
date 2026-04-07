@@ -72,6 +72,48 @@ describe('resolveTripPrice', () => {
     expect(r.net).toBeCloseTo(119 / 1.19, 5);
   });
 
+  test('negotiated price_tag: no approach_fee_net even if rule has Anfahrt', () => {
+    const r = resolveTripPrice(
+      {
+        ...baseTrip,
+        client: { price_tag: 119 },
+        driving_distance_km: 100
+      },
+      0.19,
+      rule({
+        payer_id: 'p1',
+        billing_type_id: null,
+        billing_variant_id: null,
+        strategy: 'tiered_km',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 99 }],
+          approach_fee_net: 5
+        }
+      })
+    );
+    expect(r.source).toBe('client_price_tag');
+    expect(r.approach_fee_net).toBeUndefined();
+  });
+
+  test('KTS: no approach_fee_net on resolution', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, kts_document_applies: true },
+      0.19,
+      rule({
+        payer_id: 'p1',
+        billing_type_id: null,
+        billing_variant_id: null,
+        strategy: 'tiered_km',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 2 }],
+          approach_fee_net: 5
+        }
+      })
+    );
+    expect(r.source).toBe('kts_override');
+    expect(r.approach_fee_net).toBeUndefined();
+  });
+
   test('tiered_km when no tag', () => {
     const r = resolveTripPrice(baseTrip, 0.07, {
       ...rule({
@@ -87,6 +129,24 @@ describe('resolveTripPrice', () => {
     expect(r.strategy_used).toBe('tiered_km');
     expect(r.net).toBe(20);
     expect(r.quantity).toBe(10);
+  });
+
+  test('tiered_km merges approach_fee_net from rule config', () => {
+    const r = resolveTripPrice(baseTrip, 0.07, {
+      ...rule({
+        strategy: 'tiered_km',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 2 }],
+          approach_fee_net: 5
+        }
+      }),
+      payer_id: 'p1',
+      billing_type_id: null,
+      billing_variant_id: null
+    });
+    expect(r.strategy_used).toBe('tiered_km');
+    expect(r.net).toBe(20);
+    expect(r.approach_fee_net).toBe(5);
   });
 
   test('no rule uses trip.price', () => {

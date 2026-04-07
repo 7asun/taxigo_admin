@@ -86,6 +86,8 @@ type DaysForm = Record<WeekdayKey, DaySlotFormValue>;
 
 interface PricingRuleFormValues {
   strategy: PricingStrategy;
+  /** Optional net Anfahrtspreis — merged into rule `config` for all strategies (resolver applies per cascade). */
+  approach_fee_net: number | null;
   tiers: KmTierFormValue[];
   threshold_km: number;
   fixed_price: number;
@@ -144,6 +146,7 @@ function buildWorkingHoursFromDays(
 function defaultFormValues(): PricingRuleFormValues {
   return {
     strategy: 'tiered_km',
+    approach_fee_net: null,
     tiers: [defaultTier()],
     threshold_km: 4,
     fixed_price: 15,
@@ -195,6 +198,12 @@ export function PricingRuleDialog({
       const cfg = editing.config as Record<string, unknown>;
       const base = defaultFormValues();
       base.strategy = s;
+      if (
+        typeof cfg.approach_fee_net === 'number' &&
+        !Number.isNaN(cfg.approach_fee_net)
+      ) {
+        base.approach_fee_net = cfg.approach_fee_net;
+      }
       if (s === 'tiered_km' && Array.isArray(cfg.tiers)) {
         base.tiers = cfg.tiers as KmTierFormValue[];
       }
@@ -233,31 +242,50 @@ export function PricingRuleDialog({
   }, [scope]);
 
   const buildApiPayload = (v: PricingRuleFormValues) => {
+    const withApproach = (
+      config: Record<string, unknown>
+    ): Record<string, unknown> => {
+      if (
+        v.approach_fee_net != null &&
+        Number.isFinite(v.approach_fee_net) &&
+        v.approach_fee_net >= 0
+      ) {
+        return { ...config, approach_fee_net: v.approach_fee_net };
+      }
+      return config;
+    };
+
     switch (v.strategy) {
       case 'client_price_tag':
       case 'manual_trip_price':
       case 'no_price':
-        return { strategy: v.strategy, config: {} };
+        return {
+          strategy: v.strategy,
+          config: withApproach({})
+        };
       case 'tiered_km':
-        return { strategy: v.strategy, config: { tiers: v.tiers } };
+        return {
+          strategy: v.strategy,
+          config: withApproach({ tiers: v.tiers })
+        };
       case 'fixed_below_threshold_then_km':
         return {
           strategy: v.strategy,
-          config: {
+          config: withApproach({
             threshold_km: v.threshold_km,
             fixed_price: v.fixed_price,
             km_tiers: v.km_tiers
-          }
+          })
         };
       case 'time_based':
         return {
           strategy: v.strategy,
-          config: {
+          config: withApproach({
             fixed_fee: v.fixed_fee,
             working_hours: buildWorkingHoursFromDays(v.days),
             holiday_rule: v.holiday_rule,
             holidays: v.holidays
-          }
+          })
         };
       default: {
         const _e: never = v.strategy;
@@ -366,6 +394,45 @@ export function PricingRuleDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div>
+            <Label htmlFor='approach_fee_net'>
+              Anfahrtspreis (Netto, optional)
+            </Label>
+            <Controller
+              control={control}
+              name='approach_fee_net'
+              render={({ field }) => (
+                <Input
+                  id='approach_fee_net'
+                  type='number'
+                  step='0.01'
+                  min='0'
+                  className='mt-1'
+                  placeholder='z. B. 5,00'
+                  value={
+                    field.value === null || field.value === undefined
+                      ? ''
+                      : String(field.value)
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === '') {
+                      field.onChange(null);
+                      return;
+                    }
+                    const n = parseFloat(raw.replace(',', '.'));
+                    field.onChange(Number.isNaN(n) ? null : n);
+                  }}
+                  disabled={saving}
+                />
+              )}
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Pro Fahrt netto; wird bei Staffeln, Fix+km und Zeit angewendet —
+              nicht bei Kunden-Preis (P-Tag) oder KTS.
+            </p>
           </div>
 
           {strategy === 'tiered_km' && (

@@ -6,6 +6,11 @@ import { z } from 'zod';
 
 import type { PricingStrategy } from '@/features/invoices/types/pricing.types';
 
+/** Shared optional Anfahrtspreis (net) — any strategy may define it in config. */
+export const approachFeeSchema = z.object({
+  approach_fee_net: z.number().min(0).nullable().optional()
+});
+
 /** One km tier — contiguous tiers validated at UI level; resolver assumes coverage. */
 export const kmTierSchema = z.object({
   // from_km: inclusive start of segment
@@ -20,6 +25,7 @@ export const tieredKmConfigSchema = z
   .object({
     tiers: z.array(kmTierSchema).min(1)
   })
+  .merge(approachFeeSchema)
   .strict();
 
 /** branch: fixed_below_threshold_then_km */
@@ -29,6 +35,7 @@ export const fixedBelowThresholdThenKmConfigSchema = z
     fixed_price: z.number().nonnegative(),
     km_tiers: z.array(kmTierSchema).min(1)
   })
+  .merge(approachFeeSchema)
   .strict();
 
 const dayHoursSchema = z
@@ -54,10 +61,11 @@ export const timeBasedConfigSchema = z
     holiday_rule: z.enum(['closed', 'normal']),
     holidays: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
   })
+  .merge(approachFeeSchema)
   .strict();
 
-/** Empty config strategies */
-export const emptyConfigSchema = z.object({}).strict();
+/** Empty config strategies (client_price_tag, manual_trip_price, no_price) + optional approach fee */
+export const emptyConfigSchema = z.object({}).merge(approachFeeSchema).strict();
 
 /**
  * Discriminated union on strategy — use when validating API body { strategy, config }.

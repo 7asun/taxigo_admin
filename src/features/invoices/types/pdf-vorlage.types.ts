@@ -15,6 +15,12 @@ import {
   type PdfColumnKey
 } from '@/features/invoices/lib/pdf-column-catalog';
 
+export type MainLayout =
+  | 'grouped'
+  | 'flat'
+  | 'single_row'
+  | 'grouped_by_billing_type';
+
 /** DB row: pdf_vorlagen */
 export interface PdfVorlageRow {
   /** pdf_vorlagen.id */
@@ -29,8 +35,8 @@ export interface PdfVorlageRow {
   main_columns: PdfColumnKey[];
   /** pdf_vorlagen.appendix_columns — ordered PdfColumnKey[] */
   appendix_columns: PdfColumnKey[];
-  /** pdf_vorlagen.main_layout — grouped vs flat main table (appendix always flat) */
-  main_layout: 'grouped' | 'flat';
+  /** pdf_vorlagen.main_layout — grouped, single summary row, or flat per trip (appendix always flat) */
+  main_layout: MainLayout;
   /** pdf_vorlagen.is_default — at most one true per company (partial unique index) */
   is_default: boolean;
   /** pdf_vorlagen.created_at */
@@ -45,7 +51,12 @@ export const pdfColumnKeyArraySchema = z
   .array(pdfColumnKeySchema)
   .min(1, 'Mindestens eine Spalte erforderlich');
 
-const mainLayoutSchema = z.enum(['grouped', 'flat']);
+const mainLayoutSchema = z.enum([
+  'grouped',
+  'flat',
+  'single_row',
+  'grouped_by_billing_type'
+]);
 
 /** Validates invoices.pdf_column_override JSON before persist. */
 export const pdfColumnOverrideSchema = z.object({
@@ -61,7 +72,7 @@ export interface PdfColumnProfile {
   main_columns: PdfColumnKey[];
   appendix_columns: PdfColumnKey[];
   /** Main page table mode — from Vorlage, override, or 'grouped' for system fallback. */
-  main_layout: 'grouped' | 'flat';
+  main_layout: MainLayout;
   /** True when appendix column count exceeds APPENDIX_LANDSCAPE_THRESHOLD */
   appendix_is_landscape: boolean;
   /** Which step in the 4-level chain supplied the columns */
@@ -82,6 +93,6 @@ export interface PdfVorlageUpdatePayload {
   description?: string | null;
   main_columns?: PdfColumnKey[];
   appendix_columns?: PdfColumnKey[];
-  main_layout?: 'grouped' | 'flat';
+  main_layout?: MainLayout;
   is_default?: boolean;
 }

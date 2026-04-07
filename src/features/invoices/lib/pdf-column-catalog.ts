@@ -314,6 +314,90 @@ export const PDF_COLUMN_CATALOG: PdfColumnDef[] = [
     align: 'center',
     format: 'text',
     flatOnly: true
+  },
+  {
+    key: 'trip_count',
+    label: 'Anzahl',
+    uiLabel: 'Anzahl Fahrten',
+    description: 'Anzahl der Fahrten in dieser Gruppe (ohne „x“-Suffix)',
+    dataField: 'quantity',
+    defaultWidthPt: 32,
+    minWidthPt: 28,
+    align: 'right',
+    format: 'integer',
+    groupedOnly: true
+  },
+  {
+    key: 'total_km',
+    label: 'Strecke',
+    uiLabel: 'Gesamtstrecke (km)',
+    description: 'Summe aller Kilometer in dieser Gruppe',
+    dataField: 'total_km',
+    defaultWidthPt: 48,
+    minWidthPt: 40,
+    align: 'right',
+    format: 'km',
+    groupedOnly: true
+  },
+  {
+    key: 'approach_costs',
+    label: 'Anfahrt',
+    uiLabel: 'Anfahrtskosten',
+    description: 'Anfahrtskosten (netto) für diese Gruppe',
+    dataField: 'approach_costs_net',
+    defaultWidthPt: 55,
+    minWidthPt: 44,
+    align: 'right',
+    format: 'currency',
+    groupedOnly: true
+  },
+  {
+    key: 'transport_costs',
+    label: 'Beförderung',
+    uiLabel: 'Beförderungskosten',
+    description: 'Beförderungskosten ohne Anfahrt (netto)',
+    dataField: 'transport_costs_net',
+    defaultWidthPt: 65,
+    minWidthPt: 52,
+    align: 'right',
+    format: 'currency',
+    groupedOnly: true
+  },
+  {
+    key: 'total_net',
+    label: 'Gesamt netto',
+    uiLabel: 'Gesamtkosten (netto)',
+    description: 'Beförderung + Anfahrt (netto)',
+    dataField: 'total_price',
+    defaultWidthPt: 65,
+    minWidthPt: 52,
+    align: 'right',
+    format: 'currency',
+    groupedOnly: true
+  },
+  {
+    key: 'total_gross',
+    label: 'Gesamt brutto',
+    uiLabel: 'Gesamtkosten (brutto)',
+    description: 'Gesamtkosten inkl. MwSt.',
+    dataField: 'total_costs_gross',
+    defaultWidthPt: 70,
+    minWidthPt: 56,
+    align: 'right',
+    format: 'currency',
+    groupedOnly: true
+  },
+  {
+    key: 'approach_fee_line',
+    label: 'Anfahrt',
+    uiLabel: 'Anfahrtskosten (Zeile)',
+    description: 'Anfahrtspreis dieser einzelnen Fahrt (netto)',
+    dataField: 'approach_fee_net',
+    defaultWidthPt: 52,
+    minWidthPt: 44,
+    align: 'right',
+    format: 'currency',
+    flatOnly: true
   }
 ];
 

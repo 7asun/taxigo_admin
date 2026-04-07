@@ -8,6 +8,7 @@
  * **Main table modes**
  * - **`grouped`** — rows from `buildInvoicePdfSummary` (`InvoicePdfSummaryRow`); Route/Leistung is
  *   two lines when `valueSource === grouped_route_leistung`.
+ * - **`single_row`** — one aggregated `InvoicePdfSummaryRow` from `buildInvoicePdfSingleRow` (same columns as grouped).
  * - **`flat`** — one row per `invoice.line_items` (`InvoiceLineItemRow`), with JSONB coercion per row.
  *
  * **`mainTableKeys`** — render-time filter: drops `flatOnly` columns in grouped mode and `groupedOnly`
@@ -101,7 +102,7 @@ export function InvoicePdfCoverBody({
   introText,
   outroText
 }: InvoicePdfCoverBodyProps) {
-  const isGrouped = columnProfile.main_layout === 'grouped';
+  const isGroupedMode = columnProfile.main_layout !== 'flat';
   // Render-time safety filter: drop columns that are incompatible with the current
   // layout. This handles Vorlagen saved before flatOnly/groupedOnly flags existed.
   // The resolver intentionally does NOT filter — it preserves saved user data.
@@ -110,8 +111,8 @@ export function InvoicePdfCoverBody({
     (key): key is PdfColumnKey => {
       const col = PDF_COLUMN_MAP[key];
       if (!col) return false;
-      if (isGrouped && col.flatOnly) return false;
-      if (!isGrouped && col.groupedOnly) return false;
+      if (isGroupedMode && col.flatOnly) return false;
+      if (!isGroupedMode && col.groupedOnly) return false;
       return true;
     }
   );
@@ -161,7 +162,7 @@ export function InvoicePdfCoverBody({
         })}
       </View>
 
-      {isGrouped
+      {isGroupedMode
         ? summaryItems.map((item, idx) => (
             <View
               key={item.id}

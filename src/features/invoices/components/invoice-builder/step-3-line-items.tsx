@@ -361,6 +361,15 @@ export function Step3LineItems({
                                 </Badge>
                               ) : null;
                             })()}
+                            {item.approach_fee_net != null &&
+                              item.approach_fee_net > 0 && (
+                                <span
+                                  className='text-muted-foreground text-xs'
+                                  title='Anfahrtspreis gemäß Abrechnungsregel'
+                                >
+                                  + {formatEur(item.approach_fee_net)} Anfahrt
+                                </span>
+                              )}
                           </div>
                         ) : (
                           <span className='font-medium text-amber-500'>

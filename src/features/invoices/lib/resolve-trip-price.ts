@@ -8,12 +8,18 @@
  *
  * Tiered km: sum raw (km × rate) then round once to cents.
  * time_based: Europe/Berlin wall clock + calendar date for holidays.
+ *
+ * Anfahrtspreis (`approach_fee_net` on the returned resolution):
+ * - client_price_tag is an all-in negotiated gross — approach fee does NOT apply.
+ * - KTS lines are legally €0 — approach fee must be omitted.
+ * - All other strategies: attach `approach_fee_net` from active rule config if present.
  */
 import { parseISO } from 'date-fns';
 import { tz } from '@date-fns/tz';
 
 import { parseConfigForStrategy } from '@/features/invoices/lib/pricing-rule-config.schema';
 import type {
+  ApproachFeeConfig,
   BillingPricingRuleLike,
   FixedBelowThresholdThenKmConfig,
   KmTier,
@@ -46,6 +52,34 @@ function ruleScopeSource(rule: BillingPricingRuleLike): PriceResolutionSource {
   if (rule.billing_variant_id) return 'variant';
   if (rule.billing_type_id) return 'billing_type';
   return 'payer';
+}
+
+/** Optional net Anfahrtspreis from parsed rule config; undefined = omit on resolution. */
+function extractApproachFeeNet(
+  rule: BillingPricingRuleLike | null
+): number | undefined {
+  if (!rule?.is_active) return undefined;
+  try {
+    const cfg = parseConfigForStrategy(
+      rule.strategy,
+      rule.config
+    ) as ApproachFeeConfig;
+    const v = cfg.approach_fee_net;
+    if (v === null || v === undefined) return undefined;
+    if (typeof v !== 'number' || Number.isNaN(v) || v < 0) return undefined;
+    return roundMoneyOnce(v);
+  } catch {
+    return undefined;
+  }
+}
+
+function withApproachFeeFromRule(
+  base: PriceResolution,
+  rule: BillingPricingRuleLike | null
+): PriceResolution {
+  const fee = extractApproachFeeNet(rule);
+  if (fee === undefined) return base;
+  return { ...base, approach_fee_net: fee };
 }
 
 const JS_DAY_TO_KEY: Record<number, WeekdayKey> = {
@@ -311,7 +345,11 @@ export function resolveTripPrice(
   taxRate: number,
   rule: BillingPricingRuleLike | null
 ): PriceResolution {
-  // Priority 0 — KTS hard override
+  // client_price_tag is an all-in negotiated gross — approach fee does NOT apply.
+  // KTS lines are legally €0 — approach fee must be omitted.
+  // All other strategies: attach approach_fee_net from rule config if present.
+
+  // Priority 0 — KTS hard override (no Anfahrtspreis)
   if (trip.kts_document_applies === true) {
     return {
       gross: 0,
@@ -325,7 +363,7 @@ export function resolveTripPrice(
     };
   }
 
-  // Priority 1 — client price_tag (gross → net), beats all catalog strategies
+  // Priority 1 — client price_tag (gross → net), beats all catalog strategies (no Anfahrtspreis)
   const tag = trip.client?.price_tag;
   if (tag !== null && tag !== undefined) {
     const net = roundMoneyOnce(tag / (1 + taxRate));
@@ -343,32 +381,38 @@ export function resolveTripPrice(
   // Priority 2 — catalog rule strategies (skipped entirely when price_tag already won at P1).
   if (rule && rule.is_active) {
     const r = executeStrategy(rule, rule.strategy, trip, taxRate);
-    if (r) return r;
+    if (r) return withApproachFeeFromRule(r, rule);
   }
 
   // Priority 3 — stored trip net when no rule produced an amount (or rule returned null).
   if (trip.price !== null && trip.price !== undefined) {
     const n = trip.price;
-    return resolution(
-      {
-        net: n,
-        strategy_used: 'trip_price_fallback',
-        source: 'trip_price',
-        unit_price_net: n,
-        quantity: 1
-      },
-      taxRate
+    return withApproachFeeFromRule(
+      resolution(
+        {
+          net: n,
+          strategy_used: 'trip_price_fallback',
+          source: 'trip_price',
+          unit_price_net: n,
+          quantity: 1
+        },
+        taxRate
+      ),
+      rule
     );
   }
 
   // Priority 4 — nothing left to price; builder shows missing_price until manual entry.
-  return {
-    gross: null,
-    net: null,
-    tax_rate: taxRate,
-    strategy_used: 'no_price',
-    source: 'unresolved',
-    unit_price_net: null,
-    quantity: 1
-  };
+  return withApproachFeeFromRule(
+    {
+      gross: null,
+      net: null,
+      tax_rate: taxRate,
+      strategy_used: 'no_price',
+      source: 'unresolved',
+      unit_price_net: null,
+      quantity: 1
+    },
+    rule
+  );
 }

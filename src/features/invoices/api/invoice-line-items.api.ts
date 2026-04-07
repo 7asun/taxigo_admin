@@ -54,7 +54,10 @@ function legacyPriceSource(
   return null;
 }
 
-/** Recompute price_resolution when the user edits the net unit price in step 3. */
+/**
+ * Recompute price_resolution when the user edits the net unit price in step 3.
+ * Manual edit affects base net only — `approach_fee_net` is preserved as-is from the original resolution.
+ */
 export function applyManualUnitNetToResolution(
   item: BuilderLineItem,
   unitNet: number
@@ -130,7 +133,7 @@ export async function fetchTripsForBuilder(
       payer:payers(rechnungsempfaenger_id),
       billing_variant:billing_variants(
         id, code, name, billing_type_id, rechnungsempfaenger_id,
-        billing_type:billing_types(rechnungsempfaenger_id)
+        billing_type:billing_types(name, rechnungsempfaenger_id)
       ),
       client:clients(id, first_name, last_name, price_tag)
     `
@@ -262,11 +265,14 @@ export function buildLineItemsFromTrips(
       quantity,
       tax_rate: taxRate,
       billing_variant_code: trip.billing_variant?.code ?? null,
-      billing_variant_name: trip.billing_variant?.name ?? null,
+      // Always snapshot the billing_type (family) name — variant name and code are intentionally
+      // ignored. PDF groups by Abrechnungsfamilie only, never by variant (§14 UStG snapshot).
+      billing_variant_name: trip.billing_variant?.billing_type?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
       no_invoice_warning: trip.no_invoice_required === true,
       price_resolution: priceResolution,
       kts_override,
+      approach_fee_net: priceResolution.approach_fee_net ?? null,
       trip_meta: buildTripMetaFromTrip(trip),
       price_source: legacyPriceSource(priceResolution.source),
       _totalPrice:
@@ -305,6 +311,7 @@ export function frozenPriceResolutionForInsert(
 /**
  * Calculates invoice totals (subtotal, tax, grand total) and tax breakdown
  * from a list of builder line items.
+ * Includes `approach_fee_net` per line — must match `insertLineItems` total_price formula.
  */
 export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   subtotal: number;
@@ -317,8 +324,9 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   let subtotal = 0;
 
   for (const item of items) {
-    const lineTotal =
+    const baseNet =
       item.unit_price !== null ? item.unit_price * item.quantity : 0;
+    const lineTotal = baseNet + (item.approach_fee_net ?? 0);
 
     subtotal += lineTotal;
 
@@ -373,7 +381,12 @@ export async function insertLineItems(
       distance_km: item.distance_km,
       unit_price: item.unit_price ?? 0,
       quantity: item.quantity,
-      total_price: (item.unit_price ?? 0) * item.quantity * (1 + item.tax_rate),
+      // total_price = (unit_price × quantity + approach_fee_net) × (1 + tax_rate)
+      total_price:
+        ((item.unit_price ?? 0) * item.quantity +
+          (item.approach_fee_net ?? 0)) *
+        (1 + item.tax_rate),
+      approach_fee_net: item.approach_fee_net ?? null,
       tax_rate: item.tax_rate,
       billing_variant_code: item.billing_variant_code,
       billing_variant_name: item.billing_variant_name,

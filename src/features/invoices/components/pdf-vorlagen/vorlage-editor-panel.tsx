@@ -3,7 +3,7 @@
 /**
  * vorlage-editor-panel.tsx
  *
- * Settings UI: edit one **`pdf_vorlagen`** row — name, description, **main_layout** (grouped/flat),
+ * Settings UI: edit one **`pdf_vorlagen`** row — name, description, **main_layout** (grouped / single_row / flat),
  * ordered **main** and **appendix** column keys.
  *
  * **Catalog as SSOT:** labels and allowed keys come only from `pdf-column-catalog.ts` (`PDF_COLUMN_MAP`,
@@ -55,7 +55,10 @@ import {
   SYSTEM_DEFAULT_MAIN_COLUMNS,
   type PdfColumnKey
 } from '@/features/invoices/lib/pdf-column-catalog';
-import type { PdfVorlageRow } from '@/features/invoices/types/pdf-vorlage.types';
+import type {
+  MainLayout,
+  PdfVorlageRow
+} from '@/features/invoices/types/pdf-vorlage.types';
 
 import { ColumnPicker } from './column-picker';
 import { SortablePdfColumnList } from './sortable-pdf-column-list';
@@ -69,7 +72,7 @@ interface VorlageEditorPanelProps {
     description: string | null;
     main_columns: PdfColumnKey[];
     appendix_columns: PdfColumnKey[];
-    main_layout: 'grouped' | 'flat';
+    main_layout: MainLayout;
   }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSetDefault: (id: string) => Promise<void>;
@@ -94,10 +97,10 @@ export function VorlageEditorPanel({
   const [appendixKeys, setAppendixKeys] = useState<PdfColumnKey[]>([]);
   const [mainOpen, setMainOpen] = useState(true);
   const [annOpen, setAnnOpen] = useState(true);
-  const [mainLayout, setMainLayout] = useState<'grouped' | 'flat'>('grouped');
+  const [mainLayout, setMainLayout] = useState<MainLayout>('grouped');
 
   const mainColumnPool =
-    mainLayout === 'grouped' ? MAIN_GROUPED_COLUMNS : MAIN_FLAT_COLUMNS;
+    mainLayout === 'flat' ? MAIN_FLAT_COLUMNS : MAIN_GROUPED_COLUMNS;
 
   // Reacts to the selected Vorlage row: reset or hydrate local editor state from server data.
   useEffect(() => {
@@ -156,7 +159,16 @@ export function VorlageEditorPanel({
   };
 
   const handleMainLayoutChange = (value: string) => {
-    const next: 'grouped' | 'flat' = value === 'flat' ? 'flat' : 'grouped';
+    // Preserve grouped_by_billing_type explicitly — do not collapse into 'grouped'
+    // All non-flat layouts use MAIN_GROUPED_COLUMNS pool (see column pool logic below)
+    const next: MainLayout =
+      value === 'flat'
+        ? 'flat'
+        : value === 'single_row'
+          ? 'single_row'
+          : value === 'grouped_by_billing_type'
+            ? 'grouped_by_billing_type'
+            : 'grouped';
     setMainLayout(next);
 
     // Layout switch migrates existing column selection to the new layout's valid pool.
@@ -166,15 +178,16 @@ export function VorlageEditorPanel({
     // Important: this is the ONLY place where layout-incompatible columns are
     // deliberately removed from a Vorlage. The resolver and cover renderer only
     // skip them at read/render time — they never rewrite stored JSON.
+    // `single_row` uses the same column pool as `grouped` (summary row shape).
     const validPool =
-      next === 'grouped' ? MAIN_GROUPED_COLUMNS : MAIN_FLAT_COLUMNS;
+      next === 'flat' ? MAIN_FLAT_COLUMNS : MAIN_GROUPED_COLUMNS;
     const validKeys = new Set(validPool.map((c) => c.key));
     setMainKeys((prev) => {
       const surviving = prev.filter((key) => validKeys.has(key));
       if (surviving.length > 0) {
         return surviving;
       }
-      if (next === 'grouped') {
+      if (next !== 'flat') {
         return SYSTEM_DEFAULT_MAIN_COLUMNS.filter((k) => validKeys.has(k));
       }
       return [
@@ -246,21 +259,52 @@ export function VorlageEditorPanel({
           <RadioGroup
             value={mainLayout}
             onValueChange={handleMainLayoutChange}
-            className='flex flex-col gap-2 sm:flex-row sm:gap-6'
+            className='grid grid-cols-2 gap-2'
             disabled={isSaving}
           >
-            <div className='flex items-center gap-2'>
-              <RadioGroupItem value='grouped' id='vorlage-ml-grouped' />
-              <Label htmlFor='vorlage-ml-grouped' className='font-normal'>
-                Gruppiert (Standard)
-              </Label>
-            </div>
-            <div className='flex items-center gap-2'>
-              <RadioGroupItem value='flat' id='vorlage-ml-flat' />
-              <Label htmlFor='vorlage-ml-flat' className='font-normal'>
-                Pro Fahrt (eine Zeile je Fahrt)
-              </Label>
-            </div>
+            <Label
+              htmlFor='layout-grouped'
+              className={cn(
+                'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal',
+                'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5'
+              )}
+            >
+              <RadioGroupItem value='grouped' id='layout-grouped' />
+              Gruppiert
+            </Label>
+            <Label
+              htmlFor='layout-flat'
+              className={cn(
+                'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal',
+                'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5'
+              )}
+            >
+              <RadioGroupItem value='flat' id='layout-flat' />
+              Einzeln
+            </Label>
+            <Label
+              htmlFor='layout-single-row'
+              className={cn(
+                'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal',
+                'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5'
+              )}
+            >
+              <RadioGroupItem value='single_row' id='layout-single-row' />
+              Zusammengefasst
+            </Label>
+            <Label
+              htmlFor='layout-billing-type'
+              className={cn(
+                'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm font-normal',
+                'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5'
+              )}
+            >
+              <RadioGroupItem
+                value='grouped_by_billing_type'
+                id='layout-billing-type'
+              />
+              Nach Abrechnungsart
+            </Label>
           </RadioGroup>
         </div>
 

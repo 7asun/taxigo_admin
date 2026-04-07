@@ -125,9 +125,7 @@ export function Step4Vorlage({
     'grouped';
 
   const mainColumnPool =
-    inheritedMainLayout === 'grouped'
-      ? MAIN_GROUPED_COLUMNS
-      : MAIN_FLAT_COLUMNS;
+    inheritedMainLayout === 'flat' ? MAIN_FLAT_COLUMNS : MAIN_GROUPED_COLUMNS;
 
   // Emit the resolved column profile to the parent (index.tsx) on every change.
   // index.tsx feeds this into useInvoiceBuilderPdfPreview so the live preview
