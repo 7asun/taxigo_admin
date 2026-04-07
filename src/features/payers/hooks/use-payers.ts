@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PayersService } from '../api/payers.service';
 import type { PayerWithBillingCount } from '../types/payer.types';
 import { createClient } from '@/lib/supabase/client';
+import { referenceKeys } from '@/query/keys';
 
 export const PAYERS_QUERY_KEY = 'payers';
 
@@ -32,28 +33,46 @@ export function usePayers() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async ({ name, number }: { name: string; number: string }) => {
+    mutationFn: async ({
+      name,
+      number,
+      default_intro_block_id,
+      default_outro_block_id
+    }: {
+      name: string;
+      number: string;
+      default_intro_block_id?: string | null;
+      default_outro_block_id?: string | null;
+    }) => {
       const companyId = await getCompanyId();
       if (!companyId) throw new Error('Not authenticated');
-      return PayersService.createPayer(companyId, name, number);
+      return PayersService.createPayer(
+        companyId,
+        name,
+        number,
+        default_intro_block_id,
+        default_outro_block_id
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
     }
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({
-      id,
-      name,
-      number
-    }: {
+    mutationFn: (args: {
       id: string;
       name: string;
       number: string;
-    }) => PayersService.updatePayer(id, name, number),
+      kts_default: boolean | null;
+      no_invoice_required_default?: boolean | null;
+      rechnungsempfaenger_id?: string | null;
+      pdf_vorlage_id?: string | null;
+    }) => PayersService.updatePayer(args),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
     }
   });
 

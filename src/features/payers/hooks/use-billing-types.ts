@@ -59,12 +59,16 @@ export function useBillingTypes(payerId: string | undefined | null) {
       /** Omit to auto-generate from Unterart + Familie (unique in family). */
       code?: string;
       sortOrder?: number;
+      kts_default?: boolean | null;
+      no_invoice_required_default?: boolean | null;
     }) =>
       PayersService.createBillingVariant(
         args.familyId,
         args.name,
         args.code,
-        args.sortOrder
+        args.sortOrder,
+        args.kts_default,
+        args.no_invoice_required_default
       ),
     onSuccess: invalidateAll
   });
@@ -91,14 +95,38 @@ export function useBillingTypes(payerId: string | undefined | null) {
   });
 
   const updateFamilyMutation = useMutation({
-    mutationFn: (args: { familyId: string; name: string; color: string }) =>
-      PayersService.updateBillingFamily(args.familyId, args.name, args.color),
+    mutationFn: (args: {
+      familyId: string;
+      name: string;
+      color: string;
+      rechnungsempfaenger_id?: string | null;
+    }) =>
+      PayersService.updateBillingFamily(
+        args.familyId,
+        args.name,
+        args.color,
+        args.rechnungsempfaenger_id
+      ),
     onSuccess: invalidateAll
   });
 
   const updateVariantMutation = useMutation({
-    mutationFn: (args: { variantId: string; name: string; code: string }) =>
-      PayersService.updateBillingVariant(args.variantId, args.name, args.code),
+    mutationFn: (args: {
+      variantId: string;
+      name: string;
+      code: string;
+      kts_default: boolean | null;
+      no_invoice_required_default?: boolean | null;
+      rechnungsempfaenger_id?: string | null;
+    }) =>
+      PayersService.updateBillingVariant(
+        args.variantId,
+        args.name,
+        args.code,
+        args.kts_default,
+        args.no_invoice_required_default,
+        args.rechnungsempfaenger_id
+      ),
     onSuccess: invalidateAll
   });
 

@@ -199,7 +199,9 @@ function UnplannedTripRow({
         scheduled_at: scheduledDate.toISOString(),
         driver_id: driverId
       };
-      const derivedStatus = getStatusWhenDriverChanges(trip.status, driverId);
+      const derivedStatus = getStatusWhenDriverChanges(trip.status, driverId, {
+        fremdfirmaId: trip.fremdfirma_id
+      });
       if (derivedStatus) updatePayload.status = derivedStatus;
 
       await tripsService.updateTrip(trip.id, updatePayload);

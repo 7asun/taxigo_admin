@@ -49,7 +49,8 @@ export default async function TripsListingPage({
     *,
     payer:payers(name),
     billing_variant:billing_variants(name, code, billing_types(name, color)),
-    driver:accounts!trips_driver_id_fkey(name)
+    driver:accounts!trips_driver_id_fkey(name),
+    fremdfirma:fremdfirmen(id, name, default_payment_mode)
   `,
     { count: 'exact' }
   );

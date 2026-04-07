@@ -62,6 +62,14 @@ export interface TripFormSectionsContextType {
   isDropoffLocked: boolean;
   isReturnModeLocked: boolean;
   isPayerSelected: boolean;
+  /** Hint when KTS was prefilled from catalog (Unterart / Familie / Kostenträger). */
+  ktsCatalogHint: string | null;
+  /** Stops auto cascade; pass `clearHint` when turning KTS off so the Voreinstellung-hinweis disappears. */
+  markKtsUserTouched: (opts?: { clearHint?: boolean }) => void;
+  noInvoiceCatalogHint: string | null;
+  markNoInvoiceUserTouched: (opts?: { clearHint?: boolean }) => void;
+  /** Kostenträger+Unterart-Katalog sieht „Keine Rechnung“ vor → UI-Block anzeigen. */
+  catalogNoInvoiceApplies: boolean;
   unassignedPassengers: PassengerEntry[];
   getPickupGroupPassengers: (groupUid: string) => PassengerEntry[];
   getDropoffGroupPassengers: (groupUid: string) => PassengerEntry[];

@@ -92,6 +92,13 @@ export function buildReturnTripInsert(
     vehicle_id: outbound.vehicle_id,
     billing_calling_station: outbound.billing_calling_station,
     billing_betreuer: outbound.billing_betreuer,
+    kts_document_applies: outbound.kts_document_applies,
+    kts_source: outbound.kts_source ?? 'manual',
+    no_invoice_required: outbound.no_invoice_required,
+    no_invoice_source: outbound.no_invoice_source ?? null,
+    fremdfirma_id: null,
+    fremdfirma_payment_mode: null,
+    fremdfirma_cost: null,
     group_id: null,
     // One-off return: do not attach to the recurring rule (if any) on the outbound leg.
     rule_id: null,

@@ -19,12 +19,12 @@ import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics'
 
 export function clientDisplayNameFromParts(
   first: string,
-  last: string
+  last: string,
+  company?: string
 ): string {
-  return [first, last]
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(' ');
+  const parts = [first, last].map((s) => s.trim()).filter(Boolean);
+  if (parts.length > 0) return parts.join(' ');
+  return company?.trim() || '';
 }
 
 export interface BuildTripDetailsPatchInput {
@@ -48,6 +48,12 @@ export interface BuildTripDetailsPatchInput {
   /** `trips.billing_*` — not Fahrgast pickup/dropoff_station. */
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
+  ktsDocumentAppliesDraft: boolean;
+  /** Persisted with `kts_document_applies` (catalog tier vs manual). */
+  ktsSourceForSave: string;
+  noInvoiceRequiredDraft: boolean;
+  /** Persisted with `no_invoice_required`. */
+  noInvoiceSourceForSave: string;
 }
 
 export interface BuildTripDetailsPatchResult {
@@ -75,6 +81,23 @@ export async function buildTripDetailsPatch(
   }
   if (input.billingVariantDraft !== (trip.billing_variant_id ?? '')) {
     patch.billing_variant_id = input.billingVariantDraft || null;
+  }
+  const ktsAppliesNext = !!input.ktsDocumentAppliesDraft;
+  const ktsAppliesWas = !!trip.kts_document_applies;
+  const ktsSourceWas = trip.kts_source ?? '';
+  if (
+    ktsAppliesNext !== ktsAppliesWas ||
+    input.ktsSourceForSave !== ktsSourceWas
+  ) {
+    patch.kts_document_applies = ktsAppliesNext;
+    patch.kts_source = input.ktsSourceForSave;
+  }
+  const noInvNext = !!input.noInvoiceRequiredDraft;
+  const noInvWas = !!trip.no_invoice_required;
+  const noInvSrcWas = trip.no_invoice_source ?? '';
+  if (noInvNext !== noInvWas || input.noInvoiceSourceForSave !== noInvSrcWas) {
+    patch.no_invoice_required = noInvNext;
+    patch.no_invoice_source = input.noInvoiceSourceForSave;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;

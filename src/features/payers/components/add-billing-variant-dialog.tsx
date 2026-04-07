@@ -27,6 +27,13 @@ import {
 import { toast } from 'sonner';
 import { useBillingTypes } from '../hooks/use-billing-types';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
   BILLING_VARIANT_CODE_HINT,
   pickUniqueBillingVariantCode,
   suggestBillingVariantCode
@@ -34,7 +41,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 
 const formSchema = z.object({
-  name: z.string().min(1, { message: 'Name erforderlich' })
+  name: z.string().min(1, { message: 'Name erforderlich' }),
+  kts_variant: z.enum(['unset', 'yes', 'no']),
+  no_invoice_variant: z.enum(['unset', 'yes', 'no'])
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -64,7 +73,11 @@ export function AddBillingVariantDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: '' }
+    defaultValues: {
+      name: '',
+      kts_variant: 'unset',
+      no_invoice_variant: 'unset'
+    }
   });
 
   const nameWatch = form.watch('name');
@@ -75,7 +88,12 @@ export function AddBillingVariantDialog({
   }, [nameWatch, familyName, existingVariantCodes]);
 
   const handleOpenChange = (newOpen: boolean) => {
-    if (newOpen) form.reset({ name: '' });
+    if (newOpen)
+      form.reset({
+        name: '',
+        kts_variant: 'unset',
+        no_invoice_variant: 'unset'
+      });
     onOpenChange(newOpen);
   };
 
@@ -84,7 +102,19 @@ export function AddBillingVariantDialog({
       await createBillingVariant({
         familyId,
         name: data.name.trim(),
-        sortOrder: nextSortOrder
+        sortOrder: nextSortOrder,
+        kts_default:
+          data.kts_variant === 'unset'
+            ? null
+            : data.kts_variant === 'yes'
+              ? true
+              : false,
+        no_invoice_required_default:
+          data.no_invoice_variant === 'unset'
+            ? null
+            : data.no_invoice_variant === 'yes'
+              ? true
+              : false
       });
       toast.success('Unterart erstellt');
       handleOpenChange(false);
@@ -124,6 +154,59 @@ export function AddBillingVariantDialog({
                   <Input placeholder='z. B. KTS, Reha' {...field} autoFocus />
                 </FormControl>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='kts_variant'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>KTS-Standard (Unterart)</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='unset'>
+                      Nicht festlegen (Familie / Kostenträger)
+                    </SelectItem>
+                    <SelectItem value='yes'>Ja</SelectItem>
+                    <SelectItem value='no'>Nein</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  Überschreibt die Abrechnungsfamilie für die
+                  KTS-Voreinstellung.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='no_invoice_variant'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Keine Rechnung (Unterart)</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value='unset'>
+                      Nicht festlegen (Familie / Kostenträger)
+                    </SelectItem>
+                    <SelectItem value='yes'>Ja</SelectItem>
+                    <SelectItem value='no'>Nein</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  Überschreibt die Familie für „Keine Rechnung“-Voreinstellung.
+                </FormDescription>
               </FormItem>
             )}
           />

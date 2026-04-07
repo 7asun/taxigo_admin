@@ -23,7 +23,14 @@ The global default is set in [`query-client.ts`](query-client.ts). While data is
 ## Keys
 
 - [`keys/trips.ts`](keys/trips.ts) — `tripKeys.detail(id)` for trip detail; `tripKeys.unplanned(filter)` / `tripKeys.unplannedRoot` for the dashboard **Offene Touren** list (`useUnplannedTrips`).
-- [`keys/reference.ts`](keys/reference.ts) — `referenceKeys.drivers()`, `referenceKeys.payers()`, `referenceKeys.billingTypes(payerId)` for small reference lists reused across Fahrten filters, `DriverSelectCell`, Kanban, and trip forms. Fetched via [`use-trip-reference-queries.ts`](../features/trips/hooks/use-trip-reference-queries.ts) with a longer `staleTime` (see that file).
+- [`keys/reference.ts`](keys/reference.ts) — `referenceKeys.drivers()`, `referenceKeys.payers()`, `referenceKeys.billingTypes(payerId)` for small reference lists reused across Fahrten filters, `DriverSelectCell`, Kanban, and trip forms. Fetched via [`use-trip-reference-queries.ts`](../features/trips/hooks/use-trip-reference-queries.ts) with a longer `staleTime` (see that file). **`referenceKeys.rechnungsempfaenger()`** — active recipients for Kostenträger / Rechnungs-Builder selects; **`referenceKeys.billingPricingRules(payerId)`** — `billing_pricing_rules` rows for the open Kostenträger (`useBillingPricingRules` invalidates after create/update/delete).
+
+### Kostenträger: two query keys (admin vs trip UI)
+
+- **Admin list** ([`usePayers`](../features/payers/hooks/use-payers.ts)): `queryKey: ['payers']`, full rows including `billing_types(count)` for the Kostenträger page.
+- **Trip / filter reference** (`referenceKeys.payers()`): slim `id, name, kts_default` for **Neue Fahrt** and shared pickers.
+
+`updatePayer` / `createPayer` invalidate **both** keys so trip forms immediately see `kts_default` and the admin cache stays aligned. The detail sheet ([`payer-details-sheet.tsx`](../features/payers/components/payer-details-sheet.tsx)) also resolves the open row from the `usePayers()` cache so the UI updates after save without relying only on the parent’s click snapshot.
 
 ### Reference data invalidation
 

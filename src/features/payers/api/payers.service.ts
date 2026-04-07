@@ -23,6 +23,8 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requirePickupStation: false,
   requireDropoffStation: false,
   askCallingStationAndBetreuer: false,
+  kts_default: 'unset',
+  no_invoice_required_default: 'unset',
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,
@@ -40,7 +42,9 @@ export class PayersService {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('payers')
-      .select('id, name, number, billing_types(count)')
+      .select(
+        'id, name, number, kts_default, no_invoice_required_default, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
+      )
       .order('name');
 
     if (error) {
@@ -54,7 +58,9 @@ export class PayersService {
   static async createPayer(
     companyId: string,
     name: string,
-    number: string
+    number: string,
+    defaultIntroBlockId?: string | null,
+    defaultOutroBlockId?: string | null
   ): Promise<void> {
     if (!companyId) throw new Error('Company ID is required');
 
@@ -62,7 +68,9 @@ export class PayersService {
     const { error } = await supabase.from('payers').insert({
       company_id: companyId,
       name,
-      number
+      number,
+      default_intro_block_id: defaultIntroBlockId || null,
+      default_outro_block_id: defaultOutroBlockId || null
     });
 
     if (error) {
@@ -71,16 +79,33 @@ export class PayersService {
     }
   }
 
-  static async updatePayer(
-    id: string,
-    name: string,
-    number: string
-  ): Promise<void> {
+  static async updatePayer(args: {
+    id: string;
+    name: string;
+    number: string;
+    kts_default: boolean | null;
+    no_invoice_required_default?: boolean | null;
+    rechnungsempfaenger_id?: string | null;
+    pdf_vorlage_id?: string | null;
+  }): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
       .from('payers')
-      .update({ name, number })
-      .eq('id', id);
+      .update({
+        name: args.name,
+        number: args.number,
+        kts_default: args.kts_default,
+        ...(args.no_invoice_required_default !== undefined
+          ? { no_invoice_required_default: args.no_invoice_required_default }
+          : {}),
+        ...(args.rechnungsempfaenger_id !== undefined
+          ? { rechnungsempfaenger_id: args.rechnungsempfaenger_id }
+          : {}),
+        ...(args.pdf_vorlage_id !== undefined
+          ? { pdf_vorlage_id: args.pdf_vorlage_id }
+          : {})
+      })
+      .eq('id', args.id);
 
     if (error) {
       console.error('Error updating payer:', error);
@@ -107,13 +132,17 @@ export class PayersService {
         color,
         behavior_profile,
         created_at,
+        rechnungsempfaenger_id,
         billing_variants (
           id,
           billing_type_id,
           name,
           code,
           sort_order,
-          created_at
+          created_at,
+          kts_default,
+          no_invoice_required_default,
+          rechnungsempfaenger_id
         )
       `
       )
@@ -202,12 +231,19 @@ export class PayersService {
   static async updateBillingFamily(
     familyId: string,
     name: string,
-    color: string
+    color: string,
+    rechnungsempfaengerId?: string | null
   ): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_types')
-      .update({ name: name.trim(), color })
+      .update({
+        name: name.trim(),
+        color,
+        ...(rechnungsempfaengerId !== undefined
+          ? { rechnungsempfaenger_id: rechnungsempfaengerId }
+          : {})
+      })
       .eq('id', familyId);
 
     if (error) {
@@ -224,7 +260,9 @@ export class PayersService {
     familyId: string,
     name: string,
     rawCode: string | null | undefined,
-    sortOrder?: number
+    sortOrder?: number,
+    ktsDefault?: boolean | null,
+    noInvoiceDefault?: boolean | null
   ): Promise<void> {
     const supabase = createClient();
     const trimmedName = name.trim();
@@ -263,7 +301,9 @@ export class PayersService {
       billing_type_id: familyId,
       name: trimmedName,
       code,
-      sort_order: sortOrder ?? 0
+      sort_order: sortOrder ?? 0,
+      kts_default: ktsDefault ?? null,
+      no_invoice_required_default: noInvoiceDefault ?? null
     });
 
     if (error) {
@@ -275,7 +315,10 @@ export class PayersService {
   static async updateBillingVariant(
     variantId: string,
     name: string,
-    rawCode: string
+    rawCode: string,
+    ktsDefault: boolean | null,
+    noInvoiceDefault?: boolean | null,
+    rechnungsempfaengerId?: string | null
   ): Promise<void> {
     const code = normalizeBillingVariantCodeInput(rawCode);
     if (!isValidBillingVariantCode(code)) {
@@ -285,7 +328,17 @@ export class PayersService {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_variants')
-      .update({ name: name.trim(), code })
+      .update({
+        name: name.trim(),
+        code,
+        kts_default: ktsDefault,
+        ...(noInvoiceDefault !== undefined
+          ? { no_invoice_required_default: noInvoiceDefault }
+          : {}),
+        ...(rechnungsempfaengerId !== undefined
+          ? { rechnungsempfaenger_id: rechnungsempfaengerId }
+          : {})
+      })
       .eq('id', variantId);
 
     if (error) {

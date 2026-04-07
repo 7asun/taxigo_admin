@@ -10,6 +10,7 @@ import { AddPayerDialog } from './add-payer-dialog';
 import { PayerDetailsSheet } from './payer-details-sheet';
 import type { PayerWithBillingCount } from '../types/payer.types';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatPayerNumber } from '@/lib/customer-number';
 
 export function PayersPage() {
   const { data: payers, isLoading, error } = usePayers();
@@ -21,7 +22,7 @@ export function PayersPage() {
   const filteredPayers = payers?.filter((p) => {
     const q = searchQuery.toLowerCase();
     const nameMatch = p.name?.toLowerCase().includes(q) ?? false;
-    const numMatch = p.number?.toLowerCase().includes(q) ?? false;
+    const numMatch = formatPayerNumber(p.number).toLowerCase().includes(q);
     return nameMatch || numMatch;
   });
 

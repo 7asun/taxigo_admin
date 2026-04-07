@@ -21,6 +21,8 @@ import {
   ruleFormSchema,
   getRuleFormDefaults
 } from './recurring-rule-form-body';
+import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
 
 /**
  * RecurringRuleSheet
@@ -64,6 +66,9 @@ export function RecurringRuleSheet({
     defaultValues: getRuleFormDefaults(initialData)
   });
 
+  const payerWatch = form.watch('payer_id');
+  const { payers, billingTypes } = useTripFormData(payerWatch);
+
   // Reset form whenever the sheet opens or the target rule changes
   React.useEffect(() => {
     if (isOpen) {
@@ -75,25 +80,11 @@ export function RecurringRuleSheet({
     try {
       setIsSubmitting(true);
 
-      const rruleString = `FREQ=WEEKLY;BYDAY=${values.days.join(',')}`;
-      const ruleData = {
-        client_id: clientId,
-        rrule_string: rruleString,
-        payer_id: values.payer_id,
-        billing_variant_id: values.billing_variant_id,
-        pickup_time: `${values.pickup_time}:00`,
-        pickup_address: values.pickup_address,
-        dropoff_address: values.dropoff_address,
-        return_mode: values.return_mode,
-        return_trip: values.return_mode !== 'none',
-        return_time:
-          values.return_mode === 'exact' && values.return_time
-            ? `${values.return_time}:00`
-            : null,
-        start_date: values.start_date,
-        end_date: values.end_date || null,
-        is_active: values.is_active
-      };
+      const ruleData = buildRecurringRulePayload(values, {
+        clientId,
+        payers,
+        billingTypes
+      });
 
       if (initialData) {
         await recurringRulesService.updateRule(initialData.id, ruleData);

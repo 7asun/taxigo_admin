@@ -34,7 +34,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { CreateTripForm } from './create-trip-form';
 import { ClientTripsPanel } from '../client-trips-panel';
-import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
+import type {
+  ClientOption,
+  BillingTypeOption
+} from '@/features/trips/hooks/use-trip-form-data';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -60,16 +63,42 @@ interface CreateTripDialogProps {
   preselectedClientId?: string | null;
 }
 
-function CreateTripDialogHeader() {
+function CreateTripDialogHeader({
+  billingType,
+  payerName
+}: {
+  billingType: BillingTypeOption | null;
+  payerName?: string;
+}) {
+  const billingLabel = billingType
+    ? billingType.name === 'Standard'
+      ? billingType.billing_type_name
+      : `${billingType.billing_type_name} · ${billingType.name}`
+    : payerName || null;
+
+  const dotColor = billingType?.color || 'var(--muted-foreground)';
+
   return (
     <div className='flex items-center gap-3'>
       <div className='bg-primary text-primary-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg'>
         <PlusCircle className='h-4 w-4' />
       </div>
-      <div className='min-w-0'>
-        <DialogTitle className='text-base font-semibold'>
-          Neue Fahrt erstellen
-        </DialogTitle>
+      <div className='min-w-0 flex-1'>
+        <div className='flex items-center justify-between gap-4'>
+          <DialogTitle className='text-base font-semibold'>
+            Neue Fahrt erstellen
+          </DialogTitle>
+          {billingLabel && (
+            <div className='bg-muted/60 border-border hidden items-center gap-2 rounded-md border px-3 py-1.5 text-xs sm:flex'>
+              <span
+                className='inline-block h-2 w-2 shrink-0 rounded-full'
+                style={{ backgroundColor: dotColor }}
+              />
+              <span className='text-muted-foreground'>Abrechnung:</span>{' '}
+              <span className='font-medium'>{billingLabel}</span>
+            </div>
+          )}
+        </div>
         <DialogDescription className='text-muted-foreground mt-0.5 text-xs'>
           Felder mit * sind Pflichtfelder
         </DialogDescription>
@@ -78,16 +107,42 @@ function CreateTripDialogHeader() {
   );
 }
 
-function CreateTripDrawerHeader() {
+function CreateTripDrawerHeader({
+  billingType,
+  payerName
+}: {
+  billingType: BillingTypeOption | null;
+  payerName?: string;
+}) {
+  const billingLabel = billingType
+    ? billingType.name === 'Standard'
+      ? billingType.billing_type_name
+      : `${billingType.billing_type_name} · ${billingType.name}`
+    : payerName || null;
+
+  const dotColor = billingType?.color || 'var(--muted-foreground)';
+
   return (
     <div className='flex items-center gap-3 px-1'>
       <div className='bg-primary text-primary-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg'>
         <PlusCircle className='h-4 w-4' />
       </div>
-      <div className='min-w-0'>
-        <DrawerTitle className='text-base font-semibold'>
-          Neue Fahrt erstellen
-        </DrawerTitle>
+      <div className='min-w-0 flex-1'>
+        <div className='flex items-center justify-between gap-4'>
+          <DrawerTitle className='text-base font-semibold'>
+            Neue Fahrt erstellen
+          </DrawerTitle>
+          {billingLabel && (
+            <div className='bg-muted/60 border-border hidden items-center gap-2 rounded-md border px-3 py-1.5 text-xs sm:flex'>
+              <span
+                className='inline-block h-2 w-2 shrink-0 rounded-full'
+                style={{ backgroundColor: dotColor }}
+              />
+              <span className='text-muted-foreground'>Abrechnung:</span>{' '}
+              <span className='font-medium'>{billingLabel}</span>
+            </div>
+          )}
+        </div>
         <DrawerDescription className='text-muted-foreground mt-0.5 text-xs'>
           Felder mit * sind Pflichtfelder
         </DrawerDescription>
@@ -104,6 +159,11 @@ export function CreateTripDialog({
 }: CreateTripDialogProps) {
   const [selectedClient, setSelectedClient] =
     React.useState<ClientOption | null>(null);
+  const [selectedBillingType, setSelectedBillingType] =
+    React.useState<BillingTypeOption | null>(null);
+  const [selectedPayerName, setSelectedPayerName] = React.useState<
+    string | undefined
+  >(undefined);
   const [isMobile, setIsMobile] = React.useState(false);
   const [isFormDirty, setIsFormDirty] = React.useState(false);
   const [closeConfirmOpen, setCloseConfirmOpen] = React.useState(false);
@@ -121,6 +181,8 @@ export function CreateTripDialog({
   React.useEffect(() => {
     if (!open) {
       setSelectedClient(null);
+      setSelectedBillingType(null);
+      setSelectedPayerName(undefined);
       setIsFormDirty(false);
       setCloseConfirmOpen(false);
     }
@@ -196,6 +258,14 @@ export function CreateTripDialog({
     onOpenChange(false);
   };
 
+  const handleBillingTypeChange = React.useCallback(
+    (billingType: BillingTypeOption | null, payerName?: string) => {
+      setSelectedBillingType(billingType);
+      setSelectedPayerName(payerName);
+    },
+    []
+  );
+
   const showDesktopPanel = !!selectedClient && !isMobile;
 
   const formEl = (
@@ -204,6 +274,7 @@ export function CreateTripDialog({
       onCancel={requestClose}
       onDirtyChange={setIsFormDirty}
       onClientSelect={setSelectedClient}
+      onBillingTypeChange={handleBillingTypeChange}
       preselectedClientId={preselectedClientId ?? undefined}
     />
   );
@@ -275,7 +346,10 @@ export function CreateTripDialog({
             onEscapeKeyDown={handleDrawerEscapeKeyDown}
           >
             <DrawerHeader className='shrink-0 border-b px-4 py-4 text-left sm:px-6'>
-              <CreateTripDrawerHeader />
+              <CreateTripDrawerHeader
+                billingType={selectedBillingType}
+                payerName={selectedPayerName}
+              />
             </DrawerHeader>
             <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
               <div
@@ -377,7 +451,10 @@ export function CreateTripDialog({
             <XIcon />
           </button>
           <DialogHeader className='shrink-0 border-b px-4 py-4 pr-14 sm:px-6 sm:pr-16'>
-            <CreateTripDialogHeader />
+            <CreateTripDialogHeader
+              billingType={selectedBillingType}
+              payerName={selectedPayerName}
+            />
           </DialogHeader>
 
           <div className='flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row'>

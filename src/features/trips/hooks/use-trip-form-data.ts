@@ -23,6 +23,11 @@ export type {
 /** @deprecated use BillingVariantOption — same shape as former billing type row for forms */
 export type BillingTypeOption = BillingVariantOption;
 
+/** Stable fallbacks so `?? []` does not allocate a new array each render (effect deps + setValue loops). */
+const EMPTY_PAYERS: PayerOption[] = [];
+const EMPTY_DRIVERS: DriverOption[] = [];
+const EMPTY_BILLING_VARIANTS: BillingVariantOption[] = [];
+
 /**
  * Trip create/edit form and Fahrten filter bar: payers, drivers, billing variants, client search.
  *
@@ -36,10 +41,10 @@ export function useTripFormData(payerId?: string | null) {
   const driversQuery = useDriversQuery();
   const billingVariantsQuery = useBillingVariantsForPayerQuery(payerId);
 
-  const payers: PayerOption[] = payersQuery.data ?? [];
-  const drivers: DriverOption[] = driversQuery.data ?? [];
+  const payers: PayerOption[] = payersQuery.data ?? EMPTY_PAYERS;
+  const drivers: DriverOption[] = driversQuery.data ?? EMPTY_DRIVERS;
   const billingVariants: BillingVariantOption[] =
-    billingVariantsQuery.data ?? [];
+    billingVariantsQuery.data ?? EMPTY_BILLING_VARIANTS;
 
   const payerIsConcrete =
     typeof payerId === 'string' && payerId.length > 0 && payerId !== 'all';

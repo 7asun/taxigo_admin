@@ -52,6 +52,7 @@ The project follows a feature-based folder structure designed for scalability in
 
 - TanStack Table for data tables
 - TanStack Query: shared defaults and query keys in [`src/query/`](src/query/README.md); when to use `invalidateQueries` vs `router.refresh()` is documented there and in [`docs/server-state-query.md`](docs/server-state-query.md)
+- **KTS (Krankentransportschein)** — catalog + trip flag: [`docs/kts-architecture.md`](docs/kts-architecture.md). Kostenträger admin uses `['payers']`; trip pickers use `referenceKeys.payers()` — both invalidated on payer update ([`src/query/README.md`](src/query/README.md)).
 - Recharts for analytics/charts
 - Mock API utilities in `src/constants/mock-api.ts`
 
@@ -126,13 +127,15 @@ The project follows a feature-based folder structure designed for scalability in
 │   ├── clerk_setup.md     # Clerk configuration guide
 │   ├── nav-rbac.md        # Navigation RBAC documentation
 │   ├── themes.md          # Theme customization guide
+│   ├── invoice-text-templates.md # Rechnungsvorlagen (Baukasten system)
 │   ├── kanban-view.md     # Kanban trips board behaviour
 │   ├── print-trips-export.md # Fahrten drucken ZIP (PDF + JPEG overviews)
 │   ├── trips-date-filter.md # Fahrten date query + “stuck cards” fix
 │   ├── date-picker.md       # DatePicker + DateTimePicker (one module: date-time-picker.tsx)
 │   ├── trip-reschedule-v1.md # Verschieben — implementation: `src/features/trips/trip-reschedule/`
 │   ├── driving-metrics-api.md # Google Directions proxy + env (driving_distance_km / duration)
-│   └── trips-rueckfahrt-detail-sheet.md # Rückfahrt-Button in Trip-Detailansicht
+│   ├── trips-rueckfahrt-detail-sheet.md # Rückfahrt-Button in Trip-Detailansicht
+│   └── kts-architecture.md # KTS: catalog cascade, trip flag, CSV, V2 review roadmap
 
 /__CLEANUP__               # Feature removal scripts
     ├── scripts/           # Cleanup automation

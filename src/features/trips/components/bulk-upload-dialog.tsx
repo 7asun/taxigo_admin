@@ -46,6 +46,12 @@ import {
   hasPendingResumeSession
 } from '@/features/trips/stores/use-bulk-upload-resume-store';
 import type { BillingTypeBehavior } from '@/features/payers/types/payer.types';
+import {
+  firstNonEmptyKtsCsvSource,
+  parseKtsCsvCell,
+  resolveKtsDefault
+} from '@/features/trips/lib/resolve-kts-default';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
@@ -160,6 +166,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       name: string;
       code: string;
       sort_order: number;
+      kts_default: boolean | null;
     }[];
   };
   const [billingTypeTree, setBillingTypeTree] = React.useState<
@@ -172,7 +179,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       const { data } = await supabase
         .from('billing_types')
         .select(
-          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order )`
+          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order, kts_default )`
         );
       if (data) setBillingTypeTree(data as BillingTypeTreeRow[]);
     };
@@ -713,9 +720,12 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             } else if (typesForPayer.length === 1) {
               matchedType = typesForPayer[0];
             } else if (typesForPayer.length === 0) {
+              // No billing_types for this payer — import with billing_variant_id = null
+              // (matches spreadsheets that omit Abrechnungsart when none are configured yet).
               issues.push({
                 type: 'billing_type_not_found',
-                message: `Keine Abrechnungsart für Kostenträger "${parsedRow.kostentraeger}" hinterlegt.`
+                severity: 'warning',
+                message: `Für Kostenträger "${parsedRow.kostentraeger}" ist keine Abrechnungsart im System hinterlegt — die Fahrt wird ohne Abrechnungs-Verknüpfung importiert.`
               });
             } else {
               issues.push({
@@ -772,10 +782,13 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               variantResolution = {
                 payerId: payer!.id,
                 familyName: matchedType.name,
+                payerKtsDefault: payer!.kts_default,
+                familyBehaviorProfile: matchedType.behavior_profile,
                 variants: variants.map((v) => ({
                   id: v.id,
                   name: v.name,
-                  code: v.code
+                  code: v.code,
+                  kts_default: v.kts_default
                 }))
               };
             } else {
@@ -784,6 +797,36 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                 message: `Keine Unterart für "${matchedType.name}" definiert.`
               });
             }
+          }
+
+          const ktsCsvRaw = firstNonEmptyKtsCsvSource(parsedRow);
+          const ktsParsed = parseKtsCsvCell(ktsCsvRaw);
+          if (ktsParsed === 'invalid') {
+            issues.push({
+              type: 'invalid_kts_cell',
+              message: `KTS-Spalte: ungültiger Wert "${ktsCsvRaw}". Erlaubt: ja, nein, true, false, 0, 1.`
+            });
+          }
+
+          let ktsDocumentApplies = false;
+          let ktsSource: string | null = 'system_default';
+          if (ktsParsed === 'true' || ktsParsed === 'false') {
+            ktsDocumentApplies = ktsParsed === 'true';
+            ktsSource = 'manual';
+          } else if (payer) {
+            const variantForKts =
+              billingVariantId && matchedType
+                ? matchedType.billing_variants.find(
+                    (v) => v.id === billingVariantId
+                  )
+                : undefined;
+            const resolved = resolveKtsDefault({
+              payerKtsDefault: payer.kts_default,
+              familyBehaviorProfile: matchedType?.behavior_profile,
+              variantKtsDefault: variantForKts?.kts_default
+            });
+            ktsDocumentApplies = resolved.value;
+            ktsSource = resolved.source;
           }
 
           const pickupStreetParts = splitStreetAndNumber(
@@ -910,7 +953,9 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   has_missing_geodata: true,
                   driver_id: driverId,
                   needs_driver_assignment: needsDriverAssignment,
-                  ingestion_source: 'csv_bulk_upload'
+                  ingestion_source: 'csv_bulk_upload',
+                  kts_document_applies: ktsDocumentApplies,
+                  kts_source: ktsSource
                 }
               : null;
 
@@ -982,7 +1027,19 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             (row) => row.trip && !rowHasBlockingIssues(row)
           );
 
-          // Geocode pickup/dropoff addresses for successful outbound trips.
+          // ── Pass 0: Geocode + driving metrics ──────────────────────────────────
+          //
+          // All rows are geocoded in parallel (fastest for large CSVs). After
+          // lat/lng is resolved, driving metrics are fetched in the same pass via
+          // fetchDrivingMetrics → POST /api/trips/driving-metrics, which internally
+          // calls resolveDrivingMetricsWithCache (DB cache first, Google fallback).
+          //
+          // Concurrency note: rows with the same pickup/dropoff that have never been
+          // imported before will all miss the DB cache and hit Google simultaneously
+          // within this Promise.all. This is acceptable — the slight over-call only
+          // happens on the very first import of a route. All subsequent imports
+          // (including future bulk uploads and duplicates of these trips) will be
+          // served from the DB cache with zero Google calls.
           await Promise.all(
             successfulRows.map(async (row) => {
               if (!row.trip) return;
@@ -1083,6 +1140,23 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   typeof row.trip.dropoff_lng === 'number'
                 ) {
                   row.trip.has_missing_geodata = false;
+
+                  // Calculate driving distance/duration — uses cached DB lookup before calling Google
+                  try {
+                    const drivingMetrics = await fetchDrivingMetrics(
+                      row.trip.pickup_lat,
+                      row.trip.pickup_lng,
+                      row.trip.dropoff_lat,
+                      row.trip.dropoff_lng
+                    );
+                    if (drivingMetrics) {
+                      row.trip.driving_distance_km = drivingMetrics.distanceKm;
+                      row.trip.driving_duration_seconds =
+                        drivingMetrics.durationSeconds;
+                    }
+                  } catch {
+                    // Non-fatal: metrics will be missing but trip is still created.
+                  }
                 }
               } catch {
                 // Non-fatal: keep has_missing_geodata = true for later backfill.

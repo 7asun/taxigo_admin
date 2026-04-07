@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { format } from 'date-fns';
 import type { ReturnMode } from '@/features/trips/components/create-trip/schema';
 import { formatLocalYmd } from '@/features/trips/lib/departure-schedule';
+import type { TripFormValues } from '@/features/trips/components/create-trip/schema';
 
 export const CREATE_TRIP_DRAFT_STORAGE_KEY = 'taxigo:create-trip-draft:v2';
 export const CREATE_TRIP_DRAFT_SCHEMA_VERSION = 3 as const;
@@ -18,7 +19,9 @@ const draftValuesSchemaV3 = z.object({
   is_wheelchair: z.boolean(),
   notes: z.string().optional(),
   billing_calling_station: z.string().optional(),
-  billing_betreuer: z.string().optional()
+  billing_betreuer: z.string().optional(),
+  kts_document_applies: z.boolean().optional(),
+  no_invoice_required: z.boolean().optional()
 });
 
 const draftValuesSchemaV2 = z.object({
@@ -109,34 +112,26 @@ function departureFromScheduledAtIso(iso: string): {
 
 export function buildTripFormValuesFromDraft(
   d: CreateTripDraftStored['values']
-): {
-  payer_id: string;
-  billing_variant_id: string;
-  departure_date: string;
-  departure_time: string;
-  return_mode: ReturnMode;
-  return_date: Date | undefined;
-  return_time: string;
-  driver_id: string;
-  is_wheelchair: boolean;
-  notes: string;
-  billing_calling_station: string;
-  billing_betreuer: string;
-} {
+): TripFormValues {
   if ('departure_date' in d) {
+    const v3 = d as typeof d & {
+      no_invoice_required?: boolean;
+    };
     return {
-      payer_id: d.payer_id,
-      billing_variant_id: d.billing_variant_id,
-      departure_date: d.departure_date,
-      departure_time: d.departure_time ?? '',
-      return_mode: d.return_mode,
-      return_date: d.return_date ? new Date(d.return_date) : undefined,
-      return_time: d.return_time ?? '',
-      driver_id: d.driver_id ?? '__none__',
-      is_wheelchair: d.is_wheelchair,
-      notes: d.notes ?? '',
-      billing_calling_station: d.billing_calling_station ?? '',
-      billing_betreuer: d.billing_betreuer ?? ''
+      payer_id: v3.payer_id,
+      billing_variant_id: v3.billing_variant_id,
+      departure_date: v3.departure_date,
+      departure_time: v3.departure_time ?? '',
+      return_mode: v3.return_mode,
+      return_date: v3.return_date ? new Date(v3.return_date) : undefined,
+      return_time: v3.return_time ?? '',
+      driver_id: v3.driver_id ?? '__none__',
+      is_wheelchair: v3.is_wheelchair,
+      notes: v3.notes ?? '',
+      billing_calling_station: v3.billing_calling_station ?? '',
+      billing_betreuer: v3.billing_betreuer ?? '',
+      kts_document_applies: v3.kts_document_applies ?? false,
+      no_invoice_required: v3.no_invoice_required ?? false
     };
   }
 
@@ -156,7 +151,9 @@ export function buildTripFormValuesFromDraft(
       is_wheelchair: d.is_wheelchair,
       notes: d.notes ?? '',
       billing_calling_station: '',
-      billing_betreuer: ''
+      billing_betreuer: '',
+      kts_document_applies: false,
+      no_invoice_required: false
     };
   }
 
@@ -175,6 +172,8 @@ export function buildTripFormValuesFromDraft(
     is_wheelchair: d.is_wheelchair,
     notes: d.notes ?? '',
     billing_calling_station: '',
-    billing_betreuer: ''
+    billing_betreuer: '',
+    kts_document_applies: false,
+    no_invoice_required: false
   };
 }

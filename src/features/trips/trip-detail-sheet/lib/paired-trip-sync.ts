@@ -50,6 +50,10 @@ export const PAIRED_SYNC_COLUMN_KEYS = [
   /** Billing metadata: same values on both legs (no route swap). */
   'billing_calling_station',
   'billing_betreuer',
+  'kts_document_applies',
+  'kts_source',
+  'no_invoice_required',
+  'no_invoice_source',
   'driving_distance_km',
   'driving_duration_seconds'
 ] as const;
@@ -103,6 +107,10 @@ export interface PartnerSyncDrafts {
   dropoffStationDraft: string;
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
+  ktsDocumentAppliesDraft: boolean;
+  ktsSourceForSave: string;
+  noInvoiceRequiredDraft: boolean;
+  noInvoiceSourceForSave: string;
   lastPickupResolved: AddressResult | null;
   lastDropoffResolved: AddressResult | null;
 }
@@ -243,7 +251,11 @@ export function buildPartnerSyncPatchFromDrafts(
     billing_calling_station: stationTrimOrNull(
       input.billingCallingStationDraft
     ),
-    billing_betreuer: stationTrimOrNull(input.billingBetreuerDraft)
+    billing_betreuer: stationTrimOrNull(input.billingBetreuerDraft),
+    kts_document_applies: input.ktsDocumentAppliesDraft,
+    kts_source: input.ktsSourceForSave,
+    no_invoice_required: input.noInvoiceRequiredDraft,
+    no_invoice_source: input.noInvoiceSourceForSave
   };
 }
 
