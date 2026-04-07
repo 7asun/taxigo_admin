@@ -24,6 +24,7 @@ interface DriverSelectCellProps {
   trip: Trip & {
     group_id?: string | null;
     driver?: { name: string } | null;
+    fremdfirma?: { id: string; name: string } | null;
   };
 }
 
@@ -88,7 +89,9 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
     const payload: { driver_id: string | null; status?: string } = {
       driver_id: newDriverId
     };
-    const derivedStatus = getStatusWhenDriverChanges(trip.status, newDriverId);
+    const derivedStatus = getStatusWhenDriverChanges(trip.status, newDriverId, {
+      fremdfirmaId: trip.fremdfirma_id
+    });
     if (derivedStatus) payload.status = derivedStatus;
 
     const supabase = createClient();
@@ -128,6 +131,17 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
   // Until minimum loading window + drivers list ready: same skeleton as before (not the full Select).
   if (!canRevealSelect) {
     return <Skeleton className='h-8 w-32' />;
+  }
+
+  if (trip.fremdfirma_id) {
+    return (
+      <span
+        className='max-w-[11rem] text-center text-xs leading-tight font-medium'
+        title='Abrechnungsart siehe Spalte „Abrechnung Fremdfirma“'
+      >
+        Extern · {trip.fremdfirma?.name ?? 'Fremdfirma'}
+      </span>
+    );
   }
 
   return (

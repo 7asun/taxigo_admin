@@ -1,43 +1,49 @@
 /**
- * PDF page 2 — per line-item trip table. Fixed header repeats on overflow pages;
- * appendixContentSpacer clears space under the fixed header for first rows.
+ * invoice-pdf-appendix.tsx
+ *
+ * **Anhang: Fahrtendetails** — always a **flat** table over `invoice.line_items`, independent of
+ * `columnProfile.main_layout` (grouped vs flat applies only to the cover page).
+ *
+ * Columns come from `columnProfile.appendix_columns` + `PDF_COLUMN_MAP`. **`appendix_is_landscape`**
+ * is pre-computed in {@link resolvePdfColumnProfile} when `appendix_columns.length > 7`
+ * (`APPENDIX_LANDSCAPE_THRESHOLD`). The parent **`InvoicePdfDocument`** sets the second `Page`’s
+ * `size` to **`A4_LANDSCAPE`** (`{ width: 841.89, height: 595.28 }` pt) when that flag is true.
+ *
+ * **`coerceLineItemJsonbSnapshots`** runs once per row before `renderCellValue` (JSONB-as-string).
  */
 
 import { View, Text } from '@react-pdf/renderer';
 
-import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceDetail } from '../../types/invoice.types';
-
+import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
+import { PDF_COLUMN_MAP } from '../../lib/pdf-column-catalog';
 import {
-  calculateInvoicePdfNetAmount,
-  type InvoicePdfRouteDirectionLabel
-} from './lib/build-invoice-pdf-summary';
-import {
-  formatInvoicePdfDate,
-  formatInvoicePdfEur,
-  formatInvoicePdfTime
-} from './lib/invoice-pdf-format';
-import {
-  canonicalizeInvoicePdfPlace,
-  type InvoicePdfPlaceHintMap
-} from './lib/invoice-pdf-places';
-import { styles } from './pdf-styles';
-
+  calcColumnWidths,
+  coerceLineItemJsonbSnapshots,
+  renderCellValue
+} from './pdf-column-layout';
+import { styles, PDF_FONT_SIZES, PDF_COLORS } from './pdf-styles';
 export interface InvoicePdfAppendixProps {
   invoiceNumber: string;
   invoiceCreatedAtIso: string;
   lineItems: InvoiceDetail['line_items'];
-  placeHints: InvoicePdfPlaceHintMap;
-  routeDirectionLabels: Record<string, InvoicePdfRouteDirectionLabel>;
+  columnProfile: PdfColumnProfile;
 }
+
+const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
 
 export function InvoicePdfAppendix({
   invoiceNumber,
   invoiceCreatedAtIso,
   lineItems,
-  placeHints,
-  routeDirectionLabels
+  columnProfile
 }: InvoicePdfAppendixProps) {
+  // Drives calcColumnWidths only. Page dimensions live on InvoicePdfDocument (A4 vs A4_LANDSCAPE).
+  // appendix_is_landscape is set by resolvePdfColumnProfile when appendix column count > 7.
+  const landscape = columnProfile.appendix_is_landscape;
+  const colWidths = calcColumnWidths(columnProfile.appendix_columns, landscape);
+  const coercedLineItems = lineItems.map(coerceLineItemJsonbSnapshots);
+
   return (
     <>
       <View style={styles.appendixHeaderFixed} fixed>
@@ -45,73 +51,115 @@ export function InvoicePdfAppendix({
         <Text style={styles.notesLabel}>Zu Rechnung {invoiceNumber}</Text>
 
         <View style={[styles.tableHeader, { marginTop: 15 }]}>
-          <Text style={[styles.colPos, styles.tableHeaderText]}>#</Text>
-          <Text style={[styles.colDate, styles.tableHeaderText]}>Datum</Text>
-          <Text style={[styles.colDesc, styles.tableHeaderText]}>
-            Fahrtbeschreibung
-          </Text>
-          <Text style={[styles.colTime, styles.tableHeaderText]}>Uhrzeit</Text>
-          <Text style={[styles.colMwst, styles.tableHeaderText]}>
-            MwSt.{'\n'}Satz
-          </Text>
-          <Text style={[styles.colTotal, styles.tableHeaderText]}>
-            Netto-{'\n'}betrag
-          </Text>
-          <Text style={[styles.colGross, styles.tableHeaderText]}>
-            Brutto-{'\n'}betrag
-          </Text>
+          {columnProfile.appendix_columns.map((key) => {
+            const col = PDF_COLUMN_MAP[key];
+            if (!col) return null;
+            const w = colWidths[key] ?? col.minWidthPt;
+            return (
+              <View
+                key={key}
+                style={{
+                  width: w,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  flexWrap: 'nowrap',
+                  paddingRight: 4,
+                  justifyContent: 'center'
+                }}
+              >
+                <Text
+                  style={[
+                    styles.tableHeaderText,
+                    {
+                      textAlign: col.align,
+                      fontSize: PDF_FONT_SIZES.xs
+                    }
+                  ]}
+                >
+                  {col.label}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       </View>
-      <View style={styles.appendixContentSpacer} />
 
-      {lineItems.map((item, idx) => {
-        const pickup = canonicalizeInvoicePdfPlace(
-          item.pickup_address || item.description,
-          placeHints
-        );
-        const dropoff = canonicalizeInvoicePdfPlace(
-          item.dropoff_address || item.description,
-          placeHints
-        );
-        const routeKey = `${pickup.key} -> ${dropoff.key} [${item.tax_rate}]`;
-        const directionLabel = routeDirectionLabels[routeKey] ?? 'Fahrt';
-        const dateLabel = item.line_date
-          ? formatInvoicePdfDate(item.line_date)
-          : formatInvoicePdfDate(invoiceCreatedAtIso);
+      {coercedLineItems.map((item, idx) => {
+        const kts = item.kts_override === true;
 
         return (
           <View
             key={item.id}
-            style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
+            style={[{ width: '100%' }, idx % 2 === 1 ? styles.tableRowAlt : {}]}
             wrap={false}
           >
-            <Text style={styles.colPos}>{item.position}</Text>
-            <Text style={styles.colDate}>
-              {item.line_date ? formatInvoicePdfDate(item.line_date) : '—'}
-            </Text>
-            <View style={styles.colDesc}>
-              <Text style={styles.routePrimary}>
-                {`Fahrt vom ${dateLabel} - ${directionLabel}`}
-              </Text>
-              <Text style={styles.routeSecondary}>
-                {`${pickup.primary} -> ${dropoff.primary}`}
-              </Text>
+            <View style={styles.tableRow}>
+              {columnProfile.appendix_columns.map((key) => {
+                const col = PDF_COLUMN_MAP[key];
+                if (!col) return null;
+                const w = colWidths[key] ?? col.minWidthPt;
+                const raw = renderCellValue(item, col, {
+                  fallbackDateIso: invoiceCreatedAtIso
+                });
+                const isMoney = col.format === 'currency';
+                const hasNl = raw.includes('\n');
+                return (
+                  <View
+                    key={key}
+                    style={{
+                      width: w,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      flexWrap: 'nowrap',
+                      paddingRight: 4,
+                      justifyContent: 'center'
+                    }}
+                  >
+                    {hasNl ? (
+                      <View style={{ minWidth: 0, width: '100%' }}>
+                        {raw.split('\n').map((line, li) => (
+                          <Text
+                            key={li}
+                            style={{
+                              fontSize: PDF_FONT_SIZES.xs,
+                              textAlign: col.align,
+                              color: li === 0 ? undefined : PDF_COLORS.muted,
+                              ...(isMoney && kts
+                                ? styles.appendixMoneyMuted
+                                : {})
+                            }}
+                          >
+                            {line}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text
+                        style={[
+                          {
+                            fontSize: PDF_FONT_SIZES.xs,
+                            textAlign: col.align
+                          },
+                          isMoney && kts ? styles.appendixMoneyMuted : {}
+                        ]}
+                      >
+                        {raw}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
             </View>
-            <Text style={styles.colTime}>
-              {item.line_date ? formatInvoicePdfTime(item.line_date) : '—'}
-            </Text>
-            <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
-            <Text style={styles.colTotal}>
-              {formatInvoicePdfEur(
-                calculateInvoicePdfNetAmount(item.unit_price, item.quantity)
-              )}
-            </Text>
-            <Text style={styles.colGross}>
-              {formatInvoicePdfEur(item.total_price)}
-            </Text>
+            {kts ? (
+              <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
+                <Text style={styles.appendixKtsNote}>Abgerechnet über KTS</Text>
+              </View>
+            ) : null}
           </View>
         );
       })}
     </>
   );
 }
+
+export { A4_LANDSCAPE };

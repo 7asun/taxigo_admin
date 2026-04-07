@@ -24,6 +24,7 @@ export const DEFAULT_BEHAVIOR: BillingTypeBehavior = {
   requireDropoffStation: false,
   askCallingStationAndBetreuer: false,
   kts_default: 'unset',
+  no_invoice_required_default: 'unset',
   defaultPickup: null,
   defaultDropoff: null,
   defaultPickupStreet: null,
@@ -41,7 +42,9 @@ export class PayersService {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('payers')
-      .select('id, name, number, kts_default, billing_types(count)')
+      .select(
+        'id, name, number, kts_default, no_invoice_required_default, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
+      )
       .order('name');
 
     if (error) {
@@ -81,6 +84,9 @@ export class PayersService {
     name: string;
     number: string;
     kts_default: boolean | null;
+    no_invoice_required_default?: boolean | null;
+    rechnungsempfaenger_id?: string | null;
+    pdf_vorlage_id?: string | null;
   }): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
@@ -88,7 +94,16 @@ export class PayersService {
       .update({
         name: args.name,
         number: args.number,
-        kts_default: args.kts_default
+        kts_default: args.kts_default,
+        ...(args.no_invoice_required_default !== undefined
+          ? { no_invoice_required_default: args.no_invoice_required_default }
+          : {}),
+        ...(args.rechnungsempfaenger_id !== undefined
+          ? { rechnungsempfaenger_id: args.rechnungsempfaenger_id }
+          : {}),
+        ...(args.pdf_vorlage_id !== undefined
+          ? { pdf_vorlage_id: args.pdf_vorlage_id }
+          : {})
       })
       .eq('id', args.id);
 
@@ -117,6 +132,7 @@ export class PayersService {
         color,
         behavior_profile,
         created_at,
+        rechnungsempfaenger_id,
         billing_variants (
           id,
           billing_type_id,
@@ -124,7 +140,9 @@ export class PayersService {
           code,
           sort_order,
           created_at,
-          kts_default
+          kts_default,
+          no_invoice_required_default,
+          rechnungsempfaenger_id
         )
       `
       )
@@ -213,12 +231,19 @@ export class PayersService {
   static async updateBillingFamily(
     familyId: string,
     name: string,
-    color: string
+    color: string,
+    rechnungsempfaengerId?: string | null
   ): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_types')
-      .update({ name: name.trim(), color })
+      .update({
+        name: name.trim(),
+        color,
+        ...(rechnungsempfaengerId !== undefined
+          ? { rechnungsempfaenger_id: rechnungsempfaengerId }
+          : {})
+      })
       .eq('id', familyId);
 
     if (error) {
@@ -236,7 +261,8 @@ export class PayersService {
     name: string,
     rawCode: string | null | undefined,
     sortOrder?: number,
-    ktsDefault?: boolean | null
+    ktsDefault?: boolean | null,
+    noInvoiceDefault?: boolean | null
   ): Promise<void> {
     const supabase = createClient();
     const trimmedName = name.trim();
@@ -276,7 +302,8 @@ export class PayersService {
       name: trimmedName,
       code,
       sort_order: sortOrder ?? 0,
-      kts_default: ktsDefault ?? null
+      kts_default: ktsDefault ?? null,
+      no_invoice_required_default: noInvoiceDefault ?? null
     });
 
     if (error) {
@@ -289,7 +316,9 @@ export class PayersService {
     variantId: string,
     name: string,
     rawCode: string,
-    ktsDefault: boolean | null
+    ktsDefault: boolean | null,
+    noInvoiceDefault?: boolean | null,
+    rechnungsempfaengerId?: string | null
   ): Promise<void> {
     const code = normalizeBillingVariantCodeInput(rawCode);
     if (!isValidBillingVariantCode(code)) {
@@ -299,7 +328,17 @@ export class PayersService {
     const supabase = createClient();
     const { error } = await supabase
       .from('billing_variants')
-      .update({ name: name.trim(), code, kts_default: ktsDefault })
+      .update({
+        name: name.trim(),
+        code,
+        kts_default: ktsDefault,
+        ...(noInvoiceDefault !== undefined
+          ? { no_invoice_required_default: noInvoiceDefault }
+          : {}),
+        ...(rechnungsempfaengerId !== undefined
+          ? { rechnungsempfaenger_id: rechnungsempfaengerId }
+          : {})
+      })
       .eq('id', variantId);
 
     if (error) {

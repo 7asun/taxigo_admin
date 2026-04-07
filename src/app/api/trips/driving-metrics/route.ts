@@ -13,7 +13,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { resolveDrivingMetricsWithCache } from '@/lib/google-directions';
 import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -76,11 +76,12 @@ export async function POST(request: Request) {
     }
 
     const { originLat, originLng, destLat, destLng } = parsed.data;
-    const metrics = await getDrivingMetrics(
+    const metrics = await resolveDrivingMetricsWithCache(
       originLat,
       originLng,
       destLat,
-      destLng
+      destLng,
+      supabaseUser
     );
 
     return NextResponse.json({ metrics });

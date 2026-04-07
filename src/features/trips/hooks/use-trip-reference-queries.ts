@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { referenceKeys } from '@/query/keys';
 import {
   fetchActiveDrivers,
+  fetchActiveFremdfirmen,
   fetchBillingVariantsForPayer,
   fetchPayers
 } from '@/features/trips/api/trip-reference-data';
@@ -46,6 +47,14 @@ export function useBillingVariantsForPayerQuery(
     queryKey: referenceKeys.billingVariants(isRealPayer ? payerId : '__none__'),
     queryFn: () => fetchBillingVariantsForPayer(payerId!),
     enabled: isRealPayer,
+    staleTime: TRIP_REFERENCE_STALE_TIME_MS
+  });
+}
+
+export function useFremdfirmenQuery() {
+  return useQuery({
+    queryKey: referenceKeys.fremdfirmen(),
+    queryFn: fetchActiveFremdfirmen,
     staleTime: TRIP_REFERENCE_STALE_TIME_MS
   });
 }

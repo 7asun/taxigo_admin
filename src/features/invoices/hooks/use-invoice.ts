@@ -16,29 +16,62 @@
 
 'use client';
 
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { invoiceKeys } from '@/query/keys';
+import { useBreadcrumbStore } from '@/hooks/use-breadcrumb-store';
 import {
   getInvoiceDetail,
   updateInvoiceStatus,
   type InvoiceStatusTransition
 } from '../api/invoices.api';
+import { enrichInvoiceDetailWithColumnProfile } from '../lib/enrich-invoice-detail-column-profile';
 import { createStornorechnung } from '../lib/storno';
 import type { InvoiceDetail } from '../types/invoice.types';
 
 /**
  * Fetches the full invoice detail (header + line items + payer + company profile).
- * Used on the invoice detail page and PDF download trigger.
+ * After `getInvoiceDetail`, attaches **`column_profile`** via {@link enrichInvoiceDetailWithColumnProfile}
+ * for PDF preview/print (Vorlage resolution stays out of `invoices.api.ts`).
  *
  * @param id - Invoice UUID. Pass undefined to skip fetching (e.g. while routing).
  */
 export function useInvoiceDetail(id: string | undefined) {
-  return useQuery({
+  const { setCustomTitle, clearCustomTitle } = useBreadcrumbStore();
+
+  const query = useQuery({
     queryKey: id ? invoiceKeys.full(id) : ['invoices', 'full', 'skip'],
-    queryFn: () => getInvoiceDetail(id!),
+    queryFn: async () => {
+      const detail = await getInvoiceDetail(id!);
+      // PDF column profile is enriched outside invoices.api (frozen) — see enrichInvoiceDetailWithColumnProfile.
+      return enrichInvoiceDetailWithColumnProfile(detail);
+    },
     enabled: !!id // only fetch when ID is available
   });
+
+  useEffect(() => {
+    const invoice = query.data;
+    if (!invoice || !id) return;
+
+    // Use a fixed path for breadcrumb override so it works for all sub-pages
+    const invoicePath = `/dashboard/invoices/${id}`;
+    const period = `${format(new Date(invoice.period_from), 'dd.MM.yy', {
+      locale: de
+    })} – ${format(new Date(invoice.period_to), 'dd.MM.yy', { locale: de })}`;
+
+    setCustomTitle(invoicePath, `${invoice.invoice_number} (${period})`);
+
+    return () => {
+      // Small delay on cleanup to avoid flicker during fast transitions
+      // between the same root resource (e.g. Detail -> Preview)
+      clearCustomTitle(invoicePath);
+    };
+  }, [query.data, id, setCustomTitle, clearCustomTitle]);
+
+  return query;
 }
 
 /**

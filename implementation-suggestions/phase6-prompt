@@ -1,0 +1,585 @@
+Phase 6 — Dynamic PDF Column Profiles (PDF-Vorlagen)
+Mission
+Replace every hardcoded static column in the invoice PDF renderer with a fully dynamic column profile system. Admins manage named Vorlagen (templates) centrally, assign one per Kostenträger, and dispatchers can optionally override columns per invoice in a new builder Step 5. The PDF renderer reads the resolved active profile at generation time via a 4-level fallback chain.
+
+This is a pure additive feature. No existing invoice logic, pricing cascade, snapshot behavior, or DB data is modified. All existing invoices continue rendering correctly via the system fallback.
+
+⚠️ Architectural Constraint — Single Source of Truth
+pdf-column-catalog.ts is the only file in the entire codebase where PDF columns are defined.
+
+No other file may hardcode a column key, label, width, format, or alignment
+
+The PDF renderer, Vorlage editor UI, column picker, Zod validator, and width calculator must all derive their behavior exclusively from the catalog array
+
+Adding a new column to the system must require changes to exactly one file: pdf-column-catalog.ts
+Cursor must not create any column definitions outside this file, even as interim stubs. This constraint applies across all sub-phases.
+Sub-phase 6a — DB Migration + Column Catalog + Types
+Files to create
+
+supabase/migrations/20260406_pdf_vorlagen.sql
+
+src/features/invoices/lib/pdf-column-catalog.ts
+
+src/features/invoices/lib/resolve-pdf-column-profile.ts
+
+src/features/invoices/types/pdf-vorlage.types.ts
+
+src/features/invoices/api/pdf-vorlagen.api.ts
+Migration (20260406_pdf_vorlagen.sql)
+sql
+-- ─── PDF-Vorlagen ────────────────────────────────────────────────────────────
+-- Named, reusable column profile templates per company.
+-- Each Vorlage defines which columns appear in the main invoice page
+-- and the appendix page. The appendix automatically switches to landscape
+-- orientation when appendix_columns contains more than 7 entries.
+create table pdf_vorlagen (
+  id               uuid        primary key default gen_random_uuid(),
+  company_id       uuid        not null references company_profiles(company_id) on delete cascade,
+  name             text        not null,
+  description      text,
+  -- Ordered arrays of PdfColumnKey strings — validated by app-layer Zod schema
+  main_columns     jsonb       not null default '["trip_date","client_name","billing_variant","net_price","tax_rate","gross_price"]',
+  appendix_columns jsonb       not null default '["trip_date","client_name","pickup_address","dropoff_address","distance_km","net_price"]',
+  -- Only one default Vorlage per company (enforced by partial unique index below)
+  is_default       boolean     not null default false,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+-- Enforce at most one is_default = true per company
+create unique index pdf_vorlagen_company_default_idx
+  on pdf_vorlagen(company_id)
+  where is_default = true;
+-- ─── Kostenträger assignment ──────────────────────────────────────────────────
+-- Each Kostenträger (payer) can be assigned one Vorlage.
+-- Null = fall through to company default Vorlage, then system fallback.
+alter table payers
+  add column pdf_vorlage_id uuid references pdf_vorlagen(id) on delete set null;
+-- ─── Per-invoice column override ─────────────────────────────────────────────
+-- Dispatchers can override columns for a single invoice in builder Step 5.
+-- Null = resolve from Kostenträger Vorlage → company default → system fallback.
+-- Shape: { main_columns: PdfColumnKey[], appendix_columns: PdfColumnKey[] }
+alter table invoices
+  add column pdf_column_override jsonb;
+-- ─── RLS ─────────────────────────────────────────────────────────────────────
+alter table pdf_vorlagen enable row level security;
+create policy "company members can manage their pdf_vorlagen"
+  on pdf_vorlagen for all
+  using (
+    company_id = (
+      select company_id from accounts where id = auth.uid()
+    )
+  );
+Column Catalog (pdf-column-catalog.ts)
+
+This is the most important file in Phase 6. Write it with full inline documentation.
+typescript
+/**
+ * pdf-column-catalog.ts
+ *
+ * THE SINGLE SOURCE OF TRUTH for all PDF column definitions.
+ *
+ * Every column that can ever appear in an invoice PDF — main page or appendix —
+ * is defined exactly once in this file as an entry in PDF_COLUMN_CATALOG.
+ *
+ * ─── How other parts of the system use this catalog ─────────────────────────
+ *
+ * PDF renderer         — iterates active columns, calls renderCell(item, colDef)
+ *                        for each; never hardcodes a column key or format
+ * Width calculator     — reads defaultWidthPt / minWidthPt to auto-scale columns
+ *                        to the usable page width (portrait or landscape)
+ * Vorlage editor UI    — builds the column picker from this array (uiLabel +
+ *                        description shown as tooltip)
+ * Zod validator        — derives the valid PdfColumnKey union from catalog keys
+ * TypeScript types     — PdfColumnKey is auto-derived; never manually maintained
+ *
+ * ─── Adding a new column ────────────────────────────────────────────────────
+ *
+ * 1. Add one PdfColumnDef entry to PDF_COLUMN_CATALOG below
+ * 2. Done. No other file needs to change.
+ *
+ * ─── Constraints ────────────────────────────────────────────────────────────
+ *
+ * - Never define column keys, labels, widths, or formats anywhere else
+ * - dataField uses dot-notation for nested access: "trip_meta_snapshot.driver_name"
+ * - defaultWidthPt values assume portrait A4 usable width = 515pt
+ *   (landscape A4 usable = 770pt — the width calculator scales proportionally)
+ */
+// ─── Column definition shape ──────────────────────────────────────────────────
+export interface PdfColumnDef {
+  /** Machine key — stored in DB jsonb arrays, never rename after first release */
+  key: string;
+  /** German column header rendered in the PDF table */
+  label: string;
+  /** German label shown in the Vorlage editor column picker */
+  uiLabel: string;
+  /** One-line German description shown as tooltip in the column picker */
+  description: string;
+  /**
+   * Dot-notation path into InvoiceLineItemRow (or trip_meta_snapshot sub-object).
+   * Examples: "line_date", "client_name", "trip_meta_snapshot.driver_name"
+   */
+  dataField: string;
+  /** Default column width in PDF points for portrait A4 (usable = 515pt) */
+  defaultWidthPt: number;
+  /** Minimum column width — never shrink below this regardless of column count */
+  minWidthPt: number;
+  /** Text alignment in the PDF cell */
+  align: 'left' | 'right' | 'center';
+  /**
+   * How the raw value is formatted in the PDF cell.
+   * The renderer has a single switch on this field — no per-key formatting logic.
+   * - 'date'     → "05.04.2026" (de-DE locale)
+   * - 'currency' → "€ 42,50"
+   * - 'percent'  → "7%"
+   * - 'km'       → "12,4 km"
+   * - 'integer'  → "3" (quantity, position)
+   * - 'text'     → raw string, fallback "—"
+   */
+  format: 'date' | 'currency' | 'percent' | 'km' | 'integer' | 'text';
+  /**
+   * When true, this column is hidden in the main page column picker.
+   * It still appears in the appendix picker.
+   * Use for columns with too much text for the main invoice table.
+   */
+  appendixOnly?: boolean;
+}
+// ─── Catalog ──────────────────────────────────────────────────────────────────
+export const PDF_COLUMN_CATALOG: PdfColumnDef[] = [
+  {
+    key: 'position',
+    label: 'Pos.',
+    uiLabel: 'Position (Nr.)',
+    description: 'Laufende Positionsnummer der Zeile',
+    dataField: 'position',
+    defaultWidthPt: 28, minWidthPt: 24,
+    align: 'center', format: 'integer',
+  },
+  {
+    key: 'trip_date',
+    label: 'Datum',
+    uiLabel: 'Fahrtdatum',
+    description: 'Datum der Fahrt (TT.MM.JJJJ)',
+    dataField: 'line_date',
+    defaultWidthPt: 52, minWidthPt: 44,
+    align: 'left', format: 'date',
+  },
+  {
+    key: 'client_name',
+    label: 'Fahrgast',
+    uiLabel: 'Fahrgastname',
+    description: 'Vor- und Nachname des Fahrgastes',
+    dataField: 'client_name',
+    defaultWidthPt: 90, minWidthPt: 70,
+    align: 'left', format: 'text',
+  },
+  {
+    key: 'billing_variant',
+    label: 'Abrechnungsart',
+    uiLabel: 'Abrechnungsart',
+    description: 'Name der Abrechnungsvariante (z. B. Dialyse, Reha)',
+    dataField: 'billing_variant_name',
+    defaultWidthPt: 80, minWidthPt: 60,
+    align: 'left', format: 'text',
+  },
+  {
+    key: 'description',
+    label: 'Beschreibung',
+    uiLabel: 'Beschreibungstext',
+    description: 'Freitextbeschreibung der Fahrt',
+    dataField: 'description',
+    defaultWidthPt: 120, minWidthPt: 80,
+    align: 'left', format: 'text',
+  },
+  {
+    key: 'pickup_address',
+    label: 'Von',
+    uiLabel: 'Abholadresse',
+    description: 'Startadresse der Fahrt',
+    dataField: 'pickup_address',
+    defaultWidthPt: 110, minWidthPt: 80,
+    align: 'left', format: 'text',
+    appendixOnly: true,
+  },
+  {
+    key: 'dropoff_address',
+    label: 'Nach',
+    uiLabel: 'Zieladresse',
+    description: 'Zieladresse der Fahrt',
+    dataField: 'dropoff_address',
+    defaultWidthPt: 110, minWidthPt: 80,
+    align: 'left', format: 'text',
+    appendixOnly: true,
+  },
+  {
+    key: 'distance_km',
+    label: 'km',
+    uiLabel: 'Fahrtstrecke (km)',
+    description: 'Gefahrene Strecke in Kilometern',
+    dataField: 'distance_km',
+    defaultWidthPt: 40, minWidthPt: 32,
+    align: 'right', format: 'km',
+  },
+  {
+    key: 'driver_name',
+    label: 'Fahrer',
+    uiLabel: 'Fahrername',
+    description: 'Name des Fahrers zum Zeitpunkt der Fahrt',
+    dataField: 'trip_meta_snapshot.driver_name',
+    defaultWidthPt: 70, minWidthPt: 55,
+    align: 'left', format: 'text',
+    appendixOnly: true,
+  },
+  {
+    key: 'quantity',
+    label: 'Menge',
+    uiLabel: 'Menge',
+    description: 'Anzahl der Einheiten (meist 1)',
+    dataField: 'quantity',
+    defaultWidthPt: 36, minWidthPt: 28,
+    align: 'right', format: 'integer',
+  },
+  {
+    key: 'unit_price_net',
+    label: 'EP Netto',
+    uiLabel: 'Einzelpreis Netto',
+    description: 'Nettopreis pro Einheit',
+    dataField: 'unit_price',
+    defaultWidthPt: 52, minWidthPt: 44,
+    align: 'right', format: 'currency',
+  },
+  {
+    key: 'net_price',
+    label: 'Netto',
+    uiLabel: 'Gesamtpreis Netto',
+    description: 'Gesamter Nettobetrag der Zeile',
+    dataField: 'net_price',
+    defaultWidthPt: 55, minWidthPt: 44,
+    align: 'right', format: 'currency',
+  },
+  {
+    key: 'tax_rate',
+    label: 'MwSt.',
+    uiLabel: 'Mehrwertsteuersatz',
+    description: 'Angewendeter Mehrwertsteuersatz (7% oder 19%)',
+    dataField: 'tax_rate',
+    defaultWidthPt: 36, minWidthPt: 28,
+    align: 'right', format: 'percent',
+  },
+  {
+    key: 'gross_price',
+    label: 'Brutto',
+    uiLabel: 'Gesamtpreis Brutto',
+    description: 'Gesamter Bruttobetrag der Zeile (inkl. MwSt.)',
+    dataField: 'gross_price',
+    defaultWidthPt: 58, minWidthPt: 48,
+    align: 'right', format: 'currency',
+  },
+  {
+    key: 'billing_type',
+    label: 'Typ',
+    uiLabel: 'Abrechnungstyp (Code)',
+    description: 'Kurzcode der Abrechnungsvariante',
+    dataField: 'billing_variant_code',
+    defaultWidthPt: 40, minWidthPt: 32,
+    align: 'center', format: 'text',
+  },
+];
+// ─── Derived types and helpers ────────────────────────────────────────────────
+/**
+ * Union type of all valid column keys, auto-derived from the catalog.
+ * Never maintain this manually — it is always in sync with the catalog.
+ */
+export type PdfColumnKey = typeof PDF_COLUMN_CATALOG[number]['key'];
+/**
+ * Quick lookup map: key → PdfColumnDef.
+ * Use this in the renderer instead of .find() in a hot render loop.
+ */
+export const PDF_COLUMN_MAP: Record<string, PdfColumnDef> = Object.fromEntries(
+  PDF_COLUMN_CATALOG.map((col) => [col.key, col])
+);
+/**
+ * Zod schema for validating a stored columns array.
+ * Rejects unknown keys at the API boundary before any DB write.
+ */
+export const VALID_COLUMN_KEYS = PDF_COLUMN_CATALOG.map((c) => c.key) as [string, ...string[]];
+/** Columns available for the main invoice page picker (excludes appendixOnly) */
+export const MAIN_PAGE_COLUMNS = PDF_COLUMN_CATALOG.filter((c) => !c.appendixOnly);
+/** Columns available for the appendix picker (all columns) */
+export const APPENDIX_COLUMNS = PDF_COLUMN_CATALOG;
+/**
+ * System fallback column sets — used when no Vorlage is assigned at any level.
+ * These mirror the columns that were previously hardcoded in the PDF renderer.
+ */
+export const SYSTEM_DEFAULT_MAIN_COLUMNS: PdfColumnKey[] = [
+  'position', 'trip_date', 'client_name', 'billing_variant',
+  'net_price', 'tax_rate', 'gross_price',
+];
+export const SYSTEM_DEFAULT_APPENDIX_COLUMNS: PdfColumnKey[] = [
+  'position', 'trip_date', 'client_name',
+  'pickup_address', 'dropoff_address', 'distance_km', 'net_price',
+];
+/**
+ * Appendix switches to landscape A4 when column count exceeds this threshold.
+ * A4 landscape usable width = 770pt; portrait = 515pt.
+ */
+export const APPENDIX_LANDSCAPE_THRESHOLD = 7;
+Resolution Function (resolve-pdf-column-profile.ts)
+typescript
+/**
+ * resolve-pdf-column-profile.ts
+ *
+ * Resolves the active PDF column profile for an invoice using a 4-level
+ * priority chain. This function is pure (no side effects, no DB calls) —
+ * callers are responsible for fetching the data and passing it in.
+ *
+ * Priority chain (first non-null wins):
+ *   1. Per-invoice override  (invoices.pdf_column_override)
+ *   2. Kostenträger Vorlage  (payers.pdf_vorlage_id → pdf_vorlagen)
+ *   3. Company default       (pdf_vorlagen where is_default = true)
+ *   4. System fallback       (SYSTEM_DEFAULT_* hardcoded constants)
+ *
+ * The returned PdfColumnProfile includes a pre-computed appendix_is_landscape
+ * flag so the PDF renderer never needs to re-derive it.
+ */
+Types (pdf-vorlage.types.ts)
+
+Document every field with an inline comment explaining its purpose and DB origin.
+API (pdf-vorlagen.api.ts)
+
+Export these functions, each with a JSDoc block:
+typescript
+listPdfVorlagen(companyId: string): Promise<PdfVorlageRow[]>
+getPdfVorlage(id: string): Promise<PdfVorlageRow | null>
+getDefaultVorlageForCompany(companyId: string): Promise<PdfVorlageRow | null>
+createPdfVorlage(payload: PdfVorlageCreatePayload): Promise<PdfVorlageRow>
+updatePdfVorlage(id: string, payload: PdfVorlageUpdatePayload): Promise<PdfVorlageRow>
+deletePdfVorlage(id: string): Promise<void>  // throws if assigned to any payer
+setDefaultVorlage(id: string, companyId: string): Promise<void>
+
+Follow the exact same pattern as invoices.api.ts — createClient(), toQueryError(), always throw on error.
+Sub-phase 6b — PDF-Vorlagen Management Panel
+
+Route: src/app/dashboard/settings/pdf-vorlagen/page.tsx
+New component files:
+
+src/features/invoices/components/pdf-vorlagen/pdf-vorlagen-panel.tsx — left list panel
+
+src/features/invoices/components/pdf-vorlagen/vorlage-editor-panel.tsx — right detail/editor panel
+
+src/features/invoices/components/pdf-vorlagen/column-picker.tsx — shared column picker + drag-reorder
+Layout
+
+Follow the exact same structure as client-list-panel.tsx + client-trips-panel.tsx:
+
+Left: PanelList with Vorlage entries, search, and + Neue Vorlage footer button
+
+Right: Panel with PanelHeader, PanelBody, PanelFooter containing the editor
+Vorlage editor right panel
+
+Two Collapsible sections inside PanelBody:
+Hauptrechnung section:
+
+Drag-to-reorder selected columns using @dnd-kit/sortable
+
++ Spalte hinzufügen dropdown showing MAIN_PAGE_COLUMNS not yet selected
+
+Each column chip shows uiLabel + remove button
+Anhang section:
+
+Same drag-reorder pattern using APPENDIX_COLUMNS
+
+When appendix_columns.length >= APPENDIX_LANDSCAPE_THRESHOLD, show info badge: „Querformat wird automatisch aktiviert (${n} Spalten)"
+Column picker dropdown (column-picker.tsx):
+
+Receives available: PdfColumnDef[] and onAdd: (key) => void
+
+Renders a Popover with a searchable list
+
+Shows uiLabel as primary text and description as muted secondary text
+
+Derives its full list exclusively from PDF_COLUMN_CATALOG — never hardcodes entries
+Inline documentation requirements
+
+vorlage-editor-panel.tsx must include a file-level JSDoc block explaining:
+
+The drag-reorder UX pattern
+
+Why column definitions come from pdf-column-catalog.ts (not local state)
+
+How saving triggers updatePdfVorlage and invalidates the React Query cache
+Sub-phase 6c — Kostenträger Vorlage Assignment
+
+File to modify: the existing Kostenträger (payer) detail/edit form
+Add a „PDF-Vorlage" field — a <Select> populated from listPdfVorlagen. On change, saves payer.pdf_vorlage_id via the existing payer update API.
+Below the select, render a read-only preview line:
+text
+Hauptrechnung: Datum · Fahrgast · Netto · MwSt · Brutto
+Anhang: Datum · Fahrer · Von · Nach · km · € (Querformat)
+
+Derived from the selected Vorlage's columns using PDF_COLUMN_MAP[key].uiLabel. No extra query — use the already-loaded Vorlagen list.
+Add a comment above this field explaining the resolution priority chain.
+Sub-phase 6d — Invoice Builder Step 5
+
+New file: src/features/invoices/components/invoice-builder/step-5-vorlage.tsx
+Modified file: invoice-builder/index.tsx — add Section 5 after existing Section 4, move Rechnung erstellen button from Section 4 into Section 5 footer
+Step 5 section card
+text
+⑤  PDF-Vorlage
+   Vorlage:  [Standard-Monatsabrechnung  ▼]
+             Vorausgewählt vom Kostenträger
+   [ ] Spalten für diese Rechnung anpassen
+       ↓ (Collapsible — opens when checkbox is checked)
+       ┌─ Hauptrechnung ──────────────────────────┐
+       │  [column-picker + drag reorder]           │
+       └──────────────────────────────────────────┘
+       ┌─ Anhang ─────────────────────────────────┐
+       │  [column-picker + drag reorder]           │
+       └──────────────────────────────────────────┘
+                              [Rechnung erstellen →]
+State
+typescript
+// Pre-fill from Kostenträger's assigned Vorlage; fall back to company default
+const [selectedVorlageId, setSelectedVorlageId] = useState<string | null>(
+  payer.pdf_vorlage_id ?? companyDefaultVorlage?.id ?? null
+)
+const [customizeEnabled, setCustomizeEnabled] = useState(false)
+// Initialized from the selected Vorlage's columns when checkbox is first checked
+const [customColumns, setCustomColumns] = useState<{
+  main_columns: PdfColumnKey[]
+  appendix_columns: PdfColumnKey[]
+} | null>(null)
+On submit
+
+Pass pdf_column_override: customizeEnabled ? customColumns : null into createInvoice. The createInvoice function in invoices.api.ts must be updated to include this field in the insert payload.
+Live preview
+
+useInvoiceBuilderPdfPreview receives the resolved columnProfile derived from Step 5 state via resolvePdfColumnProfile. The PDF preview updates immediately when the dispatcher changes the Vorlage or adjusts custom columns.
+Section unlock condition
+
+Section 5 unlocks when section4Complete (same pattern as other sections). Document the unlock condition with an inline comment.
+File-level JSDoc
+
+step-5-vorlage.tsx must include a header comment explaining:
+
+Why this step exists (per-invoice override capability)
+
+The relationship between Vorlage selection and pdf_column_override
+
+That the column-picker component is shared with the Vorlagen management panel
+Sub-phase 6e — Dynamic PDF Renderer
+
+Files to modify:
+
+src/features/invoices/components/invoice-pdf/invoice-pdf-document.tsx
+
+src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts
+
+src/features/invoices/api/invoices.api.ts (getInvoiceDetail)
+
+src/features/invoices/lib/storno.ts (copy pdf_column_override on Storno)
+PDF renderer
+
+InvoicePdfDocument receives a new required prop: columnProfile: PdfColumnProfile.
+The line items table is built by mapping columnProfile.main_columns (and appendix_columns) through PDF_COLUMN_MAP to get the PdfColumnDef for each. Width calculation:
+typescript
+/**
+ * Auto-scales column widths proportionally to fill the usable page width.
+ * Portrait A4 usable = 515pt; landscape A4 usable = 770pt.
+ * Widths are clamped to minWidthPt so narrow columns remain readable.
+ */
+function calcColumnWidths(
+  columnKeys: PdfColumnKey[],
+  isLandscape: boolean
+): Record<string, number> { ... }
+
+Cell rendering — one generic function, driven entirely by col.format from the catalog:
+typescript
+/**
+ * Renders the display value for a single PDF table cell.
+ * Formatting is driven exclusively by col.format from PDF_COLUMN_CATALOG —
+ * no per-key conditionals are permitted here.
+ */
+function renderCellValue(item: InvoiceLineItemRow, col: PdfColumnDef): string { ... }
+
+getNestedValue(obj, dotPath) — a small utility that resolves dot-notation paths like "trip_meta_snapshot.driver_name" into the actual value.
+Landscape appendix page:
+tsx
+<Page
+  size={columnProfile.appendix_is_landscape ? [841.89, 595.28] : 'A4'}
+  orientation={columnProfile.appendix_is_landscape ? 'landscape' : 'portrait'}
+>
+getInvoiceDetail addition
+
+After fetching the invoice, resolve the column profile:
+typescript
+// Resolve PDF column profile via 4-level priority chain.
+// See resolve-pdf-column-profile.ts for the full chain documentation.
+const [payerVorlage, defaultVorlage] = await Promise.all([
+  detail.payer?.pdf_vorlage_id
+    ? getPdfVorlage(detail.payer.pdf_vorlage_id)
+    : Promise.resolve(null),
+  getDefaultVorlageForCompany(detail.company_id),
+])
+detail.column_profile = resolvePdfColumnProfile(
+  detail.pdf_column_override ?? null,
+  payerVorlage,
+  defaultVorlage
+)
+storno.ts
+
+When creating a Stornorechnung, copy pdf_column_override from the original invoice:
+typescript
+// §14 UStG: Stornorechnung mirrors original invoice column layout
+pdf_column_override: originalInvoice.pdf_column_override ?? null,
+Documentation Requirements
+
+Every new file must include a file-level JSDoc block at the top (after imports) with:
+
+What the file does in one sentence
+
+Why it exists (the problem it solves)
+
+What it must NOT do (constraints)
+
+Cross-references to related files
+Every exported function, type, and constant must have an inline JSDoc comment.
+Every non-trivial logic block must have a short inline comment explaining the why, not the what.
+Specifically required documentation:
+
+pdf-column-catalog.ts — the architectural constraint comment block (already specified above)
+
+resolve-pdf-column-profile.ts — the 4-level priority chain fully explained in comments
+
+calcColumnWidths() — explain portrait vs landscape pt values and the proportional scaling logic
+
+renderCellValue() — explain why per-key conditionals are forbidden and format-driven dispatch is used instead
+
+Every PdfColumnDef entry — the description field acts as self-documentation in the UI
+Do Not Touch
+
+invoice-line-items.api.ts — pricing, snapshot, totals
+
+invoice-validators.ts — warnings
+
+resolve-trip-price.ts, resolve-pricing-rule.ts
+
+All existing DB migrations
+
+tax-calculator.ts
+
+Existing InvoicePdfDocument props other than adding columnProfile
+Definition of Done
+
+bun run build passes with zero errors or warnings
+
+All existing invoices render correctly (system fallback active when no Vorlage assigned)
+
+Creating a Vorlage, assigning it to a Kostenträger, then creating an invoice shows the correct columns in the PDF
+
+Builder Step 5 live preview updates when Vorlage is switched or custom columns are changed
+
+Appendix with 8+ columns renders in landscape orientation
+
+Adding a new column to PDF_COLUMN_CATALOG requires no changes to any other file to make it available in the editor UI and renderer
+
+

@@ -54,36 +54,23 @@ interface Step1ModeProps {
   /** Currently selected mode (highlighted card). */
   selectedMode: InvoiceMode | null;
   onSelect: (mode: InvoiceMode) => void;
-  /** Called when the user confirms the selection and moves to step 2. */
-  onNext: (mode: InvoiceMode) => void;
 }
 
 /**
  * Step 1 of the invoice builder: mode selection via clickable cards.
  */
-export function Step1Mode({ selectedMode, onSelect, onNext }: Step1ModeProps) {
+export function Step1Mode({ selectedMode, onSelect }: Step1ModeProps) {
   return (
     <div className='space-y-6'>
-      <div>
-        <h2 className='text-lg font-semibold'>Abrechnungsart wählen</h2>
-        <p className='text-muted-foreground text-sm'>
-          Wie soll diese Rechnung strukturiert sein?
-        </p>
-      </div>
-
-      {/* Mode selection cards */}
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+      <div className='grid grid-cols-1 gap-3'>
         {MODES.map(({ mode, icon: Icon, title, description }) => (
           <button
             key={mode}
             type='button'
             onClick={() => onSelect(mode)}
             className={cn(
-              // Base card styles — uses only theme tokens
-              'bg-card border-border flex flex-col items-start gap-3 rounded-xl border p-5 text-left transition-all',
-              // Hover: subtle background shift
+              'bg-card border-border flex min-w-0 flex-row items-center gap-3 rounded-xl border p-3 text-left transition-all',
               'hover:bg-muted',
-              // Selected: primary border + primary background tint
               selectedMode === mode
                 ? 'border-primary bg-primary/5 ring-primary ring-1'
                 : 'cursor-pointer'
@@ -91,37 +78,22 @@ export function Step1Mode({ selectedMode, onSelect, onNext }: Step1ModeProps) {
           >
             <div
               className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-lg',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 selectedMode === mode
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground'
               )}
             >
-              <Icon className='h-5 w-5' />
+              <Icon className='h-4 w-4' />
             </div>
-            <div>
-              <p className='text-sm font-semibold'>{title}</p>
-              <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
+            <div className='min-w-0'>
+              <p className='text-xs leading-tight font-semibold'>{title}</p>
+              <p className='text-muted-foreground mt-1 text-[11px] leading-snug'>
                 {description}
               </p>
             </div>
           </button>
         ))}
-      </div>
-
-      {/* Next button — only enabled when a mode is selected */}
-      <div className='flex justify-end'>
-        <button
-          type='button'
-          disabled={!selectedMode}
-          onClick={() => selectedMode && onNext(selectedMode)}
-          className={cn(
-            'bg-primary text-primary-foreground inline-flex h-9 items-center rounded-md px-4 text-sm font-medium transition-opacity',
-            !selectedMode && 'cursor-not-allowed opacity-40'
-          )}
-        >
-          Weiter
-        </button>
       </div>
     </div>
   );

@@ -58,6 +58,18 @@ export const navItems: NavItem[] = [
         url: '/dashboard/payers',
         icon: 'billing',
         shortcut: ['k', 'k']
+      },
+      {
+        title: 'Fremdfirmen',
+        url: '/dashboard/fremdfirmen',
+        icon: 'fremdfirma',
+        shortcut: ['f', 'r']
+      },
+      {
+        title: 'Rechnungsempfänger',
+        url: '/dashboard/rechnungsempfaenger',
+        icon: 'billing',
+        shortcut: ['r', 'e']
       }
     ]
   },
@@ -83,6 +95,12 @@ export const navItems: NavItem[] = [
         url: '/dashboard/settings/invoice-templates',
         icon: 'post',
         shortcut: ['r', 'v']
+      },
+      {
+        title: 'PDF-Vorlagen',
+        url: '/dashboard/settings/pdf-vorlagen',
+        icon: 'post',
+        shortcut: ['p', 'd']
       }
     ]
   },

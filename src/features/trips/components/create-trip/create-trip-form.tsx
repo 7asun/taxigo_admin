@@ -43,6 +43,10 @@ import {
   resolveKtsDefault,
   type TripKtsSource
 } from '@/features/trips/lib/resolve-kts-default';
+import {
+  resolveNoInvoiceRequiredDefault,
+  type TripNoInvoiceSource
+} from '@/features/trips/lib/resolve-no-invoice-required';
 import { formatTripAddressDisplayLine } from '@/features/trips/lib/format-trip-address-display-line';
 import { useCreateTripDraft } from '@/features/trips/hooks/use-create-trip-draft';
 import {
@@ -56,6 +60,7 @@ const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   billing_calling_station: 'payer',
   billing_betreuer: 'payer',
   kts_document_applies: 'payer',
+  no_invoice_required: 'payer',
   departure_date: 'schedule',
   departure_time: 'schedule',
   return_mode: 'schedule',
@@ -123,11 +128,23 @@ export function CreateTripForm({
   const [ktsCatalogHint, setKtsCatalogHint] = React.useState<string | null>(
     null
   );
+  const noInvoiceUserLockedRef = React.useRef(false);
+  const [noInvoiceCatalogHint, setNoInvoiceCatalogHint] = React.useState<
+    string | null
+  >(null);
 
   const markKtsUserTouched = React.useCallback(
     (opts?: { clearHint?: boolean }) => {
       ktsUserLockedRef.current = true;
       if (opts?.clearHint) setKtsCatalogHint(null);
+    },
+    []
+  );
+
+  const markNoInvoiceUserTouched = React.useCallback(
+    (opts?: { clearHint?: boolean }) => {
+      noInvoiceUserLockedRef.current = true;
+      if (opts?.clearHint) setNoInvoiceCatalogHint(null);
     },
     []
   );
@@ -159,7 +176,8 @@ export function CreateTripForm({
       notes: '',
       billing_calling_station: '',
       billing_betreuer: '',
-      kts_document_applies: false
+      kts_document_applies: false,
+      no_invoice_required: false
     }
   });
 
@@ -168,6 +186,7 @@ export function CreateTripForm({
   const handleApplyDraft = React.useCallback(
     (draft: CreateTripDraftStored) => {
       ktsUserLockedRef.current = true;
+      noInvoiceUserLockedRef.current = true;
       form.reset(buildTripFormValuesFromDraft(draft.values));
       setPassengers((draft.passengers as PassengerEntry[]) ?? []);
       const pu = draft.pickupGroups as AddressGroupEntry[];
@@ -211,6 +230,7 @@ export function CreateTripForm({
         'billing_calling_station',
         'billing_betreuer',
         'kts_document_applies',
+        'no_invoice_required',
         'departure_date',
         'departure_time',
         'return_mode',
@@ -295,6 +315,7 @@ export function CreateTripForm({
   // Reset billing variant + family pick when payer changes; allow fresh KTS cascade.
   React.useEffect(() => {
     ktsUserLockedRef.current = false;
+    noInvoiceUserLockedRef.current = false;
     form.setValue('billing_variant_id', '');
     setBillingFamilyId('');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -357,11 +378,70 @@ export function CreateTripForm({
     setKtsCatalogHint((h) => (h === nextHint ? h : nextHint));
   }, [watchedPayerId, watchedBillingVariantId, billingTypes, payers, form]);
 
+  React.useEffect(() => {
+    if (noInvoiceUserLockedRef.current) return;
+
+    if (!watchedPayerId) {
+      setNoInvoiceCatalogHint(null);
+      const cur = form.getValues('no_invoice_required');
+      if (cur !== false) form.setValue('no_invoice_required', false);
+      return;
+    }
+
+    const payer = payers.find((p) => p.id === watchedPayerId);
+    if (!payer) return;
+
+    const variant = watchedBillingVariantId
+      ? billingTypes.find((b) => b.id === watchedBillingVariantId)
+      : undefined;
+
+    const r = resolveNoInvoiceRequiredDefault({
+      payerNoInvoiceDefault: payer.no_invoice_required_default,
+      familyBehaviorProfile: variant?.behavior_profile,
+      variantNoInvoiceDefault: variant?.no_invoice_required_default
+    });
+
+    if (!r.value) {
+      setNoInvoiceCatalogHint(null);
+      const cur = form.getValues('no_invoice_required');
+      if (cur !== false) form.setValue('no_invoice_required', false);
+      return;
+    }
+
+    const cur = form.getValues('no_invoice_required');
+    if (cur !== r.value) form.setValue('no_invoice_required', r.value);
+    const nextHint =
+      r.source === 'variant' && variant
+        ? `Voreingestellt aus Unterart: ${variant.name}`
+        : r.source === 'familie' && variant
+          ? `Voreingestellt aus Abrechnungsfamilie: ${variant.billing_type_name}`
+          : r.source === 'payer'
+            ? `Voreingestellt aus Kostenträger: ${payer.name}`
+            : null;
+    setNoInvoiceCatalogHint((h) => (h === nextHint ? h : nextHint));
+  }, [watchedPayerId, watchedBillingVariantId, billingTypes, payers, form]);
+
   const selectedBillingType = billingTypes.find(
     (bt) => bt.id === watchedBillingVariantId
   );
 
   const selectedPayer = payers.find((p) => p.id === watchedPayerId);
+
+  const catalogNoInvoiceApplies = React.useMemo(() => {
+    if (!watchedPayerId) return false;
+    const payer = payers.find((p) => p.id === watchedPayerId);
+    if (!payer) return false;
+    const variant = watchedBillingVariantId
+      ? billingTypes.find((b) => b.id === watchedBillingVariantId)
+      : undefined;
+    return (
+      resolveNoInvoiceRequiredDefault({
+        payerNoInvoiceDefault: payer.no_invoice_required_default,
+        familyBehaviorProfile: variant?.behavior_profile,
+        variantNoInvoiceDefault: variant?.no_invoice_required_default
+      }).value === true
+    );
+  }, [watchedPayerId, watchedBillingVariantId, payers, billingTypes]);
 
   // Notify parent when billing type or payer changes (for header display)
   React.useEffect(() => {
@@ -1073,11 +1153,6 @@ export function CreateTripForm({
               ).toISOString();
             })();
 
-      const driverId =
-        values.driver_id && values.driver_id !== '__none__'
-          ? values.driver_id
-          : null;
-
       /**
        * Billing metadata columns (`trips.billing_*`): create-flow only in v1.
        * Future Trip-Detail-Sheet: read `billing_types.behavior_profile` and/or non-null
@@ -1098,11 +1173,33 @@ export function CreateTripForm({
         ? 'manual'
         : ktsResolvedSubmit.source;
 
+      const noInvResolvedSubmit = resolveNoInvoiceRequiredDefault({
+        payerNoInvoiceDefault: ktsPayerRow?.no_invoice_required_default,
+        familyBehaviorProfile: ktsVariantRow?.behavior_profile,
+        variantNoInvoiceDefault: ktsVariantRow?.no_invoice_required_default
+      });
+      const catalogSaysNoInvoice =
+        !!ktsPayerRow && noInvResolvedSubmit.value === true;
+      const noInvoiceSource: TripNoInvoiceSource = !catalogSaysNoInvoice
+        ? 'system_default'
+        : noInvoiceUserLockedRef.current
+          ? 'manual'
+          : noInvResolvedSubmit.source;
+
+      const driverId =
+        values.driver_id && values.driver_id !== '__none__'
+          ? values.driver_id
+          : null;
+      const tripStatus = (getStatusWhenDriverChanges('pending', driverId) ??
+        'pending') as 'pending' | 'assigned';
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
         kts_document_applies: values.kts_document_applies,
         kts_source: ktsSource,
+        no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
+        no_invoice_source: noInvoiceSource,
         billing_calling_station: askBillingExtras
           ? values.billing_calling_station?.trim() || null
           : null,
@@ -1111,8 +1208,7 @@ export function CreateTripForm({
           : null,
         driver_id: driverId,
         notes: values.notes || null,
-        status: (getStatusWhenDriverChanges('pending', driverId) ??
-          'pending') as 'pending' | 'assigned',
+        status: tripStatus,
         company_id: companyId,
         created_by: user?.id || null,
         stop_updates: [] as any[]
@@ -1201,6 +1297,8 @@ export function CreateTripForm({
 
           await tripsService.createTrip({
             ...baseTrip,
+            status: (getStatusWhenDriverChanges('pending', null) ??
+              'pending') as 'pending' | 'assigned',
             is_wheelchair: values.is_wheelchair,
             client_id: null,
             client_name: null,
@@ -1317,6 +1415,8 @@ export function CreateTripForm({
 
                 return tripsService.createTrip({
                   ...baseTrip,
+                  status: (getStatusWhenDriverChanges('pending', null) ??
+                    'pending') as 'pending' | 'assigned',
                   is_wheelchair: p.is_wheelchair,
                   client_id: p.client_id || null,
                   client_name:
@@ -1402,6 +1502,9 @@ export function CreateTripForm({
     isPayerSelected,
     ktsCatalogHint,
     markKtsUserTouched,
+    noInvoiceCatalogHint,
+    markNoInvoiceUserTouched,
+    catalogNoInvoiceApplies,
     unassignedPassengers,
     getPickupGroupPassengers,
     getDropoffGroupPassengers,

@@ -51,6 +51,7 @@ const formSchema = z.object({
   requireDropoffStation: z.boolean(),
   askCallingStationAndBetreuer: z.boolean(),
   kts_default: z.enum(['unset', 'yes', 'no']),
+  no_invoice_required_default: z.enum(['unset', 'yes', 'no']),
   defaultPickup: z.string().optional().nullable(),
   defaultPickupStreet: z.string().optional().nullable(),
   defaultPickupStreetNumber: z.string().optional().nullable(),
@@ -116,6 +117,13 @@ function normaliseBehavior(b: any): FormValues {
       if (raw === 'no' || raw === false) return 'no' as const;
       return 'unset' as const;
     })(),
+    no_invoice_required_default: (() => {
+      const raw =
+        b.no_invoice_required_default ?? b.noInvoiceRequiredDefault ?? null;
+      if (raw === 'yes' || raw === true) return 'yes' as const;
+      if (raw === 'no' || raw === false) return 'no' as const;
+      return 'unset' as const;
+    })(),
     defaultPickup: b.defaultPickup ?? b.default_pickup ?? '',
     defaultPickupStreet: b.defaultPickupStreet ?? b.default_pickup_street ?? '',
     defaultPickupStreetNumber:
@@ -161,6 +169,7 @@ export function BillingTypeBehaviorDialog({
       requireDropoffStation: false,
       askCallingStationAndBetreuer: false,
       kts_default: 'unset',
+      no_invoice_required_default: 'unset',
       defaultPickup: '',
       defaultPickupStreet: '',
       defaultPickupStreetNumber: '',
@@ -188,6 +197,7 @@ export function BillingTypeBehaviorDialog({
       const processedData: BillingTypeBehavior = {
         ...data,
         kts_default: data.kts_default,
+        no_invoice_required_default: data.no_invoice_required_default,
         defaultPickup: data.defaultPickup?.trim() || null,
         defaultPickupStreet: data.defaultPickupStreet?.trim() || null,
         defaultPickupStreetNumber:
@@ -339,6 +349,35 @@ export function BillingTypeBehaviorDialog({
                     </Select>
                     <FormDescription>
                       Unterart kann mit eigenem KTS-Default überschreiben.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='no_invoice_required_default'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Keine Rechnung — Familie</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Standard' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='unset'>
+                          Nicht festlegen (Unterart / Kostenträger)
+                        </SelectItem>
+                        <SelectItem value='yes'>
+                          Ja — „Keine Rechnung“ für Neue Fahrt voreinstellen
+                        </SelectItem>
+                        <SelectItem value='no'>Nein</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Unterart kann mit eigenem Default überschreiben.
                     </FormDescription>
                   </FormItem>
                 )}

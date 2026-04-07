@@ -16,11 +16,19 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
+import {
+  listPricingRulesForPayer,
+  type BillingPricingRuleRow
+} from '@/features/payers/api/billing-pricing-rules.api';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import { resolveTaxRate } from '../lib/tax-calculator';
-import { resolveTripPrice } from '../lib/price-calculator';
+import { resolvePricingRule } from '../lib/resolve-pricing-rule';
+import { resolveTripPrice as resolveTripPricePure } from '../lib/resolve-trip-price';
 import { validateLineItems } from '../lib/invoice-validators';
+import { buildTripMetaFromTrip } from '../lib/trip-meta-snapshot';
+import type { BillingPricingRuleLike } from '../types/pricing.types';
+import type { PriceResolution } from '../types/pricing.types';
 import type {
   TripForInvoice,
   BuilderLineItem,
@@ -38,12 +46,51 @@ export interface FetchTripsForBuilderParams {
   client_id?: string | null; // only for per_client mode
 }
 
+function legacyPriceSource(
+  src: string
+): 'client_price_tag' | 'trip_price' | null {
+  if (src === 'client_price_tag') return 'client_price_tag';
+  if (src === 'trip_price') return 'trip_price';
+  return null;
+}
+
+/**
+ * Recompute price_resolution when the user edits the net unit price in step 3.
+ * Manual edit affects base net only — `approach_fee_net` is preserved as-is from the original resolution.
+ */
+export function applyManualUnitNetToResolution(
+  item: BuilderLineItem,
+  unitNet: number
+): PriceResolution {
+  const qty = item.quantity;
+  const tr = item.tax_rate;
+  const netTotal = Math.round(unitNet * qty * 100) / 100;
+  const grossTotal = Math.round(netTotal * (1 + tr) * 100) / 100;
+  const prevNote = item.price_resolution.note;
+  const manualNote = 'Manuell angepasst';
+  const note =
+    prevNote && !prevNote.includes(manualNote)
+      ? `${prevNote} · ${manualNote}`
+      : prevNote && prevNote.includes(manualNote)
+        ? prevNote
+        : manualNote;
+  return {
+    ...item.price_resolution,
+    unit_price_net: unitNet,
+    net: netTotal,
+    gross: grossTotal,
+    tax_rate: tr,
+    strategy_used: 'manual_trip_price',
+    source: 'trip_price',
+    note
+  };
+}
+
 /**
  * Fetches trips for inclusion in an invoice, scoped by payer, date range,
  * and optionally by billing_type and client.
  *
- * Joins billing_variant and client (including price_tag) for name/code snapshot data.
- * The client.price_tag is the highest priority source for pricing.
+ * Billing-type filter uses `billing_variants.billing_type_id` (not variant id).
  *
  * @param params - Filter parameters from the builder step 2.
  * @returns       Array of TripForInvoice objects ready for line item building.
@@ -53,11 +100,25 @@ export async function fetchTripsForBuilder(
 ): Promise<TripForInvoice[]> {
   const supabase = createClient();
 
+  let variantIdsForType: string[] | null = null;
+  if (params.billing_type_id) {
+    const { data: variants, error: vErr } = await supabase
+      .from('billing_variants')
+      .select('id')
+      .eq('billing_type_id', params.billing_type_id);
+    if (vErr) throw toQueryError(vErr);
+    variantIdsForType = (variants ?? []).map((v) => v.id);
+    if (variantIdsForType.length === 0) {
+      return [];
+    }
+  }
+
   let query = supabase
     .from('trips')
     .select(
       `
       id,
+      payer_id,
       scheduled_at,
       price,
       driving_distance_km,
@@ -65,23 +126,27 @@ export async function fetchTripsForBuilder(
       pickup_address,
       dropoff_address,
       kts_document_applies,
-      billing_variant:billing_variants(id, code, name),
+      no_invoice_required,
+      link_type,
+      linked_trip_id,
+      driver:accounts!trips_driver_id_fkey(name),
+      payer:payers(rechnungsempfaenger_id),
+      billing_variant:billing_variants(
+        id, code, name, billing_type_id, rechnungsempfaenger_id,
+        billing_type:billing_types(name, rechnungsempfaenger_id)
+      ),
       client:clients(id, first_name, last_name, price_tag)
     `
     )
-    // Filter by payer directly on the trips table
     .eq('payer_id', params.payer_id)
-    // Date range filter on scheduled_at (include full last day)
     .gte('scheduled_at', params.period_from)
     .lte('scheduled_at', params.period_to + 'T23:59:59.999Z')
     .order('scheduled_at', { ascending: true });
 
-  // Optional: filter to one billing_type within the payer
-  if (params.billing_type_id) {
-    query = query.eq('billing_variant_id', params.billing_type_id);
+  if (variantIdsForType) {
+    query = query.in('billing_variant_id', variantIdsForType);
   }
 
-  // Optional: filter by client (per_client mode)
   if (params.client_id) {
     query = query.eq('client_id', params.client_id);
   }
@@ -92,53 +157,86 @@ export async function fetchTripsForBuilder(
   return (data ?? []) as unknown as TripForInvoice[];
 }
 
+/** Maps DB pricing rule rows to the shape expected by pure resolvers. */
+export function mapBillingPricingRuleRowsToLike(
+  rows: BillingPricingRuleRow[]
+): BillingPricingRuleLike[] {
+  return (rows ?? []).map((r) => ({
+    id: r.id,
+    company_id: r.company_id,
+    payer_id: r.payer_id,
+    billing_type_id: r.billing_type_id,
+    billing_variant_id: r.billing_variant_id,
+    strategy: r.strategy as BillingPricingRuleLike['strategy'],
+    config: r.config,
+    is_active: r.is_active === true
+  }));
+}
+
+/**
+ * Loads trips for the builder; optionally reuses pre-fetched rules (e.g. from
+ * `referenceKeys.billingPricingRules` via TanStack `fetchQuery`).
+ */
+export async function fetchBuilderTripsAndRules(
+  params: FetchTripsForBuilderParams,
+  preloadedRules?: BillingPricingRuleLike[]
+): Promise<{
+  trips: TripForInvoice[];
+  rules: BillingPricingRuleLike[];
+}> {
+  const trips = await fetchTripsForBuilder(params);
+  let rules: BillingPricingRuleLike[];
+  if (preloadedRules !== undefined) {
+    rules = preloadedRules;
+  } else {
+    const rulesRows = await listPricingRulesForPayer(params.payer_id);
+    rules = mapBillingPricingRuleRowsToLike(rulesRows);
+  }
+  return { trips, rules };
+}
+
 // ─── Build line items ─────────────────────────────────────────────────────────
 
 /**
  * Converts trip rows into BuilderLineItem objects (in-memory, not yet saved).
- *
- * This function:
- *   1. Resolves the billable price using resolveTripPrice()
- *      - client.price_tag has HIGHEST priority
- *      - trips.price is the fallback
- *   2. Resolves the tax rate using resolveTaxRate()
- *   3. Builds a human-readable description string
- *   4. Attaches validation warnings via validateLineItems()
- *
- * The result is what the user sees in step 3 (Positionen-Vorschau).
- *
- * @param trips - Raw trip rows from fetchTripsForBuilder().
- * @returns      Line items with price_source and warnings attached.
+ * Uses Spec C cascade via `resolveTripPrice` + `resolvePricingRule`.
  */
 export function buildLineItemsFromTrips(
-  trips: TripForInvoice[]
+  trips: TripForInvoice[],
+  rules: BillingPricingRuleLike[]
 ): BuilderLineItem[] {
   const rawItems = trips.map((trip, index) => {
-    // ── Tax rate resolution ──────────────────────────────────────────────
-    // Tax rate must be resolved FIRST because it's needed to convert
-    // client.price_tag from brutto to netto
     const { rate: taxRate } = resolveTaxRate(trip.driving_distance_km);
 
-    // ── Price resolution ─────────────────────────────────────────────────
-    // resolveTripPrice follows the hierarchy:
-    //   1. client.price_tag (brutto, converted to netto using taxRate)
-    //   2. trips.price (already netto, used as fallback)
-    //   3. null (requires manual entry)
-    const { unitPrice, quantity, totalPrice, source } = resolveTripPrice(
-      trip,
-      taxRate
+    const rule = resolvePricingRule({
+      rules,
+      payerId: trip.payer_id,
+      billingTypeId: trip.billing_variant?.billing_type_id ?? null,
+      billingVariantId: trip.billing_variant_id
+    });
+
+    const priceResolution = resolveTripPricePure(
+      {
+        kts_document_applies: trip.kts_document_applies === true,
+        price: trip.price ?? null,
+        driving_distance_km: trip.driving_distance_km ?? null,
+        scheduled_at: trip.scheduled_at,
+        client: trip.client
+      },
+      taxRate,
+      rule
     );
 
-    // ── Client name snapshot ─────────────────────────────────────────────
+    const kts_override = priceResolution.strategy_used === 'kts_override';
+    const unitPrice = priceResolution.unit_price_net;
+    const quantity = priceResolution.quantity;
+
     const clientName = trip.client
       ? [trip.client.first_name, trip.client.last_name]
           .filter(Boolean)
           .join(' ')
       : null;
 
-    // ── Human-readable description ───────────────────────────────────────
-    // Format: "Fahrt vom 01.03.2026 – Max Mustermann"
-    // If date is unknown, falls back to "Fahrt (kein Datum)"
     const dateStr = trip.scheduled_at
       ? new Date(trip.scheduled_at).toLocaleDateString('de-DE', {
           day: '2-digit',
@@ -156,7 +254,7 @@ export function buildLineItemsFromTrips(
 
     return {
       trip_id: trip.id,
-      position: index + 1, // 1-based
+      position: index + 1,
       line_date: trip.scheduled_at,
       description,
       client_name: clientName,
@@ -167,19 +265,45 @@ export function buildLineItemsFromTrips(
       quantity,
       tax_rate: taxRate,
       billing_variant_code: trip.billing_variant?.code ?? null,
-      billing_variant_name: trip.billing_variant?.name ?? null,
+      // Always snapshot the billing_type (family) name — variant name and code are intentionally
+      // ignored. PDF groups by Abrechnungsfamilie only, never by variant (§14 UStG snapshot).
+      billing_variant_name: trip.billing_variant?.billing_type?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
-      // Track which price source was used for this line item
-      // 'client_price_tag' — from clients.price_tag (highest priority)
-      // 'trip_price' — from trips.price (fallback)
-      // null — no price set
-      price_source: source,
-      // totalPrice handled separately (not part of BuilderLineItem; computed on save)
-      _totalPrice: totalPrice // internal — used in calculateTotals()
-    } as BuilderLineItem & { _totalPrice: number | null };
+      no_invoice_warning: trip.no_invoice_required === true,
+      price_resolution: priceResolution,
+      kts_override,
+      approach_fee_net: priceResolution.approach_fee_net ?? null,
+      trip_meta: buildTripMetaFromTrip(trip),
+      price_source: legacyPriceSource(priceResolution.source),
+      _totalPrice:
+        unitPrice !== null && unitPrice !== undefined
+          ? Math.round(unitPrice * quantity * 100) / 100
+          : null
+    } as Omit<BuilderLineItem, 'warnings'> & { _totalPrice: number | null };
   });
 
-  return validateLineItems(rawItems);
+  return validateLineItems(
+    rawItems.map((row) => {
+      const { _totalPrice: _tp, ...rest } = row;
+      void _tp;
+      return rest;
+    })
+  );
+}
+
+export function frozenPriceResolutionForInsert(
+  item: BuilderLineItem
+): PriceResolution {
+  const u = item.unit_price;
+  const pr = item.price_resolution;
+  if (u === null || u === undefined) {
+    return pr;
+  }
+  const prev = pr.unit_price_net;
+  if (prev === null || prev === undefined || Math.abs(prev - u) > 0.0001) {
+    return applyManualUnitNetToResolution(item, u);
+  }
+  return pr;
 }
 
 // ─── Calculate invoice totals ─────────────────────────────────────────────────
@@ -187,12 +311,7 @@ export function buildLineItemsFromTrips(
 /**
  * Calculates invoice totals (subtotal, tax, grand total) and tax breakdown
  * from a list of builder line items.
- *
- * Items with null unit_price contribute 0 to the totals and will be flagged
- * with a 'missing_price' warning in validateLineItems.
- *
- * @param items - BuilderLineItem array (after user edits in step 3).
- * @returns       Subtotal, tax amount, total, and per-rate tax breakdown.
+ * Includes `approach_fee_net` per line — must match `insertLineItems` total_price formula.
  */
 export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   subtotal: number;
@@ -200,15 +319,14 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   total: number;
   breakdown: TaxBreakdown[];
 } {
-  // Group net amounts by tax rate for the breakdown (7% + 19% shown separately)
   const byRate: Record<number, number> = {};
 
   let subtotal = 0;
 
   for (const item of items) {
-    // Skip items that still have no price set
-    const lineTotal =
+    const baseNet =
       item.unit_price !== null ? item.unit_price * item.quantity : 0;
+    const lineTotal = baseNet + (item.approach_fee_net ?? 0);
 
     subtotal += lineTotal;
 
@@ -218,7 +336,6 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
     byRate[item.tax_rate] += lineTotal;
   }
 
-  // Build breakdown array (one entry per distinct tax rate)
   const breakdown: TaxBreakdown[] = Object.entries(byRate).map(
     ([rate, net]) => ({
       rate: parseFloat(rate),
@@ -242,13 +359,6 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
 
 /**
  * Inserts line items for a newly created invoice into the DB.
- *
- * Must be called AFTER createInvoice() — the invoice_id is required.
- * Items are inserted in a single batch insert for performance.
- *
- * @param invoiceId - UUID of the parent invoice row.
- * @param items     - Builder line items (after user review in step 3).
- * @returns          The inserted line item rows.
  */
 export async function insertLineItems(
   invoiceId: string,
@@ -256,24 +366,40 @@ export async function insertLineItems(
 ): Promise<InvoiceLineItemRow[]> {
   const supabase = createClient();
 
-  const rows = items.map((item) => ({
-    invoice_id: invoiceId,
-    trip_id: item.trip_id,
-    position: item.position,
-    line_date: item.line_date,
-    description: item.description,
-    client_name: item.client_name,
-    pickup_address: item.pickup_address,
-    dropoff_address: item.dropoff_address,
-    distance_km: item.distance_km,
-    // Default missing prices to 0 (user was warned by 'missing_price' badge)
-    unit_price: item.unit_price ?? 0,
-    quantity: item.quantity,
-    total_price: (item.unit_price ?? 0) * item.quantity * (1 + item.tax_rate),
-    tax_rate: item.tax_rate,
-    billing_variant_code: item.billing_variant_code,
-    billing_variant_name: item.billing_variant_name
-  }));
+  // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+  const rows = items.map((item) => {
+    const frozen = frozenPriceResolutionForInsert(item);
+    return {
+      invoice_id: invoiceId,
+      trip_id: item.trip_id,
+      position: item.position,
+      line_date: item.line_date,
+      description: item.description,
+      client_name: item.client_name,
+      pickup_address: item.pickup_address,
+      dropoff_address: item.dropoff_address,
+      distance_km: item.distance_km,
+      unit_price: item.unit_price ?? 0,
+      quantity: item.quantity,
+      // total_price = (unit_price × quantity + approach_fee_net) × (1 + tax_rate)
+      total_price:
+        ((item.unit_price ?? 0) * item.quantity +
+          (item.approach_fee_net ?? 0)) *
+        (1 + item.tax_rate),
+      approach_fee_net: item.approach_fee_net ?? null,
+      tax_rate: item.tax_rate,
+      billing_variant_code: item.billing_variant_code,
+      billing_variant_name: item.billing_variant_name,
+      pricing_strategy_used: frozen.strategy_used,
+      pricing_source: frozen.source,
+      kts_override: item.kts_override,
+      // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+      price_resolution_snapshot: frozen as unknown as Record<string, unknown>,
+      trip_meta_snapshot: item.trip_meta
+        ? (item.trip_meta as unknown as Record<string, unknown>)
+        : null
+    };
+  });
 
   const { data, error } = await supabase
     .from('invoice_line_items')

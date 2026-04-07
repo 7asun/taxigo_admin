@@ -19,6 +19,18 @@ import { createClient } from '@/lib/supabase/client';
 import { generateNextInvoiceNumber } from './invoice-number';
 import type { InvoiceRow, InvoiceLineItemRow } from '../types/invoice.types';
 
+function negatePriceResolutionSnapshot(
+  snap: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return snap;
+  const o = { ...snap } as Record<string, unknown>;
+  for (const k of ['net', 'gross', 'unit_price_net', 'approach_fee_net']) {
+    const v = o[k];
+    if (typeof v === 'number') o[k] = -Math.abs(v);
+  }
+  return o;
+}
+
 /**
  * Creates a Stornorechnung (cancellation invoice) for an existing invoice.
  *
@@ -81,7 +93,16 @@ export async function createStornorechnung(
       status: 'draft', // Dispatcher reviews before sending
 
       // FK chain: links this Storno back to the original
-      cancels_invoice_id: originalInvoice.id
+      cancels_invoice_id: originalInvoice.id,
+
+      rechnungsempfaenger_id: originalInvoice.rechnungsempfaenger_id,
+      rechnungsempfaenger_snapshot:
+        originalInvoice.rechnungsempfaenger_snapshot,
+
+      // §14 UStG: A Stornorechnung must mirror the layout of the original invoice.
+      // Copying pdf_column_override ensures the Storno PDF uses the same column
+      // profile that produced the original — maintaining document consistency.
+      pdf_column_override: originalInvoice.pdf_column_override ?? null
     })
     .select('id')
     .single();
@@ -108,9 +129,18 @@ export async function createStornorechnung(
       unit_price: -Math.abs(item.unit_price),
       quantity: item.quantity,
       total_price: -Math.abs(item.total_price),
+      approach_fee_net:
+        item.approach_fee_net != null ? -Math.abs(item.approach_fee_net) : null,
       tax_rate: item.tax_rate,
       billing_variant_code: item.billing_variant_code,
-      billing_variant_name: item.billing_variant_name
+      billing_variant_name: item.billing_variant_name,
+      pricing_strategy_used: item.pricing_strategy_used,
+      pricing_source: item.pricing_source,
+      kts_override: item.kts_override,
+      price_resolution_snapshot: negatePriceResolutionSnapshot(
+        item.price_resolution_snapshot
+      ),
+      trip_meta_snapshot: item.trip_meta_snapshot ?? null
     }));
 
     const { error: lineItemsError } = await supabase

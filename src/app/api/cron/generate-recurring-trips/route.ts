@@ -15,7 +15,7 @@ import {
   type GeocodedAddressLineResult
 } from '@/lib/google-geocoding';
 import {
-  getDrivingMetrics,
+  resolveDrivingMetricsWithCache,
   type DrivingMetrics
 } from '@/lib/google-directions';
 import {
@@ -156,14 +156,18 @@ export async function GET() {
       let driving_duration_seconds: number | null = null;
       if (pickupGeo && dropoffGeo) {
         const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+        // Two-tier caching:
+        // 1. In-memory (drivingMetricsCache) to avoid redundant DB queries for the same route in this cron run.
+        // 2. DB-cache (resolveDrivingMetricsWithCache) to reuse historical calculations and avoid Google API calls.
         if (!drivingMetricsCache.has(metricsKey)) {
           drivingMetricsCache.set(
             metricsKey,
-            await getDrivingMetrics(
+            await resolveDrivingMetricsWithCache(
               pickupGeo.lat,
               pickupGeo.lng,
               dropoffGeo.lat,
-              dropoffGeo.lng
+              dropoffGeo.lng,
+              supabase
             )
           );
         }
@@ -176,6 +180,12 @@ export async function GET() {
 
       const link_type = isReturnTrip ? 'return' : outboundLinkType;
 
+      const hasFremdfirma = !!rule.fremdfirma_id;
+
+      // no_invoice_required, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost
+      // are mirrored from recurring_rules — same pattern as kts_document_applies.
+      // Admin can override on individual generated trips after creation.
+
       return {
         company_id: client.company_id,
         client_id: client.id,
@@ -185,6 +195,18 @@ export async function GET() {
         billing_variant_id: rule.billing_variant_id,
         kts_document_applies: rule.kts_document_applies ?? false,
         kts_source: rule.kts_source ?? null,
+        no_invoice_required: rule.no_invoice_required ?? false,
+        no_invoice_source: rule.no_invoice_source ?? null,
+        fremdfirma_id: rule.fremdfirma_id ?? null,
+        fremdfirma_payment_mode: rule.fremdfirma_payment_mode ?? null,
+        fremdfirma_cost: rule.fremdfirma_cost ?? null,
+        ...(hasFremdfirma
+          ? {
+              driver_id: null,
+              needs_driver_assignment: false,
+              status: 'assigned' as const
+            }
+          : { status: 'pending' as const }),
         greeting_style: client.greeting_style,
         is_wheelchair: client.is_wheelchair,
         requested_date: dateStr,
@@ -208,7 +230,6 @@ export async function GET() {
         driving_duration_seconds,
         has_missing_geodata: !geodataOk,
         scheduled_at: scheduledAtIso,
-        status: 'pending',
         rule_id: rule.id,
         link_type,
         linked_trip_id: linkedTripId

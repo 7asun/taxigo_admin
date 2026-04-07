@@ -28,5 +28,16 @@ export const referenceKeys = {
    * Invalidate via `useBillingTypes` after Kostenträger admin edits families/variants.
    */
   billingVariants: (payerId: string) =>
-    [...referenceKeys.root, 'billingVariants', payerId] as const
+    [...referenceKeys.root, 'billingVariants', payerId] as const,
+
+  /** Active Fremdfirmen (`is_active = true`) for trip + recurring forms. */
+  fremdfirmen: () => [...referenceKeys.root, 'fremdfirmen'] as const,
+
+  /** Rechnungsempfänger catalog for Kostenträger + invoice builder. */
+  rechnungsempfaenger: () =>
+    [...referenceKeys.root, 'rechnungsempfaenger'] as const,
+
+  /** Pricing rules shown in Kostenträger admin for one payer. */
+  billingPricingRules: (payerId: string) =>
+    [...referenceKeys.root, 'billingPricingRules', payerId] as const
 };
