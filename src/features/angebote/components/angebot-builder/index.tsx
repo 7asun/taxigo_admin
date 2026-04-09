@@ -38,7 +38,8 @@ import { useAngebotBuilderPdfPreview } from './use-angebot-builder-pdf-preview';
 function defaultEmpfaengerValues(): EmpfaengerValues {
   return {
     recipient_company: '',
-    recipient_name: '',
+    recipient_first_name: '',
+    recipient_last_name: '',
     recipient_anrede: '',
     recipient_street: '',
     recipient_street_number: '',
@@ -54,7 +55,8 @@ function empfaengerFromAngebot(a: AngebotWithLineItems): EmpfaengerValues {
   const ar = a.recipient_anrede;
   return {
     recipient_company: a.recipient_company ?? '',
-    recipient_name: a.recipient_name ?? '',
+    recipient_first_name: a.recipient_first_name ?? '',
+    recipient_last_name: a.recipient_last_name ?? '',
     recipient_anrede: ar === 'Herr' || ar === 'Frau' ? ar : '',
     recipient_street: a.recipient_street ?? '',
     recipient_street_number: a.recipient_street_number ?? '',
@@ -156,7 +158,7 @@ export function AngebotBuilder({
 
   // Derived completion states
   const section1Complete = !!(
-    empfaengerValues.recipient_company || empfaengerValues.recipient_name
+    empfaengerValues.recipient_company || empfaengerValues.recipient_last_name
   );
   const section2Complete = lineItems.some((i) => i.leistung.trim().length > 0);
   const section3Complete = !!(
@@ -178,7 +180,15 @@ export function AngebotBuilder({
         base?.angebot_number ?? `AG-${format(new Date(), 'yyyy-MM')}-XXXX`,
       status: base?.status ?? 'draft',
       recipient_company: empfaengerValues.recipient_company || null,
-      recipient_name: empfaengerValues.recipient_name || null,
+      recipient_first_name: empfaengerValues.recipient_first_name || null,
+      recipient_last_name: empfaengerValues.recipient_last_name || null,
+      recipient_name:
+        [
+          empfaengerValues.recipient_first_name,
+          empfaengerValues.recipient_last_name
+        ]
+          .filter(Boolean)
+          .join(' ') || null,
       recipient_anrede: (empfaengerValues.recipient_anrede || null) as
         | 'Herr'
         | 'Frau'
@@ -245,7 +255,15 @@ export function AngebotBuilder({
     if (isEdit && initialAngebot) {
       const header: UpdateAngebotPayload = {
         recipient_company: empfaengerValues.recipient_company || null,
-        recipient_name: empfaengerValues.recipient_name || null,
+        recipient_first_name: empfaengerValues.recipient_first_name || null,
+        recipient_last_name: empfaengerValues.recipient_last_name || null,
+        recipient_name:
+          [
+            empfaengerValues.recipient_first_name,
+            empfaengerValues.recipient_last_name
+          ]
+            .filter(Boolean)
+            .join(' ') || null,
         recipient_anrede: (empfaengerValues.recipient_anrede || null) as
           | 'Herr'
           | 'Frau'
@@ -272,7 +290,15 @@ export function AngebotBuilder({
     createAngebotMutation({
       companyId,
       recipient_company: empfaengerValues.recipient_company || null,
-      recipient_name: empfaengerValues.recipient_name || null,
+      recipient_first_name: empfaengerValues.recipient_first_name || null,
+      recipient_last_name: empfaengerValues.recipient_last_name || null,
+      recipient_name:
+        [
+          empfaengerValues.recipient_first_name,
+          empfaengerValues.recipient_last_name
+        ]
+          .filter(Boolean)
+          .join(' ') || null,
       recipient_anrede: (empfaengerValues.recipient_anrede || null) as
         | 'Herr'
         | 'Frau'
@@ -330,7 +356,7 @@ export function AngebotBuilder({
             showFertigBadge={section1Complete}
             summary={
               empfaengerValues.recipient_company ||
-              empfaengerValues.recipient_name ||
+              empfaengerValues.recipient_last_name ||
               null
             }
             open={openSections.empfaenger}
@@ -439,7 +465,6 @@ export function AngebotBuilder({
           section2Complete={livePreviewActive}
           draftInvoice={livePreviewActive ? ({} as InvoiceDetail) : null}
           pdf={{ loading: pdf.loading, url: pdf.url ?? null }}
-          pdfTitle={`Angebot #${draftAngebot?.angebot_number}`}
         />
       </div>
 
@@ -455,7 +480,7 @@ export function AngebotBuilder({
           <div className='relative min-h-0 flex-1 overflow-hidden'>
             {pdf.url ? (
               <iframe
-                title={`Angebot #${draftAngebot?.angebot_number}`}
+                title='Angebot Vorschau'
                 src={pdf.url}
                 className='absolute inset-0 h-full w-full border-0'
               />

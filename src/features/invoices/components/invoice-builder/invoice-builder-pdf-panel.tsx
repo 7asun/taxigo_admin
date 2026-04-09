@@ -12,7 +12,6 @@ interface InvoiceBuilderPdfPanelProps {
     loading: boolean;
     url: string | null;
   };
-  pdfTitle?: string;
 }
 
 export function InvoiceBuilderPdfPanel({
@@ -20,8 +19,7 @@ export function InvoiceBuilderPdfPanel({
   isLoadingTrips,
   section2Complete,
   draftInvoice,
-  pdf,
-  pdfTitle
+  pdf
 }: InvoiceBuilderPdfPanelProps) {
   if (isLoadingTrips) {
     return (
@@ -75,7 +73,7 @@ export function InvoiceBuilderPdfPanel({
           </div>
         ) : pdf.url ? (
           <iframe
-            title={pdfTitle || 'Vorschau'}
+            title='Rechnungs-PDF-Vorschau'
             src={pdf.url}
             className='absolute inset-0 h-full w-full border-0'
           />

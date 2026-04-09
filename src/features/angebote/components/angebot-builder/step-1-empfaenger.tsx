@@ -14,7 +14,8 @@ import { AddressAutocomplete } from '@/features/trips/components/trip-address-pa
 
 export interface EmpfaengerValues {
   recipient_company: string;
-  recipient_name: string;
+  recipient_first_name: string;
+  recipient_last_name: string;
   recipient_anrede: 'Herr' | 'Frau' | '';
   recipient_street: string;
   recipient_street_number: string;
@@ -57,7 +58,7 @@ export function Step1Empfaenger({ values, onChange }: Step1EmpfaengerProps) {
         />
       </div>
 
-      {/* Anrede + Ansprechperson row */}
+      {/* Anrede + Name row */}
       <div className='flex gap-3'>
         <div className='w-36 shrink-0 space-y-1.5'>
           <Label htmlFor='recipient_anrede'>Anrede</Label>
@@ -80,12 +81,22 @@ export function Step1Empfaenger({ values, onChange }: Step1EmpfaengerProps) {
           </Select>
         </div>
         <div className='min-w-0 flex-1 space-y-1.5'>
-          <Label htmlFor='recipient_name'>Ansprechperson</Label>
+          <Label htmlFor='recipient_first_name'>Vorname</Label>
           <Input
-            id='recipient_name'
-            placeholder='Max Mustermann'
-            value={values.recipient_name}
-            onChange={(e) => onChange({ recipient_name: e.target.value })}
+            id='recipient_first_name'
+            placeholder='Max'
+            value={values.recipient_first_name}
+            onChange={(e) => onChange({ recipient_first_name: e.target.value })}
+          />
+        </div>
+        <div className='min-w-0 flex-1 space-y-1.5'>
+          <Label htmlFor='recipient_last_name'>Nachname</Label>
+          <Input
+            id='recipient_last_name'
+            placeholder='Mustermann'
+            value={values.recipient_last_name}
+            onChange={(e) => onChange({ recipient_last_name: e.target.value })}
+            required
           />
         </div>
       </div>

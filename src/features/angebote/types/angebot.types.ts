@@ -14,6 +14,8 @@ export interface AngebotRow {
   status: AngebotStatus;
   recipient_company: string | null;
   recipient_name: string | null;
+  recipient_first_name: string | null;
+  recipient_last_name: string | null;
   recipient_anrede: 'Herr' | 'Frau' | null;
   recipient_street: string | null;
   recipient_street_number: string | null;
@@ -77,6 +79,8 @@ export const ANGEBOT_STANDARD_COLUMN_PROFILE: AngebotColumnProfile = {
 export interface CreateAngebotPayload {
   companyId: string;
   recipient_company?: string | null;
+  recipient_first_name?: string | null;
+  recipient_last_name?: string | null;
   recipient_name?: string | null;
   recipient_anrede?: 'Herr' | 'Frau' | null;
   recipient_street?: string | null;

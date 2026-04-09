@@ -182,9 +182,20 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  const contactDisplayName = angebot.recipient_last_name
+    ? [
+        angebot.recipient_anrede,
+        angebot.recipient_first_name,
+        angebot.recipient_last_name
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    : (angebot.recipient_name ?? '').trim();
+
   const recipientLines = [
     angebot.recipient_company,
-    angebot.recipient_name,
+    contactDisplayName || null,
     [angebot.recipient_street, angebot.recipient_street_number]
       .filter(Boolean)
       .join(' '),

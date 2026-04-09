@@ -109,14 +109,26 @@ function renderCellValue(
 }
 
 function buildSalutation(
-  anrede: 'Herr' | 'Frau' | null | undefined,
-  name: string | null | undefined
+  anrede: string | null | undefined,
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+  legacyName: string | null | undefined
 ): string {
-  const trimName = name?.trim();
-  if (!trimName) return 'Sehr geehrte Damen und Herren,';
-  if (anrede === 'Herr') return `Sehr geehrter Herr ${trimName},`;
-  if (anrede === 'Frau') return `Sehr geehrte Frau ${trimName},`;
-  return `Sehr geehrte/r ${trimName},`;
+  const last = (lastName ?? '').trim() || (legacyName ?? '').trim();
+  if (!last) return 'Sehr geehrte Damen und Herren,';
+
+  // Herr/Frau: always last name only. For legacy full-name strings, fall back
+  // to the last token ("Max Mustermann" → "Mustermann").
+  const lastOnlyForAnrede = lastName?.trim()
+    ? lastName.trim()
+    : (last.split(/\s+/).slice(-1)[0] ?? last);
+
+  if (anrede === 'Herr') return `Sehr geehrter Herr ${lastOnlyForAnrede},`;
+  if (anrede === 'Frau') return `Sehr geehrte Frau ${lastOnlyForAnrede},`;
+
+  // No anrede: use full name (first + last/fallback).
+  const full = [firstName, last].filter(Boolean).join(' ').trim();
+  return `Guten Tag ${full},`;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -124,7 +136,9 @@ function buildSalutation(
 export interface AngebotPdfCoverBodyProps {
   subject: string | null;
   recipientAnrede: 'Herr' | 'Frau' | null | undefined;
-  recipientName: string | null | undefined;
+  recipientFirstName: string | null | undefined;
+  recipientLastName: string | null | undefined;
+  recipientLegacyName: string | null | undefined;
   lineItems: AngebotLineItemRow[];
   columnKeys: AngebotColumnKey[];
   introText: string | null;
@@ -136,14 +150,21 @@ export interface AngebotPdfCoverBodyProps {
 export function AngebotPdfCoverBody({
   subject,
   recipientAnrede,
-  recipientName,
+  recipientFirstName,
+  recipientLastName,
+  recipientLegacyName,
   lineItems,
   columnKeys,
   introText,
   outroText
 }: AngebotPdfCoverBodyProps) {
   const colWidths = calcAngebotColumnWidths(columnKeys);
-  const salutation = buildSalutation(recipientAnrede, recipientName);
+  const salutation = buildSalutation(
+    recipientAnrede,
+    recipientFirstName,
+    recipientLastName,
+    recipientLegacyName
+  );
   const introHtml = introText?.trim() ?? '';
   const outroHtml = outroText?.trim() ?? '';
 

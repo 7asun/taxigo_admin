@@ -120,7 +120,12 @@ export async function createAngebot(
       angebot_number: angebotNumber,
       status: 'draft',
       recipient_company: payload.recipient_company ?? null,
-      recipient_name: payload.recipient_name ?? null,
+      recipient_first_name: payload.recipient_first_name ?? null,
+      recipient_last_name: payload.recipient_last_name ?? null,
+      recipient_name:
+        [payload.recipient_first_name, payload.recipient_last_name]
+          .filter(Boolean)
+          .join(' ') || null,
       recipient_anrede: payload.recipient_anrede ?? null,
       recipient_street: payload.recipient_street ?? null,
       recipient_street_number: payload.recipient_street_number ?? null,

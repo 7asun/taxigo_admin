@@ -116,7 +116,7 @@ export const styles = StyleSheet.create({
   headerRight: {
     width: '44%',
     alignItems: 'stretch',
-    paddingTop: 14
+    paddingTop: 0
   },
   /** Logo oben, Slogan direkt darunter (nicht daneben) */
   brandStack: {

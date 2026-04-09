@@ -662,7 +662,6 @@ export function InvoiceBuilder({
           section2Complete={section2Complete}
           draftInvoice={draftInvoice}
           pdf={pdf}
-          pdfTitle={`Invoice #${draftInvoice?.invoice_number}`}
         />
       </div>
       <Sheet open={previewSheetOpen} onOpenChange={setPreviewSheetOpen}>
@@ -677,7 +676,6 @@ export function InvoiceBuilder({
               section2Complete={section2Complete}
               draftInvoice={draftInvoice}
               pdf={pdf}
-              pdfTitle={`Invoice #${draftInvoice?.invoice_number}`}
             />
           </div>
         </SheetContent>

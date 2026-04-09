@@ -65,7 +65,14 @@ function formatDate(isoDate: string | null | undefined): string {
 }
 
 function recipientLabel(row: AngebotRow): string {
-  return row.recipient_company || row.recipient_name || '—';
+  const contactDisplayName = row.recipient_last_name
+    ? [row.recipient_anrede, row.recipient_first_name, row.recipient_last_name]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    : (row.recipient_name ?? '').trim();
+
+  return row.recipient_company || contactDisplayName || '—';
 }
 
 // ─── Column definitions ───────────────────────────────────────────────────────

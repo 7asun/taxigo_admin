@@ -72,7 +72,18 @@ export function AngebotPdfDocument({
     ? fitSenderLine(senderOneLine)
     : { line: '', fontSize: PDF_FONT_SIZES.xs };
 
-  const person = angebot.recipient_name?.trim() ?? '';
+  const contactDisplayName = angebot.recipient_last_name
+    ? [
+        angebot.recipient_anrede,
+        angebot.recipient_first_name,
+        angebot.recipient_last_name
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    : (angebot.recipient_name?.trim() ?? '');
+
+  const person = contactDisplayName;
   const company = angebot.recipient_company?.trim() ?? '';
 
   // Window address only (DIN 5008): name + postal lines — no E-Mail/Telefon here.
@@ -98,7 +109,7 @@ export function AngebotPdfDocument({
 
   return (
     <Document
-      title={`Angebot #${angebot.angebot_number}`}
+      title={angebot.angebot_number}
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.angebotPage} wrap>
@@ -129,7 +140,9 @@ export function AngebotPdfDocument({
           <AngebotPdfCoverBody
             subject={angebot.subject}
             recipientAnrede={angebot.recipient_anrede}
-            recipientName={angebot.recipient_name}
+            recipientFirstName={angebot.recipient_first_name}
+            recipientLastName={angebot.recipient_last_name}
+            recipientLegacyName={angebot.recipient_name}
             lineItems={angebot.line_items}
             columnKeys={columnProfile.columns}
             introText={resolvedIntroText}

@@ -293,7 +293,7 @@ export function InvoicePdfDocument({
 
   return (
     <Document
-      title={`Invoice #${invoice.invoice_number}`}
+      title={invoice.invoice_number}
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.page} wrap>
