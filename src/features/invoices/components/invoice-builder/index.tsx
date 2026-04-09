@@ -25,14 +25,7 @@
  * Must not embed pricing or Supabase calls — children and hooks own domain logic.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PdfColumnOverridePayload,
   PdfColumnProfile
@@ -41,16 +34,11 @@ import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-col
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AlertTriangle, Check, ChevronDown, Lock } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger
-} from '@/components/ui/collapsible';
+import { BuilderSectionCard } from '@/components/ui/builder-section-card';
 import {
   Sheet,
   SheetContent,
@@ -142,106 +130,6 @@ function buildSection2Summary(
   const d2 = parseYmdToLocalDate(periodTo);
   if (!d1 || !d2) return '';
   return `${format(d1, 'dd.MM.')} – ${format(d2, 'dd.MM.yyyy', { locale: de })} · ${payerName}`;
-}
-
-interface BuilderSectionCardProps {
-  id: string;
-  sectionRef: RefObject<HTMLElement | null>;
-  title: string;
-  locked: boolean;
-  completed: boolean;
-  showFertigBadge: boolean;
-  summary: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}
-
-function BuilderSectionCard({
-  id,
-  sectionRef,
-  title,
-  locked,
-  completed,
-  showFertigBadge,
-  summary,
-  open,
-  onOpenChange,
-  children,
-  footer
-}: BuilderSectionCardProps) {
-  const isOpen = locked ? false : open;
-
-  return (
-    <section ref={sectionRef} id={id} className='scroll-mt-3'>
-      <Collapsible
-        open={isOpen}
-        onOpenChange={locked ? undefined : onOpenChange}
-      >
-        <div
-          className={cn(
-            'bg-card border-border overflow-hidden rounded-xl border shadow-sm'
-          )}
-        >
-          <CollapsibleTrigger asChild disabled={locked}>
-            <button
-              type='button'
-              className={cn(
-                'hover:bg-muted/40 flex w-full items-start justify-between gap-3 p-6 text-left transition-colors',
-                locked && 'cursor-not-allowed opacity-80 hover:bg-transparent'
-              )}
-            >
-              <div className='min-w-0 flex-1'>
-                <p className='text-sm font-semibold'>{title}</p>
-                {completed && !isOpen && summary ? (
-                  <p className='text-muted-foreground mt-1 text-sm'>
-                    {summary}
-                  </p>
-                ) : null}
-              </div>
-              <div className='flex shrink-0 items-center gap-2'>
-                {completed && showFertigBadge ? (
-                  <Badge
-                    variant='outline'
-                    className='border-green-200 bg-green-500/10 text-green-800 dark:border-green-800 dark:bg-green-500/15 dark:text-green-300'
-                  >
-                    <Check className='h-3 w-3' aria-hidden />
-                    Fertig
-                  </Badge>
-                ) : null}
-                {locked ? (
-                  <span className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
-                    <Lock className='h-3.5 w-3.5 shrink-0' aria-hidden />
-                    Gesperrt
-                  </span>
-                ) : null}
-                {!locked ? (
-                  <ChevronDown
-                    className={cn(
-                      'text-muted-foreground h-4 w-4 shrink-0 transition-transform duration-200',
-                      isOpen && 'rotate-180'
-                    )}
-                    aria-hidden
-                  />
-                ) : null}
-              </div>
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent
-            className={cn(
-              'data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down'
-            )}
-          >
-            <div className='border-border space-y-4 border-t px-6 pt-4 pb-6'>
-              {children}
-              {footer}
-            </div>
-          </CollapsibleContent>
-        </div>
-      </Collapsible>
-    </section>
-  );
 }
 
 export function InvoiceBuilder({
@@ -774,6 +662,7 @@ export function InvoiceBuilder({
           section2Complete={section2Complete}
           draftInvoice={draftInvoice}
           pdf={pdf}
+          pdfTitle={`Invoice #${draftInvoice?.invoice_number}`}
         />
       </div>
       <Sheet open={previewSheetOpen} onOpenChange={setPreviewSheetOpen}>
@@ -788,6 +677,7 @@ export function InvoiceBuilder({
               section2Complete={section2Complete}
               draftInvoice={draftInvoice}
               pdf={pdf}
+              pdfTitle={`Invoice #${draftInvoice?.invoice_number}`}
             />
           </div>
         </SheetContent>

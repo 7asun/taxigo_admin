@@ -416,3 +416,27 @@ export function buildInvoicePdfGroupedByBillingType(
       } satisfies InvoicePdfSummaryRow;
     });
 }
+
+/**
+ * Groups flat line items by billing_variant_name for the appendix.
+ * Returns ordered groups preserving original position order within each group.
+ * Used by InvoicePdfAppendix when main_layout === 'grouped_by_billing_type'.
+ * Does NOT affect column selection — columnProfile.appendix_columns is unchanged.
+ */
+export function groupLineItemsByBillingType(
+  lineItems: InvoiceLineItemRow[]
+): { label: string; items: InvoiceLineItemRow[] }[] {
+  const order: string[] = [];
+  const map = new Map<string, InvoiceLineItemRow[]>();
+
+  for (const item of lineItems) {
+    const label = item.billing_variant_name ?? 'Unbekannt';
+    if (!map.has(label)) {
+      map.set(label, []);
+      order.push(label);
+    }
+    map.get(label)!.push(item);
+  }
+
+  return order.map((label) => ({ label, items: map.get(label)! }));
+}

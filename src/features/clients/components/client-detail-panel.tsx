@@ -33,11 +33,16 @@ import {
   useCallback,
   useRef
 } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Panel, PanelHeader, PanelBody } from '@/components/panels';
+import {
+  Panel,
+  PanelHeader,
+  PanelBody,
+  PanelFooter
+} from '@/components/panels';
 import { clientsService, Client } from '../api/clients.service';
 import {
   recurringRulesService,
@@ -46,6 +51,17 @@ import {
 import ClientForm, { ClientFormHandle } from './client-form';
 import { RecurringRulesList } from './recurring-rules-list';
 import { formatClientNumber } from '@/lib/customer-number';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog';
 
 interface ClientDetailPanelProps {
   clientId: string;
@@ -73,6 +89,7 @@ export function ClientDetailPanel({
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [rules, setRules] = useState<RecurringRuleWithBillingEmbed[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // After creating a new client, we receive the saved Client object and update
   // the active clientId to the real UUID. We store it locally here and also
@@ -149,6 +166,26 @@ export function ClientDetailPanel({
     }
   };
 
+  const handleDelete = async () => {
+    if (!clientId || isNew) return;
+    try {
+      setIsDeleting(true);
+      await clientsService.deleteClient(clientId);
+      toast.success('Fahrgast erfolgreich gelöscht');
+
+      // Refresh Column 1 list so the entry is removed immediately
+      if (typeof (window as any).__refreshClientList === 'function') {
+        (window as any).__refreshClientList();
+      }
+
+      onClose();
+    } catch (err: any) {
+      toast.error('Fehler beim Löschen des Fahrgasts: ' + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <Panel className='flex-1'>
       <PanelHeader
@@ -222,6 +259,43 @@ export function ClientDetailPanel({
           </div>
         )}
       </PanelBody>
+
+      {!isNew && !loading && (
+        <PanelFooter className='justify-between border-t'>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant='ghost'
+                size='sm'
+                className='text-destructive hover:text-destructive hover:bg-destructive/10 h-8 gap-2 px-2 text-xs font-medium'
+              >
+                <Trash2 className='h-3.5 w-3.5' />
+                Fahrgast löschen
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Fahrgast löschen?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Möchten Sie diesen Fahrgast wirklich unwiderruflich löschen?
+                  Diese Aktion kann nicht rückgängig gemacht werden. Damit
+                  verbundene Regelfahrten werden ebenfalls entfernt.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? 'Wird gelöscht...' : 'Endgültig löschen'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </PanelFooter>
+      )}
     </Panel>
   );
 }

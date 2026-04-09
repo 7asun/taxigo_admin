@@ -92,7 +92,7 @@ export function InvoicePdfPreview({ invoiceId }: InvoicePdfPreviewProps) {
         <div>
           <h1 className='text-xl font-semibold'>PDF-Vorschau</h1>
           <p className='text-muted-foreground text-sm'>
-            Testansicht fuer {invoice.invoice_number}
+            Ansicht für Invoice #{invoice.invoice_number}
           </p>
         </div>
 

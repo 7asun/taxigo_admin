@@ -54,3 +54,29 @@ The app generates **signed URLs** at render time from `logo_path`.
 - This works whether the bucket is **public or private**.
 - A legacy `logo_url` may still exist in older rows; it is backfilled to `logo_path` via migration.
 
+## Logo im PDF-Header
+### Struktur
+Das Logo wird über `companyProfile.logo_url` (Legacy) bzw. den aus `logo_path` aufgelösten signed URL als `<Image>`
+im PDF-Header gerendert (`InvoicePdfCoverHeader` → `brandStack` → `<Image>`).
+
+### Bekanntes react-pdf Verhalten
+- Feste `height` auf `<Image>` + `objectFit: 'contain'` erzeugt toten Leerraum
+  (die Box behält die volle Höhe, auch wenn das Bild nur einen Bruchteil davon ausfüllt)
+- `objectFit: 'contain'` zentriert das Bild vertikal → Lücke ÜBER dem Logo
+
+### Lösung (aktuell implementiert)
+Die relevante Style-Definition ist `styles.logoLeft` in `src/features/invoices/components/invoice-pdf/pdf-styles.ts`.
+
+| Property | Wert | Warum |
+|---|---|---|
+| `width` | `220` | Horizontale Breite des Logos |
+| `maxHeight` | `70` | Begrenzt Höhe ohne toten Raum |
+| `objectFit` | `'contain'` | Seitenverhältnis bleibt erhalten |
+| `alignSelf` | `'flex-start'` | Kein vertikales Dehnen im Flex-Container |
+| `objectPositionY` | `0` | Bild beginnt oben, Leerraum fällt nach unten |
+
+### Größe anpassen
+`maxHeight = width / erwartetes_Seitenverhältnis`
+
+Beispiel: Breites Logo (4:1) → `width: 220, maxHeight: 65`
+

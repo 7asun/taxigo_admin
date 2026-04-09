@@ -36,6 +36,14 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: 'Angebote',
+    url: '/dashboard/angebote',
+    icon: 'angebot',
+    shortcut: ['g', 'g'],
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Account',
     url: '#',
     icon: 'account',
@@ -95,6 +103,13 @@ export const navItems: NavItem[] = [
         url: '/dashboard/settings/invoice-templates',
         icon: 'post',
         shortcut: ['r', 'v']
+      },
+      {
+        // Admin tool: find and bulk-assign billing variants to trips without one
+        title: 'Unzugeordnete Fahrten',
+        url: '/dashboard/settings/unzugeordnete-fahrten',
+        icon: 'warning',
+        shortcut: ['u', 'f']
       },
       {
         title: 'PDF-Vorlagen',

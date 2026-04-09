@@ -25,6 +25,7 @@ import type { PriceResolution } from '../../types/pricing.types';
 
 import {
   buildInvoicePdfGroupedByBillingType,
+  groupLineItemsByBillingType,
   buildInvoicePdfSingleRow,
   buildInvoicePdfSummary
 } from './lib/build-invoice-pdf-summary';
@@ -292,7 +293,7 @@ export function InvoicePdfDocument({
 
   return (
     <Document
-      title={invoice.invoice_number}
+      title={`Invoice #${invoice.invoice_number}`}
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.page} wrap>
@@ -329,24 +330,66 @@ export function InvoicePdfDocument({
       </Page>
 
       {/* appendix_is_landscape from resolvePdfColumnProfile when appendix_columns.length > 7 */}
-      <Page
-        size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
-        style={
-          effectiveProfile.appendix_is_landscape
-            ? styles.appendixPageLandscape
-            : styles.appendixPage
-        }
-        wrap
-      >
-        <InvoicePdfAppendix
-          invoiceNumber={invoice.invoice_number}
-          invoiceCreatedAtIso={invoice.created_at}
-          lineItems={invoice.line_items}
-          columnProfile={effectiveProfile}
-        />
+      {effectiveProfile.main_layout === 'grouped_by_billing_type' ? (
+        (() => {
+          const groups = groupLineItemsByBillingType(invoice.line_items);
+          const empty = groups
+            .filter((g) => g.items.length === 0)
+            .map((g) => g.label);
+          if (empty.length && invoice.id) {
+            console.warn(
+              `[InvoicePdf] Leere Abrechnungsart-Gruppen im Anhang: ${empty.join(', ')} (invoice_id=${invoice.id})`
+            );
+          }
+          return groups.map((group) => (
+            <Page
+              key={group.label}
+              size={
+                effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'
+              }
+              style={
+                effectiveProfile.appendix_is_landscape
+                  ? styles.appendixPageLandscape
+                  : styles.appendixPage
+              }
+              wrap
+            >
+              <InvoicePdfAppendix
+                invoiceNumber={invoice.invoice_number}
+                invoiceCreatedAtIso={invoice.created_at}
+                lineItems={group.items.map((item, idx) => ({
+                  ...item,
+                  position: idx + 1
+                }))}
+                columnProfile={effectiveProfile}
+                groupLabel={group.label}
+              />
 
-        <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
-      </Page>
+              <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
+            </Page>
+          ));
+        })()
+      ) : (
+        <Page
+          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
+          style={
+            effectiveProfile.appendix_is_landscape
+              ? styles.appendixPageLandscape
+              : styles.appendixPage
+          }
+          wrap
+        >
+          <InvoicePdfAppendix
+            invoiceNumber={invoice.invoice_number}
+            invoiceCreatedAtIso={invoice.created_at}
+            lineItems={invoice.line_items}
+            columnProfile={effectiveProfile}
+            mainLayout={effectiveProfile.main_layout}
+          />
+
+          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
+        </Page>
+      )}
     </Document>
   );
 }

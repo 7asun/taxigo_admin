@@ -14,6 +14,11 @@
  * **`mainTableKeys`** — render-time filter: drops `flatOnly` columns in grouped mode and `groupedOnly`
  * in flat mode so legacy Vorlagen (saved before catalog flags) do not produce empty cells. The
  * resolver does not strip these keys; it preserves stored `main_columns` for settings UX and audit.
+ *
+ * **Rich-text intro/outro (future):** Intro/outro are still plain strings in `<Text>`. If HTML is
+ * stored later (e.g. Tiptap), mirror `AngebotPdfCoverBody` using `react-pdf-html` `<Html>` with a
+ * stylesheet aligned to `styles.bodyText` (fontSize, lineHeight, color). The npm scope
+ * `@react-pdf/html` does not exist; the supported package is `react-pdf-html`.
  */
 
 import { View, Text, Image } from '@react-pdf/renderer';
@@ -265,7 +270,7 @@ export function InvoicePdfCoverBody({
             </View>
           ))}
 
-      <View style={styles.totalsSection} minPresenceAhead={88}>
+      <View style={[styles.totalsSection, { marginTop: 8 }]} wrap={false}>
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabel}>Summe Nettobeträge</Text>
           <Text style={styles.totalsValue}>

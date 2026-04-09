@@ -245,6 +245,35 @@ PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/
 
 Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (A4 padding, DIN-oriented top margin, flex tables). Supporting utilities: `resolve-sender-font-size.ts`, `generate-payment-qr-data-url.ts`, `build-sepa-qr-payload.ts`.
 
+## Logo im PDF-Header
+### Struktur
+Das Logo wird über `cp.logo_url` als `<Image>` in `brandStack` gerendert,
+direkt im `headerLeft`-Block oberhalb von Slogan, Senderzeile und Empfängeradresse.
+
+### Bekanntes react-pdf Verhalten
+- Feste `height` auf `<Image>` + `objectFit: 'contain'` erzeugt toten Leerraum
+  (die Box behält die volle Höhe, auch wenn das Bild nur einen Bruchteil davon ausfüllt)
+- `objectFit: 'contain'` zentriert das Bild vertikal → Lücke ÜBER dem Logo
+
+### Lösung (aktuell implementiert)
+| Property | Wert | Warum |
+|---|---|---|
+| `width` | `220` | Horizontale Breite des Logos |
+| `maxHeight` | `70` | Begrenzt Höhe ohne toten Raum |
+| `objectFit` | `'contain'` | Seitenverhältnis bleibt erhalten |
+| `alignSelf` | `'flex-start'` | Kein vertikales Dehnen im Flex-Container |
+| `objectPositionY` | `0` | Bild beginnt oben, Leerraum fällt nach unten |
+
+### Größe anpassen
+`maxHeight = width / erwartetes_Seitenverhältnis`
+
+Beispiel: Breites Logo (4:1) → `width: 220, maxHeight: 65`
+
+### Kein Logo vorhanden
+Wenn `cp.logo_url` null ist, rendert `brandStack` leer und der Briefkopf
+(Senderzeile + Empfängeradresse) beginnt direkt am oberen Rand von `headerLeft`.
+Das Layout ist identisch — kein Extra-Padding nötig.
+
 #### PDF layout & codebase map
 
 | Piece | File | Role |
