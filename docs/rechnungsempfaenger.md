@@ -1,5 +1,8 @@
 # Rechnungsempfänger (invoice recipient catalog)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 Catalog table `rechnungsempfaenger` holds optional **legal invoice addressees** distinct from the Kostenträger (payer) or Fahrgast (client). Assignments cascade: **billing variant → billing type → payer** (same idea as KTS defaults). See `src/features/invoices/lib/resolve-rechnungsempfaenger.ts`.
 
 ## Admin UI

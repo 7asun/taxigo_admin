@@ -1,5 +1,8 @@
 # Print / ZIP export (Fahrten drucken)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document describes the **Fahrten drucken** flow on the trips dashboard: what gets generated, how it maps to Kanban/PDF rules, and where the code lives.
 
 ---

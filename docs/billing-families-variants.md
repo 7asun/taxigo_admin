@@ -1,5 +1,8 @@
 # Abrechnungsfamilie und Unterart (billing)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document is the reference for how Kostenträger billing is modeled in Taxigo Admin, how the UI works, and how CSV imports match rows.
 
 ## Conceptual model

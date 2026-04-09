@@ -1,5 +1,8 @@
 # Angebote Module
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Architecture overview
 
 The Angebote (Offers) feature is scoped entirely under `src/features/angebote/` and mirrors the invoice builder architecture. Offers are **free-text pricing documents** — they have no link to trips, no tax totals, and no SEPA QR block.

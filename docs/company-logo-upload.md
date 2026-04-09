@@ -1,3 +1,5 @@
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
 ## Company logo upload (Supabase Storage) — how it works
 
 This project stores the company logo in **Supabase Storage** in the `company-assets` bucket.

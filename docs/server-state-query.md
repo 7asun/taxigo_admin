@@ -1,5 +1,8 @@
 # Server state (TanStack Query) in this project
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Location
 
 - **Defaults + key factories:** [`src/query/`](../src/query/)

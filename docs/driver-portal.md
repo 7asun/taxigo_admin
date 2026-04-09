@@ -1,5 +1,8 @@
 # Driver Portal — Architecture Guide
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Overview
 
 A mobile-first driver interface at `/driver/*`. Drivers see only their own data; no admin features are exposed here. The portal is built with Next.js App Router (server layout for auth guard, client components for all interactive pages).

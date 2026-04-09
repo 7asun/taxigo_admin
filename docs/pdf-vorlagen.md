@@ -1,5 +1,8 @@
 # PDF-Vorlagen (Spalten-Layout-System)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Overview
 
 PDF-Vorlagen define which columns appear in the invoice PDF main table and appendix, in what order, and with what layout mode (grouped by route or flat per-trip). A Vorlage is resolved automatically per invoice via a 4-level priority chain — no dispatcher action is required unless they want to override for a specific invoice.

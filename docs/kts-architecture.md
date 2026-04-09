@@ -1,5 +1,8 @@
 # KTS (Krankentransportschein) — architecture
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document is the **canonical reference** for how Krankentransportschein (KTS) is modeled in TaxiGo Admin: catalog defaults, trip-level flags, CSV, and the boundary to future clearing/review workflows.
 
 **Related:** [Abrechnungsfamilie und Unterart](billing-families-variants.md) (Kostenträger → Familie → Unterart). KTS is an **additional operational layer** on top of that billing classification.

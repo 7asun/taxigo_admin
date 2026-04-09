@@ -1,5 +1,8 @@
 # Driving distance and duration (Google Directions)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Purpose
 
 The app stores **`driving_distance_km`** and **`driving_duration_seconds`** on every `trips` row whenever it can resolve a driving route between pickup and dropoff coordinates. These fields are populated across **all creation paths** — manual creation, CSV bulk upload, trip duplication, and recurring-rule materialisation.

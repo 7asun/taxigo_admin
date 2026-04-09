@@ -1,5 +1,8 @@
 # Fremdfirma (externe Durchführung)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Überblick
 
 Fahrten können einer **Fremdfirma** zugewiesen werden (Partner-Stammdaten unter **Account → Fremdfirmen**). Die Kostenträger- und Abrechnungslogik bei TaxiGo bleibt bestehen; die Durchführung liegt extern.

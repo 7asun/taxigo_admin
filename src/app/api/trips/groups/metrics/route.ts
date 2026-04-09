@@ -1,9 +1,16 @@
+/** SECURITY: Layer 3 — requireSession(); see docs/access-control.md */
+
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+
+import { requireSession } from '@/lib/api/require-session';
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const session = await requireSession();
+    if ('error' in session) {
+      return session.error;
+    }
+    const { supabase } = session;
 
     const { data, error } = await supabase
       .from('trips')
@@ -18,26 +25,31 @@ export async function GET() {
       { totalKm: number; minKm: number; maxKm: number; count: number }
     >();
 
-    (data || []).forEach((row: any) => {
-      const groupId = row.group_id as string;
-      const distance = row.driving_distance_km as number;
-      if (!groupId || typeof distance !== 'number') return;
+    (data || []).forEach(
+      (row: {
+        group_id: string | null;
+        driving_distance_km: number | null;
+      }) => {
+        const groupId = row.group_id as string;
+        const distance = row.driving_distance_km as number;
+        if (!groupId || typeof distance !== 'number') return;
 
-      const existing = groups.get(groupId);
-      if (!existing) {
-        groups.set(groupId, {
-          totalKm: distance,
-          minKm: distance,
-          maxKm: distance,
-          count: 1
-        });
-      } else {
-        existing.totalKm += distance;
-        existing.minKm = Math.min(existing.minKm, distance);
-        existing.maxKm = Math.max(existing.maxKm, distance);
-        existing.count += 1;
+        const existing = groups.get(groupId);
+        if (!existing) {
+          groups.set(groupId, {
+            totalKm: distance,
+            minKm: distance,
+            maxKm: distance,
+            count: 1
+          });
+        } else {
+          existing.totalKm += distance;
+          existing.minKm = Math.min(existing.minKm, distance);
+          existing.maxKm = Math.max(existing.maxKm, distance);
+          existing.count += 1;
+        }
       }
-    });
+    );
 
     const result = Array.from(groups.entries()).map(([groupId, stats]) => ({
       group_id: groupId,
@@ -48,11 +60,10 @@ export async function GET() {
     }));
 
     return NextResponse.json({ groups: result });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in /api/trips/groups/metrics', error);
-    return NextResponse.json(
-      { error: error.message ?? 'Internal Server Error' },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : 'Internal Server Error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

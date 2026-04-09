@@ -1,5 +1,8 @@
 # Invoicing Module & Builder Architecture
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document outlines the technical architecture, business logic, and UI flows of the Taxigo **Invoicing Module** (`src/features/invoices`). 
 
 The system is designed with a strict emphasis on **legal compliance (Immutability per §14 UStG)**, **efficiency (Bulk processing)**, and **error prevention (Inline warnings & price editors)**.

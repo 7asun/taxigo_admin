@@ -1,5 +1,8 @@
 # Dispatch Inbox (Dispositionseingang)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 The Dispatch Inbox is a centralized notification and assignment tool located in the header of the administrative dashboard. It alerts dispatchers about missing driver assignments or missing times for upcoming trips.
 
 ## Key Features

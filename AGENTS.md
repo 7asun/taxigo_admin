@@ -43,6 +43,8 @@ The project follows a feature-based folder structure designed for scalability in
 
 ### Authentication & Authorization
 
+> See [docs/access-control.md](docs/access-control.md) for role-based access control (admin vs driver), proxy routing, API `requireAdmin()`, RLS, and cron `CRON_SECRET`.
+
 - Clerk for authentication and user management
 - Clerk Organizations for multi-tenant workspaces
 - Clerk Billing for subscription management (B2B)

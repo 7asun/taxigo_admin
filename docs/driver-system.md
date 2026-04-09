@@ -1,5 +1,8 @@
 # Driver Role & Shift System
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document describes the driver (Fahrer) subsystem: admin management, mobile shift tracking, and related architecture.
 
 > **Note:** App user profiles are stored in `public.accounts` (renamed from `users`). See [accounts-table.md](accounts-table.md) for details.
