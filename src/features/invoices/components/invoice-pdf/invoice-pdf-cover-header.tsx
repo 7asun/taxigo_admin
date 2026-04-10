@@ -10,6 +10,10 @@ import { View, Text, Image } from '@react-pdf/renderer';
 import type { InvoiceDetail } from '../../types/invoice.types';
 
 import { formatInvoicePdfDate } from './lib/invoice-pdf-format';
+import {
+  collapseWhitespaceForPdf,
+  normalizeInvoiceRecipientPhone
+} from './lib/rechnungsempfaenger-pdf';
 import { styles } from './pdf-styles';
 
 /**
@@ -59,6 +63,11 @@ export interface InvoicePdfCoverHeaderProps {
     city: string;
     phone: string | null;
     addressLine2?: string | null;
+    /** Structured fields for proper Briefkopf formatting */
+    anrede?: string | null;
+    abteilung?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
   };
   /** Nur bei `per_client`: zweiter Block unter dem Fahrgast (Snapshot). */
   secondaryLegalRecipient?: {
@@ -71,6 +80,11 @@ export interface InvoicePdfCoverHeaderProps {
   periodFromIso: string;
   periodToIso: string;
   customerNumber: string | number;
+  /**
+   * True when this document is a Stornorechnung (`invoices.cancels_invoice_id` set).
+   * Passed from the parent; do not infer here.
+   */
+  isStorno?: boolean;
   /** Optional label overrides for the right meta grid. Omit for standard invoice output. */
   metaConfig?: PdfCoverHeaderMetaConfig;
 }
@@ -85,6 +99,7 @@ export function InvoicePdfCoverHeader({
   periodToIso,
   customerNumber,
   secondaryLegalRecipient = null,
+  isStorno = false,
   metaConfig
 }: InvoicePdfCoverHeaderProps) {
   const {
@@ -95,13 +110,26 @@ export function InvoicePdfCoverHeader({
     streetNumber: recipientStreetNumber,
     zipCode: recipientZipCode,
     city: recipientCity,
-    phone: recipientPhone,
-    addressLine2: recipientAddressLine2
+    phone: rawPhone,
+    addressLine2: recipientAddressLine2,
+    abteilung: recipientAbteilung,
+    firstName: recipientFirstName,
+    lastName: recipientLastName,
+    anrede: recipientAnrede
   } = recipient;
+
+  const recipientPhone = normalizeInvoiceRecipientPhone(rawPhone);
+  const zipCityLine = [recipientZipCode, recipientCity]
+    .map((x) => collapseWhitespaceForPdf(x ?? ''))
+    .filter((x) => x.length > 0)
+    .join(' ');
 
   // Resolve meta labels — all default to the standard invoice values
   const metaHeading = metaConfig?.heading ?? 'Rechnungsdaten';
-  const numberLabel = metaConfig?.numberLabel ?? 'Rechnungsnr.';
+  // Storno rows reference the cancelled invoice via cancels_invoice_id (non-null) — label must say Stornorechnungsnr.
+  const numberLabel =
+    metaConfig?.numberLabel ??
+    (isStorno ? 'Stornorechnungsnr.' : 'Rechnungsnr.');
   const dateLabel = metaConfig?.dateLabel ?? 'Rechnungsdatum';
   const showTaxIds = metaConfig?.showTaxIds ?? true;
   const periodLabel = metaConfig?.periodLabel ?? 'Leistungszeitraum';
@@ -130,38 +158,107 @@ export function InvoicePdfCoverHeader({
         {/* BOTTOM: DIN Briefkopf — anchored via space-between */}
         <View>
           {senderFit.line ? (
-            <Text
-              style={[styles.senderOneLine, { fontSize: senderFit.fontSize }]}
-              wrap={false}
-            >
-              {senderFit.line}
-            </Text>
+            <View>
+              <Text
+                style={[styles.senderOneLine, { fontSize: senderFit.fontSize }]}
+                wrap={false}
+              >
+                {senderFit.line}
+              </Text>
+              <View style={styles.senderOneLineRule} />
+            </View>
           ) : null}
 
           <View style={styles.recipientBlock}>
-            {recipientCompanyName && recipientPersonName ? (
+            {/* Briefkopf: Firmenname → First + Lastname → Abteilung → Street → Zip + City → Phone */}
+
+            {/* 1. Firmenname (if exists) */}
+            {recipientCompanyName ? (
               <Text style={styles.addressCompanyName}>
                 {recipientCompanyName}
               </Text>
             ) : null}
-            <Text
-              style={
-                recipientCompanyName && recipientPersonName
-                  ? styles.addressPersonName
-                  : styles.addressCompanyName
+
+            {/* 2. Anrede + First + Lastname (if exists) */}
+            {recipientAnrede || recipientFirstName || recipientLastName ? (
+              <Text style={styles.addressPersonName}>
+                {[recipientAnrede, recipientFirstName, recipientLastName]
+                  .filter(Boolean)
+                  .join(' ')}
+              </Text>
+            ) : recipientPersonName &&
+              recipientPersonName !== recipientCompanyName ? (
+              <Text style={styles.addressPersonName}>
+                {recipientPersonName}
+              </Text>
+            ) : null}
+
+            {/* 3. Abteilung (if exists) */}
+            {recipientAbteilung ? (
+              <Text style={styles.addressLine}>{recipientAbteilung}</Text>
+            ) : null}
+
+            {/* 4. Streetname + Streetnumber (only show if not already contained in zip/city line) */}
+            {(() => {
+              // Check if street already contains zip/city (malformed address_line1)
+              const streetLower = recipientStreet.toLowerCase();
+              const zipLower = recipientZipCode.toLowerCase();
+              const cityLower = recipientCity.toLowerCase();
+              const hasZipInStreet = zipLower && streetLower.includes(zipLower);
+              const hasCityInStreet =
+                cityLower && streetLower.includes(cityLower);
+
+              if (hasZipInStreet || hasCityInStreet) {
+                // Street already contains zip/city - show only the street part
+                // Try to extract just the street part (before any comma or zip)
+                let cleanStreet = recipientStreet;
+                if (cleanStreet.includes(',')) {
+                  cleanStreet = cleanStreet.split(',')[0].trim();
+                }
+                // Also try to remove zip code if it appears at the end
+                if (
+                  recipientZipCode &&
+                  cleanStreet.includes(recipientZipCode)
+                ) {
+                  cleanStreet = cleanStreet
+                    .replace(recipientZipCode, '')
+                    .trim();
+                }
+                return (
+                  <Text style={styles.addressLine}>
+                    {cleanStreet}
+                    {recipientStreetNumber ? ` ${recipientStreetNumber}` : ''}
+                  </Text>
+                );
               }
-            >
-              {recipientName}
-            </Text>
-            <Text style={styles.addressLine}>
-              {recipientStreet} {recipientStreetNumber}
-            </Text>
+
+              // Normal case: street is just the street
+              return (
+                <Text style={styles.addressLine}>
+                  {recipientStreet}
+                  {recipientStreetNumber ? ` ${recipientStreetNumber}` : ''}
+                </Text>
+              );
+            })()}
+
+            {/* Address Line 2 (optional c/o, etc.) */}
             {recipientAddressLine2 ? (
               <Text style={styles.addressLine}>{recipientAddressLine2}</Text>
             ) : null}
-            <Text style={styles.addressLine}>
-              {recipientZipCode} {recipientCity}
-            </Text>
+
+            {/* 5. Zipcode + City (always show on separate line) */}
+            {zipCityLine ? (
+              <Text style={styles.addressLine} wrap={false}>
+                {zipCityLine}
+              </Text>
+            ) : null}
+
+            {/* 6. Phone number (if exists) */}
+            {recipientPhone ? (
+              <Text style={styles.addressPhoneLine} wrap={false}>
+                {recipientPhone}
+              </Text>
+            ) : null}
           </View>
 
           {secondaryLegalRecipient ? (

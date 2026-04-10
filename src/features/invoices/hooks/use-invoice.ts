@@ -5,13 +5,11 @@
  *   - /dashboard/invoices/[id]  (detail view)
  *   - PDF generation button     (fetches full detail with joins)
  *
- * Also exposes status-update mutations (Senden, Bezahlt, Stornieren).
+ * Also exposes status-update mutations (Senden, Bezahlt) and Storno creation.
  *
- * Storno flow:
- *   1. User clicks "Stornieren"
- *   2. useUpdateStatus() sets status to 'cancelled' on the original
- *   3. useStornorechnung() creates the Stornorechnung + mirrors line items
- *   4. Both invoiceKeys.all and invoiceKeys.full(id) are invalidated
+ * Storno: useCreateStornorechnung calls createStornorechnung (atomic Postgres RPC).
+ * The original invoice is marked corrected inside that RPC; no prior cancelled step.
+ * On success, invoiceKeys.all and invoiceKeys.full(id) are invalidated.
  */
 
 'use client';
@@ -113,13 +111,9 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
 }
 
 /**
- * Mutation hook for creating a Stornorechnung.
+ * Mutation hook for creating a Stornorechnung (atomic RPC: Storno + original corrected).
  *
- * Usage:
- *   1. First call useUpdateInvoiceStatus to set original status to 'cancelled'
- *   2. Then call this mutation to create the Storno + mirror line items
- *
- * @param originalId - ID of the invoice being cancelled.
+ * @param originalId - ID of the invoice being cancelled (for cache invalidation).
  */
 export function useCreateStornorechnung(originalId: string) {
   const queryClient = useQueryClient();

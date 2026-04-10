@@ -55,6 +55,19 @@ import {
 } from '@/features/invoices/lib/pdf-column-catalog';
 import type { PdfColumnOverridePayload } from '@/features/invoices/types/pdf-vorlage.types';
 
+/** Same rules as `mainTableKeys` in `invoice-pdf-cover-body.tsx` (layout compatibility). */
+function isMainColumnCompatibleWithLayout(
+  key: string,
+  mainLayout: PdfColumnProfile['main_layout']
+): boolean {
+  const col = PDF_COLUMN_MAP[key];
+  if (!col) return false;
+  const isGroupedMode = mainLayout !== 'flat';
+  if (isGroupedMode && col.flatOnly) return false;
+  if (!isGroupedMode && col.groupedOnly) return false;
+  return true;
+}
+
 interface Step4VorlageProps {
   companyId: string;
   payerPdfVorlageId: string | null | undefined;
@@ -73,6 +86,10 @@ interface Step4VorlageProps {
    * @param override — columns to store in pdf_column_override, or null
    */
   onPdfOverrideChange: (override: PdfColumnOverridePayload | null) => void;
+  /**
+   * Call after drag-reordering main or appendix columns so the live PDF preview skips debounce.
+   */
+  onPdfColumnsReordered?: () => void;
 }
 
 /**
@@ -87,7 +104,8 @@ export function Step4Vorlage({
   payerPdfVorlageId,
   unlocked,
   onColumnProfileChange,
-  onPdfOverrideChange
+  onPdfOverrideChange,
+  onPdfColumnsReordered
 }: Step4VorlageProps) {
   const { data: vorlagen = [] } = usePdfVorlagenList(companyId);
   const { data: companyDefaultVorlage = null } = useQuery({
@@ -126,6 +144,27 @@ export function Step4Vorlage({
 
   const mainColumnPool =
     inheritedMainLayout === 'flat' ? MAIN_FLAT_COLUMNS : MAIN_GROUPED_COLUMNS;
+
+  const compatibleMainPool = useMemo(
+    () =>
+      mainColumnPool.filter((c) =>
+        isMainColumnCompatibleWithLayout(c.key, inheritedMainLayout)
+      ),
+    [mainColumnPool, inheritedMainLayout]
+  );
+
+  // Drop main columns the PDF would filter out when Vorlage layout changes during customization.
+  useEffect(() => {
+    if (!customizeEnabled) return;
+    setCustomColumns((prev) => {
+      if (!prev) return prev;
+      const nextMain = prev.main_columns.filter((k) =>
+        isMainColumnCompatibleWithLayout(k, inheritedMainLayout)
+      );
+      if (nextMain.length === prev.main_columns.length) return prev;
+      return { ...prev, main_columns: nextMain };
+    });
+  }, [inheritedMainLayout, customizeEnabled]);
 
   // Emit the resolved column profile to the parent (index.tsx) on every change.
   // index.tsx feeds this into useInvoiceBuilderPdfPreview so the live preview
@@ -180,8 +219,14 @@ export function Step4Vorlage({
       companyDefaultVorlage
     );
     setCustomColumns({
-      main_columns: [...p.main_columns],
-      appendix_columns: [...p.appendix_columns]
+      main_columns: [
+        ...new Set(
+          p.main_columns.filter((k) =>
+            isMainColumnCompatibleWithLayout(k, p.main_layout)
+          )
+        )
+      ],
+      appendix_columns: [...new Set(p.appendix_columns)]
     });
   }, [selectedVorlage, companyDefaultVorlage]);
 
@@ -198,10 +243,10 @@ export function Step4Vorlage({
 
   const availableMain = useMemo(() => {
     if (!customColumns) return [];
-    return mainColumnPool.filter(
+    return compatibleMainPool.filter(
       (c) => !customColumns.main_columns.includes(c.key as PdfColumnKey)
     );
-  }, [customColumns, mainColumnPool]);
+  }, [customColumns, compatibleMainPool]);
 
   const availableAppendix = useMemo(() => {
     if (!customColumns) return [];
@@ -304,13 +349,24 @@ export function Step4Vorlage({
                 columnKeys={customColumns.main_columns}
                 getLabel={getLabel}
                 disabled={!unlocked}
-                onReorder={(next) =>
+                onReorder={(next) => {
+                  const nextMain = [...new Set(next as PdfColumnKey[])];
                   setCustomColumns((prev) =>
-                    prev
-                      ? { ...prev, main_columns: next as PdfColumnKey[] }
-                      : prev
-                  )
-                }
+                    prev ? { ...prev, main_columns: nextMain } : prev
+                  );
+                  onColumnProfileChange(
+                    resolvePdfColumnProfile(
+                      {
+                        main_columns: nextMain,
+                        appendix_columns: customColumns.appendix_columns,
+                        main_layout: inheritedMainLayout
+                      },
+                      selectedVorlage,
+                      companyDefaultVorlage
+                    )
+                  );
+                  onPdfColumnsReordered?.();
+                }}
                 onRemove={(key) =>
                   setCustomColumns((prev) =>
                     prev
@@ -354,13 +410,24 @@ export function Step4Vorlage({
                 columnKeys={customColumns.appendix_columns}
                 getLabel={getLabel}
                 disabled={!unlocked}
-                onReorder={(next) =>
+                onReorder={(next) => {
+                  const nextAppendix = [...new Set(next as PdfColumnKey[])];
                   setCustomColumns((prev) =>
-                    prev
-                      ? { ...prev, appendix_columns: next as PdfColumnKey[] }
-                      : prev
-                  )
-                }
+                    prev ? { ...prev, appendix_columns: nextAppendix } : prev
+                  );
+                  onColumnProfileChange(
+                    resolvePdfColumnProfile(
+                      {
+                        main_columns: customColumns.main_columns,
+                        appendix_columns: nextAppendix,
+                        main_layout: inheritedMainLayout
+                      },
+                      selectedVorlage,
+                      companyDefaultVorlage
+                    )
+                  );
+                  onPdfColumnsReordered?.();
+                }}
                 onRemove={(key) =>
                   setCustomColumns((prev) =>
                     prev

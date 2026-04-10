@@ -16,12 +16,18 @@ export function rechnungsempfaengerRowToSnapshot(
   return {
     id: row.id,
     name: row.name,
+    anrede: row.anrede,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    company_name: row.company_name,
+    abteilung: row.abteilung,
     address_line1: row.address_line1,
     address_line2: row.address_line2,
     city: row.city,
     postal_code: row.postal_code,
     country: row.country,
-    email: row.email
+    email: row.email,
+    phone: row.phone
   };
 }
 
@@ -77,6 +83,15 @@ export const RechnungsempfaengerService = {
     const { error } = await supabase
       .from('rechnungsempfaenger')
       .update(patch)
+      .eq('id', id);
+    if (error) throw toQueryError(error);
+  },
+
+  async delete(id: string): Promise<void> {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('rechnungsempfaenger')
+      .delete()
       .eq('id', id);
     if (error) throw toQueryError(error);
   }

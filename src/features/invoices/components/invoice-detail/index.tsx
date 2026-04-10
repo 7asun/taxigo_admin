@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/table';
 
 import { InvoiceActions } from './invoice-actions';
+import { InvoiceEmailDraft } from './invoice-email-draft';
 import { InvoicePdfDocument } from '../invoice-pdf/InvoicePdfDocument';
 import { generatePaymentQrDataUrl } from '../invoice-pdf/generate-payment-qr-data-url';
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
@@ -343,7 +344,7 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
         </div>
 
         {/* ── Sidebar: status + actions ─────────────────────────────────── */}
-        <div className='space-y-4'>
+        <div className='space-y-4 pt-4 lg:pt-0 lg:pl-6'>
           {/* Invoice totals summary card */}
           <div className='bg-card border-border space-y-3 rounded-xl border p-4'>
             <p className='text-muted-foreground text-xs font-semibold tracking-wide uppercase'>
@@ -366,31 +367,36 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
           {/* Action buttons */}
           <InvoiceActions invoice={invoice} />
 
-          {/* PDF download */}
-          <PDFDownloadLink
-            document={
-              <InvoicePdfDocument
-                invoice={pdfInvoice}
-                paymentQrDataUrl={paymentQrDataUrl}
-              />
-            }
-            fileName={`${invoice.invoice_number}.pdf`}
-          >
-            {({ loading }) => (
-              <Button
-                variant='outline'
-                className='w-full gap-2'
-                disabled={loading}
-              >
-                {loading ? (
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                ) : (
-                  <FileDown className='h-4 w-4' />
-                )}
-                PDF herunterladen
-              </Button>
-            )}
-          </PDFDownloadLink>
+          {/* PDF download — block wrapper so space-y-4 gaps the next sibling reliably */}
+          <div className='w-full'>
+            <PDFDownloadLink
+              className='block w-full'
+              document={
+                <InvoicePdfDocument
+                  invoice={pdfInvoice}
+                  paymentQrDataUrl={paymentQrDataUrl}
+                />
+              }
+              fileName={`${invoice.invoice_number}.pdf`}
+            >
+              {({ loading }) => (
+                <Button
+                  variant='outline'
+                  className='w-full gap-2'
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                  ) : (
+                    <FileDown className='h-4 w-4' />
+                  )}
+                  PDF herunterladen
+                </Button>
+              )}
+            </PDFDownloadLink>
+          </div>
+
+          <InvoiceEmailDraft invoice={invoice} />
         </div>
       </div>
     </div>

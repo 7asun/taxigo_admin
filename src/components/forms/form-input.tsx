@@ -61,10 +61,24 @@ function FormInput<
               max={max}
               disabled={disabled}
               {...field}
+              value={
+                type === 'number'
+                  ? field.value == null ||
+                    (typeof field.value === 'number' &&
+                      Number.isNaN(field.value))
+                    ? ''
+                    : field.value
+                  : (field.value ?? '')
+              }
               onChange={(e) => {
                 if (type === 'number') {
-                  const value = e.target.value;
-                  field.onChange(value === '' ? undefined : parseFloat(value));
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    field.onChange(null);
+                    return;
+                  }
+                  const parsed = parseFloat(raw);
+                  field.onChange(Number.isNaN(parsed) ? null : parsed);
                 } else {
                   field.onChange(e.target.value);
                 }

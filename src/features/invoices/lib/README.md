@@ -38,5 +38,5 @@ See [docs/pricing-engine.md](../../../../docs/pricing-engine.md).
 
 - **`invoice-number.ts`** — Sequential `RE-YYYY-MM-NNNN`.
 - **`invoice-validators.ts`** — Builder step-3 warnings (`missing_price`, `no_invoice_trip`, …).
-- **`storno.ts`** — Stornorechnung creation (negated amounts; copies recipient + pricing metadata).
+- **`storno.ts`** — Stornorechnung: negated amounts and snapshots in TS, then **`create_storno_invoice`** RPC (single DB transaction: Storno insert + lines + original `corrected`).
 - **`tax-calculator.ts`** — Tax rate from distance (7% / 19%).

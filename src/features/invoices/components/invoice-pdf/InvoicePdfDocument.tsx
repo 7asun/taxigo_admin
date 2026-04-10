@@ -30,7 +30,10 @@ import {
   buildInvoicePdfSummary
 } from './lib/build-invoice-pdf-summary';
 import {
+  buildBriefkopfLines,
+  normalizeInvoiceRecipientPhone,
   recipientFromRechnungsempfaengerSnapshot,
+  salutationFromSnapshot,
   secondaryLegalFromSnapshot
 } from './lib/rechnungsempfaenger-pdf';
 import {
@@ -40,11 +43,13 @@ import {
 import { A4_LANDSCAPE, InvoicePdfAppendix } from './invoice-pdf-appendix';
 import { InvoicePdfCoverBody } from './invoice-pdf-cover-body';
 import { InvoicePdfCoverHeader } from './invoice-pdf-cover-header';
+import { InvoicePdfReferenceBar } from './invoice-pdf-reference-bar';
 import { InvoicePdfFooter } from './invoice-pdf-footer';
 import { styles } from './pdf-styles';
 import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
+import { parseClientReferenceFieldsSnapshot } from '@/features/clients/lib/client-reference-fields.schema';
 
 /** Avoid spamming console when the same invoice PDF re-renders. */
 const legacyMissingRecipientSnapshotWarned = new Set<string>();
@@ -151,27 +156,41 @@ export function InvoicePdfDocument({
     ? client?.zip_code
     : payer?.zip_code;
   const recipientCity = isPerClientBilled ? client?.city : payer?.city;
-  const recipientPhone = isPerClientBilled ? client?.phone : null;
+  const recipientPhone = isPerClientBilled
+    ? normalizeInvoiceRecipientPhone(client?.phone ?? null)
+    : null;
 
   const customerNumber = isPerClientBilled
     ? (client?.customer_number ?? '')
     : (payer?.number ?? '');
 
-  let salutation = 'Sehr geehrte Damen und Herren,';
-  if (isPerClientBilled && client?.last_name) {
+  const snapPrimary = recipientFromRechnungsempfaengerSnapshot(
+    invoice.rechnungsempfaenger_snapshot
+  );
+  const secondaryLegal =
+    isPerClientBilled && !snapPrimary
+      ? secondaryLegalFromSnapshot(invoice.rechnungsempfaenger_snapshot)
+      : null;
+
+  // Build salutation: priority 1) rechnungsempfaenger snapshot with anrede, 2) client greeting_style
+  let salutation = salutationFromSnapshot(
+    invoice.rechnungsempfaenger_snapshot,
+    'Sehr geehrte Damen und Herren,'
+  );
+
+  // Fall back to client greeting_style if snapshot didn't provide a personalized salutation
+  if (
+    salutation === 'Sehr geehrte Damen und Herren,' &&
+    isPerClientBilled &&
+    !snapPrimary &&
+    client?.last_name
+  ) {
     if (client.greeting_style === 'Herr') {
       salutation = `Sehr geehrter Herr ${client.last_name},`;
     } else if (client.greeting_style === 'Frau') {
       salutation = `Sehr geehrte Frau ${client.last_name},`;
     }
   }
-
-  const snapPrimary = recipientFromRechnungsempfaengerSnapshot(
-    invoice.rechnungsempfaenger_snapshot
-  );
-  const secondaryLegal = isPerClientBilled
-    ? secondaryLegalFromSnapshot(invoice.rechnungsempfaenger_snapshot)
-    : null;
 
   const payerWindowRecipient = {
     companyName: '',
@@ -182,7 +201,11 @@ export function InvoicePdfDocument({
     zipCode: payer?.zip_code ?? '',
     city: payer?.city ?? '',
     phone: null as string | null,
-    addressLine2: null as string | null
+    addressLine2: null as string | null,
+    anrede: null as string | null,
+    abteilung: null as string | null,
+    firstName: null as string | null,
+    lastName: null as string | null
   };
 
   const clientWindowRecipient = {
@@ -194,20 +217,37 @@ export function InvoicePdfDocument({
     zipCode: client?.zip_code ?? '',
     city: client?.city ?? '',
     phone: recipientPhone,
-    addressLine2: null as string | null
+    addressLine2: null as string | null,
+    anrede: null as string | null,
+    abteilung: null as string | null,
+    firstName: null as string | null,
+    lastName: null as string | null
   };
+
+  // Build recipient for Briefkopf using structured fields
+  const briefkopfLines = buildBriefkopfLines(snapPrimary);
 
   const snapshotWindowRecipient = snapPrimary
     ? {
-        companyName: '',
-        personName: snapPrimary.displayName,
+        // Use structured company name if available, otherwise empty
+        companyName: snapPrimary.companyName || '',
+        // Use firstName + lastName if available, otherwise displayName
+        personName:
+          [snapPrimary.firstName, snapPrimary.lastName]
+            .filter(Boolean)
+            .join(' ') || snapPrimary.displayName,
         displayName: snapPrimary.displayName,
         street: snapPrimary.street,
         streetNumber: snapPrimary.streetNumber,
         zipCode: snapPrimary.zipCode,
         city: snapPrimary.city,
         phone: snapPrimary.phone,
-        addressLine2: snapPrimary.addressLine2
+        addressLine2: snapPrimary.addressLine2,
+        // Pass structured fields for proper Briefkopf formatting
+        anrede: snapPrimary.anrede,
+        abteilung: snapPrimary.abteilung,
+        firstName: snapPrimary.firstName,
+        lastName: snapPrimary.lastName
       }
     : null;
 
@@ -225,8 +265,8 @@ export function InvoicePdfDocument({
 
   let coverRecipient;
   if (isPerClientBilled) {
-    // §14 UStG: use frozen snapshot — never read live payer/client data for legal addressee
-    coverRecipient = clientWindowRecipient;
+    // §14 UStG: frozen Rechnungsempfänger snapshot wins the window when present; else Fahrgast.
+    coverRecipient = snapPrimary ? snapPrimary : clientWindowRecipient;
   } else {
     // §14 UStG: use frozen snapshot — never read live payer/client data for legal addressee
     coverRecipient = snapshotWindowRecipient ?? payerWindowRecipient;
@@ -247,6 +287,7 @@ export function InvoicePdfDocument({
     tax_rate: li.tax_rate,
     billing_variant_code: li.billing_variant_code,
     billing_variant_name: li.billing_variant_name,
+    billing_type_name: li.billing_type_name ?? null,
     kts_document_applies: li.kts_override,
     no_invoice_warning: false,
     price_resolution: priceResolutionFromLineItem(li),
@@ -291,9 +332,21 @@ export function InvoicePdfDocument({
     ? fitSenderLine(senderOneLine)
     : { line: '', fontSize: 7 };
 
+  const referenceFieldsForPdf =
+    parseClientReferenceFieldsSnapshot(
+      invoice.client_reference_fields_snapshot ?? null
+    ) ?? [];
+
+  // Stornorechnung rows always set cancels_invoice_id (FK to the invoice they cancel).
+  const isStorno = invoice.cancels_invoice_id != null;
+
   return (
     <Document
-      title={invoice.invoice_number}
+      title={
+        isStorno
+          ? `Stornorechnung ${invoice.invoice_number}`
+          : invoice.invoice_number
+      }
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.page} wrap>
@@ -307,7 +360,12 @@ export function InvoicePdfDocument({
           periodFromIso={invoice.period_from}
           periodToIso={invoice.period_to}
           customerNumber={customerNumber}
+          isStorno={isStorno}
         />
+
+        {referenceFieldsForPdf.length > 0 ? (
+          <InvoicePdfReferenceBar fields={referenceFieldsForPdf} />
+        ) : null}
 
         <InvoicePdfCoverBody
           invoiceNumber={invoice.invoice_number}
@@ -324,6 +382,8 @@ export function InvoicePdfDocument({
           breakdown={breakdown}
           introText={resolvedIntroText}
           outroText={resolvedOutroText}
+          isStorno={isStorno}
+          subjectSectionMarginTop={referenceFieldsForPdf.length > 0 ? 6 : 12}
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

@@ -11,7 +11,7 @@
  * Related: {@link build-draft-invoice-detail-for-pdf.ts}, {@link InvoicePdfDocument.tsx}.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePDF } from '@react-pdf/renderer';
 
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
@@ -57,6 +57,11 @@ export interface UseInvoiceBuilderPdfPreviewParams {
    * Initialized to system default in index.tsx so this value is never null.
    */
   columnProfile: PdfColumnProfile;
+  /**
+   * Incremented when the user drag-reorders PDF columns in Section 4 so the next preview update
+   * is not delayed by the usual debounce.
+   */
+  columnReorderGeneration?: number;
 }
 
 /**
@@ -85,12 +90,14 @@ export function useInvoiceBuilderPdfPreview(
     payerOutroBlockId,
     step4Overlay,
     applyStep4Overlay,
-    columnProfile
+    columnProfile,
+    columnReorderGeneration = 0
   } = params;
 
   const { data: textBlocks } = useAllInvoiceTextBlocks();
   const { data: empfaengerOptions } = useRechnungsempfaengerOptions();
   const [pdf, updatePdf] = usePDF();
+  const lastColumnReorderGen = useRef(0);
   /** Same as invoice detail PDF preview: @react-pdf fetches the logo; private bucket needs a signed URL. */
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
 
@@ -220,8 +227,15 @@ export function useInvoiceBuilderPdfPreview(
   }, [draftInvoice]);
 
   // Reacts to draft invoice or text overlay changes: debounces updatePdf so the worker is not flooded.
+  // Drag-reorder bumps `columnReorderGeneration` for an immediate refresh (Section 4).
   useEffect(() => {
     if (!draftInvoice) return undefined;
+    const reorderBumped =
+      columnReorderGeneration !== lastColumnReorderGen.current;
+    if (reorderBumped) {
+      lastColumnReorderGen.current = columnReorderGeneration;
+    }
+    const delayMs = reorderBumped ? 0 : 600;
     const t = window.setTimeout(() => {
       updatePdf(
         <InvoicePdfDocument
@@ -232,13 +246,14 @@ export function useInvoiceBuilderPdfPreview(
           columnProfile={columnProfile}
         />
       );
-    }, 600);
+    }, delayMs);
     return () => window.clearTimeout(t);
   }, [
     draftInvoice,
     introText,
     outroText,
     columnProfile,
+    columnReorderGeneration,
     updatePdf,
     paymentQrDataUrl
   ]);

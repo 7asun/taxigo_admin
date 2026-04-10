@@ -30,8 +30,10 @@ export function RechnungsempfaengerPage() {
     error,
     createRecipient,
     updateRecipient,
+    deleteRecipient,
     isCreating,
     isUpdating,
+    isDeleting,
     refetch
   } = useRechnungsempfaengerAdmin();
   const [q, setQ] = useState('');
@@ -149,9 +151,12 @@ export function RechnungsempfaengerPage() {
         onOpenChange={setDialogOpen}
         editing={editing}
         onSaved={() => void refetch()}
+        onDeleted={() => void refetch()}
         createRecipient={createRecipient}
         updateRecipient={updateRecipient}
+        deleteRecipient={deleteRecipient}
         isSaving={isCreating || isUpdating}
+        isDeleting={isDeleting}
       />
     </div>
   );

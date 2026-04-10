@@ -26,7 +26,7 @@ Invoice header totals use `calculateInvoiceTotals`, which includes approach per 
 - `invoice_line_items.approach_fee_net`
 - `price_resolution_snapshot.approach_fee_net` (audit)
 
-**Storno:** mirrored lines negate `approach_fee_net` like other money fields (`src/features/invoices/lib/storno.ts`).
+**Storno:** TypeScript builds mirrored lines with negated `approach_fee_net` like other money fields; **`public.create_storno_invoice`** inserts them in the same transaction as the Storno header and original `corrected` update (`src/features/invoices/lib/storno.ts`).
 
 ## Admin & builder
 

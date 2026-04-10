@@ -18,7 +18,9 @@ The catalog cascade (**variant → billing type → payer**) is implemented in `
 
 After Kostenträger (and optional Abrechnungsfamilie) are chosen, the UI shows a **non-binding preview** using `resolveRechnungsempfaenger` with **only** `billingTypeRechnungsempfaengerId` and `payerRechnungsempfaengerId` ( **`billingVariantRechnungsempfaengerId` is omitted / null** ).
 
-**Intentional deviation:** the wizard has **no Unterart (billing variant) picker** in step 2. Variant-level `rechnungsempfaenger_id` is unknown until trips are loaded; each trip carries its `billing_variant_id` and joined recipient FKs. The preview therefore implements **billing type → payer** only, with a short hint that the first trip’s Unterart may still change the resolved recipient after **Fahrten laden**.
+**Important nuance:** monthly / single_trip modes still have **no Unterart picker** in step 2, so variant-level `rechnungsempfaenger_id` is unknown until trips are loaded. The preview therefore implements **billing type → payer** only, with a short hint that the first trip’s Unterart may still change the resolved recipient after **Fahrten laden**.
+
+In **per_client** mode, the dispatcher selects a historical `{ payer_id + billing_variant_id }` combination (Unterart). This fixes a previous bug where the builder stored `billing_variant_id` in a field named `billing_type_id`, causing trip loads (and therefore recipient resolution) to return zero results for clients with Unterarten.
 
 ### Step 3 — catalog default for the invoice
 

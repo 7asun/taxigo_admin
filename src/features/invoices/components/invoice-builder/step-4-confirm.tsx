@@ -59,6 +59,7 @@ import {
   pricingStrategyUsedLabelDe
 } from '@/features/invoices/lib/pricing-strategy-labels-de';
 import { lineItemNetAmountForDisplay } from '@/features/invoices/lib/line-item-net-display';
+import { normalizeInvoiceRecipientPhone } from '@/features/invoices/components/invoice-pdf/lib/rechnungsempfaenger-pdf';
 import type { InvoiceBuilderStep4PdfOverlay } from './use-invoice-builder-pdf-preview';
 import type { BuilderLineItem } from '../../types/invoice.types';
 
@@ -83,13 +84,22 @@ const formatEur = (v: number) =>
     v
   );
 
-function formatRecipientFullAddress(row: {
+interface RecipientRow {
+  name: string;
+  anrede?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  company_name?: string | null;
+  abteilung?: string | null;
+  phone?: string | null;
   address_line1: string | null;
   address_line2: string | null;
   postal_code: string | null;
   city: string | null;
   country: string | null;
-}): string {
+}
+
+function formatRecipientFullAddress(row: RecipientRow): string {
   const line1 = [row.address_line1, row.address_line2]
     .filter(Boolean)
     .join(', ');
@@ -363,13 +373,46 @@ export function Step4Confirm({
                 {effectiveRecipientId && effectiveRow ? (
                   <>
                     <div className='flex flex-wrap items-baseline gap-2'>
-                      <p className='text-sm font-medium'>{effectiveRow.name}</p>
+                      {/* Build display name from structured fields */}
+                      <p className='text-sm font-medium'>
+                        {(() => {
+                          // Priority: company_name > structured name > legacy name
+                          if (effectiveRow.company_name) {
+                            return effectiveRow.company_name;
+                          }
+                          const parts = [
+                            effectiveRow.anrede,
+                            effectiveRow.first_name,
+                            effectiveRow.last_name
+                          ].filter(Boolean);
+                          if (parts.length > 0) {
+                            return parts.join(' ');
+                          }
+                          return effectiveRow.name;
+                        })()}
+                      </p>
                       {isManualOverride ? (
                         <span className='text-muted-foreground text-xs'>
                           Manuell überschrieben
                         </span>
                       ) : null}
                     </div>
+                    {/* Show additional recipient details if available */}
+                    {effectiveRow.abteilung && (
+                      <p className='text-muted-foreground text-xs'>
+                        Abteilung: {effectiveRow.abteilung}
+                      </p>
+                    )}
+                    {(() => {
+                      const tel = normalizeInvoiceRecipientPhone(
+                        effectiveRow.phone
+                      );
+                      return tel ? (
+                        <p className='text-muted-foreground text-xs'>
+                          Tel: {tel}
+                        </p>
+                      ) : null;
+                    })()}
                     <p className='text-muted-foreground text-xs'>
                       {formatRecipientFullAddress(effectiveRow)}
                     </p>

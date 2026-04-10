@@ -56,6 +56,7 @@ export const invoiceKeys = {
   tripsForBuilder: (params: {
     payer_id: string;
     billing_type_id?: string | null;
+    billing_variant_id?: string | null;
     period_from: string;
     period_to: string;
     client_id?: string | null;

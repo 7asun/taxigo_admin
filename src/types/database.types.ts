@@ -196,6 +196,9 @@ export type Database = {
           phone_secondary: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag: number | null;
+          /** Ordered { label, value }[] for invoice PDF; null when unset. */
+          reference_fields: Json | null;
+          customer_number: number;
           requires_daily_scheduling: boolean | null;
           stations: string[] | null;
           street: string;
@@ -223,6 +226,8 @@ export type Database = {
           phone_secondary?: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag?: number | null;
+          reference_fields?: Json | null;
+          customer_number?: number;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street: string;
@@ -250,6 +255,8 @@ export type Database = {
           phone_secondary?: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag?: number | null;
+          reference_fields?: Json | null;
+          customer_number?: number;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street?: string;
@@ -579,6 +586,12 @@ export type Database = {
           id: string;
           company_id: string;
           name: string;
+          anrede: string | null;
+          first_name: string | null;
+          last_name: string | null;
+          company_name: string | null;
+          abteilung: string | null;
+          phone: string | null;
           address_line1: string | null;
           address_line2: string | null;
           city: string | null;
@@ -593,6 +606,12 @@ export type Database = {
           id?: string;
           company_id: string;
           name: string;
+          anrede?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          abteilung?: string | null;
+          phone?: string | null;
           address_line1?: string | null;
           address_line2?: string | null;
           city?: string | null;
@@ -607,6 +626,12 @@ export type Database = {
           id?: string;
           company_id?: string;
           name?: string;
+          anrede?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          abteilung?: string | null;
+          phone?: string | null;
           address_line1?: string | null;
           address_line2?: string | null;
           city?: string | null;
@@ -1370,9 +1395,39 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      create_storno_invoice: {
+        Args: {
+          p_billing_type_id: string | null;
+          p_billing_variant_id: string | null;
+          p_cancels_invoice_id: string;
+          p_client_id: string | null;
+          p_client_reference_fields_snapshot: Json | null;
+          p_company_id: string;
+          p_invoice_number: string;
+          p_line_items: Json;
+          p_mode: string;
+          p_notes: string;
+          p_original_invoice_id: string;
+          p_payment_due_days: number;
+          p_pdf_column_override: Json | null;
+          p_period_from: string;
+          p_period_to: string;
+          p_payer_id: string;
+          p_rechnungsempfaenger_id: string | null;
+          p_rechnungsempfaenger_snapshot: Json | null;
+          p_subtotal: number;
+          p_tax_amount: number;
+          p_total: number;
+        };
+        Returns: string;
+      };
       invoice_numbers_max_for_prefix: {
         Args: { p_prefix: string };
         Returns: string | null;
+      };
+      trip_ids_matching_invoice_effective_status: {
+        Args: { p_effective: string };
+        Returns: string[];
       };
     };
     Enums: {

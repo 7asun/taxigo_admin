@@ -43,11 +43,18 @@ export function useRechnungsempfaengerAdmin() {
     onSuccess: invalidate
   });
 
+  const deleteM = useMutation({
+    mutationFn: (id: string) => RechnungsempfaengerService.delete(id),
+    onSuccess: invalidate
+  });
+
   return {
     ...query,
     createRecipient: createM.mutateAsync,
     updateRecipient: updateM.mutateAsync,
+    deleteRecipient: deleteM.mutateAsync,
     isCreating: createM.isPending,
-    isUpdating: updateM.isPending
+    isUpdating: updateM.isPending,
+    isDeleting: deleteM.isPending
   };
 }

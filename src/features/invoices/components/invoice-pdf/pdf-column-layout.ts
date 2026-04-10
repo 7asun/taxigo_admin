@@ -33,8 +33,9 @@ import {
 } from '@/features/invoices/components/invoice-pdf/lib/invoice-pdf-format';
 import type { InvoicePdfSummaryRow } from '@/features/invoices/components/invoice-pdf/lib/build-invoice-pdf-summary';
 
-const PORTRAIT_USABLE_PT = 515;
-const LANDSCAPE_USABLE_PT = 770;
+/** Usable row width inside `tableHeader` / `tableRow` after `paddingHorizontal: 8` (×2). */
+const PORTRAIT_USABLE_PT = 499;
+const LANDSCAPE_USABLE_PT = 754;
 
 const EM_DASH = '—';
 
@@ -349,8 +350,9 @@ export function isGroupedRouteLeistungColumn(col: PdfColumnDef): boolean {
 }
 
 /**
- * Proportional column widths for dynamic tables. Usable width ≈ **515pt** portrait (main page),
- * **770pt** landscape (appendix when many columns) — matches DIN-style margins used in `pdf-styles`.
+ * Proportional column widths for dynamic tables. Usable width ≈ **499pt** portrait (main page),
+ * **754pt** landscape (appendix when many columns) — inner row width after `paddingHorizontal: 8` on
+ * `tableHeader` / `tableRow`.
  *
  * **Algorithm:** `scale = usable / sum(defaultWidthPt)`; each column
  * `Math.max(Math.round(defaultWidthPt * scale), minWidthPt)`.

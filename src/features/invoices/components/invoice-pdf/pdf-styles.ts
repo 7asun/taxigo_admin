@@ -51,8 +51,8 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    // Reserve space: footer columns anchor at bottom 44pt; page line at 11pt; tall 3-col text grows upward
-    paddingBottom: 148,
+    // Reserve space for fixed footer (~bottom 28 + column block) + page line; avoid over-reserving vs body
+    paddingBottom: 100,
     paddingLeft: 45,
     paddingRight: 45,
     lineHeight: 1.45
@@ -68,7 +68,7 @@ export const styles = StyleSheet.create({
   },
   /**
    * Angebot PDF page shell — same typography as `page` but less bottom padding.
-   * Invoice footer needs `page.paddingBottom: 148`; offer footer is shorter, so 80pt suffices.
+   * Invoice footer needs `page.paddingBottom: 100`; offer footer is shorter, so 80pt suffices.
    */
   angebotPage: {
     fontFamily: 'Helvetica',
@@ -85,7 +85,7 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    paddingBottom: 148,
+    paddingBottom: 100,
     paddingLeft: 45,
     paddingRight: 45,
     lineHeight: 1.45
@@ -96,18 +96,49 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    paddingBottom: 148,
+    paddingBottom: 100,
     paddingLeft: 36,
     paddingRight: 36,
     lineHeight: 1.45
   },
 
   // ── Kopf: Logo, Slogan darunter (links) | Meta + Steuer rechts; Absenderzeile; Empfänger (Fenster)
+  // marginBottom is the only vertical gap under the header when no Bezugszeichen bar is rendered;
+  // shrinking it tightens “Rechnung Nr.” for those invoices — balance with InvoicePdfCoverBody subject margin.
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 20
+    marginBottom: 2
+  },
+  /** Legacy / unused — reference bar styles live in invoice-pdf-reference-bar.tsx. */
+  referenceBarWrap: {
+    width: '100%',
+    marginTop: 8,
+    marginBottom: 8,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: PDF_COLORS.border,
+    paddingVertical: 6
+  },
+  referenceBarRow: {
+    flexDirection: 'row',
+    width: '100%'
+  },
+  referenceBarCell: {
+    flex: 1,
+    paddingHorizontal: 4,
+    minWidth: 0
+  },
+  referenceBarLabel: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    fontWeight: 'bold',
+    marginBottom: 2
+  },
+  referenceBarValue: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text
   },
   headerLeft: {
     width: '52%',
@@ -141,11 +172,15 @@ export const styles = StyleSheet.create({
   /** DIN: kompakte Absenderzeile (fontSize dynamisch via fitSenderLine) */
   senderOneLine: {
     color: PDF_COLORS.muted,
+    paddingBottom: 3,
+    lineHeight: 1.35
+  },
+  /** Rule under Absenderzeile — separate View so react-pdf does not paint through address Text below */
+  senderOneLineRule: {
     borderBottomWidth: 0.4,
     borderBottomColor: PDF_COLORS.border,
-    paddingBottom: 3,
     marginBottom: 1,
-    lineHeight: 1.35
+    width: '100%'
   },
   recipientBlock: {
     width: '100%',
@@ -177,6 +212,14 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     marginBottom: 1
+  },
+  /** Fensteranschrift: extra gap above Tel. — avoids tight kerning with PLZ/Ort line */
+  addressPhoneLine: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginTop: 2,
+    marginBottom: 1,
+    lineHeight: 1.5
   },
   secondaryLegalBlock: {
     marginTop: 14,

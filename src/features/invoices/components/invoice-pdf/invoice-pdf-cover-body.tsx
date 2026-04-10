@@ -61,6 +61,13 @@ export interface InvoicePdfCoverBodyProps {
   breakdown: { rate: number; tax: number }[];
   introText?: string | null;
   outroText?: string | null;
+  /** True when `invoice.cancels_invoice_id` is set (Stornorechnung row). */
+  isStorno: boolean;
+  /**
+   * Margin above the subject block (“Rechnung Nr. …”). Slightly larger when no reference bar
+   * keeps no-bar invoices from sitting too tight under the header if `headerRow.marginBottom` is tuned.
+   */
+  subjectSectionMarginTop?: number;
 }
 
 function MultilineCellText({
@@ -105,8 +112,15 @@ export function InvoicePdfCoverBody({
   total,
   breakdown,
   introText,
-  outroText
+  outroText,
+  isStorno,
+  subjectSectionMarginTop = 8
 }: InvoicePdfCoverBodyProps) {
+  // isStorno is invoice.cancels_invoice_id != null (Storno document); only then use §14 Abs. 9 intro.
+  const defaultIntroText = isStorno
+    ? 'hiermit stornieren wir die o.g. Rechnung gemäß §14 Abs. 9 UStG. Bitte heben Sie sowohl diese Stornorechnung als auch die ursprüngliche Rechnung zu Ihren Unterlagen auf.'
+    : 'vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die erbrachten Personenbeförderungsleistungen gemäß den vereinbarten Konditionen.';
+
   const isGroupedMode = columnProfile.main_layout !== 'flat';
   // Render-time safety filter: drop columns that are incompatible with the current
   // layout. This handles Vorlagen saved before flatOnly/groupedOnly flags existed.
@@ -128,23 +142,23 @@ export function InvoicePdfCoverBody({
 
   return (
     <>
-      <View style={{ marginTop: 8 }}>
-        <Text style={styles.subject}>Rechnung Nr. {invoiceNumber}</Text>
-        <Text style={styles.salutation}>{salutation}</Text>
-        <Text style={styles.bodyText}>
-          {introText ??
-            'vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die erbrachten Personenbeförderungsleistungen gemäß den vereinbarten Konditionen.'}
+      <View style={{ marginTop: subjectSectionMarginTop }}>
+        <Text style={styles.subject}>
+          {/* §14 UStG: Stornorechnung must be clearly labeled as such */}
+          {isStorno ? 'Stornorechnung Nr.' : 'Rechnung Nr.'} {invoiceNumber}
         </Text>
+        <Text style={styles.salutation}>{salutation}</Text>
+        <Text style={styles.bodyText}>{introText ?? defaultIntroText}</Text>
       </View>
 
       <View style={styles.tableHeader}>
-        {mainTableKeys.map((key) => {
+        {mainTableKeys.map((key, idx) => {
           const col = PDF_COLUMN_MAP[key];
           if (!col) return null;
           const w = colWidths[key] ?? col.minWidthPt;
           return (
             <View
-              key={key}
+              key={`${key}-${idx}`}
               style={{
                 width: w,
                 minWidth: 0,
@@ -155,6 +169,8 @@ export function InvoicePdfCoverBody({
               }}
             >
               <Text
+                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                numberOfLines={1}
                 style={[
                   styles.tableHeaderText,
                   { textAlign: col.align, fontSize: PDF_FONT_SIZES.xs }
@@ -174,7 +190,7 @@ export function InvoicePdfCoverBody({
               style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
               wrap={false}
             >
-              {mainTableKeys.map((key) => {
+              {mainTableKeys.map((key, colIdx) => {
                 const col = PDF_COLUMN_MAP[key];
                 if (!col) return null;
                 const w = colWidths[key] ?? col.minWidthPt;
@@ -182,7 +198,7 @@ export function InvoicePdfCoverBody({
                   const { primary, secondary } = getGroupedRouteLines(item);
                   return (
                     <View
-                      key={key}
+                      key={`${key}-${colIdx}`}
                       style={{
                         width: w,
                         minWidth: 0,
@@ -201,7 +217,7 @@ export function InvoicePdfCoverBody({
                 const cell = renderGroupedCellValue(item, col);
                 return (
                   <View
-                    key={key}
+                    key={`${key}-${colIdx}`}
                     style={{
                       width: w,
                       minWidth: 0,
@@ -230,7 +246,7 @@ export function InvoicePdfCoverBody({
               style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
               wrap={false}
             >
-              {mainTableKeys.map((key) => {
+              {mainTableKeys.map((key, colIdx) => {
                 const col = PDF_COLUMN_MAP[key];
                 if (!col) return null;
                 const w = colWidths[key] ?? col.minWidthPt;
@@ -238,7 +254,7 @@ export function InvoicePdfCoverBody({
                 const hasNl = raw.includes('\n');
                 return (
                   <View
-                    key={key}
+                    key={`${key}-${colIdx}`}
                     style={{
                       width: w,
                       minWidth: 0,
@@ -351,7 +367,7 @@ export function InvoicePdfCoverBody({
         </View>
       </View>
 
-      <View style={styles.bodyOutroSection}>
+      <View style={styles.bodyOutroSection} wrap={false}>
         <Text style={styles.bodyOutro}>
           {outroText ??
             'Wir bedanken uns herzlich für Ihr Vertrauen in unsere Dienstleistungen und stehen Ihnen bei Fragen oder Anliegen gerne zur Verfügung.'}

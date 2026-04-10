@@ -42,6 +42,7 @@ type Step2Values = Pick<
   | 'mode'
   | 'payer_id'
   | 'billing_type_id'
+  | 'billing_variant_id'
   | 'period_from'
   | 'period_to'
   | 'client_id'
@@ -83,6 +84,7 @@ export function useInvoiceBuilder(
       ? invoiceKeys.tripsForBuilder({
           payer_id: step2Values.payer_id,
           billing_type_id: step2Values.billing_type_id,
+          billing_variant_id: step2Values.billing_variant_id,
           period_from: step2Values.period_from,
           period_to: step2Values.period_to,
           client_id: step2Values.client_id
@@ -99,6 +101,7 @@ export function useInvoiceBuilder(
       const trips = await fetchTripsForBuilder({
         payer_id: payerId,
         billing_type_id: step2Values?.billing_type_id,
+        billing_variant_id: step2Values?.billing_variant_id,
         period_from: step2Values!.period_from,
         period_to: step2Values!.period_to,
         client_id: step2Values?.client_id

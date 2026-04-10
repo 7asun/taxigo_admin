@@ -54,6 +54,7 @@ import type { InvoiceMode } from '../../types/invoice.types';
 const step2Schema = z.object({
   payer_id: z.string().uuid(),
   billing_type_id: z.string().uuid().nullish().or(z.literal('')),
+  billing_variant_id: z.string().uuid().nullable().nullish().or(z.literal('')),
   period_from: z.string().min(1, 'Startdatum erforderlich'),
   period_to: z.string().min(1, 'Enddatum erforderlich'),
   client_id: z.string().uuid().nullish().or(z.literal(''))
@@ -87,6 +88,7 @@ interface Step2ParamsProps {
   onNext: (values: {
     payer_id: string;
     billing_type_id: string | null;
+    billing_variant_id: string | null;
     period_from: string;
     period_to: string;
     client_id: string | null;
@@ -110,6 +112,7 @@ export function Step2Params({
     defaultValues: {
       payer_id: '',
       billing_type_id: null,
+      billing_variant_id: null,
       period_from: '',
       period_to: '',
       client_id: null
@@ -194,6 +197,7 @@ export function Step2Params({
     onNext({
       payer_id: values.payer_id,
       billing_type_id: values.billing_type_id || null,
+      billing_variant_id: values.billing_variant_id || null,
       period_from: values.period_from,
       period_to: values.period_to,
       client_id: values.client_id || null,
@@ -239,6 +243,7 @@ export function Step2Params({
                             form.setValue('payer_id', '');
                             form.clearErrors('payer_id');
                             form.setValue('billing_type_id', null);
+                            form.setValue('billing_variant_id', null);
                           }}
                           onNameChange={() => {}}
                           searchClients={searchClients}
@@ -256,9 +261,10 @@ export function Step2Params({
                   control={form.control}
                   name='payer_id'
                   render={({ field }) => {
-                    const currentBillingTypeId = form.watch('billing_type_id');
+                    const currentBillingVariantId =
+                      form.watch('billing_variant_id');
                     const combinedValue = field.value
-                      ? `${field.value}|${currentBillingTypeId || ''}`
+                      ? `${field.value}|${currentBillingVariantId || ''}`
                       : '';
 
                     return (
@@ -271,7 +277,12 @@ export function Step2Params({
                           onValueChange={(val) => {
                             const [pId, bId] = val.split('|');
                             field.onChange(pId);
-                            form.setValue('billing_type_id', bId || null, {
+                            // per_client historical combos are stored at Unterart (variant) level.
+                            // Family is unknown here unless we explicitly join it, so do not fabricate it.
+                            form.setValue('billing_variant_id', bId || null, {
+                              shouldValidate: true
+                            });
+                            form.setValue('billing_type_id', null, {
                               shouldValidate: true
                             });
                           }}
@@ -303,13 +314,11 @@ export function Step2Params({
                                   (p) => p.id === comb.payer_id
                                 );
                                 const payerName = payerObj?.name || 'Unbekannt';
-                                const btName = payerObj?.billing_types?.find(
-                                  (b) => b.id === comb.billing_type_id
-                                )?.name;
-                                const label = btName
-                                  ? `${payerName} (${btName})`
+                                const variantName = comb.billing_variant_name;
+                                const label = variantName
+                                  ? `${payerName} — ${variantName}`
                                   : payerName;
-                                const valStr = `${comb.payer_id}|${comb.billing_type_id || ''}`;
+                                const valStr = `${comb.payer_id}|${comb.billing_variant_id || ''}`;
                                 return (
                                   <SelectItem key={valStr} value={valStr}>
                                     {label}

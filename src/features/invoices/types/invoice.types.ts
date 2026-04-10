@@ -22,6 +22,7 @@ import { z } from 'zod';
 import type { PriceResolution } from '@/features/invoices/types/pricing.types';
 import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
+import type { ClientReferenceField } from '@/features/clients/lib/client-reference-fields.schema';
 
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
@@ -61,6 +62,8 @@ export interface InvoiceRow {
   invoice_number: string; // RE-YYYY-MM-NNNN
   payer_id: string;
   billing_type_id: string | null; // null = all billing types
+  /** Optional Unterart scope (billing_variants.id). NULL = multi-variant invoice. */
+  billing_variant_id: string | null;
   mode: InvoiceMode;
   client_id: string | null; // only for per_client mode
   period_from: string; // ISO date string
@@ -70,6 +73,8 @@ export interface InvoiceRow {
   tax_amount: number; // MwSt-Betrag (€)
   total: number; // Bruttobetrag (€)
   notes: string | null;
+  email_subject: string | null;
+  email_body: string | null;
   payment_due_days: number; // Zahlungsziel in Tagen
   created_by: string | null;
   created_at: string; // ISO timestamp
@@ -81,6 +86,11 @@ export interface InvoiceRow {
   rechnungsempfaenger_id: string | null;
   /** Frozen recipient JSON at creation — §14 UStG; do not mutate after issue. */
   rechnungsempfaenger_snapshot: Record<string, unknown> | null;
+  /**
+   * Frozen copy of clients.reference_fields at creation — §14 UStG; PDF reads this only.
+   * Null when client_id is null or client had no reference fields.
+   */
+  client_reference_fields_snapshot: ClientReferenceField[] | null;
   /**
    * Optional per-invoice PDF column layout override (Phase 6).
    * Null = resolve from Kostenträger Vorlage → company default → system fallback.
@@ -109,6 +119,8 @@ export interface InvoiceLineItemRow {
   tax_rate: number; // 0.07 or 0.19 (decimal fraction)
   billing_variant_code: string | null; // e.g. "V01"
   billing_variant_name: string | null; // e.g. "Vollversorgung"
+  /** Snapshot of billing_types.name (Abrechnungsfamilie) at invoice creation. */
+  billing_type_name?: string | null;
   /** Net Anfahrtspreis snapshot. Null before Phase 8 or when none — treat as 0. */
   approach_fee_net: number | null;
   created_at: string;
@@ -139,6 +151,7 @@ export interface InvoiceWithPayer extends InvoiceRow {
     zip_code: string;
     city: string;
     email: string | null;
+    reference_fields?: ClientReferenceField[] | null;
   } | null;
 }
 
@@ -174,6 +187,7 @@ export interface InvoiceDetail extends InvoiceRow {
     city: string;
     email: string | null;
     phone: string | null;
+    reference_fields?: ClientReferenceField[] | null;
   } | null;
   line_items: InvoiceLineItemRow[];
   company_profile: {
@@ -245,6 +259,7 @@ export interface TripForInvoice {
     last_name: string | null;
     // Default price for all trips of this client. Takes precedence over trip.price.
     price_tag: number | null;
+    reference_fields?: ClientReferenceField[] | null;
   } | null;
   // Address snapshot fields
   pickup_address: string | null;
@@ -281,6 +296,12 @@ export const invoiceBuilderSchema = z.object({
   // Optional: filter trips to one billing_type within the payer
   // NULL means "all billing types for this payer"
   billing_type_id: z.string().uuid().nullable(),
+
+  /**
+   * Optional: scope trips to exactly one Unterart (billing_variants.id).
+   * NULL means "all Unterarten" (subject to billing_type_id filter if present).
+   */
+  billing_variant_id: z.string().uuid().nullable(),
 
   // Required only when mode === 'per_client'
   client_id: z.string().uuid().nullable(),
@@ -352,6 +373,8 @@ export interface BuilderLineItem {
   billing_variant_code: string | null;
   /** From joined `billing_variants.name` on the trip. */
   billing_variant_name: string | null;
+  /** From joined `billing_types.name` via billing_variants.billing_type (family label). */
+  billing_type_name: string | null;
   /**
    * Copy of `trips.kts_document_applies` — informational badge; actual €0 KTS pricing is
    * reflected in `price_resolution` / `kts_override`.

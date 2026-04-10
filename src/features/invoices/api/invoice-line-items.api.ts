@@ -41,6 +41,8 @@ import type {
 export interface FetchTripsForBuilderParams {
   payer_id: string;
   billing_type_id?: string | null; // null = all billing types
+  /** Optional: scope to exactly one Unterart (billing_variants.id). */
+  billing_variant_id?: string | null; // null = all variants (subject to billing_type_id filter)
   period_from: string; // ISO date string
   period_to: string; // ISO date string
   client_id?: string | null; // only for per_client mode
@@ -100,8 +102,17 @@ export async function fetchTripsForBuilder(
 ): Promise<TripForInvoice[]> {
   const supabase = createClient();
 
+  // Filter priority:
+  // 1) billing_variant_id (exact Unterart) → trips.billing_variant_id = X
+  // 2) billing_type_id (family) → trips.billing_variant_id IN (variants under family)
+  // 3) neither → no variant filter
+  const variantId =
+    params.billing_variant_id && params.billing_variant_id.length > 0
+      ? params.billing_variant_id
+      : null;
+
   let variantIdsForType: string[] | null = null;
-  if (params.billing_type_id) {
+  if (!variantId && params.billing_type_id) {
     const { data: variants, error: vErr } = await supabase
       .from('billing_variants')
       .select('id')
@@ -135,7 +146,7 @@ export async function fetchTripsForBuilder(
         id, code, name, billing_type_id, rechnungsempfaenger_id,
         billing_type:billing_types(name, rechnungsempfaenger_id)
       ),
-      client:clients(id, first_name, last_name, price_tag)
+      client:clients(id, first_name, last_name, price_tag, reference_fields)
     `
     )
     .eq('payer_id', params.payer_id)
@@ -143,7 +154,9 @@ export async function fetchTripsForBuilder(
     .lte('scheduled_at', params.period_to + 'T23:59:59.999Z')
     .order('scheduled_at', { ascending: true });
 
-  if (variantIdsForType) {
+  if (variantId) {
+    query = query.eq('billing_variant_id', variantId);
+  } else if (variantIdsForType) {
     query = query.in('billing_variant_id', variantIdsForType);
   }
 
@@ -265,9 +278,12 @@ export function buildLineItemsFromTrips(
       quantity,
       tax_rate: taxRate,
       billing_variant_code: trip.billing_variant?.code ?? null,
-      // Always snapshot the billing_type (family) name — variant name and code are intentionally
-      // ignored. PDF groups by Abrechnungsfamilie only, never by variant (§14 UStG snapshot).
-      billing_variant_name: trip.billing_variant?.billing_type?.name ?? null,
+      // Snapshot semantics:
+      // - billing_variant_* = Unterart (billing_variants)
+      // - billing_type_name = Abrechnungsfamilie label (billing_types)
+      // Both are frozen on invoice creation (§14 UStG) for audit and PDF output.
+      billing_variant_name: trip.billing_variant?.name ?? null,
+      billing_type_name: trip.billing_variant?.billing_type?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
       no_invoice_warning: trip.no_invoice_required === true,
       price_resolution: priceResolution,
@@ -390,6 +406,7 @@ export async function insertLineItems(
       tax_rate: item.tax_rate,
       billing_variant_code: item.billing_variant_code,
       billing_variant_name: item.billing_variant_name,
+      billing_type_name: item.billing_type_name,
       pricing_strategy_used: frozen.strategy_used,
       pricing_source: frozen.source,
       kts_override: item.kts_override,

@@ -12,9 +12,10 @@
  * 4. **System fallback** — `SYSTEM_DEFAULT_MAIN_COLUMNS` + `SYSTEM_DEFAULT_APPENDIX_COLUMNS`
  *    (grouped layout; legacy 5-column main table).
  *
- * **`sanitizeKeys`** drops keys that are not in {@link PDF_COLUMN_MAP} (typos / removed catalog entries).
+ * **`sanitizeKeys`** drops keys that are not in {@link PDF_COLUMN_MAP} (typos / removed catalog entries)
+ * and **deduplicates** (first occurrence wins).
  * It does **not** filter by `flatOnly` / `groupedOnly` / `main_layout`. **The resolver preserves user
- * intent:** a Vorlage saved with certain columns is returned exactly as stored (minus unknown keys).
+ * intent:** column order from stored arrays is preserved (minus unknown keys and duplicate keys).
  * Layout compatibility filtering happens only at **render time** in `InvoicePdfCoverBody` via
  * `mainTableKeys`, so saved JSON is never silently rewritten here.
  *
@@ -36,12 +37,14 @@ import type {
   PdfVorlageRow
 } from '@/features/invoices/types/pdf-vorlage.types';
 
-/** Keeps only keys that exist in {@link PDF_COLUMN_MAP}; does not apply layout rules. */
+/** Keeps only known keys in first-seen order, deduplicated; does not apply layout rules. */
 function sanitizeKeys(keys: string[] | undefined): PdfColumnKey[] {
   if (!keys?.length) return [];
+  const seen = new Set<string>();
   const out: PdfColumnKey[] = [];
   for (const k of keys) {
-    if (PDF_COLUMN_MAP[k]) {
+    if (PDF_COLUMN_MAP[k] && !seen.has(k)) {
+      seen.add(k);
       out.push(k as PdfColumnKey);
     }
   }

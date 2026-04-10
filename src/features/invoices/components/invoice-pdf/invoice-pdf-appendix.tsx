@@ -54,13 +54,13 @@ export function InvoicePdfAppendix({
   function renderTableHeader() {
     return (
       <View style={styles.tableHeader}>
-        {columnProfile.appendix_columns.map((key) => {
+        {columnProfile.appendix_columns.map((key, idx) => {
           const col = PDF_COLUMN_MAP[key];
           if (!col) return null;
           const w = colWidths[key] ?? col.minWidthPt;
           return (
             <View
-              key={key}
+              key={`${key}-${idx}`}
               style={{
                 width: w,
                 minWidth: 0,
@@ -71,6 +71,8 @@ export function InvoicePdfAppendix({
               }}
             >
               <Text
+                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                numberOfLines={1}
                 style={[
                   styles.tableHeaderText,
                   {
@@ -101,7 +103,7 @@ export function InvoicePdfAppendix({
         wrap={false}
       >
         <View style={styles.tableRow}>
-          {columnProfile.appendix_columns.map((key) => {
+          {columnProfile.appendix_columns.map((key, colIdx) => {
             const col = PDF_COLUMN_MAP[key];
             if (!col) return null;
             const w = colWidths[key] ?? col.minWidthPt;
@@ -112,7 +114,7 @@ export function InvoicePdfAppendix({
             const hasNl = raw.includes('\n');
             return (
               <View
-                key={key}
+                key={`${key}-${colIdx}`}
                 style={{
                   width: w,
                   minWidth: 0,

@@ -28,6 +28,7 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import { TripInvoiceStatusBadge } from '@/features/trips/components/trip-invoice-status-badge';
 
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
@@ -258,6 +259,23 @@ export const columns: ColumnDef<any>[] = [
       variant: 'select',
       options: statusFilterOptions
     },
+    enableColumnFilter: false
+  },
+  {
+    id: 'invoice_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Rechnungsstatus' />
+    ),
+    // invoice_line_items injected via widened PostgREST select in trips-listing.tsx
+    cell: ({ row }) => {
+      const lineItems = row.original.invoice_line_items ?? [];
+      return (
+        <div className='flex justify-center px-1'>
+          <TripInvoiceStatusBadge lineItems={lineItems} />
+        </div>
+      );
+    },
+    meta: { label: 'Rechnungsstatus', variant: 'text' },
     enableColumnFilter: false
   },
   {

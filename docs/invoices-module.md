@@ -20,11 +20,11 @@ To enforce this, the architecture heavily relies on the **Snapshot Pattern**:
 
 ### 1.2 The Storno Flow (Cancellations)
 Because invoices are immutable, any mistake requires a formal cancellation (**Stornorechnung**).
-- When a user clicks "Stornieren", the system:
-  1. Marks the original invoice as `cancelled`.
-  2. Generates a completely new invoice document (the Stornorechnung) with a new, sequential invoice number.
-  3. Mirrors the exact snapshot line items, but **inverts** their quantities and totals (e.g., `1` → `-1`, `20.00€` → `-20.00€`).
-  4. Links them historically via the `cancels_invoice_id` foreign key.
+- When a user confirms "Stornieren", the app calls [`createStornorechnung`](../src/features/invoices/lib/storno.ts), which invokes the Postgres function **`public.create_storno_invoice`** in a **single transaction**:
+  1. Inserts a new Storno invoice row (`status = 'draft'`, new `RE-YYYY-MM-NNNN` from `generateNextInvoiceNumber`, `cancels_invoice_id` → original).
+  2. Inserts mirrored line items (negated money fields; `quantity` unchanged) from a JSONB payload built in TypeScript.
+  3. Updates the original invoice to `status = 'corrected'` and sets `cancelled_at` / `updated_at`.
+- There is **no** separate `updateInvoiceStatus('cancelled')` step; if any step fails, Postgres rolls back all of them.
 
 ### 1.3 Invoice numbers (`RE-YYYY-MM-NNNN`)
 
@@ -34,6 +34,24 @@ Human-readable numbers are generated in [`src/features/invoices/lib/invoice-numb
 - **Sequence**: Increments within each calendar month, then resets to `0001` in the next month.
 - **Uniqueness**: Enforced by a unique constraint on `invoices.invoice_number`.
 - **Legacy**: Older rows may still show `RE-YYYY-NNNN`; they do not participate in the monthly `LIKE` query for the next number. New issuances use only the new shape.
+
+### 1.4 Client reference fields (Bezugszeichen)
+
+Fahrgast-specific reference lines (e.g. Versichertennummer, Unser Zeichen) are stored on `clients.reference_fields` as an ordered JSON array of `{ label, value }`. They are **not** read from the live client row when rendering an issued invoice PDF.
+
+- **Snapshot:** On `createInvoice`, when `client_id` is set, the API loads `clients.reference_fields`, normalises it (strip empty labels, validate with Zod), and persists the result on `invoices.client_reference_fields_snapshot`. `NULL` means no bar; the app does not store an empty JSON array for “no fields”.
+- **PDF:** [`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) renders [`InvoicePdfReferenceBar`](../src/features/invoices/components/invoice-pdf/invoice-pdf-reference-bar.tsx) **only** when the snapshot parses to a non-empty array. Placement: full width directly **below** the cover header (Rechnungsdaten block) and **above** the subject / cover body, with vertical spacing consistent with other cover elements.
+- **Modes:** Logic is keyed on **`client_id`**, not invoice `mode`. Today only `per_client` sets `client_id`; if other modes gain a client scope later, the same snapshot + PDF path applies.
+- **Storno:** [`createStornorechnung`](../src/features/invoices/lib/storno.ts) / `create_storno_invoice` copies `client_reference_fields_snapshot` from the original invoice so the Storno PDF matches the corrected document’s layout.
+
+### 1.5 Trip Invoice Status Badge
+
+The **Fahrten** list ([`trips-listing.tsx`](../src/features/trips/components/trips-listing.tsx)) shows a per-trip **Rechnungsstatus** column so dispatchers can see invoicing state without opening each trip.
+
+- **Data source:** The RSC PostgREST query embeds `invoice_line_items` on each trip via `invoice_line_items!invoice_line_items_trip_id_fkey(...)`, nested with `invoices(status, paid_at, sent_at)`. Only rows with a non-null `trip_id` appear (manual line items are excluded by the FK relationship).
+- **Resolution logic** ([`trip-invoice-status-badge.tsx`](../src/features/trips/components/trip-invoice-status-badge.tsx)): aggregate across all embedded line items — **paid** > **sent** > **draft** > **uninvoiced** (Nicht abger.). Invoices in **`cancelled`** or **`corrected`** are ignored when computing the badge.
+- **Storno:** After a Storno, the original invoice is `corrected` (ignored) and the Stornorechnung exists as **`draft`** until sent or paid, so the trip correctly shows **Entwurf** for the open Storno invoice.
+- **List filter:** URL param `invoice_status` (`trips-filters-bar.tsx`) restricts rows to trips whose effective status matches. The RSC prefers Postgres RPC **`trip_ids_matching_invoice_effective_status`** (migration `20260411140000_trip_ids_matching_invoice_effective_status.sql`). If the RPC is not deployed yet (**PGRST202**), [`resolveInvoiceStatusTripFilter`](../src/features/trips/lib/resolve-invoice-status-trip-filter.ts) falls back to a paginated read of `invoice_line_items` + the same effective-status rules (`paid` / `sent` / `draft` use `.in('id', …)`; **uninvoiced** uses `.not('id', 'in', …)` for trips that have any draft/sent/paid line). Apply the migration for better performance on large datasets.
 
 ---
 
@@ -50,9 +68,13 @@ Defines the aggregation strategy for fetching trips:
 - **Fahrgast (per_client)**: Inverts the flow. The dispatcher selects a `Client` first, and the system dynamically computes and surfaces only the historical `payer + billing_variant` combinations that this specific passenger has used.
 
 ### Step 2: Parameter Collection (`Step2Params`)
-Collects `payer_id`, `billing_variant_id`, and `Date Range`.
+Collects `payer_id`, `Date Range`, and optional billing scope fields.
 - Relies heavily on Zod for form validation.
 - Due to the dynamic nature of the `per_client` mode, hidden fields (like `billing_variant_id`) gracefully parse `nullish()` values out of Zod but are strictly cast to `string | null` before executing backend data fetches to prevent silent validation failures.
+
+**Mode semantics:**
+- **monthly / single_trip**: `billing_variant_id` remains `null` (no Unterart picker). Optional “Abrechnungsart” sets `billing_type_id` (family) only.
+- **per_client**: the dispatcher selects a **Fahrgast** first, then picks a historical `{ payer_id + billing_variant_id }` combination labelled with the **Unterart** name.
 
 ### Step 3: Line Item Engine (`Step3LineItems`)
 This is the heart of the verifier. The wizard queries the real `trips` matching the Step 2 parameters, and temporarily projects them into `BuilderLineItem` objects.
@@ -145,13 +167,16 @@ Fourth `main_layout` value: groups invoice cover rows by Abrechnungsart instead 
 | `single_row` | All trips collapsed into one summary row |
 | `grouped_by_billing_type` | One row per (Abrechnungsart, MwSt.-Satz) combination — if a billing type has trips at both 7% and 19%, they appear as two separate rows |
 
-**Grouping key:** `billing_variant_name ?? billing_variant_code ?? 'Unbekannt'` combined with `tax_rate`. This composite key guarantees every output row has exactly one tax rate — no approximations, no hidden mixed-rate scenarios.
+**Grouping key:** `billing_variant_name ?? billing_variant_code ?? 'Unbekannt'` combined with `tax_rate`, where `billing_variant_name` is the snapshotted **Unterart** name. This composite key guarantees every output row has exactly one tax rate — no approximations, no hidden mixed-rate scenarios.
 
 **`from`/`to` fields:** set to empty `CanonicalPlace`; origin/destination addresses are not meaningful at billing-category level.
 
 **`total_km`:** `null` when any trip in the group has a null `distance_km` (rendered as `—`); mirrors route-group semantics.
 
-**Future path:** when `billing_type_name` is added to `invoice_line_items` as a snapshotted column, the grouping key should be changed to `billing_type_name + tax_rate` to enable family-level grouping (one row per Abrechnungsfamilie per tax rate).
+**Snapshot fields (hierarchy):**
+- `invoice_line_items.billing_variant_name` = **Unterart** name snapshot (immutable)
+- `invoice_line_items.billing_type_name` = **Abrechnungsfamilie** name snapshot (immutable)
+- `invoices.billing_variant_id` = Unterart scope when variant-scoped; `null` otherwise
 
 #### Phase 8 — Anfahrtspreis + extended summary
 
@@ -161,7 +186,7 @@ Fourth `main_layout` value: groups invoice cover rows by Abrechnungsart instead 
 
 #### Storno behavior
 
-`storno.ts` copies `pdf_column_override` from the original invoice to the Stornorechnung. Per §14 UStG, a Stornorechnung must mirror the layout of the original.
+`storno.ts` passes `pdf_column_override` into **`create_storno_invoice`**, which persists it on the Storno row in the same transaction as line items and the original `corrected` update. Per §14 UStG, a Stornorechnung must mirror the layout of the original.
 
 #### Settings UI
 
@@ -301,6 +326,19 @@ Das Layout ist identisch — kein Extra-Padding nötig.
 **Key Normalization Strategy:** Place keys use `cityStem` (city without zip code) to ensure consistent matching. For example, "Taubenstraße 17, 26122 Oldenburg (Oldb)" becomes key: `taubenstraße 17|oldenburg oldb`. This ensures incomplete addresses that receive hints match complete addresses with the same canonical key, preventing fragmentation into 3 route groups instead of 2.
 
 **Pages:** (1) summary + payment; (2) trip-detail appendix. Footer repeats on both; appendix uses a fixed header when content wraps.
+
+---
+
+## Invoice Email Draft
+
+Feature: per-invoice editable email draft (subject + body) stored on the `invoices` table.
+
+- **Columns:** `email_subject` TEXT, `email_body` TEXT, both nullable; mutable (same pattern as `notes`).
+- **Migration:** `20260410190000_invoices_email_draft.sql`.
+- **Generation:** [`src/features/invoices/lib/generate-invoice-email-draft.ts`](../src/features/invoices/lib/generate-invoice-email-draft.ts) — builds subject from `invoice_number` + `period_from` / `period_to`, body from `total` + due date (`created_at` + `payment_due_days`).
+- **Recipient resolution for salutation:** `rechnungsempfaenger_snapshot` → `payer.name`.
+- **UI:** [`invoice-email-draft.tsx`](../src/features/invoices/components/invoice-detail/invoice-email-draft.tsx) — collapsible panel, inline editable fields, per-field copy button, saves via `useSaveInvoiceEmailDraft` → `saveInvoiceEmailDraft` → invalidates `invoiceKeys.full(id)`.
+- **Does not send email** — copy-paste only by design.
 
 ---
 

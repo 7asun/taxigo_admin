@@ -309,10 +309,10 @@ export function buildInvoicePdfSingleRow(
  * `InvoicePdfSummaryRow` per unique `(billing_variant_name ?? billing_variant_code ?? 'Unbekannt',
  * tax_rate)` combination.
  *
- * **Label source:** `billing_variant_name` is snapshotted as `billing_types.name` (the
- * Abrechnungsfamilie) in `buildLineItemsFromTrips` — `trip.billing_variant.billing_type.name`.
- * The variant name and code are intentionally not used; grouping is always at the family level.
- * Falls back to `'Unbekannt'` only when the line item has no `billing_variant_name`.
+ * **Label source:** `billing_variant_name` is the snapshotted Unterart name (`billing_variants.name`)
+ * at invoice creation time. This layout intentionally groups at Unterart level so the PDF clearly
+ * shows the leaf billing classification (e.g. “Deutsche Rentenversicherung”). Falls back to
+ * `billing_variant_code`, then `'Unbekannt'`.
  *
  * **Why the composite key includes `tax_rate`:**
  * Including the tax rate in the key ensures every output row has exactly one MwSt. rate — no
@@ -354,9 +354,10 @@ export function buildInvoicePdfGroupedByBillingType(
   const groups: Record<string, BillingTypeAgg> = {};
 
   lineItems.forEach((item) => {
-    // billing_variant_name is snapshotted as billing_types.name (family label) at invoice creation.
-    // Code and variant name are intentionally excluded — grouping is always at the family level.
-    const label = item.billing_variant_name ?? 'Unbekannt';
+    // Group key/label is Unterart (billing_variants.name) snapshot.
+    // Fallback: use billing_variant_code if name is missing.
+    const label =
+      item.billing_variant_name ?? item.billing_variant_code ?? 'Unbekannt';
     // Composite key: label + tax_rate guarantees no mixed-rate rows within a group.
     const key = `${label}__${item.tax_rate}`;
 
@@ -430,7 +431,8 @@ export function groupLineItemsByBillingType(
   const map = new Map<string, InvoiceLineItemRow[]>();
 
   for (const item of lineItems) {
-    const label = item.billing_variant_name ?? 'Unbekannt';
+    const label =
+      item.billing_variant_name ?? item.billing_variant_code ?? 'Unbekannt';
     if (!map.has(label)) {
       map.set(label, []);
       order.push(label);

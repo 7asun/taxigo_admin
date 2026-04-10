@@ -30,11 +30,13 @@ import type {
   InvoiceMode
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
+import { parseClientReferenceFieldsFromDb } from '@/features/clients/lib/client-reference-fields.schema';
 
 export interface InvoiceBuilderStep2Snapshot {
   mode: InvoiceMode;
   payer_id: string;
   billing_type_id: string | null;
+  billing_variant_id: string | null;
   period_from: string;
   period_to: string;
   client_id: string | null;
@@ -65,6 +67,7 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
     tax_rate: item.tax_rate,
     billing_variant_code: item.billing_variant_code,
     billing_variant_name: item.billing_variant_name,
+    billing_type_name: item.billing_type_name,
     created_at: new Date().toISOString(),
     pricing_strategy_used: frozen.strategy_used,
     pricing_source: frozen.source,
@@ -156,6 +159,11 @@ export function buildDraftInvoiceDetailForPdf(params: {
     ? rechnungsempfaengerRowToSnapshot(recipientRow)
     : null;
 
+  const clientReferenceFieldsSnapshot =
+    step2.client_id && client
+      ? parseClientReferenceFieldsFromDb(client.reference_fields ?? null)
+      : null;
+
   const draftLineItems = lineItems.map(builderItemToDraftLineItem);
 
   const base = {
@@ -164,6 +172,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     invoice_number: placeholderInvoiceNumber,
     payer_id: step2.payer_id,
     billing_type_id: step2.billing_type_id,
+    billing_variant_id: step2.billing_variant_id,
     mode: step2.mode,
     client_id: step2.client_id,
     period_from: step2.period_from,
@@ -173,6 +182,8 @@ export function buildDraftInvoiceDetailForPdf(params: {
     tax_amount: taxAmount,
     total,
     notes: null,
+    email_subject: null,
+    email_body: null,
     payment_due_days: paymentDueDays,
     created_by: null,
     created_at: now,
@@ -183,6 +194,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     cancels_invoice_id: null,
     rechnungsempfaenger_id: recipientRow?.id ?? null,
     rechnungsempfaenger_snapshot: snap,
+    client_reference_fields_snapshot: clientReferenceFieldsSnapshot,
     payer,
     client,
     line_items: draftLineItems,

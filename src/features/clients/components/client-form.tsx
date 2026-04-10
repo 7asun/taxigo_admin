@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Trash2 } from 'lucide-react';
 import {
   Form,
   FormControl,
@@ -26,7 +27,7 @@ import {
   useState,
   type ReactNode
 } from 'react';
-import { useForm } from 'react-hook-form';
+import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import * as z from 'zod';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,21 @@ import {
   AddressAutocomplete,
   type AddressResult
 } from '@/features/trips/components/address-autocomplete';
+import {
+  ClientReferenceFieldsSchema,
+  parseClientReferenceFieldsFromDb,
+  stripReferenceRowsWithEmptyLabels
+} from '@/features/clients/lib/client-reference-fields.schema';
+import type { Json } from '@/types/database.types';
+
+function defaultReferenceFieldRows(
+  initial: Client | null
+): { label: string; value: string }[] {
+  const parsed = parseClientReferenceFieldsFromDb(
+    initial?.reference_fields ?? null
+  );
+  return parsed ? parsed.map((r) => ({ label: r.label, value: r.value })) : [];
+}
 
 const formSchema = z.object({
   first_name: z.string().optional(),
@@ -67,7 +83,13 @@ const formSchema = z.object({
   // Price tag: Default price for all trips of this client.
   // Takes precedence over manually entered trip prices during invoicing.
   // Nullable: not all clients have fixed pricing.
-  price_tag: z.number().min(0).nullable()
+  price_tag: z.number().min(0).nullable(),
+  reference_field_rows: z.array(
+    z.object({
+      label: z.string(),
+      value: z.string()
+    })
+  )
 });
 
 /** Imperative handle exposed via forwardRef — used by ClientDetailPanel */
@@ -162,12 +184,22 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       notes: initialData?.notes || '',
       is_wheelchair: initialData?.is_wheelchair ?? false,
       // Default price for all trips of this client. Takes precedence over trip.price.
-      price_tag: initialData?.price_tag ?? null
+      price_tag: initialData?.price_tag ?? null,
+      reference_field_rows: defaultReferenceFieldRows(initialData)
     };
 
     const form = useForm<z.infer<typeof formSchema>>({
       resolver: zodResolver(formSchema),
       defaultValues
+    });
+
+    const {
+      fields: refFieldRows,
+      append: appendRefRow,
+      remove: removeRefRow
+    } = useFieldArray({
+      control: form.control,
+      name: 'reference_field_rows'
     });
 
     // Expose submit() + setWheelchair for panel header Rollstuhl switch
@@ -219,22 +251,34 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
         const emailTrimmed = values.email?.trim() ?? '';
         const phoneSecondaryTrimmed = values.phone_secondary?.trim() ?? '';
 
-        const payload = {
-          ...(values as any),
+        const strippedRefs = stripReferenceRowsWithEmptyLabels(
+          values.reference_field_rows ?? []
+        );
+        const reference_fields: Json | null =
+          strippedRefs.length > 0
+            ? (ClientReferenceFieldsSchema.parse(
+                strippedRefs
+              ) as unknown as Json)
+            : null;
+
+        const payload: Record<string, unknown> = {
+          ...values,
           is_company: isCompany,
           company_id: companyIdStr,
           email: emailTrimmed ? emailTrimmed : null,
           phone_secondary: phoneSecondaryTrimmed ? phoneSecondaryTrimmed : null,
+          reference_fields,
           // Preserve existing lat/lng when editing; rely on AddressAutocomplete to have
           // populated them on the values object when a suggestion was selected.
           lat: (initialData as any)?.lat ?? (values as any).lat ?? null,
           lng: (initialData as any)?.lng ?? (values as any).lng ?? null
         };
+        delete payload.reference_field_rows;
 
         if (initialData) {
           const updated = await clientsService.updateClient(
             initialData.id,
-            payload
+            payload as Parameters<typeof clientsService.updateClient>[1]
           );
           toast.success('Fahrgast erfolgreich aktualisiert.');
           // Reset form with the saved values so isDirty → false and the header
@@ -245,7 +289,9 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
             return;
           }
         } else {
-          const created = await clientsService.createClient(payload);
+          const created = await clientsService.createClient(
+            payload as Parameters<typeof clientsService.createClient>[0]
+          );
           toast.success('Fahrgast erfolgreich erstellt.');
           form.reset(values);
           if (onSuccess) {
@@ -471,6 +517,76 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
                 rows: 4
               }}
             />
+          </section>
+
+          <Separator className='bg-border/80' />
+
+          <section className='space-y-4'>
+            <SectionLabel>Bezugszeichen / Referenzfelder</SectionLabel>
+            <p className='text-muted-foreground max-w-xl text-xs'>
+              Erscheinen auf der Rechnung PDF unter den Rechnungsdaten. Max. 6
+              Felder empfohlen.
+            </p>
+            <div className='space-y-3'>
+              {refFieldRows.map((row, index) => (
+                <div
+                  key={row.id}
+                  className='border-border/80 flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-end'
+                >
+                  <FormField
+                    control={form.control}
+                    name={`reference_field_rows.${index}.label`}
+                    render={({ field }) => (
+                      <FormItem className='min-w-0 flex-1'>
+                        <FormLabel className='text-xs'>Bezeichnung</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder='z. B. Versichertennummer'
+                            className='h-8 text-[11px]'
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name={`reference_field_rows.${index}.value`}
+                    render={({ field }) => (
+                      <FormItem className='min-w-0 flex-1'>
+                        <FormLabel className='text-xs'>Wert</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder='Wert'
+                            className='h-8 text-[11px]'
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon'
+                    className='text-muted-foreground h-8 w-8 shrink-0'
+                    onClick={() => removeRefRow(index)}
+                    aria-label='Zeile entfernen'
+                  >
+                    <Trash2 className='h-4 w-4' />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='text-xs'
+              onClick={() => appendRefRow({ label: '', value: '' })}
+            >
+              Feld hinzufügen
+            </Button>
           </section>
 
           <Separator className='bg-border/80' />

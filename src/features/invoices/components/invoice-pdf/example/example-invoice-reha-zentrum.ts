@@ -42,6 +42,7 @@ export const EXAMPLE_INVOICE_REHA_ZENTRUM: InvoiceDetail = {
   invoice_number: 'Beispiel Rechnung',
   payer_id: '33333333-3333-3333-3333-333333333333',
   billing_type_id: null,
+  billing_variant_id: null,
   mode: 'monthly',
   client_id: null,
   period_from: '2026-03-01',
@@ -51,6 +52,8 @@ export const EXAMPLE_INVOICE_REHA_ZENTRUM: InvoiceDetail = {
   tax_amount: 190.37,
   total: 1958.81,
   notes: null,
+  email_subject: null,
+  email_body: null,
   payment_due_days: 14,
   created_by: null,
   created_at: '2026-04-01T08:00:00.000Z',
@@ -67,6 +70,7 @@ export const EXAMPLE_INVOICE_REHA_ZENTRUM: InvoiceDetail = {
     postal_code: '26160',
     city: 'Bad Zwischenahn'
   },
+  client_reference_fields_snapshot: null,
   payer: {
     id: '33333333-3333-3333-3333-333333333333',
     name: 'Reha-Zentrum am Meer',

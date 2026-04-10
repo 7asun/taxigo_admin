@@ -162,6 +162,8 @@ export function InvoiceBuilder({
    */
   const [builderColumnProfile, setBuilderColumnProfile] =
     useState<PdfColumnProfile>(() => resolvePdfColumnProfile(null, null, null));
+  const [pdfColumnReorderGeneration, setPdfColumnReorderGeneration] =
+    useState(0);
   const pdfOverrideRef = useRef<PdfColumnOverridePayload | null>(null);
 
   const section1Ref = useRef<HTMLElement | null>(null);
@@ -252,6 +254,7 @@ export function InvoiceBuilder({
       mode: step2Values.mode as InvoiceBuilderStep2Snapshot['mode'],
       payer_id: step2Values.payer_id,
       billing_type_id: step2Values.billing_type_id ?? null,
+      billing_variant_id: step2Values.billing_variant_id ?? null,
       period_from: step2Values.period_from,
       period_to: step2Values.period_to,
       client_id: step2Values.client_id ?? null
@@ -312,7 +315,8 @@ export function InvoiceBuilder({
     payerOutroBlockId: selectedPayer?.default_outro_block_id,
     step4Overlay,
     applyStep4Overlay: applyStep4PdfOverlay,
-    columnProfile: builderColumnProfile
+    columnProfile: builderColumnProfile,
+    columnReorderGeneration: pdfColumnReorderGeneration
   });
 
   const section2SummaryText = useMemo(
@@ -574,6 +578,9 @@ export function InvoiceBuilder({
               unlocked={section4Unlocked}
               onColumnProfileChange={setBuilderColumnProfile}
               onPdfOverrideChange={handlePdfOverridePersist}
+              onPdfColumnsReordered={() =>
+                setPdfColumnReorderGeneration((g) => g + 1)
+              }
             />
           </BuilderSectionCard>
 

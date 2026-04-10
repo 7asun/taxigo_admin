@@ -87,7 +87,7 @@ export default async function NewInvoicePage() {
     supabase
       .from('clients')
       .select(
-        'id, first_name, last_name, company_name, greeting_style, customer_number, street, street_number, zip_code, city, email, phone'
+        'id, first_name, last_name, company_name, greeting_style, customer_number, street, street_number, zip_code, city, email, phone, reference_fields'
       )
       .order('last_name')
   ]);

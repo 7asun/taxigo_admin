@@ -120,7 +120,7 @@ PostgREST can return `trip_meta_snapshot` and `price_resolution_snapshot` as JSO
 
 ### Storno
 
-`storno.ts` copies `pdf_column_override` from the original invoice. Per §14 UStG, a Stornorechnung must mirror the layout of the original invoice.
+`storno.ts` copies `pdf_column_override` from the original invoice into the RPC payload; **`public.create_storno_invoice`** persists it atomically with the Storno header and lines. Per §14 UStG, a Stornorechnung must mirror the layout of the original invoice.
 
 ## UI locations
 

@@ -7,8 +7,8 @@
  * **Consumers**
  * - **Renderer** (`pdf-column-layout.ts`, `InvoicePdfCoverBody`, `InvoicePdfAppendix`) —
  *   resolves cells via `dataField` / `valueSource`, formats via `format`.
- * - **Width calculator** (`calcColumnWidths`) — `defaultWidthPt` / `minWidthPt` (portrait usable
- *   width ≈ 515pt after margins; landscape appendix ≈ 770pt).
+ * - **Width calculator** (`calcColumnWidths`) — `defaultWidthPt` / `minWidthPt`; usable widths are
+ *   `PORTRAIT_USABLE_PT` / `LANDSCAPE_USABLE_PT` in `pdf-column-layout.ts` (inner row after padding).
  * - **Pickers** (`vorlage-editor-panel`, `step-4-vorlage`, `ColumnPicker`) — `MAIN_GROUPED_COLUMNS`,
  *   `MAIN_FLAT_COLUMNS`, `APPENDIX_COLUMNS` derived from flags below.
  * - **Validator / types** — `VALID_COLUMN_KEYS` feeds Zod in `pdf-vorlage.types.ts`; `PdfColumnKey`
