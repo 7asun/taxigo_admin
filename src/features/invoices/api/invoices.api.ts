@@ -98,6 +98,22 @@ export async function listInvoices(
   return (data ?? []) as InvoiceWithPayer[];
 }
 
+/**
+ * Sum of `total` (Brutto) for invoices with status `sent` or `paid`.
+ * RLS scopes rows to the current company. Loads `total` only and sums client-side
+ * (no PostgREST aggregate syntax).
+ */
+export async function getInvoiceRevenueTotal(): Promise<number> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('total')
+    .in('status', ['sent', 'paid']);
+
+  if (error) throw toQueryError(error);
+  return (data ?? []).reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+}
+
 // ─── Single invoice (full detail) ─────────────────────────────────────────────
 
 /**

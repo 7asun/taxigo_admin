@@ -80,5 +80,11 @@ export const invoiceKeys = {
   pdfVorlagen: {
     all: ['pdf-vorlagen'] as const,
     list: (companyId: string) => ['pdf-vorlagen', 'list', companyId] as const
-  }
+  },
+
+  /**
+   * Aggregate revenue total for issued invoices (status: sent | paid).
+   * Used by the dashboard overview stat card.
+   */
+  revenueTotal: ['invoices', 'revenue-total'] as const
 };

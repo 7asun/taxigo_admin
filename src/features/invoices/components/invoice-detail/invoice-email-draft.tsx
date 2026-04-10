@@ -69,6 +69,8 @@ export function InvoiceEmailDraft({ invoice }: InvoiceEmailDraftProps) {
     subject !== (invoice.email_subject ?? '') ||
     body !== (invoice.email_body ?? '');
 
+  const clientEmail = invoice.client?.email?.trim() || null;
+
   return (
     <div className='flex w-full flex-col gap-4'>
       <Button
@@ -87,6 +89,23 @@ export function InvoiceEmailDraft({ invoice }: InvoiceEmailDraftProps) {
       </Button>
       {open && (
         <div className='space-y-4'>
+          {clientEmail && (
+            <div className='space-y-1.5'>
+              <div className='flex items-center justify-between'>
+                <label className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+                  E-Mail-Adresse
+                </label>
+                <CopyButton text={clientEmail} label='E-Mail kopieren' />
+              </div>
+              <input
+                readOnly
+                type='text'
+                value={clientEmail}
+                tabIndex={-1}
+                className='bg-muted/40 text-muted-foreground w-full cursor-default rounded-md border px-3 py-2 text-sm'
+              />
+            </div>
+          )}
           <div className='space-y-1.5'>
             <div className='flex items-center justify-between'>
               <label className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
