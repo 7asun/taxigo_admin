@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { RRule, rrulestr } from 'rrule';
 import {
@@ -15,7 +15,7 @@ import {
   type GeocodedAddressLineResult
 } from '@/lib/google-geocoding';
 import {
-  getDrivingMetrics,
+  resolveDrivingMetricsWithCache,
   type DrivingMetrics
 } from '@/lib/google-directions';
 import {
@@ -25,6 +25,8 @@ import {
 } from '@/features/trips/lib/recurring-return-mode';
 
 export const dynamic = 'force-dynamic';
+
+/** SECURITY: CRON_SECRET via Authorization: Bearer (Vercel Cron) or x-cron-secret — see docs/access-control.md */
 
 type TripInsert = Database['public']['Tables']['trips']['Insert'];
 type RecurringRuleRow = Database['public']['Tables']['recurring_rules']['Row'];
@@ -45,14 +47,39 @@ function toScheduledIso(dateStr: string, timeHhMmSs: string): string {
   return new Date(`${dateStr}T${t}`).toISOString();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    // 1) Auth — fail closed if secret not configured (never run unprotected).
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    // Vercel Cron sends CRON_SECRET as Authorization: Bearer <token>.
+    const authorization = request.headers.get('authorization');
+    const bearerMatches = authorization === `Bearer ${cronSecret}`;
+    // Fallback for manual / scripted calls (e.g. curl with custom header).
+    const headerSecret = request.headers.get('x-cron-secret');
+    const xCronMatches = headerSecret === cronSecret;
+    if (!bearerMatches && !xCronMatches) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
-    const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+    // 2) Supabase — service role only (bypasses RLS for inserts across all tenants).
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      return NextResponse.json(
+        {
+          error:
+            'Server misconfiguration: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for cron.'
+        },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient<Database>(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
 
     const todayLocal = startOfDay(new Date());
     const windowEndLocal = endOfDay(addDays(todayLocal, 14));
@@ -64,7 +91,11 @@ export async function GET() {
 
     if (rulesError) throw rulesError;
     if (!rules || rules.length === 0) {
-      return NextResponse.json({ message: 'No active rules found' });
+      return NextResponse.json({
+        generated: 0,
+        errors: 0,
+        timestamp: new Date().toISOString()
+      });
     }
 
     const { data: exceptions, error: exceptionsError } = await supabase
@@ -93,7 +124,9 @@ export async function GET() {
       return resolved;
     }
 
+    // 3) Counters for JSON response (new inserts only; deduped legs do not increment `generated`).
     let tripsInserted = 0;
+    let errorCount = 0;
 
     async function buildTripPayload(params: {
       rule: RecurringRuleRow;
@@ -156,14 +189,18 @@ export async function GET() {
       let driving_duration_seconds: number | null = null;
       if (pickupGeo && dropoffGeo) {
         const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+        // Two-tier caching:
+        // 1. In-memory (drivingMetricsCache) to avoid redundant DB queries for the same route in this cron run.
+        // 2. DB-cache (resolveDrivingMetricsWithCache) to reuse historical calculations and avoid Google API calls.
         if (!drivingMetricsCache.has(metricsKey)) {
           drivingMetricsCache.set(
             metricsKey,
-            await getDrivingMetrics(
+            await resolveDrivingMetricsWithCache(
               pickupGeo.lat,
               pickupGeo.lng,
               dropoffGeo.lat,
-              dropoffGeo.lng
+              dropoffGeo.lng,
+              supabase
             )
           );
         }
@@ -176,6 +213,12 @@ export async function GET() {
 
       const link_type = isReturnTrip ? 'return' : outboundLinkType;
 
+      const hasFremdfirma = !!rule.fremdfirma_id;
+
+      // no_invoice_required, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost
+      // are mirrored from recurring_rules — same pattern as kts_document_applies.
+      // Admin can override on individual generated trips after creation.
+
       return {
         company_id: client.company_id,
         client_id: client.id,
@@ -185,6 +228,18 @@ export async function GET() {
         billing_variant_id: rule.billing_variant_id,
         kts_document_applies: rule.kts_document_applies ?? false,
         kts_source: rule.kts_source ?? null,
+        no_invoice_required: rule.no_invoice_required ?? false,
+        no_invoice_source: rule.no_invoice_source ?? null,
+        fremdfirma_id: rule.fremdfirma_id ?? null,
+        fremdfirma_payment_mode: rule.fremdfirma_payment_mode ?? null,
+        fremdfirma_cost: rule.fremdfirma_cost ?? null,
+        ...(hasFremdfirma
+          ? {
+              driver_id: null,
+              needs_driver_assignment: false,
+              status: 'assigned' as const
+            }
+          : { status: 'pending' as const }),
         greeting_style: client.greeting_style,
         is_wheelchair: client.is_wheelchair,
         requested_date: dateStr,
@@ -208,7 +263,6 @@ export async function GET() {
         driving_duration_seconds,
         has_missing_geodata: !geodataOk,
         scheduled_at: scheduledAtIso,
-        status: 'pending',
         rule_id: rule.id,
         link_type,
         linked_trip_id: linkedTripId
@@ -266,6 +320,7 @@ export async function GET() {
         .single();
 
       if (error) {
+        errorCount++;
         console.error('[generate-recurring-trips] insert failed:', error);
         return null;
       }
@@ -451,6 +506,7 @@ export async function GET() {
           .eq('id', outboundId);
 
         if (linkOutError) {
+          errorCount++;
           console.error(
             '[generate-recurring-trips] outbound link update failed:',
             linkOutError
@@ -459,12 +515,15 @@ export async function GET() {
       }
     }
 
+    // 4) Summary — business logic above is unchanged; this is the contract for monitors / Vercel logs.
     return NextResponse.json({
-      message: `Successfully processed recurring rules.`,
-      trips_inserted: tripsInserted
+      generated: tripsInserted,
+      errors: errorCount,
+      timestamp: new Date().toISOString()
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Cron Error generating recurring trips:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

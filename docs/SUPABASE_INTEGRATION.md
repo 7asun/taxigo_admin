@@ -1,5 +1,8 @@
 # Supabase Integration Standard
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document outlines the standard architecture for linking UI components with Supabase. Always follow this 3-tier pattern to ensure type safety, consistency, and maintainability.
 
 ---

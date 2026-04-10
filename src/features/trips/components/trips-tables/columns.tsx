@@ -21,6 +21,14 @@ import {
   billingFamilyFromEmbed,
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
+import { fremdfirmaPaymentModeLabel } from '@/features/fremdfirmen/lib/fremdfirma-payment-mode-labels';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
+import { TripInvoiceStatusBadge } from '@/features/trips/components/trip-invoice-status-badge';
 
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
@@ -215,13 +223,20 @@ export const columns: ColumnDef<any>[] = [
     },
     meta: { label: 'Ziel' }
   },
+  // V1: selbstzahler_collected_amount exists on trips but has no UI.
+  // Do not expose in any form field until cash collection feature is scoped.
+  // Column exists for future cash reporting only.
   {
     id: 'driver_id',
     accessorKey: 'driver.name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Fahrer' />
     ),
-    cell: ({ row }) => <DriverSelectCell trip={row.original} />,
+    cell: ({ row }) => (
+      <div className='flex justify-center px-1'>
+        <DriverSelectCell trip={row.original} />
+      </div>
+    ),
     enableColumnFilter: false,
     meta: { label: 'Fahrer' }
   },
@@ -247,6 +262,23 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'invoice_status',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Rechnungsstatus' />
+    ),
+    // invoice_line_items injected via widened PostgREST select in trips-listing.tsx
+    cell: ({ row }) => {
+      const lineItems = row.original.invoice_line_items ?? [];
+      return (
+        <div className='flex justify-center px-1'>
+          <TripInvoiceStatusBadge lineItems={lineItems} />
+        </div>
+      );
+    },
+    meta: { label: 'Rechnungsstatus', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
     id: 'payer_name',
     accessorKey: 'payer.name',
     header: ({ column }) => (
@@ -254,6 +286,77 @@ export const columns: ColumnDef<any>[] = [
     ),
     cell: ({ row }) => <div>{row.original.payer?.name || '-'}</div>,
     meta: { label: 'Kostenträger' }
+  },
+  {
+    id: 'fremdfirma',
+    accessorFn: (row) =>
+      (
+        row.fremdfirma as { name?: string | null } | null | undefined
+      )?.name?.trim() ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Fremdfirma' />
+    ),
+    cell: ({ row }) => {
+      const name = (
+        row.original.fremdfirma as { name?: string | null } | null | undefined
+      )?.name?.trim();
+      return (
+        <div className='flex justify-center px-1'>
+          {!name ? (
+            <span className='text-muted-foreground'>—</span>
+          ) : (
+            <span
+              className='max-w-[160px] truncate text-center text-sm font-medium'
+              title={name}
+            >
+              {name}
+            </span>
+          )}
+        </div>
+      );
+    },
+    meta: { label: 'Fremdfirma', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
+    id: 'fremdfirma_abrechnung',
+    accessorFn: (row) => row.fremdfirma_payment_mode ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Abrechnung Fremdfirma' />
+    ),
+    cell: ({ row }) => {
+      if (!row.original.fremdfirma_id) {
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
+      }
+      const label = fremdfirmaPaymentModeLabel(
+        row.original.fremdfirma_payment_mode as string | null | undefined
+      );
+      return (
+        <div className='flex justify-center px-1'>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant='secondary'
+                  className='h-5 w-fit max-w-full truncate px-1.5 py-0 text-[10px] font-normal'
+                >
+                  {label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side='top' className='text-xs'>
+                Abrechnung Fremdfirma: {label}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      );
+    },
+    meta: { label: 'Abrechnung Fremdfirma', variant: 'text' },
+    enableColumnFilter: false
   },
   // Abrechnung: use formatBillingDisplayLabel (hides Unterart „Standard“); do not concatenate names here.
   {

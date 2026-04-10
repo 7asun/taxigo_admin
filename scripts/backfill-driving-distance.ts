@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database.types';
-import { getDrivingMetrics } from '@/lib/google-directions';
+import { resolveDrivingMetricsWithCache } from '@/lib/google-directions';
 
 const BATCH_SIZE = 50;
 const SLEEP_MS = 500;
@@ -61,11 +61,15 @@ async function main() {
         continue;
       }
 
-      const metrics = await getDrivingMetrics(
+      // Use the cached resolver so that once the first trip in a repeating route
+      // group is updated, all others in the batch (and future batches) resolve
+      // instantly from the DB without hitting Google's rate limits or costs.
+      const metrics = await resolveDrivingMetricsWithCache(
         pickup_lat,
         pickup_lng,
         dropoff_lat,
-        dropoff_lng
+        dropoff_lng,
+        supabase
       );
 
       if (!metrics) {

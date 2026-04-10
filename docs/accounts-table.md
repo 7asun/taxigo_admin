@@ -1,5 +1,8 @@
 # Accounts Table (formerly `users`)
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document describes the `public.accounts` table and the migration from `public.users`.
 
 ---

@@ -1,8 +1,11 @@
+/** SECURITY: Layer 3 — requireAdmin(); see docs/access-control.md */
+
 /**
  * PATCH /api/drivers/[id] — Update a driver (users + driver_profiles).
  * Uses update_driver() RPC (SECURITY DEFINER) to bypass RLS. Caller must be authenticated.
  */
 
+import { requireAdmin } from '@/lib/api/require-admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
@@ -29,15 +32,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const serverSupabase = await createClient();
-    const {
-      data: { user: authUser },
-      error: sessionError
-    } = await serverSupabase.auth.getUser();
-
-    if (sessionError || !authUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await requireAdmin();
+    if ('error' in auth) {
+      return auth.error;
     }
+
+    const serverSupabase = await createClient();
 
     const { id } = await params;
     if (!id) {

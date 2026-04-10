@@ -1,21 +1,49 @@
 /**
- * PDF page 1 — letter block, grouped route table, VAT totals, payment section.
- * minPresenceAhead avoids awkward page breaks before totals. Payment block uses
- * `wrap={false}` only on the payment detail row (+ QR), not on the whole
- * Zahlungsblock — so heading/intro can stay on page 1 while the outro is a separate section.
+ * invoice-pdf-cover-body.tsx
+ *
+ * Main invoice page **body** (below the DIN header): subject, intro, **dynamic line-items table**,
+ * totals, payment block, outro. Letter block, totals logic, and payment QR/IBAN layout are
+ * independent of PDF column profiles — change the table only when adjusting Phase 6e columns.
+ *
+ * **Main table modes**
+ * - **`grouped`** — rows from `buildInvoicePdfSummary` (`InvoicePdfSummaryRow`); Route/Leistung is
+ *   two lines when `valueSource === grouped_route_leistung`.
+ * - **`single_row`** — one aggregated `InvoicePdfSummaryRow` from `buildInvoicePdfSingleRow` (same columns as grouped).
+ * - **`flat`** — one row per `invoice.line_items` (`InvoiceLineItemRow`), with JSONB coercion per row.
+ *
+ * **`mainTableKeys`** — render-time filter: drops `flatOnly` columns in grouped mode and `groupedOnly`
+ * in flat mode so legacy Vorlagen (saved before catalog flags) do not produce empty cells. The
+ * resolver does not strip these keys; it preserves stored `main_columns` for settings UX and audit.
+ *
+ * **Rich-text intro/outro (future):** Intro/outro are still plain strings in `<Text>`. If HTML is
+ * stored later (e.g. Tiptap), mirror `AngebotPdfCoverBody` using `react-pdf-html` `<Html>` with a
+ * stylesheet aligned to `styles.bodyText` (fontSize, lineHeight, color). The npm scope
+ * `@react-pdf/html` does not exist; the supported package is `react-pdf-html`.
  */
 
 import { View, Text, Image } from '@react-pdf/renderer';
 
-import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceDetail } from '../../types/invoice.types';
-
+import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
+import {
+  PDF_COLUMN_MAP,
+  type PdfColumnKey
+} from '../../lib/pdf-column-catalog';
 import type { InvoicePdfSummaryRow } from './lib/build-invoice-pdf-summary';
+import {
+  calcColumnWidths,
+  coerceLineItemJsonbSnapshots,
+  getGroupedRouteLines,
+  isGroupedRouteLeistungColumn,
+  renderCellValue,
+  renderGroupedCellValue
+} from './pdf-column-layout';
 import {
   formatInvoicePdfEur,
   formatInvoicePdfIbanDisplay
 } from './lib/invoice-pdf-format';
-import { styles } from './pdf-styles';
+import { PDF_COLORS, PDF_FONT_SIZES, styles } from './pdf-styles';
+import { formatTaxRate } from '../../lib/tax-calculator';
 
 export interface InvoicePdfCoverBodyProps {
   invoiceNumber: string;
@@ -23,16 +51,51 @@ export interface InvoicePdfCoverBodyProps {
   paymentDueDays: number;
   dueDateFormatted: string;
   companyProfile: InvoiceDetail['company_profile'];
-  /** PNG data URL for SEPA QR; omit when unavailable */
   paymentQrDataUrl: string | null;
+  /** Full invoice — required for flat main_layout (line_items). */
+  invoice: InvoiceDetail;
+  columnProfile: PdfColumnProfile;
   summaryItems: InvoicePdfSummaryRow[];
   subtotal: number;
   total: number;
   breakdown: { rate: number; tax: number }[];
-  /** Optional intro text from invoice_text_blocks (Einleitung) */
   introText?: string | null;
-  /** Optional outro text from invoice_text_blocks (Schlussformel) */
   outroText?: string | null;
+  /** True when `invoice.cancels_invoice_id` is set (Stornorechnung row). */
+  isStorno: boolean;
+  /**
+   * Margin above the subject block (“Rechnung Nr. …”). Slightly larger when no reference bar
+   * keeps no-bar invoices from sitting too tight under the header if `headerRow.marginBottom` is tuned.
+   */
+  subjectSectionMarginTop?: number;
+}
+
+function MultilineCellText({
+  value,
+  fontSize,
+  textAlign
+}: {
+  value: string;
+  fontSize: number;
+  textAlign: 'left' | 'right' | 'center';
+}) {
+  const parts = value.split('\n');
+  return (
+    <View>
+      {parts.map((line, i) => (
+        <Text
+          key={i}
+          style={{
+            fontSize,
+            textAlign,
+            color: i === 0 ? undefined : PDF_COLORS.muted
+          }}
+        >
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
 }
 
 export function InvoicePdfCoverBody({
@@ -42,60 +105,188 @@ export function InvoicePdfCoverBody({
   dueDateFormatted,
   companyProfile: cp,
   paymentQrDataUrl,
+  invoice,
+  columnProfile,
   summaryItems,
   subtotal,
   total,
   breakdown,
   introText,
-  outroText
+  outroText,
+  isStorno,
+  subjectSectionMarginTop = 8
 }: InvoicePdfCoverBodyProps) {
+  // isStorno is invoice.cancels_invoice_id != null (Storno document); only then use §14 Abs. 9 intro.
+  const defaultIntroText = isStorno
+    ? 'hiermit stornieren wir die o.g. Rechnung gemäß §14 Abs. 9 UStG. Bitte heben Sie sowohl diese Stornorechnung als auch die ursprüngliche Rechnung zu Ihren Unterlagen auf.'
+    : 'vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die erbrachten Personenbeförderungsleistungen gemäß den vereinbarten Konditionen.';
+
+  const isGroupedMode = columnProfile.main_layout !== 'flat';
+  // Render-time safety filter: drop columns that are incompatible with the current
+  // layout. This handles Vorlagen saved before flatOnly/groupedOnly flags existed.
+  // The resolver intentionally does NOT filter — it preserves saved user data.
+  // This filter is the only place layout compatibility is enforced for PDF output.
+  const mainTableKeys: PdfColumnKey[] = columnProfile.main_columns.filter(
+    (key): key is PdfColumnKey => {
+      const col = PDF_COLUMN_MAP[key];
+      if (!col) return false;
+      if (isGroupedMode && col.flatOnly) return false;
+      if (!isGroupedMode && col.groupedOnly) return false;
+      return true;
+    }
+  );
+  const colWidths = calcColumnWidths(mainTableKeys, false);
+  const coercedFlatLineItems = invoice.line_items.map(
+    coerceLineItemJsonbSnapshots
+  );
+
   return (
     <>
-      <View style={{ marginTop: 8 }}>
-        <Text style={styles.subject}>Rechnung Nr. {invoiceNumber}</Text>
+      <View style={{ marginTop: subjectSectionMarginTop }}>
+        <Text style={styles.subject}>
+          {/* §14 UStG: Stornorechnung must be clearly labeled as such */}
+          {isStorno ? 'Stornorechnung Nr.' : 'Rechnung Nr.'} {invoiceNumber}
+        </Text>
         <Text style={styles.salutation}>{salutation}</Text>
-        <Text style={styles.bodyText}>
-          {introText ??
-            'vielen Dank für Ihr Vertrauen. Nachfolgend berechnen wir Ihnen die erbrachten Personenbeförderungsleistungen gemäß den vereinbarten Konditionen.'}
-        </Text>
+        <Text style={styles.bodyText}>{introText ?? defaultIntroText}</Text>
       </View>
 
-      {/* Grouped routes (cover table) */}
       <View style={styles.tableHeader}>
-        <Text style={[styles.colPos, styles.tableHeaderText]}>#</Text>
-        <Text style={[styles.colRoute, styles.tableHeaderText]}>
-          Route / Leistung
-        </Text>
-        <Text style={[styles.colQty, styles.tableHeaderText]}>Menge</Text>
-        <Text style={[styles.colMwst, styles.tableHeaderText]}>MwSt-Satz</Text>
-        <Text style={[styles.colTotal, styles.tableHeaderText]}>Betrag</Text>
+        {mainTableKeys.map((key, idx) => {
+          const col = PDF_COLUMN_MAP[key];
+          if (!col) return null;
+          const w = colWidths[key] ?? col.minWidthPt;
+          return (
+            <View
+              key={`${key}-${idx}`}
+              style={{
+                width: w,
+                minWidth: 0,
+                overflow: 'hidden',
+                flexWrap: 'nowrap',
+                paddingRight: 4,
+                justifyContent: 'center'
+              }}
+            >
+              <Text
+                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                numberOfLines={1}
+                style={[
+                  styles.tableHeaderText,
+                  { textAlign: col.align, fontSize: PDF_FONT_SIZES.xs }
+                ]}
+              >
+                {col.label}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
-      {summaryItems.map((item, idx) => (
-        <View
-          key={item.id}
-          style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
-          wrap={false}
-        >
-          <Text style={styles.colPos}>{item.position}</Text>
-          <View style={styles.colRoute}>
-            <Text style={styles.routePrimary}>{item.descriptionPrimary}</Text>
-            {item.descriptionSecondary ? (
-              <Text style={styles.routeSecondary}>
-                {item.descriptionSecondary}
-              </Text>
-            ) : null}
-          </View>
-          <Text style={styles.colQty}>{item.quantity}x</Text>
-          <Text style={styles.colMwst}>{formatTaxRate(item.tax_rate)}</Text>
-          <Text style={styles.colTotal}>
-            {formatInvoicePdfEur(item.total_price)}
-          </Text>
-        </View>
-      ))}
+      {isGroupedMode
+        ? summaryItems.map((item, idx) => (
+            <View
+              key={item.id}
+              style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
+              wrap={false}
+            >
+              {mainTableKeys.map((key, colIdx) => {
+                const col = PDF_COLUMN_MAP[key];
+                if (!col) return null;
+                const w = colWidths[key] ?? col.minWidthPt;
+                if (isGroupedRouteLeistungColumn(col)) {
+                  const { primary, secondary } = getGroupedRouteLines(item);
+                  return (
+                    <View
+                      key={`${key}-${colIdx}`}
+                      style={{
+                        width: w,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        flexWrap: 'nowrap',
+                        paddingRight: 4
+                      }}
+                    >
+                      <Text style={styles.routePrimary}>{primary}</Text>
+                      {secondary ? (
+                        <Text style={styles.routeSecondary}>{secondary}</Text>
+                      ) : null}
+                    </View>
+                  );
+                }
+                const cell = renderGroupedCellValue(item, col);
+                return (
+                  <View
+                    key={`${key}-${colIdx}`}
+                    style={{
+                      width: w,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      flexWrap: 'nowrap',
+                      paddingRight: 4,
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: PDF_FONT_SIZES.sm,
+                        textAlign: col.align
+                      }}
+                    >
+                      {cell}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ))
+        : coercedFlatLineItems.map((lineItem, idx) => (
+            <View
+              key={lineItem.id}
+              style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
+              wrap={false}
+            >
+              {mainTableKeys.map((key, colIdx) => {
+                const col = PDF_COLUMN_MAP[key];
+                if (!col) return null;
+                const w = colWidths[key] ?? col.minWidthPt;
+                const raw = renderCellValue(lineItem, col);
+                const hasNl = raw.includes('\n');
+                return (
+                  <View
+                    key={`${key}-${colIdx}`}
+                    style={{
+                      width: w,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      flexWrap: 'nowrap',
+                      paddingRight: 4,
+                      justifyContent: 'center'
+                    }}
+                  >
+                    {hasNl ? (
+                      <MultilineCellText
+                        value={raw}
+                        fontSize={PDF_FONT_SIZES.sm}
+                        textAlign={col.align}
+                      />
+                    ) : (
+                      <Text
+                        style={{
+                          fontSize: PDF_FONT_SIZES.sm,
+                          textAlign: col.align
+                        }}
+                      >
+                        {raw}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
 
-      {/* Totals — minPresenceAhead keeps block from splitting at page bottom */}
-      <View style={styles.totalsSection} minPresenceAhead={88}>
+      <View style={[styles.totalsSection, { marginTop: 8 }]} wrap={false}>
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabel}>Summe Nettobeträge</Text>
           <Text style={styles.totalsValue}>
@@ -121,7 +312,6 @@ export function InvoicePdfCoverBody({
         </View>
       </View>
 
-      {/* Zahlungsinformation: heading + text flow normally; only the detail+QR row is non-splittable */}
       <View style={styles.paymentInstructions}>
         <Text style={styles.boldText}>Zahlungsinformation</Text>
         <Text style={[styles.normalText, { marginBottom: 4, marginTop: 2 }]}>
@@ -177,7 +367,7 @@ export function InvoicePdfCoverBody({
         </View>
       </View>
 
-      <View style={styles.bodyOutroSection}>
+      <View style={styles.bodyOutroSection} wrap={false}>
         <Text style={styles.bodyOutro}>
           {outroText ??
             'Wir bedanken uns herzlich für Ihr Vertrauen in unsere Dienstleistungen und stehen Ihnen bei Fragen oder Anliegen gerne zur Verfügung.'}

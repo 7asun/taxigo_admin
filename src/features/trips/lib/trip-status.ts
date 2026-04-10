@@ -9,13 +9,17 @@
  */
 export function getStatusWhenDriverChanges(
   currentStatus: string,
-  newDriverId: string | null
+  newDriverId: string | null,
+  options?: { fremdfirmaId?: string | null }
 ): string | undefined {
   if (newDriverId != null && newDriverId !== '') {
     if (currentStatus === 'pending') return 'assigned';
     return undefined;
   }
-  // Unassigning driver
+  // Trip is still "assigned" to an external company even without driver_id.
+  if (options?.fremdfirmaId) {
+    return undefined;
+  }
   if (currentStatus === 'assigned') return 'pending';
   return undefined;
 }

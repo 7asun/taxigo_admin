@@ -6,6 +6,8 @@
  * - `trips-listing.tsx` (RSC) reads the same search params from the URL and runs the Supabase query.
  *   Param names and sentinels (`all`, `unassigned`, `scheduled_at` shape) must stay aligned with that
  *   server component and `nuqs` parsers — otherwise the UI shows filters that do not match the data.
+ * - **Rechnungsstatus** (`invoice_status`) is a fixed option set; the RSC applies it via RPC
+ *   `trip_ids_matching_invoice_effective_status` (see `trips-listing.tsx`).
  * - This component **never** owns trip rows locally; it only updates the URL and calls
  *   `refreshTripsPage()` so Next.js refetches the RSC payload and TanStack trip caches invalidate.
  * - Reference lists (Fahrer, Kostenträger, Abrechnung) come from `useTripFormData` → TanStack Query
@@ -75,6 +77,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const status = searchParams.get('status') ?? 'all';
   const payerId = searchParams.get('payer_id') ?? 'all';
   const billingVariantId = searchParams.get('billing_variant_id') ?? 'all';
+  const invoiceStatus = searchParams.get('invoice_status') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
   const currentView = searchParams.get('view') ?? 'list';
 
@@ -130,9 +133,10 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       driverId !== 'all' ||
       status !== 'all' ||
       payerId !== 'all' ||
-      (Boolean(billingVariantId) && billingVariantId !== 'all')
+      (Boolean(billingVariantId) && billingVariantId !== 'all') ||
+      invoiceStatus !== 'all'
     );
-  }, [driverId, status, payerId, billingVariantId]);
+  }, [driverId, status, payerId, billingVariantId, invoiceStatus]);
 
   const prevAdvancedRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -192,6 +196,14 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     { label: 'In Fahrt', value: 'in_progress' },
     { label: 'Abgeschlossen', value: 'completed' },
     { label: 'Storniert', value: 'cancelled' }
+  ];
+
+  const invoiceStatusOptions = [
+    { label: 'Alle Rechnungen', value: 'all' },
+    { label: 'Nicht abger.', value: 'uninvoiced' },
+    { label: 'Entwurf', value: 'draft' },
+    { label: 'Versendet', value: 'sent' },
+    { label: 'Bezahlt', value: 'paid' }
   ];
 
   /**
@@ -343,6 +355,28 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       </Select>
 
       <Select
+        value={invoiceStatus}
+        onValueChange={(val) => {
+          if (val === 'all') {
+            updateFilters({ invoice_status: null });
+          } else {
+            updateFilters({ invoice_status: val });
+          }
+        }}
+      >
+        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
+          <SelectValue placeholder='Rechnungsstatus' />
+        </SelectTrigger>
+        <SelectContent>
+          {invoiceStatusOptions.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value} className='text-xs'>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
         value={payerId}
         onValueChange={(val) => {
           if (val === 'all') {
@@ -422,7 +456,8 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             status: null,
             payer_id: null,
             scheduled_at: null,
-            billing_variant_id: null
+            billing_variant_id: null,
+            invoice_status: null
           });
         }}
       >

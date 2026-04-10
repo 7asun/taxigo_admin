@@ -1,3 +1,5 @@
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
 ## Bulk Trip CSV Upload
 
 This document describes how to prepare and import CSV files for creating trips in bulk and how the app assists you in resolving missing client links after upload. The goal is to keep data clean while minimizing manual work for dispatch.

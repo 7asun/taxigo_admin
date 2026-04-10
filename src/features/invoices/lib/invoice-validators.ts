@@ -14,6 +14,7 @@
  *   missing_price     — unit_price is null or 0 (must be filled in step 3)
  *   missing_distance  — driving_distance_km is null (tax rate fallback used)
  *   zero_price        — unit_price is exactly 0 (unusual, shown as info)
+ *   no_invoice_trip   — trip flagged no_invoice_required (soft advisory)
  * ──────────────────────────────────────────────────────────────────────────
  */
 
@@ -29,11 +30,15 @@ import type { BuilderLineItem, LineItemWarning } from '../types/invoice.types';
 export function validateLineItem(item: BuilderLineItem): LineItemWarning[] {
   const warnings: LineItemWarning[] = [];
 
+  if (item.no_invoice_warning) {
+    warnings.push('no_invoice_trip');
+  }
+
   // ── Price checks ───────────────────────────────────────────────────────────
   if (item.unit_price === null || item.unit_price === undefined) {
     // Dispatcher must enter a price manually in step 3
     warnings.push('missing_price');
-  } else if (item.unit_price === 0) {
+  } else if (item.unit_price === 0 && !item.kts_override) {
     // Price of 0 is unusual (free ride?) — flag as info so it's not missed
     warnings.push('zero_price');
   }
@@ -76,6 +81,8 @@ export function getWarningLabel(warning: LineItemWarning): string {
       return 'Fahrstrecke unbekannt — Steuersatz 7 % (Fallback)';
     case 'zero_price':
       return 'Preis ist 0 € — bitte prüfen';
+    case 'no_invoice_trip':
+      return 'Fahrt als „keine Rechnung“ markiert — bitte prüfen';
   }
 }
 

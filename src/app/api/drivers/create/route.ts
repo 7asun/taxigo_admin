@@ -1,3 +1,5 @@
+/** SECURITY: Layer 3 — requireAdmin(); see docs/access-control.md */
+
 /**
  * POST /api/drivers/create — Create a new driver (auth user + accounts row + driver_profiles).
  *
@@ -6,7 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { createClient as createServerClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/api/require-admin';
 import { NextResponse } from 'next/server';
 import type { Database } from '@/types/database.types';
 
@@ -26,6 +28,12 @@ type CreateDriverBody = {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireAdmin();
+    if ('error' in auth) {
+      return auth.error;
+    }
+    const companyId = auth.companyId;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -33,30 +41,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Missing Supabase configuration' },
         { status: 500 }
-      );
-    }
-
-    const serverSupabase = await createServerClient();
-    const {
-      data: { user: authUser },
-      error: sessionError
-    } = await serverSupabase.auth.getUser();
-
-    if (sessionError || !authUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: adminUser } = await serverSupabase
-      .from('accounts')
-      .select('company_id')
-      .eq('id', authUser.id)
-      .single();
-
-    const companyId = adminUser?.company_id;
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Admin must belong to a company' },
-        { status: 400 }
       );
     }
 

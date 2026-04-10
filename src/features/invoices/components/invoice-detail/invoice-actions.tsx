@@ -13,10 +13,8 @@
  *   cancelled → (no actions — storniert)
  *   corrected → (no actions — replaced by Stornorechnung)
  *
- * Storno flow (two-step):
- *   1. updateInvoiceStatus('cancelled') on original invoice
- *   2. createStornorechnung() to create the Storno with negative amounts
- *   A confirmation dialog is shown before executing storno.
+ * Storno: after confirm, createStornorechnung runs a single atomic Postgres RPC
+ * (insert Storno + line items + mark original corrected). No separate cancelled step.
  */
 
 import { useState } from 'react';
@@ -48,9 +46,7 @@ interface InvoiceActionsProps {
  * Renders contextual action buttons based on the current invoice status.
  */
 export function InvoiceActions({ invoice }: InvoiceActionsProps) {
-  const [stornoStep, setStornoStep] = useState<
-    'idle' | 'cancelling' | 'creating'
-  >('idle');
+  const [stornoStep, setStornoStep] = useState<'idle' | 'creating'>('idle');
 
   const updateStatus = useUpdateInvoiceStatus(invoice.id);
   const createStorno = useCreateStornorechnung(invoice.id);
@@ -59,15 +55,11 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
     updateStatus.isPending || createStorno.isPending || stornoStep !== 'idle';
 
   /**
-   * Storno flow runs in two sequential steps:
-   *   1. Cancel the original invoice
-   *   2. Create the Stornorechnung
+   * Previously: updateInvoiceStatus('cancelled') then createStornorechnung.
+   * Now one RPC atomically creates the Storno and marks the original corrected.
    */
   const handleStorno = async () => {
     try {
-      setStornoStep('cancelling');
-      await updateStatus.mutateAsync('cancelled');
-
       setStornoStep('creating');
       await createStorno.mutateAsync({
         originalInvoice: invoice,
@@ -131,11 +123,9 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
               ) : (
                 <XCircle className='h-4 w-4' />
               )}
-              {stornoStep === 'cancelling'
-                ? 'Storniere…'
-                : stornoStep === 'creating'
-                  ? 'Stornorechnung wird erstellt…'
-                  : 'Stornieren'}
+              {stornoStep === 'creating'
+                ? 'Stornorechnung wird erstellt…'
+                : 'Stornieren'}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>

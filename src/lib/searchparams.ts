@@ -17,6 +17,8 @@ export const searchParams = {
   driver_id: parseAsString,
   payer_id: parseAsString,
   billing_variant_id: parseAsString,
+  /** Effective invoice status for trips list (see trip-invoice-status-badge + RPC). */
+  invoice_status: parseAsString,
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
   view: parseAsString.withDefault('list')

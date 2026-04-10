@@ -49,3 +49,12 @@
   /* Apply the reveal animation */
   animation: reveal 0.4s ease-in-out forwards;
 }
+
+/* Angebot builder — Tiptap @tiptap/extension-placeholder (emptyNodeClass: is-empty) */
+.angebot-tiptap .ProseMirror p.is-empty::before {
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

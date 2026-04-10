@@ -2,6 +2,7 @@
  * Driver app layout — mobile-first, no sidebar, no KBar.
  * Uses safe-area-inset for notched devices.
  * Redirects admins to dashboard (driver routes are for drivers only).
+ * Complements Layer 1 proxy; see docs/access-control.md.
  */
 
 import { DriverHeader } from '@/features/driver-portal/components/driver-header';

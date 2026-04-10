@@ -56,6 +56,7 @@ export const invoiceKeys = {
   tripsForBuilder: (params: {
     payer_id: string;
     billing_type_id?: string | null;
+    billing_variant_id?: string | null;
     period_from: string;
     period_to: string;
     client_id?: string | null;
@@ -73,5 +74,17 @@ export const invoiceKeys = {
 
     /** Single text block by ID. */
     detail: (id: string) => ['invoice-text-blocks', 'detail', id] as const
-  }
+  },
+
+  /** PDF column Vorlagen (pdf_vorlagen) for settings + builder. */
+  pdfVorlagen: {
+    all: ['pdf-vorlagen'] as const,
+    list: (companyId: string) => ['pdf-vorlagen', 'list', companyId] as const
+  },
+
+  /**
+   * Aggregate revenue total for issued invoices (status: sent | paid).
+   * Used by the dashboard overview stat card.
+   */
+  revenueTotal: ['invoices', 'revenue-total'] as const
 };

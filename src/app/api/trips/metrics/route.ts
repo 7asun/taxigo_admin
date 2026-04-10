@@ -1,9 +1,16 @@
+/** SECURITY: Layer 3 — requireSession(); see docs/access-control.md */
+
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+
+import { requireSession } from '@/lib/api/require-session';
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const session = await requireSession();
+    if ('error' in session) {
+      return session.error;
+    }
+    const { supabase } = session;
 
     const { data: shortestData, error: shortestError } = await supabase
       .from('trips')
@@ -30,7 +37,9 @@ export async function GET() {
     if (avgError) throw avgError;
 
     const distances =
-      avgData?.map((t: any) => t.driving_distance_km as number | null) || [];
+      avgData?.map(
+        (t: { driving_distance_km: number | null }) => t.driving_distance_km
+      ) || [];
     const validDistances = distances.filter(
       (d): d is number => typeof d === 'number'
     );
@@ -45,11 +54,10 @@ export async function GET() {
       longest_trip: longestData?.[0] ?? null,
       average_distance_km: averageDistanceKm
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in /api/trips/metrics', error);
-    return NextResponse.json(
-      { error: error.message ?? 'Internal Server Error' },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : 'Internal Server Error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

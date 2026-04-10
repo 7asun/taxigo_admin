@@ -1,9 +1,11 @@
+/** SECURITY: Layer 3 — requireAdmin(); see docs/access-control.md */
+
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { executeDuplicateTrips } from '@/features/trips/lib/duplicate-trips';
 import { parseDuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/api/require-admin';
 import type { Database } from '@/types/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -15,36 +17,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   try {
-    const supabaseUser = await createClient();
-    const {
-      data: { user },
-      error: sessionError
-    } = await supabaseUser.auth.getUser();
-
-    if (sessionError || !user) {
-      return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
+    const auth = await requireAdmin();
+    if ('error' in auth) {
+      return auth.error;
     }
-
-    const { data: account, error: accountError } = await supabaseUser
-      .from('accounts')
-      .select('company_id')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (accountError) {
-      return NextResponse.json(
-        { error: accountError.message },
-        { status: 500 }
-      );
-    }
-
-    const companyId = account?.company_id;
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Kein Unternehmen zugeordnet.' },
-        { status: 403 }
-      );
-    }
+    const companyId = auth.companyId;
 
     const json = (await request.json().catch(() => null)) as unknown;
     const payload = parseDuplicateTripsPayload(json);
@@ -68,7 +45,7 @@ export async function POST(request: Request) {
       admin,
       payload,
       companyId,
-      user.id
+      auth.userId
     );
 
     return NextResponse.json({

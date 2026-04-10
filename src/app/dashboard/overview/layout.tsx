@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { IconTrendingUp } from '@tabler/icons-react';
 import { PendingToursWidget } from '@/features/dashboard/components/pending-tours-widget';
+import { useInvoiceRevenueTotal } from '@/features/invoices/hooks/use-invoice-revenue-total';
 import { useTrips } from '@/features/trips/hooks/use-trips';
 import {
   StatsCard,
@@ -38,6 +39,8 @@ export default function OverViewLayout({
   area_stats: React.ReactNode;
 }) {
   const { trips, isLoading } = useTrips();
+  const { data: invoiceRevenue, isLoading: isInvoiceRevenueLoading } =
+    useInvoiceRevenueTotal();
 
   const {
     tripsToday,
@@ -109,26 +112,17 @@ export default function OverViewLayout({
             description='Gesamtumsatz der heutigen Fahrten'
             isLoading={isLoading}
           />
-          <Card className='@container/card hidden md:block'>
-            <CardHeader>
-              <CardDescription>Platzhalter</CardDescription>
-              <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-                0,00
-              </CardTitle>
-              <CardAction>
-                <Badge variant='outline'>
-                  <IconTrendingUp />
-                  +12,5%
-                </Badge>
-              </CardAction>
-            </CardHeader>
-            <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-              <div className='line-clamp-1 flex gap-2 font-medium'>
-                Platzhalter <IconTrendingUp className='size-4' />
-              </div>
-              <div className='text-muted-foreground'>Platzhalter</div>
-            </CardFooter>
-          </Card>
+          <StatsCard
+            className='min-w-0'
+            title='Rechnungsumsatz'
+            value={
+              isInvoiceRevenueLoading
+                ? '…'
+                : formatCurrency(invoiceRevenue ?? 0)
+            }
+            description='Versendete & bezahlte Rechnungen'
+            isLoading={isInvoiceRevenueLoading}
+          />
           <Card className='@container/card hidden md:block'>
             <CardHeader>
               <CardDescription>Wachstumsrate</CardDescription>

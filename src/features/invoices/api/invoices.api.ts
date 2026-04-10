@@ -21,6 +21,11 @@ import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import { generateNextInvoiceNumber } from '../lib/invoice-number';
+import {
+  RechnungsempfaengerService,
+  rechnungsempfaengerRowToSnapshot
+} from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
+import { parseClientReferenceFieldsFromDb } from '@/features/clients/lib/client-reference-fields.schema';
 import type {
   InvoiceRow,
   InvoiceWithPayer,
@@ -59,7 +64,7 @@ export async function listInvoices(
       payer:payers(id, name, number),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,
-        street, street_number, zip_code, city, email
+        street, street_number, zip_code, city, email, phone, reference_fields
       )
     `
     )
@@ -93,6 +98,22 @@ export async function listInvoices(
   return (data ?? []) as InvoiceWithPayer[];
 }
 
+/**
+ * Sum of `total` (Brutto) for invoices with status `sent` or `paid`.
+ * RLS scopes rows to the current company. Loads `total` only and sums client-side
+ * (no PostgREST aggregate syntax).
+ */
+export async function getInvoiceRevenueTotal(): Promise<number> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('total')
+    .in('status', ['sent', 'paid']);
+
+  if (error) throw toQueryError(error);
+  return (data ?? []).reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+}
+
 // ─── Single invoice (full detail) ─────────────────────────────────────────────
 
 /**
@@ -107,6 +128,8 @@ export async function listInvoices(
 export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
   const supabase = createClient();
 
+  // Line items: use (*) so PostgREST does not fail when optional columns (e.g. trip_meta_snapshot)
+  // are not migrated yet; after migration, (*) still returns those fields.
   const { data, error } = await supabase
     .from('invoices')
     .select(
@@ -114,18 +137,14 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       *,
       payer:payers(
         id, name, number,
-        street, street_number, zip_code, city, contact_person, email
+        street, street_number, zip_code, city, contact_person, email,
+        pdf_vorlage_id
       ),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,
-        street, street_number, zip_code, city, email, phone
+        street, street_number, zip_code, city, email, phone, reference_fields
       ),
-      line_items:invoice_line_items(
-        id, invoice_id, trip_id, position, line_date, description,
-        client_name, pickup_address, dropoff_address, distance_km,
-        unit_price, quantity, total_price, tax_rate,
-        billing_variant_code, billing_variant_name, created_at
-      )
+      line_items:invoice_line_items(*)
     `
     )
     .eq('id', id)
@@ -193,6 +212,13 @@ export interface CreateInvoicePayload {
   subtotal: number;
   taxAmount: number;
   total: number;
+  /** Resolved recipient FK (catalog cascade or step-4 override); snapshot frozen here. */
+  rechnungsempfaengerId: string | null;
+  /**
+   * Per-invoice PDF column override (Step 5). Null = resolve from payer Vorlage /
+   * company default / system fallback at PDF time.
+   */
+  pdfColumnOverride?: Record<string, unknown> | null;
 }
 
 /**
@@ -216,6 +242,33 @@ export async function createInvoice(
   // Generate the next sequential invoice number
   const invoiceNumber = await generateNextInvoiceNumber();
 
+  const empId = payload.rechnungsempfaengerId;
+  // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+  let rechnungsempfaenger_snapshot: Record<string, unknown> | null = null;
+  if (empId) {
+    const row = await RechnungsempfaengerService.getById(empId);
+    if (row) {
+      rechnungsempfaenger_snapshot = rechnungsempfaengerRowToSnapshot(row);
+    }
+  }
+
+  // §14 UStG: Bezugszeichen frozen at creation from clients.reference_fields (same moment as line items).
+  // Source: live clients row at insert time — PDF must never re-read client.reference_fields for issued docs.
+  let client_reference_fields_snapshot: ReturnType<
+    typeof parseClientReferenceFieldsFromDb
+  > = null;
+  const clientId = payload.formValues.client_id;
+  if (clientId) {
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('reference_fields')
+      .eq('id', clientId)
+      .maybeSingle();
+    client_reference_fields_snapshot = parseClientReferenceFieldsFromDb(
+      clientRow?.reference_fields ?? null
+    );
+  }
+
   const { data, error } = await supabase
     .from('invoices')
     .insert({
@@ -223,6 +276,8 @@ export async function createInvoice(
       invoice_number: invoiceNumber,
       payer_id: payload.formValues.payer_id,
       billing_type_id: payload.formValues.billing_type_id,
+      // Set when the invoice is scoped to exactly one Unterart (billing_variants.id); NULL otherwise.
+      billing_variant_id: payload.formValues.billing_variant_id ?? null,
       mode: payload.formValues.mode,
       client_id: payload.formValues.client_id,
       period_from: payload.formValues.period_from,
@@ -233,7 +288,12 @@ export async function createInvoice(
       subtotal: payload.subtotal,
       tax_amount: payload.taxAmount,
       total: payload.total,
-      status: 'draft' // always starts as draft
+      status: 'draft', // always starts as draft
+      rechnungsempfaenger_id: empId,
+      // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
+      rechnungsempfaenger_snapshot,
+      client_reference_fields_snapshot,
+      pdf_column_override: payload.pdfColumnOverride ?? null
     })
     .select()
     .single();
@@ -285,4 +345,25 @@ export async function updateInvoiceStatus(
   if (!data) throw new Error(`Rechnung ${id} nicht gefunden`);
 
   return data as unknown as InvoiceRow;
+}
+
+/**
+ * Persists dispatcher-edited email draft text on the invoice row.
+ * Mutable like `notes` — not a legal snapshot.
+ */
+export async function saveInvoiceEmailDraft(
+  id: string,
+  draft: { email_subject: string; email_body: string }
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      email_subject: draft.email_subject,
+      email_body: draft.email_body,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id);
+
+  if (error) throw toQueryError(error);
 }

@@ -51,6 +51,9 @@ export interface BuildTripDetailsPatchInput {
   ktsDocumentAppliesDraft: boolean;
   /** Persisted with `kts_document_applies` (catalog tier vs manual). */
   ktsSourceForSave: string;
+  noInvoiceRequiredDraft: boolean;
+  /** Persisted with `no_invoice_required`. */
+  noInvoiceSourceForSave: string;
 }
 
 export interface BuildTripDetailsPatchResult {
@@ -88,6 +91,13 @@ export async function buildTripDetailsPatch(
   ) {
     patch.kts_document_applies = ktsAppliesNext;
     patch.kts_source = input.ktsSourceForSave;
+  }
+  const noInvNext = !!input.noInvoiceRequiredDraft;
+  const noInvWas = !!trip.no_invoice_required;
+  const noInvSrcWas = trip.no_invoice_source ?? '';
+  if (noInvNext !== noInvWas || input.noInvoiceSourceForSave !== noInvSrcWas) {
+    patch.no_invoice_required = noInvNext;
+    patch.no_invoice_source = input.noInvoiceSourceForSave;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;

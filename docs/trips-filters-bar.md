@@ -1,3 +1,5 @@
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
 ## Trips Filters Bar – Architecture & Reuse Guide
 
 This document explains how the `TripsFiltersBar` works, why it's designed this way, and how to recreate the same pattern for other pages (e.g. clients, invoices, vehicles) while staying aligned with best practices for high-end dispatch dashboards.

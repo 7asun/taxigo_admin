@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/generate-recurring-trips",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

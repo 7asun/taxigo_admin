@@ -1,45 +1,40 @@
 /**
  * use-invoice-builder.ts
  *
- * State machine hook for the 4-step invoice builder wizard.
+ * Client state for the invoice builder (long-form: all sections visible).
  *
- * ─── Step overview ─────────────────────────────────────────────────────────
- *   Step 1 — Mode selection: Monatlich / Einzelfahrt / Fahrgast
- *   Step 2 — Parameters: Payer + billing_type + date range (+ client for per_client)
- *   Step 3 — Line item preview: editable table, warning badges for missing prices
- *   Step 4 — Confirm: invoice number preview, notes, Zahlungsziel, CREATE button
- *
- * ─── Data flow ─────────────────────────────────────────────────────────────
- *   Step 2 form submit → fetchTripsForBuilder() → buildLineItemsFromTrips()
- *   Step 3 edits       → local state (no API call until step 4)
- *   Step 4 submit      → createInvoice() → insertLineItems() → navigate to detail
- *
- * ─── Why local state (not React Query) for builder? ─────────────────────────
- * The builder holds transient in-progress data (edits in step 3) that should
- * NOT be cached or shared with the list page. Using local state + a React Query
- * query for the trips fetch gives us the best of both worlds.
- * ─────────────────────────────────────────────────────────────────────────────
+ * Flow:
+ *   Section 1 (mode) → merge into step2Values
+ *   Section 2 submit → full step2Values → trips query → lineItems
+ *   Section 3        → inline edits only
+ *   Section 5 submit (form in §4) → createInvoice(..., pdfColumnOverride) → insertLineItems() → navigate
  */
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { invoiceKeys } from '@/query/keys';
+import { invoiceKeys, referenceKeys } from '@/query/keys';
+import { listPricingRulesForPayer } from '@/features/payers/api/billing-pricing-rules.api';
 import {
   fetchTripsForBuilder,
+  mapBillingPricingRuleRowsToLike,
   buildLineItemsFromTrips,
   calculateInvoiceTotals,
-  insertLineItems
+  insertLineItems,
+  applyManualUnitNetToResolution
 } from '../api/invoice-line-items.api';
 import { createInvoice } from '../api/invoices.api';
-import { hasMissingPrices } from '../lib/invoice-validators';
+import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
+import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
+import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
-  InvoiceBuilderStep,
   InvoiceBuilderFormValues,
   BuilderLineItem
 } from '../types/invoice.types';
+import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
+import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
 type Step2Values = Pick<
@@ -47,16 +42,22 @@ type Step2Values = Pick<
   | 'mode'
   | 'payer_id'
   | 'billing_type_id'
+  | 'billing_variant_id'
   | 'period_from'
   | 'period_to'
   | 'client_id'
 >;
 
+function legacyPriceSourceFromResolution(
+  src: string
+): 'client_price_tag' | 'trip_price' | null {
+  if (src === 'client_price_tag') return 'client_price_tag';
+  if (src === 'trip_price') return 'trip_price';
+  return null;
+}
+
 /**
- * Main state machine hook for the invoice builder wizard.
- *
- * @param companyId - The current user's company ID (from auth context).
- * @param onCreated - Callback called with the new invoice ID after creation.
+ * State for the long-form invoice builder (all sections on one page).
  */
 export function useInvoiceBuilder(
   companyId: string,
@@ -64,144 +65,168 @@ export function useInvoiceBuilder(
 ) {
   const queryClient = useQueryClient();
 
-  // ── Builder state ────────────────────────────────────────────────────────
-  const [currentStep, setCurrentStep] = useState<InvoiceBuilderStep>(1);
   const [step2Values, setStep2Values] = useState<Step2Values | null>(null);
-
-  // Line items: initially loaded from trips, then editable by user in step 3
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>([]);
+  /** Catalog cascade (variant → type → payer) from the first fetched trip. */
+  const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
+    null
+  );
 
-  // ── Step 2 — Fetch trips when parameters are set ──────────────────────────
+  useEffect(() => {
+    if (!step2ValuesReadyForTripsFetch(step2Values)) {
+      setLineItems([]);
+      setCatalogRecipientId(null);
+    }
+  }, [step2Values]);
+
   const tripsQuery = useQuery({
     queryKey: step2Values
       ? invoiceKeys.tripsForBuilder({
           payer_id: step2Values.payer_id,
           billing_type_id: step2Values.billing_type_id,
+          billing_variant_id: step2Values.billing_variant_id,
           period_from: step2Values.period_from,
           period_to: step2Values.period_to,
           client_id: step2Values.client_id
         })
       : ['invoices', 'builder-trips', 'idle'],
     queryFn: async () => {
+      const payerId = step2Values!.payer_id;
+      const rulesRows = await queryClient.fetchQuery({
+        queryKey: referenceKeys.billingPricingRules(payerId),
+        queryFn: () => listPricingRulesForPayer(payerId),
+        staleTime: 30_000
+      });
+      const rules = mapBillingPricingRuleRowsToLike(rulesRows);
       const trips = await fetchTripsForBuilder({
-        payer_id: step2Values!.payer_id,
+        payer_id: payerId,
         billing_type_id: step2Values?.billing_type_id,
+        billing_variant_id: step2Values?.billing_variant_id,
         period_from: step2Values!.period_from,
         period_to: step2Values!.period_to,
         client_id: step2Values?.client_id
       });
-      // Convert trips → line items immediately after fetch
-      const items = buildLineItemsFromTrips(trips);
+      const items = buildLineItemsFromTrips(trips, rules);
       setLineItems(items);
+
+      const t0 = trips[0];
+      const resolved = t0
+        ? resolveRechnungsempfaenger({
+            billingVariantRechnungsempfaengerId:
+              t0.billing_variant?.rechnungsempfaenger_id,
+            billingTypeRechnungsempfaengerId:
+              t0.billing_variant?.billing_type?.rechnungsempfaenger_id,
+            payerRechnungsempfaengerId: t0.payer?.rechnungsempfaenger_id
+          })
+        : { rechnungsempfaengerId: null };
+      setCatalogRecipientId(resolved.rechnungsempfaengerId);
+
       return items;
     },
-    enabled: !!step2Values, // only run after step 2 is submitted
-    staleTime: 5 * 60 * 1000 // 5 min — builder trips don't need realtime refresh
+    enabled: step2ValuesReadyForTripsFetch(step2Values),
+    staleTime: 5 * 60 * 1000
   });
 
-  // ── Step 3 — Inline price editing ─────────────────────────────────────────
-  /**
-   * Updates the unit price of a specific line item (by position).
-   * Called from the inline price editor in step 3.
-   */
   const updateLineItemPrice = useCallback(
     (position: number, newPrice: number) => {
       setLineItems((prev) =>
-        prev.map((item) =>
-          item.position === position
-            ? {
-                ...item,
-                unit_price: newPrice,
-                // Re-validate: if price is now set, remove 'missing_price' warning
-                warnings: item.warnings.filter(
-                  (w) =>
-                    w !== 'missing_price' &&
-                    (newPrice !== 0 || w !== 'zero_price')
-                )
-              }
-            : item
-        )
+        prev.map((item) => {
+          if (item.position !== position) return item;
+          const nextRes = applyManualUnitNetToResolution(item, newPrice);
+          const patched: BuilderLineItem = {
+            ...item,
+            unit_price: newPrice,
+            price_resolution: nextRes,
+            kts_override: nextRes.strategy_used === 'kts_override',
+            price_source: legacyPriceSourceFromResolution(nextRes.source)
+          };
+          return { ...patched, warnings: validateLineItem(patched) };
+        })
       );
     },
     []
   );
 
-  // ── Step navigation helpers ───────────────────────────────────────────────
-  const goToStep = useCallback((step: InvoiceBuilderStep) => {
-    setCurrentStep(step);
-  }, []);
-
-  /** Called when step 1 (mode selection) is confirmed. */
   const handleStep1Complete = useCallback(
     (mode: InvoiceBuilderFormValues['mode']) => {
-      // Store mode in step2Values (will be filled properly in step 2)
-      setStep2Values(
-        (prev) => ({ ...(prev as Step2Values), mode }) as Step2Values
-      );
-      setCurrentStep(2);
+      setStep2Values((prev) => {
+        if (prev?.mode !== undefined && prev.mode !== mode) {
+          return { mode } as Step2Values;
+        }
+        return { ...(prev || {}), mode } as Step2Values;
+      });
     },
     []
   );
 
-  /** Called when step 2 (parameters) is confirmed. Triggers the trips fetch. */
   const handleStep2Complete = useCallback((values: Step2Values) => {
     setStep2Values(values);
-    setCurrentStep(3);
   }, []);
 
-  /** Called when step 3 (line items review) is confirmed. */
-  const handleStep3Complete = useCallback(() => {
-    setCurrentStep(4);
-  }, []);
-
-  // ── Step 4 — Create the invoice ───────────────────────────────────────────
   const totals = calculateInvoiceTotals(lineItems);
   const missingPrices = hasMissingPrices(lineItems);
 
   const createMutation = useMutation({
-    mutationFn: async (
+    mutationFn: async (args: {
       step4Values: Pick<
         InvoiceBuilderFormValues,
-        'intro_block_id' | 'outro_block_id' | 'payment_due_days'
-      >
-    ) => {
+        | 'intro_block_id'
+        | 'outro_block_id'
+        | 'payment_due_days'
+        | 'rechnungsempfaenger_id'
+      >;
+      pdfColumnOverride: PdfColumnOverridePayload | null;
+    }) => {
       if (!step2Values) throw new Error('Schritt 2 nicht abgeschlossen');
 
-      // Convert "none" to null for text block IDs
-      const processedValues = {
-        ...step4Values,
-        intro_block_id:
-          step4Values.intro_block_id === 'none'
-            ? null
-            : step4Values.intro_block_id,
-        outro_block_id:
-          step4Values.outro_block_id === 'none'
-            ? null
-            : step4Values.outro_block_id
-      };
+      const { step4Values, pdfColumnOverride } = args;
+
+      const intro_block_id =
+        step4Values.intro_block_id === 'none'
+          ? null
+          : step4Values.intro_block_id;
+      const outro_block_id =
+        step4Values.outro_block_id === 'none'
+          ? null
+          : step4Values.outro_block_id;
+
+      const empRaw = step4Values.rechnungsempfaenger_id;
+      const rechnungsempfaengerId =
+        empRaw === 'none' || empRaw === undefined || empRaw === null
+          ? catalogRecipientId
+          : empRaw;
 
       const fullValues: InvoiceBuilderFormValues = {
         ...step2Values,
-        ...processedValues
+        intro_block_id,
+        outro_block_id,
+        payment_due_days: step4Values.payment_due_days,
+        rechnungsempfaenger_id: rechnungsempfaengerId ?? null
       };
 
-      // 1. Create the invoice header row
+      let pdfPayload: Record<string, unknown> | null = null;
+      if (pdfColumnOverride) {
+        pdfPayload = pdfColumnOverrideSchema.parse(
+          pdfColumnOverride
+        ) as unknown as Record<string, unknown>;
+      }
+
       const invoice = await createInvoice({
         companyId,
         formValues: fullValues,
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
-        total: totals.total
+        total: totals.total,
+        rechnungsempfaengerId: rechnungsempfaengerId ?? null,
+        pdfColumnOverride: pdfPayload
       });
 
-      // 2. Insert the line items (uses the current in-memory edited state)
       await insertLineItems(invoice.id, lineItems);
 
       return invoice;
     },
 
     onSuccess: (invoice) => {
-      // Invalidate the list so the new invoice appears immediately
       queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
       toast.success(`Rechnung ${invoice.invoice_number} wurde erstellt.`);
       onCreated(invoice.id);
@@ -214,27 +239,30 @@ export function useInvoiceBuilder(
   });
 
   return {
-    // ── State ──────────────────────────────────────────────────────────────
-    currentStep,
     step2Values,
     lineItems,
+    catalogRecipientId,
     totals,
-    missingPrices, // true = show warning in step 4 header (doesn't block create)
+    missingPrices,
 
-    // ── Trips fetch (step 2 → 3 transition) ───────────────────────────────
     isLoadingTrips: tripsQuery.isLoading,
     isTripsError: tripsQuery.isError,
     tripsCount: lineItems.length,
 
-    // ── Actions ────────────────────────────────────────────────────────────
-    goToStep,
     handleStep1Complete,
     handleStep2Complete,
-    handleStep3Complete,
     updateLineItemPrice,
 
-    // ── Final create ───────────────────────────────────────────────────────
-    createInvoice: createMutation.mutate,
+    createInvoice: (
+      step4Values: Pick<
+        InvoiceBuilderFormValues,
+        | 'intro_block_id'
+        | 'outro_block_id'
+        | 'payment_due_days'
+        | 'rechnungsempfaenger_id'
+      >,
+      pdfColumnOverride: PdfColumnOverridePayload | null
+    ) => createMutation.mutate({ step4Values, pdfColumnOverride }),
     isCreating: createMutation.isPending
   };
 }

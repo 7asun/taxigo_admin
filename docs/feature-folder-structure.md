@@ -1,5 +1,8 @@
 # Feature Folder Structure
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document describes how to structure feature folders and when to split by audience (admin vs end-user).
 
 ---

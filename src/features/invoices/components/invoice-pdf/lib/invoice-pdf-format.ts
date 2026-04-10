@@ -58,3 +58,14 @@ export function formatInvoicePdfTime(iso: string): string {
   });
   return formatter.format(date);
 }
+
+/** Truncate for narrow PDF columns (e.g. Von/Nach). */
+export function truncateInvoicePdfText(
+  value: string | null | undefined,
+  maxChars: number
+): string {
+  if (value == null || value === '') return '';
+  const s = String(value).replace(/\s+/g, ' ').trim();
+  if (s.length <= maxChars) return s;
+  return `${s.slice(0, maxChars - 1)}…`;
+}

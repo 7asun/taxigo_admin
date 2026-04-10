@@ -24,13 +24,15 @@ export default async function InvoicesPage() {
     .order('name');
 
   return (
-    <div className='flex-1 space-y-6 p-8 pt-6'>
-      <div className='flex items-center justify-between space-y-2'>
-        <h2 className='text-3xl font-bold tracking-tight'>Rechnungen</h2>
-      </div>
+    <div className='flex min-h-0 w-full flex-1 flex-col overflow-y-auto'>
+      <div className='space-y-6 p-8 pt-6'>
+        <div className='flex items-center justify-between space-y-2'>
+          <h2 className='text-3xl font-bold tracking-tight'>Rechnungen</h2>
+        </div>
 
-      {/* The table handles its own data fetching via React Query */}
-      <InvoiceListTable payers={payers ?? []} />
+        {/* The table handles its own data fetching via React Query */}
+        <InvoiceListTable payers={payers ?? []} />
+      </div>
     </div>
   );
 }

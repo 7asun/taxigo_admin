@@ -175,6 +175,8 @@ To configure the environment for this project, refer to the `env.example.txt` fi
 
 Auth setup is now handled through Supabase variables in `env.example.txt`.
 
+> See [docs/access-control.md](docs/access-control.md) for role-based access control (admin vs driver), API protection, RLS, and cron secrets.
+
 You should now be able to access the application at http://localhost:3000.
 
 > [!WARNING]

@@ -1,5 +1,8 @@
 # Address Autocomplete
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document describes how address search works in the taxigo admin panel, which files are involved, and the key design decisions behind the Oldenburg-first behaviour, Place Details resolution, and postal code (PLZ) handling.
 
 ---

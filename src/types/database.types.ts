@@ -14,6 +14,74 @@ export type Database = {
   };
   public: {
     Tables: {
+      billing_pricing_rules: {
+        Row: {
+          id: string;
+          company_id: string;
+          payer_id: string | null;
+          billing_type_id: string | null;
+          billing_variant_id: string | null;
+          strategy: string;
+          config: Json;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          payer_id?: string | null;
+          billing_type_id?: string | null;
+          billing_variant_id?: string | null;
+          strategy: string;
+          config?: Json;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          payer_id?: string | null;
+          billing_type_id?: string | null;
+          billing_variant_id?: string | null;
+          strategy?: string;
+          config?: Json;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'billing_pricing_rules_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'billing_pricing_rules_payer_id_fkey';
+            columns: ['payer_id'];
+            isOneToOne: false;
+            referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'billing_pricing_rules_billing_type_id_fkey';
+            columns: ['billing_type_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_types';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'billing_pricing_rules_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       billing_types: {
         Row: {
           behavior_profile: Json;
@@ -22,6 +90,7 @@ export type Database = {
           id: string;
           name: string;
           payer_id: string;
+          rechnungsempfaenger_id: string | null;
         };
         Insert: {
           behavior_profile?: Json;
@@ -30,6 +99,7 @@ export type Database = {
           id?: string;
           name: string;
           payer_id: string;
+          rechnungsempfaenger_id?: string | null;
         };
         Update: {
           behavior_profile?: Json;
@@ -38,6 +108,7 @@ export type Database = {
           id?: string;
           name?: string;
           payer_id?: string;
+          rechnungsempfaenger_id?: string | null;
         };
         Relationships: [
           {
@@ -45,6 +116,13 @@ export type Database = {
             columns: ['payer_id'];
             isOneToOne: false;
             referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'billing_types_rechnungsempfaenger_id_fkey';
+            columns: ['rechnungsempfaenger_id'];
+            isOneToOne: false;
+            referencedRelation: 'rechnungsempfaenger';
             referencedColumns: ['id'];
           }
         ];
@@ -57,6 +135,8 @@ export type Database = {
           id: string;
           kts_default: boolean | null;
           name: string;
+          no_invoice_required_default: boolean | null;
+          rechnungsempfaenger_id: string | null;
           sort_order: number;
         };
         Insert: {
@@ -66,6 +146,8 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name: string;
+          no_invoice_required_default?: boolean | null;
+          rechnungsempfaenger_id?: string | null;
           sort_order?: number;
         };
         Update: {
@@ -75,6 +157,8 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name?: string;
+          no_invoice_required_default?: boolean | null;
+          rechnungsempfaenger_id?: string | null;
           sort_order?: number;
         };
         Relationships: [
@@ -83,6 +167,13 @@ export type Database = {
             columns: ['billing_type_id'];
             isOneToOne: false;
             referencedRelation: 'billing_types';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'billing_variants_rechnungsempfaenger_id_fkey';
+            columns: ['rechnungsempfaenger_id'];
+            isOneToOne: false;
+            referencedRelation: 'rechnungsempfaenger';
             referencedColumns: ['id'];
           }
         ];
@@ -105,6 +196,9 @@ export type Database = {
           phone_secondary: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag: number | null;
+          /** Ordered { label, value }[] for invoice PDF; null when unset. */
+          reference_fields: Json | null;
+          customer_number: number;
           requires_daily_scheduling: boolean | null;
           stations: string[] | null;
           street: string;
@@ -132,6 +226,8 @@ export type Database = {
           phone_secondary?: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag?: number | null;
+          reference_fields?: Json | null;
+          customer_number?: number;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street: string;
@@ -159,6 +255,8 @@ export type Database = {
           phone_secondary?: string | null;
           // Default price for all trips of this client. Takes precedence over trip.price.
           price_tag?: number | null;
+          reference_fields?: Json | null;
+          customer_number?: number;
           requires_daily_scheduling?: boolean | null;
           stations?: string[] | null;
           street?: string;
@@ -191,6 +289,47 @@ export type Database = {
           name?: string;
         };
         Relationships: [];
+      };
+      fremdfirmen: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          default_payment_mode: string;
+          id: string;
+          is_active: boolean;
+          name: string;
+          number: string | null;
+          sort_order: number;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          default_payment_mode?: string;
+          id?: string;
+          is_active?: boolean;
+          name: string;
+          number?: string | null;
+          sort_order?: number;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          default_payment_mode?: string;
+          id?: string;
+          is_active?: boolean;
+          name?: string;
+          number?: string | null;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'fremdfirmen_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       driver_documents: {
         Row: {
@@ -401,7 +540,9 @@ export type Database = {
           id: string;
           kts_default: boolean | null;
           name: string;
+          no_invoice_required_default: boolean | null;
           number: string;
+          rechnungsempfaenger_id: string | null;
         };
         Insert: {
           company_id: string;
@@ -409,7 +550,9 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name: string;
+          no_invoice_required_default?: boolean | null;
           number?: string;
+          rechnungsempfaenger_id?: string | null;
         };
         Update: {
           company_id?: string;
@@ -417,11 +560,91 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           name?: string;
+          no_invoice_required_default?: boolean | null;
           number?: string;
+          rechnungsempfaenger_id?: string | null;
         };
         Relationships: [
           {
             foreignKeyName: 'payers_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'payers_rechnungsempfaenger_id_fkey';
+            columns: ['rechnungsempfaenger_id'];
+            isOneToOne: false;
+            referencedRelation: 'rechnungsempfaenger';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      rechnungsempfaenger: {
+        Row: {
+          id: string;
+          company_id: string;
+          name: string;
+          anrede: string | null;
+          first_name: string | null;
+          last_name: string | null;
+          company_name: string | null;
+          abteilung: string | null;
+          phone: string | null;
+          address_line1: string | null;
+          address_line2: string | null;
+          city: string | null;
+          postal_code: string | null;
+          country: string | null;
+          email: string | null;
+          notes: string | null;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          name: string;
+          anrede?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          abteilung?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          email?: string | null;
+          notes?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          name?: string;
+          anrede?: string | null;
+          first_name?: string | null;
+          last_name?: string | null;
+          company_name?: string | null;
+          abteilung?: string | null;
+          phone?: string | null;
+          address_line1?: string | null;
+          address_line2?: string | null;
+          city?: string | null;
+          postal_code?: string | null;
+          country?: string | null;
+          email?: string | null;
+          notes?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'rechnungsempfaenger_company_id_fkey';
             columns: ['company_id'];
             isOneToOne: false;
             referencedRelation: 'companies';
@@ -448,6 +671,11 @@ export type Database = {
           billing_variant_id: string | null;
           kts_document_applies: boolean;
           kts_source: string | null;
+          no_invoice_required: boolean;
+          no_invoice_source: string | null;
+          fremdfirma_id: string | null;
+          fremdfirma_payment_mode: string | null;
+          fremdfirma_cost: number | null;
         };
         Insert: {
           id?: string;
@@ -467,6 +695,11 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          fremdfirma_cost?: number | null;
         };
         Update: {
           id?: string;
@@ -486,6 +719,11 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          fremdfirma_cost?: number | null;
         };
         Relationships: [
           {
@@ -507,6 +745,13 @@ export type Database = {
             columns: ['payer_id'];
             isOneToOne: false;
             referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'recurring_rules_fremdfirma_id_fkey';
+            columns: ['fremdfirma_id'];
+            isOneToOne: false;
+            referencedRelation: 'fremdfirmen';
             referencedColumns: ['id'];
           }
         ];
@@ -812,6 +1057,12 @@ export type Database = {
           billing_variant_id: string | null;
           kts_document_applies: boolean;
           kts_source: string | null;
+          fremdfirma_cost: number | null;
+          fremdfirma_id: string | null;
+          fremdfirma_payment_mode: string | null;
+          no_invoice_required: boolean;
+          no_invoice_source: string | null;
+          selbstzahler_collected_amount: number | null;
           client_id: string | null;
           client_name: string | null;
           client_phone: string | null;
@@ -871,6 +1122,12 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          fremdfirma_cost?: number | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          selbstzahler_collected_amount?: number | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -930,6 +1187,12 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          fremdfirma_cost?: number | null;
+          fremdfirma_id?: string | null;
+          fremdfirma_payment_mode?: string | null;
+          no_invoice_required?: boolean;
+          no_invoice_source?: string | null;
+          selbstzahler_collected_amount?: number | null;
           client_id?: string | null;
           client_name?: string | null;
           client_phone?: string | null;
@@ -1007,6 +1270,13 @@ export type Database = {
             columns: ['driver_id'];
             isOneToOne: false;
             referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'trips_fremdfirma_id_fkey';
+            columns: ['fremdfirma_id'];
+            isOneToOne: false;
+            referencedRelation: 'fremdfirmen';
             referencedColumns: ['id'];
           },
           {
@@ -1125,9 +1395,39 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      create_storno_invoice: {
+        Args: {
+          p_billing_type_id: string | null;
+          p_billing_variant_id: string | null;
+          p_cancels_invoice_id: string;
+          p_client_id: string | null;
+          p_client_reference_fields_snapshot: Json | null;
+          p_company_id: string;
+          p_invoice_number: string;
+          p_line_items: Json;
+          p_mode: string;
+          p_notes: string;
+          p_original_invoice_id: string;
+          p_payment_due_days: number;
+          p_pdf_column_override: Json | null;
+          p_period_from: string;
+          p_period_to: string;
+          p_payer_id: string;
+          p_rechnungsempfaenger_id: string | null;
+          p_rechnungsempfaenger_snapshot: Json | null;
+          p_subtotal: number;
+          p_tax_amount: number;
+          p_total: number;
+        };
+        Returns: string;
+      };
       invoice_numbers_max_for_prefix: {
         Args: { p_prefix: string };
         Returns: string | null;
+      };
+      trip_ids_matching_invoice_effective_status: {
+        Args: { p_effective: string };
+        Returns: string[];
       };
     };
     Enums: {

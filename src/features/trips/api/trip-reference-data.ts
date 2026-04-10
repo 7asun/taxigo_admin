@@ -3,6 +3,7 @@ import { toQueryError } from '@/lib/supabase/to-query-error';
 import type {
   BillingVariantOption,
   DriverOption,
+  FremdfirmaOption,
   PayerOption
 } from '@/features/trips/types/trip-form-reference.types';
 
@@ -28,7 +29,7 @@ export async function fetchPayers(): Promise<PayerOption[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('payers')
-    .select('id, name, kts_default')
+    .select('id, name, kts_default, no_invoice_required_default')
     .order('name');
 
   if (error) throw toQueryError(error);
@@ -57,7 +58,8 @@ export async function fetchBillingVariantsForPayer(
         name,
         code,
         sort_order,
-        kts_default
+        kts_default,
+        no_invoice_required_default
       )
     `
     )
@@ -78,6 +80,7 @@ export async function fetchBillingVariantsForPayer(
       code: string;
       sort_order: number;
       kts_default: boolean | null;
+      no_invoice_required_default: boolean | null;
     }[];
   };
 
@@ -97,9 +100,23 @@ export async function fetchBillingVariantsForPayer(
         billing_type_name: bt.name,
         color: bt.color,
         behavior_profile: bt.behavior_profile,
-        kts_default: v.kts_default
+        kts_default: v.kts_default,
+        no_invoice_required_default: v.no_invoice_required_default ?? null
       });
     }
   }
   return out;
+}
+
+export async function fetchActiveFremdfirmen(): Promise<FremdfirmaOption[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('fremdfirmen')
+    .select('id, name, number, default_payment_mode')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+    .order('name');
+
+  if (error) throw toQueryError(error);
+  return (data ?? []) as FremdfirmaOption[];
 }

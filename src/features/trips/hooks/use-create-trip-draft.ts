@@ -36,7 +36,8 @@ function serializeDraftPayload(
       notes: values.notes ?? '',
       billing_calling_station: values.billing_calling_station ?? '',
       billing_betreuer: values.billing_betreuer ?? '',
-      kts_document_applies: values.kts_document_applies
+      kts_document_applies: values.kts_document_applies,
+      no_invoice_required: values.no_invoice_required
     },
     passengers,
     pickupGroups,

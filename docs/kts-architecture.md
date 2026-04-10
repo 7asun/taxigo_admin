@@ -1,5 +1,8 @@
 # KTS (Krankentransportschein) — architecture
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 This document is the **canonical reference** for how Krankentransportschein (KTS) is modeled in TaxiGo Admin: catalog defaults, trip-level flags, CSV, and the boundary to future clearing/review workflows.
 
 **Related:** [Abrechnungsfamilie und Unterart](billing-families-variants.md) (Kostenträger → Familie → Unterart). KTS is an **additional operational layer** on top of that billing classification.
@@ -154,7 +157,7 @@ Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver,
 | Behavior JSON + dialog | `src/features/payers/components/billing-type-behavior-dialog.tsx`, `src/features/payers/types/payer.types.ts` |
 | Trip create | `src/features/trips/components/create-trip/*` |
 | Trip detail | `src/features/trips/trip-detail-sheet/*` |
-| Fahrten-Liste (Tabelle + Mobil) | `src/features/trips/components/trips-tables/columns.tsx` (Spalte **KTS**), `trips-mobile-card-list.tsx` |
+| Fahrten-Liste (Tabelle + Mobil) | `src/features/trips/components/trips-tables/columns.tsx` (u. a. **KTS**, **Fremdfirma**, **Abrechnung Fremdfirma**), `driver-select-cell.tsx`, `trips-mobile-card-list.tsx` — Fremdfirma-Spalten nur Desktop; Details [fremdfirma.md](fremdfirma.md) |
 | Bulk import | `src/features/trips/components/bulk-upload-dialog.tsx`, `bulk-upload/resolve-billing-variants-step.tsx` |
 | Recurring cron | `src/app/api/cron/generate-recurring-trips/route.ts` |
 | Fahrten-CSV-Export (optional Spalte) | `src/features/trips/components/csv-export/csv-export-constants.ts`, `src/app/api/trips/export/route.ts` — Spalte `kts_document_applies` |
@@ -164,4 +167,4 @@ Add **short** comments at resolver entry points and where `kts_source` is assign
 
 ---
 
-*Last updated: 2026-04-03 — Fahrten-Dashboard: KTS-Spalte/Badge in Liste dokumentiert; Kostenträger-Query-Invalidation wie zuvor.*
+*Last updated: 2026-04-04 — Fahrten-Tabelle: Verweis auf Fremdfirma-Spalten und `driver-select-cell` ergänzt (siehe `fremdfirma.md`).*

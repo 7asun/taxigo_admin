@@ -1,7 +1,10 @@
+/** SECURITY: Layer 3 — requireAdmin(); see docs/access-control.md */
+
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { hardDeleteTripsByIds } from '@/features/trips/api/trip-hard-delete';
+import { requireAdmin } from '@/lib/api/require-admin';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/types/database.types';
 
@@ -13,36 +16,13 @@ type Body = {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireAdmin();
+    if ('error' in auth) {
+      return auth.error;
+    }
+    const companyId = auth.companyId;
+
     const supabaseUser = await createClient();
-    const {
-      data: { user },
-      error: sessionError
-    } = await supabaseUser.auth.getUser();
-
-    if (sessionError || !user) {
-      return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 });
-    }
-
-    const { data: account, error: accountError } = await supabaseUser
-      .from('accounts')
-      .select('company_id')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (accountError) {
-      return NextResponse.json(
-        { error: accountError.message },
-        { status: 500 }
-      );
-    }
-
-    const companyId = account?.company_id;
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Kein Unternehmen zugeordnet.' },
-        { status: 403 }
-      );
-    }
 
     const body = (await request.json()) as Body;
     const rawIds = Array.isArray(body.ids) ? body.ids : [];

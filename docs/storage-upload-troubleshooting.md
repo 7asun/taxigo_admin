@@ -1,5 +1,8 @@
 # Storage Upload Troubleshooting: company-assets bucket
 
+> See [access-control.md](access-control.md) for the full role-based access control architecture.
+
+
 ## Current Status
 
 **Problem:** Logo upload to Supabase Storage fails with:

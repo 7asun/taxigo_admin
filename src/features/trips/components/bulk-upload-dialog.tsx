@@ -51,6 +51,7 @@ import {
   parseKtsCsvCell,
   resolveKtsDefault
 } from '@/features/trips/lib/resolve-kts-default';
+import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
@@ -1026,7 +1027,19 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             (row) => row.trip && !rowHasBlockingIssues(row)
           );
 
-          // Geocode pickup/dropoff addresses for successful outbound trips.
+          // ── Pass 0: Geocode + driving metrics ──────────────────────────────────
+          //
+          // All rows are geocoded in parallel (fastest for large CSVs). After
+          // lat/lng is resolved, driving metrics are fetched in the same pass via
+          // fetchDrivingMetrics → POST /api/trips/driving-metrics, which internally
+          // calls resolveDrivingMetricsWithCache (DB cache first, Google fallback).
+          //
+          // Concurrency note: rows with the same pickup/dropoff that have never been
+          // imported before will all miss the DB cache and hit Google simultaneously
+          // within this Promise.all. This is acceptable — the slight over-call only
+          // happens on the very first import of a route. All subsequent imports
+          // (including future bulk uploads and duplicates of these trips) will be
+          // served from the DB cache with zero Google calls.
           await Promise.all(
             successfulRows.map(async (row) => {
               if (!row.trip) return;
@@ -1127,6 +1140,23 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   typeof row.trip.dropoff_lng === 'number'
                 ) {
                   row.trip.has_missing_geodata = false;
+
+                  // Calculate driving distance/duration — uses cached DB lookup before calling Google
+                  try {
+                    const drivingMetrics = await fetchDrivingMetrics(
+                      row.trip.pickup_lat,
+                      row.trip.pickup_lng,
+                      row.trip.dropoff_lat,
+                      row.trip.dropoff_lng
+                    );
+                    if (drivingMetrics) {
+                      row.trip.driving_distance_km = drivingMetrics.distanceKm;
+                      row.trip.driving_duration_seconds =
+                        drivingMetrics.durationSeconds;
+                    }
+                  } catch {
+                    // Non-fatal: metrics will be missing but trip is still created.
+                  }
                 }
               } catch {
                 // Non-fatal: keep has_missing_geodata = true for later backfill.

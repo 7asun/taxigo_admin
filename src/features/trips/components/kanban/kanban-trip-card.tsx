@@ -283,30 +283,6 @@ export function TripCard({
             </div>
           </div>
 
-          {/* Stop-order input – only when inside a group */}
-          {isGrouped && (
-            <div
-              className='flex shrink-0 items-center'
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <input
-                type='number'
-                min={1}
-                value={stopOrderValue}
-                onChange={handleStopOrderChange}
-                onBlur={handleStopOrderBlur}
-                placeholder='–'
-                title='Reihenfolge in der Gruppe'
-                aria-label='Reihenfolge'
-                className={cn(
-                  'bg-muted/70 hover:bg-muted/40 focus:bg-muted/40 h-6 w-8 rounded border-0 p-0 text-center text-xs font-semibold outline-none focus-visible:ring-1 focus-visible:ring-offset-0',
-                  '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
-                )}
-              />
-            </div>
-          )}
-
           {/* Status badge */}
           {trip.status && (
             <Badge
@@ -385,6 +361,30 @@ export function TripCard({
             <Badge variant='destructive' className='px-1.5 py-0 text-[10px]'>
               Rollstuhl
             </Badge>
+          )}
+
+          {/* Stop-order input – only when inside a group, pushed to the right */}
+          {isGrouped && (
+            <div
+              className='ml-auto flex items-center'
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <input
+                type='number'
+                min={1}
+                value={stopOrderValue}
+                onChange={handleStopOrderChange}
+                onBlur={handleStopOrderBlur}
+                placeholder='–'
+                title='Reihenfolge in der Gruppe'
+                aria-label='Reihenfolge'
+                className={cn(
+                  'bg-muted/70 hover:bg-muted/40 focus:bg-muted/40 h-6 w-8 rounded border-0 p-0 text-center text-xs font-semibold outline-none focus-visible:ring-1 focus-visible:ring-offset-0',
+                  '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                )}
+              />
+            </div>
           )}
         </div>
       </Card>

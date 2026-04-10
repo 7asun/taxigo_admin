@@ -51,19 +51,94 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    // Reserve space: footer columns anchor at bottom 44pt; page line at 11pt; tall 3-col text grows upward
-    paddingBottom: 148,
+    // Reserve space for fixed footer (~bottom 28 + column block) + page line; avoid over-reserving vs body
+    paddingBottom: 100,
     paddingLeft: 45,
     paddingRight: 45,
     lineHeight: 1.45
   },
+  /** react-pdf-html — full width; parent `View` should use `wrap` for pagination. */
+  htmlBlock: {
+    width: '100%'
+  },
+  /** Angebot PDF: main column between header and fixed footer — no minHeight. */
+  angebotPageBody: {
+    flex: 1,
+    width: '100%'
+  },
+  /**
+   * Angebot PDF page shell — same typography as `page` but less bottom padding.
+   * Invoice footer needs `page.paddingBottom: 100`; offer footer is shorter, so 80pt suffices.
+   */
+  angebotPage: {
+    fontFamily: 'Helvetica',
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    paddingTop: 57,
+    paddingBottom: 80,
+    paddingLeft: 45,
+    paddingRight: 45,
+    lineHeight: 1.45
+  },
+  appendixPage: {
+    fontFamily: 'Helvetica',
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    paddingTop: 57,
+    paddingBottom: 100,
+    paddingLeft: 45,
+    paddingRight: 45,
+    lineHeight: 1.45
+  },
+  /** A4 landscape — same vertical rhythm as appendixPage; horizontal padding matches DIN margins. */
+  appendixPageLandscape: {
+    fontFamily: 'Helvetica',
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    paddingTop: 57,
+    paddingBottom: 100,
+    paddingLeft: 36,
+    paddingRight: 36,
+    lineHeight: 1.45
+  },
 
   // ── Kopf: Logo, Slogan darunter (links) | Meta + Steuer rechts; Absenderzeile; Empfänger (Fenster)
+  // marginBottom is the only vertical gap under the header when no Bezugszeichen bar is rendered;
+  // shrinking it tightens “Rechnung Nr.” for those invoices — balance with InvoicePdfCoverBody subject margin.
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 20
+    marginBottom: 2
+  },
+  /** Legacy / unused — reference bar styles live in invoice-pdf-reference-bar.tsx. */
+  referenceBarWrap: {
+    width: '100%',
+    marginTop: 8,
+    marginBottom: 8,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: PDF_COLORS.border,
+    paddingVertical: 6
+  },
+  referenceBarRow: {
+    flexDirection: 'row',
+    width: '100%'
+  },
+  referenceBarCell: {
+    flex: 1,
+    paddingHorizontal: 4,
+    minWidth: 0
+  },
+  referenceBarLabel: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    fontWeight: 'bold',
+    marginBottom: 2
+  },
+  referenceBarValue: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text
   },
   headerLeft: {
     width: '52%',
@@ -72,16 +147,16 @@ export const styles = StyleSheet.create({
   headerRight: {
     width: '44%',
     alignItems: 'stretch',
-    paddingTop: 14
+    paddingTop: 0
   },
   /** Logo oben, Slogan direkt darunter (nicht daneben) */
   brandStack: {
-    marginBottom: 10,
+    marginBottom: 12,
     width: '100%'
   },
   sloganBelowLogo: {
     fontSize: PDF_FONT_SIZES.base,
-    color: PDF_COLORS.muted,
+    color: PDF_COLORS.text,
     lineHeight: 1.4,
     // Keep the branding block compact so it fits comfortably in the header area.
     marginTop: 2,
@@ -97,11 +172,15 @@ export const styles = StyleSheet.create({
   /** DIN: kompakte Absenderzeile (fontSize dynamisch via fitSenderLine) */
   senderOneLine: {
     color: PDF_COLORS.muted,
+    paddingBottom: 3,
+    lineHeight: 1.35
+  },
+  /** Rule under Absenderzeile — separate View so react-pdf does not paint through address Text below */
+  senderOneLineRule: {
     borderBottomWidth: 0.4,
     borderBottomColor: PDF_COLORS.border,
-    paddingBottom: 3,
     marginBottom: 1,
-    lineHeight: 1.35
+    width: '100%'
   },
   recipientBlock: {
     width: '100%',
@@ -134,13 +213,59 @@ export const styles = StyleSheet.create({
     color: PDF_COLORS.text,
     marginBottom: 1
   },
+  /** Fensteranschrift: extra gap above Tel. — avoids tight kerning with PLZ/Ort line */
+  addressPhoneLine: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginTop: 2,
+    marginBottom: 1,
+    lineHeight: 1.5
+  },
+  secondaryLegalBlock: {
+    marginTop: 14,
+    paddingTop: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: PDF_COLORS.border,
+    width: '100%'
+  },
+  secondaryLegalLabel: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    marginBottom: 4
+  },
+  secondaryLegalName: {
+    fontSize: PDF_FONT_SIZES.base,
+    color: PDF_COLORS.text,
+    marginBottom: 2,
+    fontWeight: 'bold'
+  },
 
   // ── Logo (links oben im Kopf, nicht absolut)
+  /**
+   * LOGO RENDERING IN REACT-PDF — IMPORTANT
+   *
+   * Problem: Setting both `width` and `height` on <Image> with `objectFit: 'contain'`
+   * causes react-pdf to reserve the full declared box height as dead whitespace when
+   * the logo aspect ratio doesn't fill the box (e.g. a wide 4:1 logo in a square box).
+   * Additionally, `objectFit: 'contain'` centers the image vertically by default,
+   * creating a gap ABOVE the logo pixels inside the box.
+   *
+   * Solution:
+   * - Use `maxHeight` instead of `height` — box shrinks to actual image height
+   * - Use `alignSelf: 'flex-start'` — prevents vertical stretching in parent flex container
+   * - Use `objectPositionY: 0` — anchors image to top of box, whitespace falls below not above
+   * - Do NOT set a fixed `height` on the <Image> directly
+   *
+   * To resize the logo: adjust `width` and `maxHeight` together.
+   * Rule of thumb: maxHeight = width / expected_aspect_ratio
+   * Example: width=220, logo is ~4:1 → maxHeight=65–70
+   */
   logoLeft: {
-    width: 100,
-    // Keep logo height conservative so it doesn't steal vertical space from DIN header layout.
-    height: 40,
-    objectFit: 'contain'
+    width: 220,
+    maxHeight: 70,
+    objectFit: 'contain',
+    alignSelf: 'flex-start',
+    objectPositionY: 0
   },
 
   metaContainer: {
@@ -207,7 +332,7 @@ export const styles = StyleSheet.create({
   subject: {
     fontSize: PDF_FONT_SIZES.lg,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 10
+    marginBottom: 16
   },
   salutation: {
     fontSize: PDF_FONT_SIZES.base,
@@ -233,12 +358,14 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     lineHeight: 1.6,
     color: PDF_COLORS.text,
-    marginTop: 10
+    marginTop: 12
   },
 
   // ── Line items table ───────────────────────────────────────────────────────
+  // width: '100%' on header/row so @react-pdf flex rows span content width; required with dynamic col widths.
   tableHeader: {
     flexDirection: 'row',
+    width: '100%',
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1.5,
     borderBottomColor: '#94a3b8',
@@ -247,6 +374,7 @@ export const styles = StyleSheet.create({
   },
   tableRow: {
     flexDirection: 'row',
+    width: '100%',
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderBottomWidth: 0.5,
@@ -256,9 +384,6 @@ export const styles = StyleSheet.create({
     backgroundColor: PDF_COLORS.lightGray
   },
 
-  // Summary Table tweaks
-  colQty: { width: '9%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
-  colRoute: { width: '55%', paddingRight: 8 },
   routePrimary: {
     fontSize: PDF_FONT_SIZES.sm,
     color: PDF_COLORS.text,
@@ -271,14 +396,20 @@ export const styles = StyleSheet.create({
     marginTop: 2
   },
 
-  // Column widths (appendix widths must sum to 100%)
-  colPos: { width: '5%', fontSize: PDF_FONT_SIZES.sm },
-  colDate: { width: '10%', fontSize: PDF_FONT_SIZES.sm },
-  colDesc: { width: '38%', paddingRight: 8 },
-  colTime: { width: '8%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'center' },
-  colMwst: { width: '12%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colTotal: { width: '19%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
-  colGross: { width: '16%', fontSize: PDF_FONT_SIZES.sm, textAlign: 'right' },
+  /** Second line under street in appendix address cells */
+  appendixColAddrCity: {
+    fontSize: 6,
+    color: PDF_COLORS.muted,
+    marginTop: 1
+  },
+  appendixKtsNote: {
+    fontSize: PDF_FONT_SIZES.xs,
+    color: PDF_COLORS.muted,
+    marginTop: 2
+  },
+  appendixMoneyMuted: {
+    color: PDF_COLORS.muted
+  },
 
   tableHeaderText: {
     color: '#334155',
@@ -297,7 +428,7 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     width: '53%',
-    paddingVertical: 3,
+    paddingVertical: 1,
     paddingHorizontal: 8
   },
   totalsLabel: {
@@ -315,7 +446,7 @@ export const styles = StyleSheet.create({
   /** Space before grand total — no horizontal rule between totals “sections” */
   totalsGrandSpacer: {
     width: '53%',
-    height: 8,
+    height: 2,
     marginRight: 8
   },
   totalsGrandRow: {
@@ -392,7 +523,7 @@ export const styles = StyleSheet.create({
   paymentDetailRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginTop: 5,
+    marginTop: 2,
     paddingLeft: 2
   },
   paymentLabel: {
@@ -419,13 +550,7 @@ export const styles = StyleSheet.create({
   },
 
   appendixHeaderFixed: {
-    position: 'absolute',
-    top: 57,
-    left: 45,
-    right: 45
-  },
-  appendixContentSpacer: {
-    height: 94
+    marginBottom: 8
   },
 
   // ── Header Top Right ───────────────────────────────────────────────────────
@@ -464,23 +589,23 @@ export const styles = StyleSheet.create({
     fontFamily: 'Helvetica-Bold',
     fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.text,
-    marginBottom: 3
+    marginBottom: 1
   },
   footerNote: {
-    fontSize: 6,
+    fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.muted,
-    marginTop: 4
+    marginTop: 1
   },
   footerText: {
     fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.muted,
-    marginBottom: 2
+    marginBottom: 0.25
   },
   footerBold: {
     fontFamily: 'Helvetica-Bold',
     fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.text,
-    marginBottom: 2
+    marginBottom: 1
   },
   /**
    * Page line — use `top` + `minHeight`, not `bottom`: @react-pdf/renderer 4.3.x
