@@ -190,7 +190,7 @@ Fourth `main_layout` value: groups invoice cover rows by Abrechnungsart instead 
 
 #### Settings UI
 
-Route: `/dashboard/settings/pdf-vorlagen`
+Route: `/dashboard/abrechnung/vorlagen` (PDF & Layout tab; legacy `/dashboard/settings/pdf-vorlagen` redirects)
 
 - PanelList of all company Vorlagen (left) + editor panel (right)
 - dnd-kit sortable column chips for reordering

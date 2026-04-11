@@ -28,7 +28,11 @@ import {
 } from '../api/invoices.api';
 import { enrichInvoiceDetailWithColumnProfile } from '../lib/enrich-invoice-detail-column-profile';
 import { createStornorechnung } from '../lib/storno';
-import type { InvoiceDetail } from '../types/invoice.types';
+import type {
+  InvoiceDetail,
+  InvoiceStatus,
+  InvoiceWithPayer
+} from '../types/invoice.types';
 
 /**
  * Fetches the full invoice detail (header + line items + payer + company profile).
@@ -84,15 +88,47 @@ export function useInvoiceDetail(id: string | undefined) {
 export function useUpdateInvoiceStatus(invoiceId: string) {
   const queryClient = useQueryClient();
 
+  const listPredicate = {
+    predicate: (q: { queryKey: readonly unknown[] }) =>
+      q.queryKey[0] === 'invoices' && q.queryKey[1] === 'list'
+  };
+
   return useMutation({
     mutationFn: (status: InvoiceStatusTransition) =>
       updateInvoiceStatus(invoiceId, status),
 
-    onSuccess: (updatedInvoice) => {
-      // Invalidate list + this specific invoice's cache
-      queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
-      queryClient.invalidateQueries({ queryKey: invoiceKeys.full(invoiceId) });
+    onMutate: async (status) => {
+      await queryClient.cancelQueries({ queryKey: ['invoices'] });
+      const previousLists =
+        queryClient.getQueriesData<InvoiceWithPayer[]>(listPredicate);
+      queryClient.setQueriesData<InvoiceWithPayer[]>(listPredicate, (old) => {
+        if (!old) return old;
+        return old.map((inv) =>
+          inv.id === invoiceId
+            ? { ...inv, status: status as InvoiceStatus }
+            : inv
+        );
+      });
+      return { previousLists };
+    },
 
+    onError: (err: unknown, _status, context) => {
+      const previousLists = (
+        context as {
+          previousLists?: [
+            readonly unknown[],
+            InvoiceWithPayer[] | undefined
+          ][];
+        }
+      )?.previousLists;
+      previousLists?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+      const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      toast.error('Status konnte nicht aktualisiert werden: ' + message);
+    },
+
+    onSuccess: (updatedInvoice) => {
       const labels: Record<InvoiceStatusTransition, string> = {
         sent: 'als versendet markiert',
         paid: 'als bezahlt markiert',
@@ -103,9 +139,8 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
       );
     },
 
-    onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
-      toast.error('Status konnte nicht aktualisiert werden: ' + message);
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
     }
   });
 }

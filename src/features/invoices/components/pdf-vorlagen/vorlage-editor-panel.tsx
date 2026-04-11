@@ -59,6 +59,8 @@ import type {
   MainLayout,
   PdfVorlageRow
 } from '@/features/invoices/types/pdf-vorlage.types';
+import { useInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
+import { VorlageTextSection } from '@/features/invoices/components/vorlagen/vorlage-text-section';
 
 import { ColumnPicker } from './column-picker';
 import { SortablePdfColumnList } from './sortable-pdf-column-list';
@@ -73,12 +75,16 @@ interface VorlageEditorPanelProps {
     main_columns: PdfColumnKey[];
     appendix_columns: PdfColumnKey[];
     main_layout: MainLayout;
+    intro_block_id: string | null;
+    outro_block_id: string | null;
   }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSetDefault: (id: string) => Promise<void>;
   isSaving: boolean;
   isDeleting: boolean;
   isSettingDefault: boolean;
+  /** Unified Vorlagen page: jump to Textbausteine tab. */
+  onOpenTextBlocks?: () => void;
 }
 
 export function VorlageEditorPanel({
@@ -89,14 +95,20 @@ export function VorlageEditorPanel({
   onSetDefault,
   isSaving,
   isDeleting,
-  isSettingDefault
+  isSettingDefault,
+  onOpenTextBlocks
 }: VorlageEditorPanelProps) {
+  const { data: groupedTextBlocks, isLoading: isLoadingTextBlocks } =
+    useInvoiceTextBlocks();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [mainKeys, setMainKeys] = useState<PdfColumnKey[]>([]);
   const [appendixKeys, setAppendixKeys] = useState<PdfColumnKey[]>([]);
   const [mainOpen, setMainOpen] = useState(true);
   const [annOpen, setAnnOpen] = useState(true);
+  const [textOpen, setTextOpen] = useState(true);
+  const [introBlockId, setIntroBlockId] = useState<string | null>(null);
+  const [outroBlockId, setOutroBlockId] = useState<string | null>(null);
   const [mainLayout, setMainLayout] = useState<MainLayout>('grouped');
 
   const mainColumnPool =
@@ -110,6 +122,8 @@ export function VorlageEditorPanel({
       setMainKeys([]);
       setAppendixKeys([]);
       setMainLayout('grouped');
+      setIntroBlockId(null);
+      setOutroBlockId(null);
       return;
     }
     setName(vorlage.name);
@@ -117,6 +131,8 @@ export function VorlageEditorPanel({
     setMainLayout(vorlage.main_layout);
     setMainKeys([...vorlage.main_columns]);
     setAppendixKeys([...vorlage.appendix_columns]);
+    setIntroBlockId(vorlage.intro_block_id ?? null);
+    setOutroBlockId(vorlage.outro_block_id ?? null);
   }, [vorlage]);
 
   const getLabel = (key: string) => PDF_COLUMN_MAP[key]?.uiLabel ?? key;
@@ -144,7 +160,9 @@ export function VorlageEditorPanel({
       mainLayout !== vorlage.main_layout ||
       JSON.stringify(mainKeys) !== JSON.stringify(vorlage.main_columns) ||
       JSON.stringify(appendixKeys) !==
-        JSON.stringify(vorlage.appendix_columns));
+        JSON.stringify(vorlage.appendix_columns) ||
+      introBlockId !== (vorlage.intro_block_id ?? null) ||
+      outroBlockId !== (vorlage.outro_block_id ?? null));
 
   const handleSave = async () => {
     if (!vorlage) return;
@@ -154,7 +172,9 @@ export function VorlageEditorPanel({
       description: description.trim() || null,
       main_columns: mainKeys,
       appendix_columns: appendixKeys,
-      main_layout: mainLayout
+      main_layout: mainLayout,
+      intro_block_id: introBlockId,
+      outro_block_id: outroBlockId
     });
   };
 
@@ -377,6 +397,20 @@ export function VorlageEditorPanel({
             />
           </CollapsibleContent>
         </Collapsible>
+
+        <VorlageTextSection
+          introBlockId={introBlockId}
+          outroBlockId={outroBlockId}
+          textBlocks={groupedTextBlocks}
+          isLoading={isLoadingTextBlocks}
+          onChange={(field, id) => {
+            if (field === 'intro_block_id') setIntroBlockId(id);
+            else setOutroBlockId(id);
+          }}
+          onOpenTextBlocks={onOpenTextBlocks}
+          open={textOpen}
+          onOpenChange={setTextOpen}
+        />
       </PanelBody>
       <PanelFooter className='border-border flex shrink-0 flex-wrap items-center justify-between gap-2 border-t'>
         <AlertDialog>

@@ -716,8 +716,9 @@ export function PayerDetailsSheet({
                 </div>
                 <Button variant='outline' size='sm' asChild className='gap-1'>
                   <Link
-                    href='/dashboard/settings/invoice-templates'
+                    href='/dashboard/abrechnung/vorlagen'
                     target='_blank'
+                    rel='noopener noreferrer'
                   >
                     <ExternalLink className='h-3.5 w-3.5' />
                     Vorlagen verwalten

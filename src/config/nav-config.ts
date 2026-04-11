@@ -1,14 +1,28 @@
+/**
+ * nav-config.ts — App navigation tree
+ *
+ * Three item variants (Phase 10):
+ *
+ *  1. LEAF — url is a real page, no children. Entire row is a Link.
+ *     Example: Dashboard, Fahrten, Dokumentation.
+ *
+ *  2. COLLAPSE-ONLY GROUP — url === '#', has children. Parent row is a
+ *     CollapsibleTrigger only — clicking navigates nowhere.
+ *     Example: Account, Einstellungen.
+ *
+ *  3. EXPAND-AND-NAVIGATE — url is a real page AND has children.
+ *     Clicking the label navigates to the parent page.
+ *     A separate chevron-only button toggles the submenu.
+ *     Example: Abrechnung → /dashboard/abrechnung.
+ *
+ * Rules for adding new items:
+ *  - Billing-related items belong under Abrechnung (type 3), not Einstellungen.
+ *  - App-wide settings belong under Einstellungen (type 2).
+ *  - Shortcuts must not duplicate existing combinations.
+ */
+
 import { NavItem } from '@/types';
 
-/**
- * Navigation configuration
- * Used by sidebar and Cmd+K bar.
- *
- * HOW TO ADD A NEW NAV ITEM:
- *   - Top-level page: add a new object to this array (no `items`)
- *   - Sub-page in a group: add to the parent's `items` array
- *   - New group: add a new object with an `items` array
- */
 export const navItems: NavItem[] = [
   {
     title: 'Dashboard',
@@ -27,21 +41,33 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
-    // Abrechnung — dedicated section, independent from Account group
     title: 'Abrechnung',
-    url: '/dashboard/invoices',
+    url: '/dashboard/abrechnung',
     icon: 'billing',
     shortcut: ['a', 'a'],
     isActive: false,
-    items: []
-  },
-  {
-    title: 'Angebote',
-    url: '/dashboard/angebote',
-    icon: 'angebot',
-    shortcut: ['g', 'g'],
-    isActive: false,
-    items: []
+    items: [
+      {
+        title: 'Rechnungen',
+        url: '/dashboard/invoices',
+        shortcut: ['r', 'r']
+      },
+      {
+        title: 'Angebote',
+        url: '/dashboard/angebote',
+        shortcut: ['g', 'g']
+      },
+      {
+        title: 'Rechnungsempfänger',
+        url: '/dashboard/abrechnung/rechnungsempfaenger',
+        shortcut: ['r', 'e']
+      },
+      {
+        title: 'Vorlagen',
+        url: '/dashboard/abrechnung/vorlagen',
+        shortcut: ['v', 'v']
+      }
+    ]
   },
   {
     title: 'Account',
@@ -72,50 +98,26 @@ export const navItems: NavItem[] = [
         url: '/dashboard/fremdfirmen',
         icon: 'fremdfirma',
         shortcut: ['f', 'r']
-      },
-      {
-        title: 'Rechnungsempfänger',
-        url: '/dashboard/rechnungsempfaenger',
-        icon: 'billing',
-        shortcut: ['r', 'e']
       }
     ]
   },
   {
-    // Einstellungen group — standalone from Abrechnung, extensible via items[]
-    // To add a new settings sub-page: add an entry to items[] below.
     title: 'Einstellungen',
     url: '#',
     icon: 'settings',
     isActive: false,
     items: [
       {
-        // Company profile: legal name, tax IDs, bank details, logo
-        // Data entered here is referenced by all invoices automatically.
         title: 'Unternehmen',
         url: '/dashboard/settings/company',
         icon: 'billing',
         shortcut: ['e', 'u']
       },
       {
-        // Invoice text templates: intro/outro blocks (Baukasten system)
-        title: 'Rechnungsvorlagen',
-        url: '/dashboard/settings/invoice-templates',
-        icon: 'post',
-        shortcut: ['r', 'v']
-      },
-      {
-        // Admin tool: find and bulk-assign billing variants to trips without one
         title: 'Unzugeordnete Fahrten',
         url: '/dashboard/settings/unzugeordnete-fahrten',
         icon: 'warning',
         shortcut: ['u', 'f']
-      },
-      {
-        title: 'PDF-Vorlagen',
-        url: '/dashboard/settings/pdf-vorlagen',
-        icon: 'post',
-        shortcut: ['p', 'd']
       }
     ]
   },

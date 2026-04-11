@@ -38,6 +38,7 @@ import {
 import { InvoiceActions } from './invoice-actions';
 import { InvoiceEmailDraft } from './invoice-email-draft';
 import { InvoicePdfDocument } from '../invoice-pdf/InvoicePdfDocument';
+import { recipientFromRechnungsempfaengerSnapshot } from '../invoice-pdf/lib/rechnungsempfaenger-pdf';
 import { generatePaymentQrDataUrl } from '../invoice-pdf/generate-payment-qr-data-url';
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
 import { usePathname } from 'next/navigation';
@@ -146,6 +147,58 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
         }
       : invoice;
 
+  const isPerClientBilled = invoice.mode === 'per_client' && !!invoice.client;
+  const snapPrimary = recipientFromRechnungsempfaengerSnapshot(
+    invoice.rechnungsempfaenger_snapshot
+  );
+  const anName: string = (() => {
+    if (isPerClientBilled) {
+      if (snapPrimary) return snapPrimary.displayName?.trim() || '—';
+      return (
+        invoice.client!.company_name?.trim() ||
+        [invoice.client!.first_name, invoice.client!.last_name]
+          .filter(Boolean)
+          .join(' ') ||
+        '—'
+      );
+    }
+    if (snapPrimary) return snapPrimary.displayName?.trim() || '—';
+    return invoice.payer?.name || '—';
+  })();
+  const anStreet: string | null = (() => {
+    if (isPerClientBilled) {
+      if (snapPrimary) return snapPrimary.street || null;
+      return (
+        `${invoice.client!.street ?? ''} ${invoice.client!.street_number ?? ''}`.trim() ||
+        null
+      );
+    }
+    if (snapPrimary) return snapPrimary.street || null;
+    return invoice.payer?.street
+      ? `${invoice.payer.street} ${invoice.payer.street_number ?? ''}`.trim()
+      : null;
+  })();
+  const anCity: string | null = (() => {
+    if (isPerClientBilled) {
+      if (snapPrimary)
+        return (
+          `${snapPrimary.zipCode ?? ''} ${snapPrimary.city ?? ''}`.trim() ||
+          null
+        );
+      return (
+        `${invoice.client!.zip_code ?? ''} ${invoice.client!.city ?? ''}`.trim() ||
+        null
+      );
+    }
+    if (snapPrimary)
+      return (
+        `${snapPrimary.zipCode ?? ''} ${snapPrimary.city ?? ''}`.trim() || null
+      );
+    return invoice.payer?.zip_code
+      ? `${invoice.payer.zip_code} ${invoice.payer.city ?? ''}`.trim()
+      : null;
+  })();
+
   return (
     <div className='space-y-6'>
       {/* ── Back + title row ─────────────────────────────────────────────── */}
@@ -203,23 +256,11 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
               <p className='text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase'>
                 An
               </p>
-              {invoice.payer ? (
-                <div className='text-sm leading-relaxed'>
-                  <p className='font-semibold'>{invoice.payer.name}</p>
-                  {invoice.payer.street && (
-                    <p>
-                      {invoice.payer.street} {invoice.payer.street_number}
-                    </p>
-                  )}
-                  {invoice.payer.zip_code && (
-                    <p>
-                      {invoice.payer.zip_code} {invoice.payer.city}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className='text-muted-foreground text-sm'>—</p>
-              )}
+              <div className='text-sm leading-relaxed'>
+                <p className='font-semibold'>{anName}</p>
+                {anStreet && <p>{anStreet}</p>}
+                {anCity && <p>{anCity}</p>}
+              </div>
             </div>
           </div>
 

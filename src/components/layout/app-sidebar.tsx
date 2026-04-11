@@ -30,11 +30,7 @@ import {
 import { navItems } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useFilteredNavItems } from '@/hooks/use-nav';
-import {
-  IconBell,
-  IconChevronRight,
-  IconChevronsDown
-} from '@tabler/icons-react';
+import { IconChevronRight, IconChevronsDown } from '@tabler/icons-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
@@ -42,6 +38,7 @@ import { Icons } from '../icons';
 import { UserNav } from './user-nav';
 import { ThemeModeToggle } from '../themes/theme-mode-toggle';
 import { ThemeSelector } from '../themes/theme-selector';
+import { SidebarExpandNavItem } from './sidebar-expand-nav-item';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -59,9 +56,47 @@ export default function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Overview</SidebarGroupLabel>
           <SidebarMenu>
+            {/*
+             * Item render variants — three cases:
+             * 1) LEAF: Link + SidebarMenuButton.
+             * 2) COLLAPSE-ONLY (url === '#'): CollapsibleTrigger on whole row (Account, Einstellungen).
+             * 3) EXPAND-AND-NAVIGATE: label Link + chevron SidebarMenuAction as CollapsibleTrigger (Abrechnung).
+             */}
             {itemsToShow.map((item) => {
               const Icon = item.icon ? Icons[item.icon] : Icons.logo;
-              return item?.items && item?.items?.length > 0 ? (
+              const hasChildren = (item.items?.length ?? 0) > 0;
+              const isExpandAndNavigate =
+                !!item.url && item.url !== '#' && hasChildren;
+
+              if (!hasChildren) {
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={item.title}
+                      isActive={pathname === item.url}
+                      id={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Link href={item.url}>
+                        <Icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              }
+
+              if (isExpandAndNavigate) {
+                return (
+                  <SidebarExpandNavItem
+                    key={item.title}
+                    item={item}
+                    Icon={Icon}
+                  />
+                );
+              }
+
+              return (
                 <Collapsible
                   key={item.title}
                   asChild
@@ -97,20 +132,6 @@ export default function AppSidebar() {
                     </CollapsibleContent>
                   </SidebarMenuItem>
                 </Collapsible>
-              ) : (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={item.title}
-                    isActive={pathname === item.url}
-                    id={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
-                  >
-                    <Link href={item.url}>
-                      <Icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
               );
             })}
           </SidebarMenu>

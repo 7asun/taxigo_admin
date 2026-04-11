@@ -120,10 +120,13 @@ interface Step4ConfirmProps {
   missingPrices: boolean;
   isCreating: boolean;
   onConfirm: (values: Step4Values) => void;
-  /** Payer's default intro block (pre-selected if exists) */
-  payerIntroBlockId?: string | null;
-  /** Payer's default outro block (pre-selected if exists) */
-  payerOutroBlockId?: string | null;
+  /**
+   * Phase 10: resolved default intro block (Vorlage → payer → company default).
+   * Synced into the form when this value changes.
+   */
+  resolvedIntroBlockId?: string | null;
+  /** Same chain as resolvedIntroBlockId for the outro block. */
+  resolvedOutroBlockId?: string | null;
   /** Katalog-Auflösung (Variante → Familie → Kostenträger) aus der ersten geladenen Fahrt */
   defaultRechnungsempfaengerId?: string | null;
   /** Gleiche ID wie Katalog-Default — für „Manuell überschrieben“ */
@@ -151,8 +154,8 @@ export function Step4Confirm({
   missingPrices,
   isCreating,
   onConfirm,
-  payerIntroBlockId,
-  payerOutroBlockId,
+  resolvedIntroBlockId,
+  resolvedOutroBlockId,
   defaultRechnungsempfaengerId,
   catalogRecipientId = defaultRechnungsempfaengerId ?? null,
   lineItems,
@@ -170,8 +173,8 @@ export function Step4Confirm({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(step4Schema) as any,
     defaultValues: {
-      intro_block_id: payerIntroBlockId || 'none',
-      outro_block_id: payerOutroBlockId || 'none',
+      intro_block_id: resolvedIntroBlockId || 'none',
+      outro_block_id: resolvedOutroBlockId || 'none',
       payment_due_days: defaultPaymentDays,
       rechnungsempfaenger_id:
         defaultRechnungsempfaengerId != null &&
@@ -180,6 +183,21 @@ export function Step4Confirm({
           : 'none'
     }
   });
+
+  useEffect(() => {
+    form.setValue(
+      'intro_block_id',
+      resolvedIntroBlockId && resolvedIntroBlockId.length > 0
+        ? resolvedIntroBlockId
+        : 'none'
+    );
+    form.setValue(
+      'outro_block_id',
+      resolvedOutroBlockId && resolvedOutroBlockId.length > 0
+        ? resolvedOutroBlockId
+        : 'none'
+    );
+  }, [resolvedIntroBlockId, resolvedOutroBlockId, form]);
 
   const empSelectRaw = useWatch({
     control: form.control,

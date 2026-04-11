@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 export interface StatsCardProps {
   title: string;
   value: string | number;
+  /** Shown top-right on the same row as the title (e.g. formatNumber count). */
+  countLabel?: string;
   description?: string;
   trend?: {
     value: string | number;
@@ -30,20 +32,32 @@ export interface StatsCardProps {
 export function StatsCard({
   title,
   value,
+  countLabel,
   description,
   trend,
   isLoading,
   className
 }: StatsCardProps) {
+  const hasCountRow = countLabel !== undefined;
+
   if (isLoading) {
     return (
       <Card className={cn('@container/card', className)}>
         <CardHeader>
-          <Skeleton className='h-4 w-24' />
+          {hasCountRow ? (
+            <div className='flex min-w-0 items-center justify-between gap-2'>
+              <Skeleton className='h-4 w-28' />
+              <Skeleton className='h-4 w-10 shrink-0' />
+            </div>
+          ) : (
+            <Skeleton className='h-4 w-24' />
+          )}
           <Skeleton className='mt-2 h-8 w-32' />
-          <div className='mt-2'>
-            <Skeleton className='h-5 w-16' />
-          </div>
+          {!hasCountRow ? (
+            <div className='mt-2'>
+              <Skeleton className='h-5 w-16' />
+            </div>
+          ) : null}
         </CardHeader>
         <CardFooter className='flex-col items-start gap-1.5'>
           <Skeleton className='h-3 w-32' />
@@ -56,21 +70,37 @@ export function StatsCard({
   return (
     <Card className={cn('@container/card', className)}>
       <CardHeader>
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-          {value}
-        </CardTitle>
-        {trend && (
-          <CardAction>
-            <Badge variant='outline' className='gap-1'>
-              {trend.isUp ? (
-                <IconTrendingUp className='size-3' />
-              ) : (
-                <IconTrendingDown className='size-3' />
-              )}
-              {trend.value}
-            </Badge>
-          </CardAction>
+        {hasCountRow ? (
+          <>
+            <div className='flex min-w-0 items-center justify-between gap-2'>
+              <CardDescription className='min-w-0'>{title}</CardDescription>
+              <span className='text-muted-foreground shrink-0 text-sm font-semibold tabular-nums'>
+                {countLabel}
+              </span>
+            </div>
+            <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
+              {value}
+            </CardTitle>
+          </>
+        ) : (
+          <>
+            <CardDescription>{title}</CardDescription>
+            <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
+              {value}
+            </CardTitle>
+            {trend && (
+              <CardAction>
+                <Badge variant='outline' className='gap-1'>
+                  {trend.isUp ? (
+                    <IconTrendingUp className='size-3' />
+                  ) : (
+                    <IconTrendingDown className='size-3' />
+                  )}
+                  {trend.value}
+                </Badge>
+              </CardAction>
+            )}
+          </>
         )}
       </CardHeader>
       {(description || trend?.label) && (

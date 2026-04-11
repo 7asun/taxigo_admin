@@ -1,6 +1,8 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { InvoiceListTable } from '@/features/invoices/components/invoice-list-table';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export const metadata: Metadata = {
   title: 'Rechnungen | Taxigo',
@@ -30,8 +32,9 @@ export default async function InvoicesPage() {
           <h2 className='text-3xl font-bold tracking-tight'>Rechnungen</h2>
         </div>
 
-        {/* The table handles its own data fetching via React Query */}
-        <InvoiceListTable payers={payers ?? []} />
+        <Suspense fallback={<Skeleton className='h-96 w-full' />}>
+          <InvoiceListTable payers={payers ?? []} />
+        </Suspense>
       </div>
     </div>
   );

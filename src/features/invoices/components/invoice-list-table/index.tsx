@@ -14,7 +14,7 @@
  * The table itself uses the column definitions from ./columns.tsx.
  */
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useReactTable,
   getCoreRowModel,
@@ -22,7 +22,7 @@ import {
   type ColumnFiltersState,
   getFilteredRowModel
 } from '@tanstack/react-table';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -76,10 +76,34 @@ interface InvoiceListTableProps {
  */
 export function InvoiceListTable({ payers }: InvoiceListTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const hydratedFromUrl = useRef(false);
 
   // ── Filter state ─────────────────────────────────────────────────────────
   const [filter, setFilter] = useState<InvoiceListFilter>({});
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+
+  // Phase 10: deep-links from Abrechnung KPI cards (?status=sent&bucket=open|overdue|this_month).
+  useEffect(() => {
+    if (hydratedFromUrl.current) return;
+    hydratedFromUrl.current = true;
+    const st = searchParams.get('status');
+    const bucketRaw = searchParams.get('bucket');
+    const kpi_bucket =
+      bucketRaw === 'open' ||
+      bucketRaw === 'overdue' ||
+      bucketRaw === 'this_month'
+        ? bucketRaw
+        : undefined;
+    setFilter((f) => ({
+      ...f,
+      status:
+        st && ['draft', 'sent', 'paid', 'cancelled'].includes(st)
+          ? st
+          : undefined,
+      kpi_bucket
+    }));
+  }, [searchParams]);
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const { invoices, isLoading } = useInvoices(filter);
@@ -146,10 +170,12 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
       <div className='flex flex-wrap items-center gap-3'>
         {/* Status filter */}
         <Select
+          value={filter.status ?? 'all'}
           onValueChange={(val) =>
             setFilter((f) => ({
               ...f,
-              status: val === 'all' ? undefined : val
+              status: val === 'all' ? undefined : val,
+              kpi_bucket: undefined
             }))
           }
         >
