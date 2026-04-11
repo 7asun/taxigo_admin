@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-time-picker';
 import type { PricingStrategy } from '@/features/invoices/types/pricing.types';
 import type { BillingPricingRuleRow } from '@/features/payers/api/billing-pricing-rules.api';
 import {
@@ -63,6 +64,10 @@ export function Step2RuleConfig({
   const strategy = watch('strategy') as PricingStrategy;
   const holidaysWatch = watch('holidays');
 
+  const holidayPickerValue = /^\d{4}-\d{2}-\d{2}$/.test(holidayInput)
+    ? holidayInput
+    : '';
+
   return (
     <div className='space-y-4'>
       {strategy === 'tiered_km' && (
@@ -85,69 +90,78 @@ export function Step2RuleConfig({
               className='grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2'
             >
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`tier-${idx}-from`}>
-                  von km
-                </Label>
+                <Label className='text-muted-foreground text-xs'>von km</Label>
                 <Input
-                  id={`tier-${idx}-from`}
                   type='number'
-                  step='0.1'
+                  step='0.01'
+                  min={0}
                   {...register(`tiers.${idx}.from_km`, { valueAsNumber: true })}
+                  onFocus={(e) => e.target.select()}
+                  disabled={busy}
                 />
               </div>
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`tier-${idx}-to`}>
-                  bis km
-                </Label>
+                <Label className='text-muted-foreground text-xs'>bis km</Label>
                 <Controller
                   control={control}
                   name={`tiers.${idx}.to_km`}
                   render={({ field: f }) => (
                     <Input
-                      id={`tier-${idx}-to`}
+                      type='number'
+                      step='0.01'
+                      min={0}
                       placeholder='∞'
-                      value={
-                        f.value === null || f.value === undefined
-                          ? ''
-                          : String(f.value)
-                      }
+                      value={f.value ?? ''}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const t = e.target.value.trim();
                         f.onChange(
                           t === '' ? null : parseFloat(t.replace(',', '.'))
                         );
                       }}
+                      disabled={busy}
                     />
                   )}
                 />
               </div>
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`tier-${idx}-ppk`}>
+                <Label className='text-muted-foreground text-xs'>
                   €/km netto
                 </Label>
-                <Input
-                  id={`tier-${idx}-ppk`}
-                  type='number'
-                  step='0.01'
-                  {...register(`tiers.${idx}.price_per_km`, {
-                    valueAsNumber: true
-                  })}
+                <Controller
+                  control={control}
+                  name={`tiers.${idx}.price_per_km`}
+                  render={({ field: f }) => {
+                    const formatted = Number.isFinite(f.value)
+                      ? `${eur.format(f.value)} /km`
+                      : '';
+                    return (
+                      <Input
+                        type='number'
+                        step='0.01'
+                        min={0}
+                        placeholder={formatted || '0,00 € /km'}
+                        value={f.value === 0 ? '' : (f.value ?? '')}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const t = e.target.value.trim();
+                          f.onChange(
+                            t === '' ? 0 : parseFloat(t.replace(',', '.'))
+                          );
+                        }}
+                        disabled={busy}
+                      />
+                    );
+                  }}
                 />
-                <p className='text-muted-foreground text-xs'>
-                  {eur.format(
-                    Number.isFinite(watch(`tiers.${idx}.price_per_km`))
-                      ? watch(`tiers.${idx}.price_per_km`)
-                      : 0
-                  )}{' '}
-                  pro km
-                </p>
               </div>
               <Button
                 type='button'
                 variant='ghost'
                 size='icon'
                 onClick={() => tierFA.remove(idx)}
-                disabled={tierFA.fields.length <= 1}
+                disabled={tierFA.fields.length <= 1 || busy}
+                className='mb-0.5'
               >
                 <Trash2 className='h-4 w-4' />
               </Button>
@@ -208,70 +222,80 @@ export function Step2RuleConfig({
               className='grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2'
             >
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`km-tier-${idx}-from`}>
-                  von km
-                </Label>
+                <Label className='text-muted-foreground text-xs'>von km</Label>
                 <Input
-                  id={`km-tier-${idx}-from`}
                   type='number'
+                  step='0.01'
+                  min={0}
                   {...register(`km_tiers.${idx}.from_km`, {
                     valueAsNumber: true
                   })}
+                  onFocus={(e) => e.target.select()}
+                  disabled={busy}
                 />
               </div>
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`km-tier-${idx}-to`}>
-                  bis km
-                </Label>
+                <Label className='text-muted-foreground text-xs'>bis km</Label>
                 <Controller
                   control={control}
                   name={`km_tiers.${idx}.to_km`}
                   render={({ field: f }) => (
                     <Input
-                      id={`km-tier-${idx}-to`}
-                      placeholder='bis'
-                      value={
-                        f.value === null || f.value === undefined
-                          ? ''
-                          : String(f.value)
-                      }
+                      type='number'
+                      step='0.01'
+                      min={0}
+                      placeholder='∞'
+                      value={f.value ?? ''}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const t = e.target.value.trim();
                         f.onChange(
                           t === '' ? null : parseFloat(t.replace(',', '.'))
                         );
                       }}
+                      disabled={busy}
                     />
                   )}
                 />
               </div>
               <div className='space-y-1'>
-                <Label className='text-xs' htmlFor={`km-tier-${idx}-ppk`}>
+                <Label className='text-muted-foreground text-xs'>
                   €/km netto
                 </Label>
-                <Input
-                  id={`km-tier-${idx}-ppk`}
-                  type='number'
-                  step='0.01'
-                  {...register(`km_tiers.${idx}.price_per_km`, {
-                    valueAsNumber: true
-                  })}
+                <Controller
+                  control={control}
+                  name={`km_tiers.${idx}.price_per_km`}
+                  render={({ field: f }) => {
+                    const formatted = Number.isFinite(f.value)
+                      ? `${eur.format(f.value)} /km`
+                      : '';
+                    return (
+                      <Input
+                        type='number'
+                        step='0.01'
+                        min={0}
+                        placeholder={formatted || '0,00 € /km'}
+                        value={f.value === 0 ? '' : (f.value ?? '')}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const t = e.target.value.trim();
+                          f.onChange(
+                            t === '' ? 0 : parseFloat(t.replace(',', '.'))
+                          );
+                        }}
+                        disabled={busy}
+                      />
+                    );
+                  }}
                 />
-                <p className='text-muted-foreground text-xs'>
-                  {eur.format(
-                    Number.isFinite(watch(`km_tiers.${idx}.price_per_km`))
-                      ? watch(`km_tiers.${idx}.price_per_km`)
-                      : 0
-                  )}
-                  /km
-                </p>
               </div>
               <Button
                 type='button'
                 variant='ghost'
                 size='icon'
                 onClick={() => kmTierFA.remove(idx)}
-                disabled={kmTierFA.fields.length <= 1}
+                disabled={kmTierFA.fields.length <= 1 || busy}
+                className='mb-0.5'
               >
                 <Trash2 className='h-4 w-4' />
               </Button>
@@ -394,13 +418,15 @@ export function Step2RuleConfig({
             <Label htmlFor='holiday_date_input'>
               Feiertage (Kalenderdatum Berlin)
             </Label>
-            <div className='flex gap-2'>
-              <Input
-                id='holiday_date_input'
-                placeholder='JJJJ-MM-TT'
-                value={holidayInput}
-                onChange={(e) => setHolidayInput(e.target.value)}
-              />
+            <div className='flex items-end gap-2'>
+              <div className='min-w-0 flex-1'>
+                <DatePicker
+                  id='holiday_date_input'
+                  value={holidayPickerValue}
+                  onChange={setHolidayInput}
+                  disabled={busy}
+                />
+              </div>
               <Button
                 type='button'
                 variant='secondary'
@@ -410,7 +436,7 @@ export function Step2RuleConfig({
               </Button>
             </div>
             <p className='text-muted-foreground text-xs'>
-              Datum im Format JJJJ-MM-TT eingeben und hinzufügen.
+              Kalenderdatum wählen und hinzufügen (Speicherung als JJJJ-MM-TT).
             </p>
             <ul className='space-y-1 text-sm'>
               {holidaysWatch.map((h, i) => (
