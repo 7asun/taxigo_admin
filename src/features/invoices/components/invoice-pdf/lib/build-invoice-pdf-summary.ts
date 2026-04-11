@@ -1,18 +1,35 @@
 /**
- * Builds grouped route rows for the invoice PDF cover table and direction
- * labels (Hinfahrt / Rückfahrt) shared with the appendix.
+ * Builds `InvoicePdfSummaryRow` objects for grouped, single-row, and
+ * billing-type-grouped PDF layouts.
  *
- * CONSOLIDATION LOGIC:
- * - Routes are matched by canonicalized addresses ONLY (not by tax rate)
- * - This ensures Hinfahrt and Rückfahrt with the same addresses consolidate properly
- * - Tax rate consistency is validated after route pairing is determined
- * - Quantities are aggregated per route pair
+ * ## Gross-anchor net display contract
  *
- * Counts rides per route key using line-item index order (firstSeen), not
- * `quantity`, because quantity can represent billing units rather than trips.
+ * For `client_price_tag` lines the gross is the pricing anchor. Displayed net
+ * on summary rows is therefore back-derived from the accumulated gross:
  *
- * Phase 8: per-group `total_km`, `approach_costs_net`, `transport_costs_net`, `total_costs_gross`
- * use line net from `lineNetEurForPdfLineItem` (base + approach) and column `approach_fee_net`.
+ *   displayed_net = round(totalGross / (1 + tax_rate))
+ *
+ * This is correct for both new invoices (unrounded `unit_price_net`) and
+ * pre-fix invoices (`unit_price` frozen as `round(gross / (1+rate))` in DB),
+ * because `total_price` per line item was always written as `gross × qty`
+ * (plus grossed-up approach) by `insertLineItems` — even before the resolver fix.
+ *
+ * Do **not** replace this with `SUM(unit_price × qty)` on the summary row — that
+ * reintroduces cent drift for pre-fix invoices (e.g. 13 × 30.47 = 396.11 ≠ 396.07).
+ *
+ * See [docs/pricing-engine-3.md](../../../../../../docs/pricing-engine-3.md) — subsection
+ * **Why back-derivation is used at render time**.
+ *
+ * ---
+ *
+ * **Route consolidation:** routes are matched by canonicalized addresses ONLY (not by tax rate)
+ * so Hinfahrt/Rückfahrt pairs consolidate; tax rate consistency is validated after pairing.
+ *
+ * **Trip count:** uses line-item index order (`firstSeen`), not `quantity`, because quantity can
+ * represent billing units (e.g. km) rather than trips.
+ *
+ * **Brutto column:** `total_costs_gross` sums `lineGrossEurForPdfLineItem` (reads stored line
+ * `invoice_line_items.total_price` per row).
  */
 
 import type {
@@ -20,7 +37,10 @@ import type {
   InvoiceLineItemRow
 } from '../../../types/invoice.types';
 
-import { lineNetEurForPdfLineItem } from './invoice-pdf-line-amounts';
+import {
+  lineGrossEurForPdfLineItem,
+  lineNetEurForPdfLineItem
+} from './invoice-pdf-line-amounts';
 
 import {
   buildInvoicePdfPlaceHintMap,
@@ -66,7 +86,7 @@ export interface InvoicePdfSummaryRow {
   approach_costs_net: number;
   /** Base transport net = total_price − approach_costs_net. */
   transport_costs_net: number;
-  /** Gross for group = total net × (1 + tax_rate). */
+  /** Sum of per-line stored gross (`total_price`) for the group — not net × (1 + tax_rate). */
   total_costs_gross: number;
 }
 
@@ -90,6 +110,8 @@ interface RouteGroupAgg {
   has_null_km: boolean;
   /** Sum of `approach_fee_net` (null treated as 0). */
   approach_costs_net: number;
+  /** Running sum of line gross via `lineGrossEurForPdfLineItem` (stored `total_price`). */
+  total_gross: number;
   /** Index of first line item in this group — determines Hinfahrt vs Rückfahrt */
   firstSeen: number;
 }
@@ -111,10 +133,15 @@ function summaryRowFromAgg(
   idx: number,
   directionLabel: InvoicePdfRouteDirectionLabel
 ): InvoicePdfSummaryRow {
-  const totalNet = Math.round(g.total_price * 100) / 100;
+  const totalGross = Math.round(g.total_gross * 100) / 100;
   const approachNet = Math.round(g.approach_costs_net * 100) / 100;
+  // Derive net from gross anchor — do not use g.total_price (sum of stored
+  // unit_price × qty) because pre-fix invoices have rounded unit_price values
+  // that accumulate drift (e.g. 13 × 30.47 = 396.11 instead of 396.07).
+  // Back-deriving from the correct gross is the standard accounting practice:
+  // displayed_net = round(gross / (1 + tax_rate)).
+  const totalNet = Math.round((totalGross / (1 + g.tax_rate)) * 100) / 100;
   const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
-  const totalGross = Math.round(totalNet * (1 + g.tax_rate) * 100) / 100;
   const descriptionPrimary = `${directionLabel}: ${g.from.primary} nach ${g.to.primary}`;
   return {
     id: g.id,
@@ -175,6 +202,7 @@ export function buildInvoicePdfSummary(
         total_km: 0,
         has_null_km: false,
         approach_costs_net: 0,
+        total_gross: 0,
         firstSeen: idx
       };
     }
@@ -182,6 +210,7 @@ export function buildInvoicePdfSummary(
     const group = routeGroups[routeKey];
     group.count += 1;
     group.total_price += lineNetEurForPdfLineItem(item);
+    group.total_gross += lineGrossEurForPdfLineItem(item);
     group.approach_costs_net += item.approach_fee_net ?? 0;
     if (item.distance_km == null) {
       group.has_null_km = true;
@@ -264,7 +293,7 @@ export function buildInvoicePdfSingleRow(
   }
 
   let count = 0;
-  let totalNet = 0;
+  let totalGrossAccum = 0;
   let approachNet = 0;
   let totalKm = 0;
   let hasNullKm = false;
@@ -272,7 +301,7 @@ export function buildInvoicePdfSingleRow(
 
   for (const item of lineItems) {
     count += 1;
-    totalNet += lineNetEurForPdfLineItem(item);
+    totalGrossAccum += lineGrossEurForPdfLineItem(item);
     approachNet += item.approach_fee_net ?? 0;
     if (item.distance_km == null) {
       hasNullKm = true;
@@ -281,10 +310,10 @@ export function buildInvoicePdfSingleRow(
     }
   }
 
-  totalNet = Math.round(totalNet * 100) / 100;
+  const totalGross = Math.round(totalGrossAccum * 100) / 100;
+  const totalNet = Math.round((totalGross / (1 + tax_rate)) * 100) / 100;
   approachNet = Math.round(approachNet * 100) / 100;
   const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
-  const totalGross = Math.round(totalNet * (1 + tax_rate) * 100) / 100;
 
   return {
     id: 'summary-single',
@@ -345,6 +374,7 @@ export function buildInvoicePdfGroupedByBillingType(
     label: string;
     count: number;
     total_price: number;
+    total_gross: number;
     total_km: number;
     has_null_km: boolean;
     approach_costs_net: number;
@@ -366,6 +396,7 @@ export function buildInvoicePdfGroupedByBillingType(
         label,
         count: 0,
         total_price: 0,
+        total_gross: 0,
         total_km: 0,
         has_null_km: false,
         approach_costs_net: 0,
@@ -376,6 +407,7 @@ export function buildInvoicePdfGroupedByBillingType(
     const g = groups[key];
     g.count += 1;
     g.total_price += lineNetEurForPdfLineItem(item);
+    g.total_gross += lineGrossEurForPdfLineItem(item);
     g.approach_costs_net += item.approach_fee_net ?? 0;
     if (item.distance_km == null) {
       g.has_null_km = true;
@@ -394,10 +426,10 @@ export function buildInvoicePdfGroupedByBillingType(
       return labelCmp !== 0 ? labelCmp : a.tax_rate - b.tax_rate;
     })
     .map((g, i) => {
-      const totalNet = Math.round(g.total_price * 100) / 100;
+      const totalGross = Math.round(g.total_gross * 100) / 100;
       const approachNet = Math.round(g.approach_costs_net * 100) / 100;
+      const totalNet = Math.round((totalGross / (1 + g.tax_rate)) * 100) / 100;
       const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
-      const totalGross = Math.round(totalNet * (1 + g.tax_rate) * 100) / 100;
       return {
         id: `billing-type-group-${i}`,
         position: i + 1,

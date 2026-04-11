@@ -14,6 +14,8 @@ Rule selection mirrors KTS-style precedence: see `src/features/invoices/lib/reso
 
 ## Rounding
 
+Gross-anchor (`client_price_tag`) vs net-anchor strategies, `insertLineItems`, and `calculateInvoiceTotals`: **[pricing-engine-3.md](pricing-engine-3.md)**.
+
 For `tiered_km` and `fixed_below_threshold_then_km`, segment amounts use raw `km × ratePerKm`, then **one** `Math.round(total * 100) / 100` per line (not per segment). Implemented in `src/features/invoices/lib/resolve-trip-price.ts` (`tieredNetTotal`).
 
 ## Time-based rules

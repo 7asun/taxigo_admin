@@ -292,6 +292,9 @@ export const PDF_COLUMN_CATALOG: PdfColumnDef[] = [
     align: 'right',
     format: 'percent'
   },
+  // On grouped summary rows, dataField 'total_price' resolves to aggregated net
+  // (InvoicePdfSummaryRow.total_price). Use the 'total_gross' column key instead
+  // if you need gross per group in a grouped Vorlage.
   {
     key: 'gross_price',
     label: 'Brutto',

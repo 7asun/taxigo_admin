@@ -237,6 +237,11 @@ export interface RenderCellValueOptions {
 /**
  * @param item — must already be passed through coerceLineItemJsonbSnapshots when
  *   snapshots may be JSON strings (cover body + appendix do this per row).
+ *
+ * **Brutto (flat + appendix):** the `gross_price` catalog column uses `dataField: 'total_price'`
+ * only — the persisted line gross, not a recomputation from `unit_price`. Grouped cover Brutto
+ * uses `InvoicePdfSummaryRow.total_costs_gross` from `build-invoice-pdf-summary` (sum of line
+ * `total_price` values).
  */
 export function renderCellValue(
   item: InvoiceLineItemRow,

@@ -36,6 +36,11 @@ import type {
   TaxBreakdown
 } from '../types/invoice.types';
 
+/** True when line gross must use `price_resolution.gross × qty` (not derived net × VAT). */
+export function isGrossAnchorClientPriceTag(pr: PriceResolution): boolean {
+  return pr.strategy_used === 'client_price_tag' && pr.gross != null;
+}
+
 // ─── Fetch trips for the invoice builder ──────────────────────────────────────
 
 export interface FetchTripsForBuilderParams {
@@ -327,7 +332,15 @@ export function frozenPriceResolutionForInsert(
 /**
  * Calculates invoice totals (subtotal, tax, grand total) and tax breakdown
  * from a list of builder line items.
- * Includes `approach_fee_net` per line — must match `insertLineItems` total_price formula.
+ *
+ * **`client_price_tag` (gross-anchor):** `insertLineItems` and this function use
+ * `price_resolution.gross × quantity` plus grossed-up `approach_fee_net` — never
+ * re-derive transport gross from rounded `unit_price_net`.
+ *
+ * **Net-anchor lines:** Net is accumulated into `byRate` buckets; VAT is rounded
+ * once per rate bucket. Header `tax_amount` is `total − subtotal` so Netto + MwSt
+ * equals Brutto. `breakdown` merges gross-anchor implied net into the same rate
+ * buckets (display; per-bucket `tax` may differ slightly from the header).
  */
 export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   subtotal: number;
@@ -335,37 +348,78 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   total: number;
   breakdown: TaxBreakdown[];
 } {
-  const byRate: Record<number, number> = {};
-
-  let subtotal = 0;
+  const byRateMerged: Record<number, number> = {};
+  const byRateNonTag: Record<number, number> = {};
+  let nonTagSubtotal = 0;
+  let grossFixed = 0;
+  let priceTagNetTotal = 0;
 
   for (const item of items) {
-    const baseNet =
-      item.unit_price !== null ? item.unit_price * item.quantity : 0;
-    const lineTotal = baseNet + (item.approach_fee_net ?? 0);
+    const pr = item.price_resolution;
+    const rate = item.tax_rate;
+    const approach = item.approach_fee_net ?? 0;
 
-    subtotal += lineTotal;
+    if (isGrossAnchorClientPriceTag(pr)) {
+      const g = pr.gross as number;
+      const qty = item.quantity;
+      // Gross-anchor path (client_price_tag):
+      // Sum gross × quantity directly. Do NOT re-derive from stored unit_price_net,
+      // because unit_price_net is a full-precision float (gross / (1 + rate)) and
+      // multiplying it back up would reintroduce the rounding error we are fixing.
+      // approach_fee_net is still net-anchored so it is grossed up separately.
+      grossFixed += g * qty + approach * (1 + rate);
+      const lineNet = (g * qty) / (1 + rate) + approach;
+      priceTagNetTotal += lineNet;
 
-    if (byRate[item.tax_rate] === undefined) {
-      byRate[item.tax_rate] = 0;
+      if (byRateMerged[rate] === undefined) {
+        byRateMerged[rate] = 0;
+      }
+      byRateMerged[rate] += lineNet;
+    } else {
+      // Net-anchor path (all strategies except client_price_tag):
+      // Accumulate net line totals by tax rate. Tax is computed ONCE per rate bucket
+      // below (round(bucketNet × rate)), not per line, to minimise rounding drift
+      // across many trips at the same rate.
+      const baseNet =
+        item.unit_price !== null ? item.unit_price * item.quantity : 0;
+      const lineTotal = baseNet + approach;
+      nonTagSubtotal += lineTotal;
+
+      if (byRateNonTag[rate] === undefined) {
+        byRateNonTag[rate] = 0;
+      }
+      byRateNonTag[rate] += lineTotal;
+
+      if (byRateMerged[rate] === undefined) {
+        byRateMerged[rate] = 0;
+      }
+      byRateMerged[rate] += lineTotal;
     }
-    byRate[item.tax_rate] += lineTotal;
   }
 
-  const breakdown: TaxBreakdown[] = Object.entries(byRate).map(
-    ([rate, net]) => ({
-      rate: parseFloat(rate),
+  const taxNonTag = Object.entries(byRateNonTag).reduce(
+    (sum, [rateStr, net]) => {
+      return sum + Math.round(net * parseFloat(rateStr) * 100) / 100;
+    },
+    0
+  );
+
+  const total =
+    Math.round((nonTagSubtotal + taxNonTag + grossFixed) * 100) / 100;
+  const subtotal = Math.round((nonTagSubtotal + priceTagNetTotal) * 100) / 100;
+  const taxAmount = Math.round((total - subtotal) * 100) / 100;
+
+  const breakdown: TaxBreakdown[] = Object.entries(byRateMerged).map(
+    ([rateStr, net]) => ({
+      rate: parseFloat(rateStr),
       net: Math.round(net * 100) / 100,
-      tax: Math.round(net * parseFloat(rate) * 100) / 100
+      tax: Math.round(net * parseFloat(rateStr) * 100) / 100
     })
   );
 
-  const taxAmount = breakdown.reduce((sum, b) => sum + b.tax, 0);
-  const total = Math.round((subtotal + taxAmount) * 100) / 100;
-
   return {
-    subtotal: Math.round(subtotal * 100) / 100,
-    taxAmount: Math.round(taxAmount * 100) / 100,
+    subtotal,
+    taxAmount,
     total,
     breakdown
   };
@@ -385,6 +439,24 @@ export async function insertLineItems(
   // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
   const rows = items.map((item) => {
     const frozen = frozenPriceResolutionForInsert(item);
+    // total_price persisted to invoice_line_items.
+    //
+    // For `client_price_tag` lines, the gross is the anchor (set in resolveTripPrice
+    // P1 branch). We use price_resolution.gross × quantity so that the stored line
+    // gross matches the negotiated tag exactly — no float drift from round(net) × qty.
+    //
+    // For all other strategies (net-anchored), gross is derived here as
+    // (unit_price × quantity + approach_fee_net) × (1 + tax_rate). The one-time
+    // rounding happens here at line level, not inside the resolver.
+    //
+    // approach_fee_net is always net-anchored and follows the net-anchor path
+    // regardless of the base transport strategy.
+    const total_price = isGrossAnchorClientPriceTag(frozen)
+      ? frozen.gross! * item.quantity +
+        (item.approach_fee_net ?? 0) * (1 + item.tax_rate)
+      : ((item.unit_price ?? 0) * item.quantity +
+          (item.approach_fee_net ?? 0)) *
+        (1 + item.tax_rate);
     return {
       invoice_id: invoiceId,
       trip_id: item.trip_id,
@@ -397,11 +469,7 @@ export async function insertLineItems(
       distance_km: item.distance_km,
       unit_price: item.unit_price ?? 0,
       quantity: item.quantity,
-      // total_price = (unit_price × quantity + approach_fee_net) × (1 + tax_rate)
-      total_price:
-        ((item.unit_price ?? 0) * item.quantity +
-          (item.approach_fee_net ?? 0)) *
-        (1 + item.tax_rate),
+      total_price,
       approach_fee_net: item.approach_fee_net ?? null,
       tax_rate: item.tax_rate,
       billing_variant_code: item.billing_variant_code,

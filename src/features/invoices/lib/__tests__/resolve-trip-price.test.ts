@@ -50,6 +50,28 @@ describe('resolveTripPrice', () => {
     expect(r.net).toBe(0);
   });
 
+  test('client_price_tag 32.60 @ 7% — 13 trips gross total must be exactly 423.80', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, client: { price_tag: 32.6 }, driving_distance_km: 10 },
+      0.07,
+      null
+    );
+    expect(r.strategy_used).toBe('client_price_tag');
+    expect(r.gross).toBe(32.6);
+    const gross13 = Math.round(r.gross! * 13 * 100) / 100;
+    expect(gross13).toBe(423.8);
+  });
+
+  test('client_price_tag 32.60 @ 7% — unit_price_net is not pre-rounded', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, client: { price_tag: 32.6 }, driving_distance_km: 10 },
+      0.07,
+      null
+    );
+    expect(r.unit_price_net).not.toBe(30.47);
+    expect(r.unit_price_net!).toBeCloseTo(32.6 / 1.07, 8);
+  });
+
   test('price_tag beats tiered rule', () => {
     const r = resolveTripPrice(
       {

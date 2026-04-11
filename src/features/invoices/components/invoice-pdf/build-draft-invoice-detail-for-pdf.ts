@@ -21,7 +21,8 @@ import { rechnungsempfaengerRowToSnapshot } from '@/features/rechnungsempfaenger
 import type { RechnungsempfaengerRow } from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
 import {
   calculateInvoiceTotals,
-  frozenPriceResolutionForInsert
+  frozenPriceResolutionForInsert,
+  isGrossAnchorClientPriceTag
 } from '@/features/invoices/api/invoice-line-items.api';
 import type {
   BuilderLineItem,
@@ -46,6 +47,10 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
   const frozen = frozenPriceResolutionForInsert(item);
   const u = item.unit_price ?? 0;
   const q = item.quantity;
+  const approach = item.approach_fee_net ?? 0;
+  const total_price = isGrossAnchorClientPriceTag(frozen)
+    ? frozen.gross! * q + approach * (1 + item.tax_rate)
+    : Math.round((u * q + approach) * (1 + item.tax_rate) * 100) / 100;
   return {
     id: `draft-li-${item.position}`,
     invoice_id: '__draft__',
@@ -60,10 +65,7 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
     unit_price: u,
     quantity: q,
     approach_fee_net: item.approach_fee_net ?? null,
-    total_price:
-      Math.round(
-        (u * q + (item.approach_fee_net ?? 0)) * (1 + item.tax_rate) * 100
-      ) / 100,
+    total_price,
     tax_rate: item.tax_rate,
     billing_variant_code: item.billing_variant_code,
     billing_variant_name: item.billing_variant_name,
