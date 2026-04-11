@@ -63,6 +63,11 @@ export const navItems: NavItem[] = [
         shortcut: ['r', 'e']
       },
       {
+        title: 'Preisregeln',
+        url: '/dashboard/abrechnung/preise',
+        shortcut: ['p', 'r']
+      },
+      {
         title: 'Vorlagen',
         url: '/dashboard/abrechnung/vorlagen',
         shortcut: ['v', 'v']
