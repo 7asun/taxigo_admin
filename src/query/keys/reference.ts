@@ -23,6 +23,11 @@ export const referenceKeys = {
   payers: () => [...referenceKeys.root, 'payers'] as const,
 
   /**
+   * Slim client list for Abrechnung → Preisregeln (`listClientsForPricing`).
+   */
+  clients: () => [...referenceKeys.root, 'clients'] as const,
+
+  /**
    * Flat billing variant list for trip create + filters (`fetchBillingVariantsForPayer` in
    * `trip-reference-data.ts`): each row includes `billing_type_id`, `code`, and family `behavior_profile`.
    * Invalidate via `useBillingTypes` after Kostenträger admin edits families/variants.
@@ -39,5 +44,12 @@ export const referenceKeys = {
 
   /** Pricing rules shown in Kostenträger admin for one payer. */
   billingPricingRules: (payerId: string) =>
-    [...referenceKeys.root, 'billingPricingRules', payerId] as const
+    [...referenceKeys.root, 'billingPricingRules', payerId] as const,
+
+  /**
+   * All pricing rules for the company (Abrechnung → Preisregeln catalog).
+   * @see useAllPricingRules
+   */
+  allBillingPricingRules: () =>
+    [...referenceKeys.root, 'allBillingPricingRules'] as const
 };

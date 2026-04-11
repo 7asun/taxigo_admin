@@ -43,11 +43,16 @@ export interface InvoiceListParams {
   from?: string;
   /** Inclusive end of `created_at` filter (`yyyy-MM-dd`, same TZ). */
   to?: string;
+  /** Max rows (applied after order by created_at desc). */
+  limit?: number;
 }
 
 /**
  * Fetches a paginated list of invoices with payer name joined.
  * Used in the invoice list table (/dashboard/invoices).
+ *
+ * The `*` projection includes `rechnungsempfaenger_snapshot` (JSONB on `invoices`) —
+ * required for Empfänger / Briefkopf display (`resolveInvoiceRecipientName`, PDF).
  *
  * @param params - Optional filters for status, payer, and **Erstellungsdatum** (`created_at`, business TZ).
  */
@@ -90,6 +95,10 @@ export async function listInvoices(
   } else if (params.to) {
     const { endExclusiveISO } = getZonedDayBoundsIso(params.to);
     query = query.lt('created_at', endExclusiveISO);
+  }
+
+  if (params.limit != null && params.limit > 0) {
+    query = query.limit(params.limit);
   }
 
   const { data, error } = await query;

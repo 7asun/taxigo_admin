@@ -25,6 +25,10 @@ The global default is set in [`query-client.ts`](query-client.ts). While data is
 - [`keys/trips.ts`](keys/trips.ts) — `tripKeys.detail(id)` for trip detail; `tripKeys.unplanned(filter)` / `tripKeys.unplannedRoot` for the dashboard **Offene Touren** list (`useUnplannedTrips`).
 - [`keys/reference.ts`](keys/reference.ts) — `referenceKeys.drivers()`, `referenceKeys.payers()`, `referenceKeys.billingTypes(payerId)` for small reference lists reused across Fahrten filters, `DriverSelectCell`, Kanban, and trip forms. Fetched via [`use-trip-reference-queries.ts`](../features/trips/hooks/use-trip-reference-queries.ts) with a longer `staleTime` (see that file). **`referenceKeys.rechnungsempfaenger()`** — active recipients for Kostenträger / Rechnungs-Builder selects; **`referenceKeys.billingPricingRules(payerId)`** — `billing_pricing_rules` rows for the open Kostenträger (`useBillingPricingRules` invalidates after create/update/delete).
 
+| Key | Purpose | Owning feature / hook | Invalidation triggers |
+|-----|---------|----------------------|------------------------|
+| `referenceKeys.allBillingPricingRules()` | All `billing_pricing_rules` for the session company with joined payer / Familie / Unterart names (Preisregeln catalog) | [`useAllPricingRules`](../features/payers/hooks/use-all-pricing-rules.ts) | After create/update/delete via that hook; **`invalidatePricingRuleCaches`** also runs when `PricingRuleDialog` saves from the catalog (same helper). Always invalidate **`['reference', 'billingPricingRules']`** in the same breath so per-payer Kostenträger caches refetch. |
+
 ### Kostenträger: two query keys (admin vs trip UI)
 
 - **Admin list** ([`usePayers`](../features/payers/hooks/use-payers.ts)): `queryKey: ['payers']`, full rows including `billing_types(count)` for the Kostenträger page.

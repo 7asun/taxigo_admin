@@ -31,6 +31,8 @@ function rowFromDb(raw: Record<string, unknown>): PdfVorlageRow {
         : layoutRaw === 'grouped_by_billing_type'
           ? 'grouped_by_billing_type'
           : 'grouped';
+  const introRaw = raw.intro_block_id;
+  const outroRaw = raw.outro_block_id;
   return {
     id: String(raw.id),
     company_id: String(raw.company_id),
@@ -43,6 +45,10 @@ function rowFromDb(raw: Record<string, unknown>): PdfVorlageRow {
     appendix_columns: appendix,
     main_layout,
     is_default: Boolean(raw.is_default),
+    intro_block_id:
+      introRaw === null || introRaw === undefined ? null : String(introRaw),
+    outro_block_id:
+      outroRaw === null || outroRaw === undefined ? null : String(outroRaw),
     created_at: String(raw.created_at),
     updated_at: String(raw.updated_at)
   };
@@ -102,6 +108,9 @@ export async function getDefaultVorlageForCompany(
 
 /**
  * Inserts a new Vorlage; validates column arrays at the boundary.
+ *
+ * Phase 10: `intro_block_id` and `outro_block_id` are always inserted as `null`;
+ * assign Brieftext defaults later via {@link updatePdfVorlage}.
  */
 export async function createPdfVorlage(
   payload: PdfVorlageCreatePayload
@@ -120,6 +129,8 @@ export async function createPdfVorlage(
       main_columns: payload.main_columns,
       appendix_columns: payload.appendix_columns,
       main_layout: 'grouped',
+      intro_block_id: null,
+      outro_block_id: null,
       is_default: false,
       updated_at: now
     })
@@ -141,6 +152,10 @@ export async function createPdfVorlage(
 
 /**
  * Updates an existing Vorlage (partial payload).
+ *
+ * Phase 10: optional `intro_block_id` / `outro_block_id` set builder defaults for
+ * intro/outro text blocks (nullable FKs to `invoice_text_blocks`). Omitted keys
+ * leave the column unchanged; pass `null` to clear and fall back to payer/company.
  */
 export async function updatePdfVorlage(
   id: string,
@@ -168,6 +183,12 @@ export async function updatePdfVorlage(
   }
   if (payload.main_layout !== undefined) {
     patch.main_layout = payload.main_layout;
+  }
+  if (payload.intro_block_id !== undefined) {
+    patch.intro_block_id = payload.intro_block_id;
+  }
+  if (payload.outro_block_id !== undefined) {
+    patch.outro_block_id = payload.outro_block_id;
   }
 
   const { data, error } = await supabase

@@ -99,11 +99,19 @@ const columns: ColumnDef<AngebotRow>[] = [
   {
     accessorKey: 'subject',
     header: 'Betreff',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground max-w-[220px] truncate text-sm'>
-        {row.original.subject || '—'}
-      </span>
-    )
+    size: 280,
+    maxSize: 280,
+    cell: ({ row }) => {
+      const value = row.original.subject || '—';
+      return (
+        <span
+          className='text-muted-foreground line-clamp-2 block max-w-[280px] text-sm'
+          title={value}
+        >
+          {value}
+        </span>
+      );
+    }
   },
   {
     accessorKey: 'offer_date',
@@ -173,7 +181,7 @@ export function AngeboteListView() {
   }
 
   return (
-    <div className='border-border overflow-hidden rounded-xl border'>
+    <div className='border-border w-full overflow-hidden overflow-x-auto rounded-xl border'>
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((hg) => (

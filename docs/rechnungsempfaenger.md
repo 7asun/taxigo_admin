@@ -7,7 +7,7 @@ Catalog table `rechnungsempfaenger` holds optional **legal invoice addressees** 
 
 ## Admin UI
 
-- List / CRUD: **Dashboard → Rechnungsempfänger** (`/dashboard/rechnungsempfaenger`).
+- List / CRUD: **Dashboard → Abrechnung → Rechnungsempfänger** (`/dashboard/abrechnung/rechnungsempfaenger`). Legacy `/dashboard/rechnungsempfaenger` redirects (308) to this path.
 - Assignment: recipient select on payer sheet and on billing family / variant dialogs (`rechnungsempfaenger_id` FKs).
 
 ## Builder integration

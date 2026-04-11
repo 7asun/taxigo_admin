@@ -6,11 +6,29 @@ The Baukasten system allows you to create and manage reusable text blocks for in
 
 ## Fallback Chain (Priority Order)
 
-When generating an invoice PDF, the system resolves intro/outro text in the following order:
+### Issued invoice PDF (frozen row)
 
-1. **Payer-specific block** — If `payers.default_intro_block_id` or `default_outro_block_id` is set
-2. **Company default block** — If an `invoice_text_blocks` row with `is_default = true` exists for the type
-3. **Hardcoded fallback text** — Default text embedded in `InvoicePdfCoverBody`
+For **issued** invoices, text comes from the snapshot columns on the invoice
+row and joined blocks — not recomputed from Vorlage or payer defaults.
+
+### Builder defaults (new draft — Phase 10)
+
+When pre-filling the builder **Bestätigung** step, intro/outro block IDs are
+resolved in this order:
+
+1. **Vorlage-level** — `pdf_vorlagen.intro_block_id` / `outro_block_id` when set
+2. **Payer-specific** — `payers.default_intro_block_id` / `default_outro_block_id`
+3. **Company default** — `invoice_text_blocks` with `is_default = true` for the type
+4. **No selection** — user may pick manually; PDF can still use hardcoded fallbacks where applicable
+
+### PDF render (general)
+
+When generating an invoice PDF, intro/outro content is resolved for display
+using the invoice’s stored block IDs and the chain above for defaults where
+no snapshot exists yet — see `InvoicePdfCoverBody` and builder preview hooks.
+
+The standalone settings route `/dashboard/settings/invoice-templates` **redirects**
+to `/dashboard/abrechnung/vorlagen` (tab **Textbausteine**).
 
 ## Database Schema
 
@@ -47,7 +65,8 @@ Both columns have `ON DELETE SET NULL` — if a text block is deleted, payers us
 
 ### Settings Page
 
-**Route:** `/dashboard/settings/invoice-templates`
+**Route:** `/dashboard/abrechnung/vorlagen` → tab **Textbausteine** (legacy
+`/dashboard/settings/invoice-templates` redirects here)
 
 - Manage all text blocks (create, edit, delete)
 - Organized by type: Einleitungen and Schlussformeln

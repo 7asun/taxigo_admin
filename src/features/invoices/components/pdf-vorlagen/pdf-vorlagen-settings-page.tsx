@@ -23,10 +23,15 @@ import { VorlageEditorPanel } from './vorlage-editor-panel';
 
 interface PdfVorlagenSettingsPageProps {
   companyId: string;
+  onOpenTextBlocks?: () => void;
+  /** `unified` — Abrechnung > Vorlagen (narrower hero copy). */
+  variant?: 'standalone' | 'unified';
 }
 
 export function PdfVorlagenSettingsPage({
-  companyId
+  companyId,
+  onOpenTextBlocks,
+  variant = 'standalone'
 }: PdfVorlagenSettingsPageProps) {
   const { data: list = [], isLoading } = usePdfVorlagenList(companyId);
   const {
@@ -71,10 +76,13 @@ export function PdfVorlagenSettingsPage({
   return (
     <div className='space-y-4'>
       <div>
-        <h1 className='text-2xl font-bold'>PDF-Vorlagen</h1>
+        <h1 className='text-2xl font-bold'>
+          {variant === 'unified' ? 'Vorlagen' : 'PDF-Vorlagen'}
+        </h1>
         <p className='text-muted-foreground mt-1 text-sm'>
-          Spaltenprofile für Rechnung und Anhang — Zuweisung je Kostenträger
-          oder pro Rechnung im Builder.
+          {variant === 'unified'
+            ? 'PDF-Spaltenlayout, Anhang und Brieftext-Zuordnung — Zuweisung je Kostenträger oder im Rechnungs-Builder.'
+            : 'Spaltenprofile für Rechnung und Anhang — Zuweisung je Kostenträger oder pro Rechnung im Builder.'}
         </p>
       </div>
 
@@ -91,6 +99,7 @@ export function PdfVorlagenSettingsPage({
           isSaving={isUpdating}
           isDeleting={isDeleting}
           isSettingDefault={isSettingDefault}
+          onOpenTextBlocks={onOpenTextBlocks}
           onSave={async (args) => {
             await updateVorlage({
               id: args.id,
@@ -99,7 +108,9 @@ export function PdfVorlagenSettingsPage({
                 description: args.description,
                 main_columns: args.main_columns,
                 appendix_columns: args.appendix_columns,
-                main_layout: args.main_layout
+                main_layout: args.main_layout,
+                intro_block_id: args.intro_block_id,
+                outro_block_id: args.outro_block_id
               }
             });
           }}

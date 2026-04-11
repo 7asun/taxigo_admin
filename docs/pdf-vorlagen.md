@@ -33,6 +33,8 @@ Implemented in [`src/features/invoices/lib/resolve-pdf-column-profile.ts`](../sr
 | `appendix_columns` | `text[]` | Ordered list of column keys for the appendix table |
 | `main_layout` | text | `grouped` or `flat` |
 | `is_default` | boolean | At most one `true` per company (partial unique index) |
+| `intro_block_id` | UUID (nullable) | FK → `invoice_text_blocks` (`ON DELETE SET NULL`) — builder default intro only (Phase 10) |
+| `outro_block_id` | UUID (nullable) | FK → `invoice_text_blocks` (`ON DELETE SET NULL`) — builder default outro only (Phase 10) |
 | `created_at` | timestamptz | Creation timestamp |
 
 ### Modified tables
@@ -126,9 +128,10 @@ PostgREST can return `trip_meta_snapshot` and `price_resolution_snapshot` as JSO
 
 ### Settings — Vorlagen-Verwaltung
 
-- **Route:** `/dashboard/settings/pdf-vorlagen`
+- **Route:** `/dashboard/abrechnung/vorlagen` (unified PDF layout + Brieftext; tab **Textbausteine** for full text-block CRUD)
+- Legacy `/dashboard/settings/pdf-vorlagen` → `permanentRedirect` to the route above (Phase 10)
 - List of all company Vorlagen (PanelList pattern)
-- Editor: column picker, dnd-kit sortable chips, layout radio
+- Editor: column picker, dnd-kit sortable chips, layout radio; collapsible **Brieftext** assigns `intro_block_id` / `outro_block_id`
 - Switching layout migrates existing selected columns; never leaves list empty
 
 ### Payer detail
@@ -154,8 +157,28 @@ PostgREST can return `trip_meta_snapshot` and `price_resolution_snapshot` as JSO
 | Vorlage API | `src/features/invoices/api/pdf-vorlagen.api.ts` |
 | Cover body (renderer) | `src/features/invoices/components/invoice-pdf/invoice-pdf-cover-body.tsx` |
 | Appendix (renderer) | `src/features/invoices/components/invoice-pdf/invoice-pdf-appendix.tsx` |
-| Settings page | `src/app/dashboard/settings/pdf-vorlagen/page.tsx` |
+| Settings page | `src/app/dashboard/abrechnung/vorlagen/page.tsx` |
 | Builder Step 4 | `src/features/invoices/components/invoice-builder/step-4-vorlage.tsx` |
 | DB migration | `supabase/migrations/20260408120001_pdf_vorlagen.sql` |
 
 Added in Phase 6. Updated through Phase 6g.
+
+## Unified Vorlagen editor (Phase 10)
+
+Migration `20260411140100_pdf_vorlagen_text_blocks.sql` adds optional
+`intro_block_id` / `outro_block_id` on `pdf_vorlagen`.
+
+These are used for **builder defaults only** — pre-selecting intro/outro text
+in the invoice builder (Step 5 / Bestätigung). They do **not** retroactively
+change issued invoices; those freeze their own `invoices.intro_block_id` /
+`outro_block_id` at creation time (§14 UStG).
+
+**Builder default resolution** (see `resolve-default-text-blocks.ts`):
+
+1. `pdf_vorlagen.intro_block_id` / `outro_block_id` (Vorlage-level)
+2. `payers.default_intro_block_id` / `default_outro_block_id`
+3. `invoice_text_blocks` with `is_default = true` for the type
+4. Hardcoded fallback strings in `InvoicePdfCoverBody`
+
+The former settings route `/dashboard/settings/pdf-vorlagen` permanently
+redirects to `/dashboard/abrechnung/vorlagen`.

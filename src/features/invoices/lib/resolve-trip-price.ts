@@ -33,6 +33,47 @@ import type {
 
 import { getTripsBusinessTimeZone } from '@/features/trips/lib/trip-business-date';
 
+/**
+ * # Pricing engine — rounding contract
+ *
+ * ## Gross-anchor strategies (P1 — `client_price_tag`)
+ *
+ * The client contract specifies a **gross** price (incl. VAT). The gross value
+ * is the single source of truth and must never be recomputed from a rounded net.
+ *
+ * Rules:
+ *   - `gross` in `PriceResolution` is set directly from `client.price_tag`.
+ *   - `unit_price_net` = `tag / (1 + taxRate)` — stored as full-precision float,
+ *     NOT rounded with `roundMoneyOnce`. Rounding here would cause drift when
+ *     multiplied across N trips (e.g. 32.60 × 13 = 423.80, not 423.84).
+ *   - `net` (display field) = same full-precision value; callers that display
+ *     a formatted net should round at render time, not at storage time.
+ *   - `calculateInvoiceTotals` must detect pricetag lines and sum
+ *     `gross × quantity` directly — never re-derive gross from the stored net.
+ *
+ * ## Net-anchor strategies (P2–P4 and all billing rules)
+ *
+ * The billing rule, trip price, or km rate defines a **net** amount. Tax is
+ * applied on top and must only be rounded **once, at the total level**.
+ *
+ * Rules:
+ *   - `unit_price_net` is rounded with `roundMoneyOnce` at resolution time
+ *     (acceptable: these strategies are defined in net terms so the net is
+ *     the anchor, and per-unit rounding error stays within ±0.005 per line).
+ *   - For per-km strategies (`tiered_km`, `fixed_below_threshold_then_km`),
+ *     `tieredNetTotal` applies ONE `roundMoneyOnce` on the total net for the
+ *     trip — never per-segment — to minimise accumulated error.
+ *   - `calculateInvoiceTotals` accumulates `unit_price × quantity` per line
+ *     into `byRate` buckets, then applies `Math.round(net × rate × 100) / 100`
+ *     once per tax-rate bucket. This is the correct sequence: sum first, round last.
+ *
+ * ## `approach_fee_net`
+ *
+ * Always net-anchored regardless of the base transport strategy. It is stored
+ * as net and grossed up with `× (1 + tax_rate)` in `insertLineItems` and in
+ * `calculateInvoiceTotals`. It is NEVER included in `priceResolution.gross`.
+ */
+
 const BERLIN_TZ = 'Europe/Berlin';
 
 export interface TripPriceInput {
@@ -366,7 +407,7 @@ export function resolveTripPrice(
   // Priority 1 — client price_tag (gross → net), beats all catalog strategies (no Anfahrtspreis)
   const tag = trip.client?.price_tag;
   if (tag !== null && tag !== undefined) {
-    const net = roundMoneyOnce(tag / (1 + taxRate));
+    const net = tag / (1 + taxRate);
     return {
       gross: tag,
       net,

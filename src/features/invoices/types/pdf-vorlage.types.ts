@@ -39,6 +39,16 @@ export interface PdfVorlageRow {
   main_layout: MainLayout;
   /** pdf_vorlagen.is_default — at most one true per company (partial unique index) */
   is_default: boolean;
+  /**
+   * Optional FK to `invoice_text_blocks` (type intro). Builder default only;
+   * null falls back to payer then company default text blocks.
+   */
+  intro_block_id: string | null;
+  /**
+   * Optional FK to `invoice_text_blocks` (type outro). Same resolution order as
+   * `intro_block_id`.
+   */
+  outro_block_id: string | null;
   /** pdf_vorlagen.created_at */
   created_at: string;
   /** pdf_vorlagen.updated_at */
@@ -95,4 +105,6 @@ export interface PdfVorlageUpdatePayload {
   appendix_columns?: PdfColumnKey[];
   main_layout?: MainLayout;
   is_default?: boolean;
+  intro_block_id?: string | null;
+  outro_block_id?: string | null;
 }

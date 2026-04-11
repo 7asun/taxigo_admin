@@ -17,6 +17,13 @@ export interface InvoiceListFilter {
   payer_id?: string;
   from?: string; // yyyy-MM-dd; list API filters created_at (business TZ)
   to?: string; // yyyy-MM-dd
+  /** Optional cap on rows (e.g. Abrechnung recent list). */
+  limit?: number;
+  /**
+   * Abrechnung KPI deep-link: client-side slice of the fetched list.
+   * `open` / `overdue` expect `status: 'sent'` from the API.
+   */
+  kpi_bucket?: 'open' | 'overdue' | 'this_month';
 }
 
 export const invoiceKeys = {

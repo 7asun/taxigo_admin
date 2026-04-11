@@ -35,7 +35,7 @@ import type {
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 /** Maps invoice status to a shadcn Badge variant + German label. */
-function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
+export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
   const config: Record<
     InvoiceStatus,
     {

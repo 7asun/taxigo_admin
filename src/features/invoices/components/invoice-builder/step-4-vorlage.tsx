@@ -40,7 +40,10 @@ import { getDefaultVorlageForCompany } from '@/features/invoices/api/pdf-vorlage
 import { invoiceKeys } from '@/query/keys';
 import { usePdfVorlagenList } from '@/features/invoices/hooks/use-pdf-vorlagen';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
-import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
+import type {
+  PdfColumnProfile,
+  PdfVorlageRow
+} from '@/features/invoices/types/pdf-vorlage.types';
 import type { PdfColumnKey } from '@/features/invoices/lib/pdf-column-catalog';
 import { cn } from '@/lib/utils';
 
@@ -90,6 +93,11 @@ interface Step4VorlageProps {
    * Call after drag-reordering main or appendix columns so the live PDF preview skips debounce.
    */
   onPdfColumnsReordered?: () => void;
+  /**
+   * Phase 10: the Vorlage row selected in the dropdown (for Brieftext default resolution
+   * on Bestätigung). Fired whenever that row changes.
+   */
+  onResolvedVorlageRowChange?: (row: PdfVorlageRow | null) => void;
 }
 
 /**
@@ -105,7 +113,8 @@ export function Step4Vorlage({
   unlocked,
   onColumnProfileChange,
   onPdfOverrideChange,
-  onPdfColumnsReordered
+  onPdfColumnsReordered,
+  onResolvedVorlageRowChange
 }: Step4VorlageProps) {
   const { data: vorlagen = [] } = usePdfVorlagenList(companyId);
   const { data: companyDefaultVorlage = null } = useQuery({
@@ -136,6 +145,10 @@ export function Step4Vorlage({
     if (!selectedVorlageId) return null;
     return vorlagen.find((v) => v.id === selectedVorlageId) ?? null;
   }, [vorlagen, selectedVorlageId]);
+
+  useEffect(() => {
+    onResolvedVorlageRowChange?.(selectedVorlage);
+  }, [selectedVorlage, onResolvedVorlageRowChange]);
 
   const inheritedMainLayout =
     selectedVorlage?.main_layout ??

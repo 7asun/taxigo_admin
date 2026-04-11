@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Admin-CRUD für den Rechnungsempfänger-Katalog (`/dashboard/rechnungsempfaenger`).
+ * Admin-CRUD für den Rechnungsempfänger-Katalog (`/dashboard/abrechnung/rechnungsempfaenger`).
  * Cache: `useRechnungsempfaengerAdmin` + Invalidierung von `referenceKeys.rechnungsempfaenger()`.
  */
 

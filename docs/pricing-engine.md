@@ -14,6 +14,8 @@ Rule selection mirrors KTS-style precedence: see `src/features/invoices/lib/reso
 
 ## Rounding
 
+Gross-anchor (`client_price_tag`) vs net-anchor strategies, `insertLineItems`, and `calculateInvoiceTotals`: **[pricing-engine-3.md](pricing-engine-3.md)**.
+
 For `tiered_km` and `fixed_below_threshold_then_km`, segment amounts use raw `km × ratePerKm`, then **one** `Math.round(total * 100) / 100` per line (not per segment). Implemented in `src/features/invoices/lib/resolve-trip-price.ts` (`tieredNetTotal`).
 
 ## Time-based rules
@@ -75,6 +77,16 @@ In `useInvoiceBuilder`, the trips query uses:
 - `queryClient.fetchQuery({ queryKey: referenceKeys.billingPricingRules(payerId), queryFn: () => listPricingRulesForPayer(payerId), staleTime: 30_000 })`
 
 That is the **same key** as `useBillingPricingRules` on the Kostenträger admin screen (`src/features/payers/hooks/use-billing-pricing-rules.ts`), so pricing rule edits invalidate one cache entry for both UIs. Rows are mapped to `BillingPricingRuleLike` via `mapBillingPricingRuleRowsToLike` in `invoice-line-items.api.ts`.
+
+### Zentrale Preisregelverwaltung (`/dashboard/abrechnung/preise`)
+
+The **Preisregeln** page under Abrechnung lists and edits every `billing_pricing_rules` row for the current company without opening each Kostenträger sheet.
+
+1. **`listAllPricingRules`** (`src/features/payers/api/billing-pricing-rules.api.ts`) — company-scoped global load in **one** Supabase round-trip (RLS limits rows to the session tenant). It complements per-payer **`listPricingRulesForPayer`**, which Kostenträger admin and the builder still use.
+2. **Join shape** — PostgREST nested embeds resolve display names along **payer → billing_type → billing_variant** (for variant-scoped rules, the embed includes the variant’s `billing_type` and that type’s `payer`, so breadcrumbs and `payer_id_for_scope` are always derivable).
+3. **`BillingPricingRuleWithContext`** — enriched list row type: adds `scope_level`, `breadcrumb`, and `payer_id_for_scope` in the API mapper (**not** DB columns).
+4. **`PricingRuleDialog`** — accepts **`scope: null`** when creating a rule from this page so the user picks Kostenträger → optional Familie → optional Unterart. Kostenträger / family / variant dialogs keep passing a fixed `PricingRuleScope` (no picker).
+5. **Cache invalidation** — `useAllPricingRules` (`src/features/payers/hooks/use-all-pricing-rules.ts`) and `invalidatePricingRuleCaches` invalidate **`referenceKeys.allBillingPricingRules()`** and the **`['reference', 'billingPricingRules']`** prefix after mutations so per-payer caches and open Kostenträger sheets stay in sync with the catalog.
 
 ### `buildLineItemsFromTrips` call order
 

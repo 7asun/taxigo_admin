@@ -28,9 +28,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PdfColumnOverridePayload,
-  PdfColumnProfile
+  PdfColumnProfile,
+  PdfVorlageRow
 } from '@/features/invoices/types/pdf-vorlage.types';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
+import { resolveDefaultTextBlockIds } from '@/features/invoices/lib/resolve-default-text-blocks';
+import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -162,6 +165,9 @@ export function InvoiceBuilder({
    */
   const [builderColumnProfile, setBuilderColumnProfile] =
     useState<PdfColumnProfile>(() => resolvePdfColumnProfile(null, null, null));
+  /** Phase 10: Vorlage row from Section 4 dropdown — drives Brieftext default resolution. */
+  const [builderResolvedVorlage, setBuilderResolvedVorlage] =
+    useState<PdfVorlageRow | null>(null);
   const [pdfColumnReorderGeneration, setPdfColumnReorderGeneration] =
     useState(0);
   const pdfOverrideRef = useRef<PdfColumnOverridePayload | null>(null);
@@ -199,6 +205,42 @@ export function InvoiceBuilder({
   const selectedPayer = step2Values?.payer_id
     ? payers.find((p) => p.id === step2Values.payer_id)
     : null;
+
+  const { data: allTextBlocks = [] } = useAllInvoiceTextBlocks();
+  const groupedTextBlocks = useMemo(
+    () => ({
+      intro: allTextBlocks.filter((b) => b.type === 'intro'),
+      outro: allTextBlocks.filter((b) => b.type === 'outro')
+    }),
+    [allTextBlocks]
+  );
+
+  const {
+    introBlockId: resolvedIntroBlockId,
+    outroBlockId: resolvedOutroBlockId
+  } = useMemo(
+    () =>
+      resolveDefaultTextBlockIds(
+        builderResolvedVorlage,
+        selectedPayer
+          ? {
+              default_intro_block_id:
+                selectedPayer.default_intro_block_id ?? null,
+              default_outro_block_id:
+                selectedPayer.default_outro_block_id ?? null
+            }
+          : null,
+        groupedTextBlocks
+      ),
+    [builderResolvedVorlage, selectedPayer, groupedTextBlocks]
+  );
+
+  const handleResolvedVorlageRowChange = useCallback(
+    (row: PdfVorlageRow | null) => {
+      setBuilderResolvedVorlage(row);
+    },
+    []
+  );
 
   const selectedMode = (step2Values?.mode as InvoiceMode) ?? null;
 
@@ -282,6 +324,7 @@ export function InvoiceBuilder({
     setPdfStepAcknowledged(false);
     pdfOverrideRef.current = null;
     setBuilderColumnProfile(resolvePdfColumnProfile(null, null, null));
+    setBuilderResolvedVorlage(null);
   }, [step2Values?.payer_id]);
 
   const handleStep4PdfOverlay = useCallback(
@@ -311,8 +354,8 @@ export function InvoiceBuilder({
     clients,
     defaultPaymentDays,
     catalogRecipientId,
-    payerIntroBlockId: selectedPayer?.default_intro_block_id,
-    payerOutroBlockId: selectedPayer?.default_outro_block_id,
+    payerIntroBlockId: resolvedIntroBlockId,
+    payerOutroBlockId: resolvedOutroBlockId,
     step4Overlay,
     applyStep4Overlay: applyStep4PdfOverlay,
     columnProfile: builderColumnProfile,
@@ -581,6 +624,7 @@ export function InvoiceBuilder({
               onPdfColumnsReordered={() =>
                 setPdfColumnReorderGeneration((g) => g + 1)
               }
+              onResolvedVorlageRowChange={handleResolvedVorlageRowChange}
             />
           </BuilderSectionCard>
 
@@ -637,8 +681,8 @@ export function InvoiceBuilder({
                 };
                 createInvoice(step4Values, snapshotOverride);
               }}
-              payerIntroBlockId={selectedPayer?.default_intro_block_id}
-              payerOutroBlockId={selectedPayer?.default_outro_block_id}
+              resolvedIntroBlockId={resolvedIntroBlockId}
+              resolvedOutroBlockId={resolvedOutroBlockId}
               defaultRechnungsempfaengerId={catalogRecipientId}
               catalogRecipientId={catalogRecipientId}
               lineItems={lineItems}

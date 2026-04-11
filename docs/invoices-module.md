@@ -190,7 +190,7 @@ Fourth `main_layout` value: groups invoice cover rows by Abrechnungsart instead 
 
 #### Settings UI
 
-Route: `/dashboard/settings/pdf-vorlagen`
+Route: `/dashboard/abrechnung/vorlagen` (PDF & Layout tab; legacy `/dashboard/settings/pdf-vorlagen` redirects)
 
 - PanelList of all company Vorlagen (left) + editor panel (right)
 - dnd-kit sortable column chips for reordering
@@ -215,6 +215,8 @@ Automatically determines the German MwSt rate:
 - Trips with unknown distance default to `7%` (conservative fallback)
 
 ### 3.2 Price Resolution (`lib/price-calculator.ts`)
+
+**Catalog rules:** Production pricing also loads **`billing_pricing_rules`** per Kostenträger / Abrechnungsfamilie / Unterart and runs **`resolvePricingRule`** then **`resolveTripPrice`** (see [pricing-engine.md](pricing-engine.md)). Manage those rules centrally under **Abrechnung → Preisregeln** — [`/dashboard/abrechnung/preise`](../src/app/dashboard/abrechnung/preise/page.tsx).
 
 The `resolveTripPrice()` function follows a strict **3-tier precedence hierarchy** when determining the billable price for a trip:
 

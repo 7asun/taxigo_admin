@@ -48,11 +48,18 @@ import { TextBlockForm } from './text-block-form';
 import { TextBlockCard } from './text-block-card';
 import type { InvoiceTextBlock } from '@/features/invoices/types/invoice-text-blocks.types';
 
+interface InvoiceTemplatesSettingsPageProps {
+  /** When true, compact header for embedding under Abrechnung > Vorlagen. */
+  embedded?: boolean;
+}
+
 /**
  * Main settings page component for invoice text templates.
  * Displays intro and outro sections with CRUD operations.
  */
-export function InvoiceTemplatesSettingsPage() {
+export function InvoiceTemplatesSettingsPage({
+  embedded = false
+}: InvoiceTemplatesSettingsPageProps) {
   const { data: groupedBlocks, isLoading, error } = useInvoiceTextBlocks();
   const deleteMutation = useDeleteInvoiceTextBlock();
   const setDefaultMutation = useSetDefaultInvoiceTextBlock();
@@ -91,11 +98,18 @@ export function InvoiceTemplatesSettingsPage() {
   const outroBlocks = groupedBlocks?.outro ?? [];
 
   return (
-    <div className='space-y-8'>
+    <div
+      className='space-y-8'
+      id={embedded ? 'textbausteine-section' : undefined}
+    >
       {/* Header */}
       <div className='flex items-center justify-between'>
         <div>
-          <h1 className='text-2xl font-bold'>Rechnungsvorlagen</h1>
+          {embedded ? (
+            <h2 className='text-xl font-bold'>Textbausteine</h2>
+          ) : (
+            <h1 className='text-2xl font-bold'>Rechnungsvorlagen</h1>
+          )}
           <p className='text-muted-foreground mt-1'>
             Verwalten Sie wiederverwendbare Einleitungen und Schlussformeln für
             Ihre Rechnungen.

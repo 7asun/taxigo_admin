@@ -1,25 +1,7 @@
-import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
-import { RechnungsempfaengerPage } from '@/features/rechnungsempfaenger/components/rechnungsempfaenger-page';
+// Route moved to /dashboard/abrechnung/rechnungsempfaenger in Phase 10.
+// This redirect preserves existing bookmarks.
+import { permanentRedirect } from 'next/navigation';
 
-export const metadata = {
-  title: 'Rechnungsempfänger',
-  description: 'Rechnungsempfänger-Katalog verwalten'
-};
-
-export default async function Page() {
-  const supabase = await createClient();
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    redirect('/auth/sign-in');
-  }
-
-  return (
-    <div className='flex min-h-0 flex-1 flex-col overflow-y-auto p-4 pt-6 md:p-8'>
-      <RechnungsempfaengerPage />
-    </div>
-  );
+export default function Page() {
+  permanentRedirect('/dashboard/abrechnung/rechnungsempfaenger');
 }
