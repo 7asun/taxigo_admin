@@ -5,9 +5,9 @@
  * client-side — rule count per company is bounded and never requires server-side pagination.
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { MoreHorizontal, Plus } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +35,16 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import {
   pricingRuleRowToScope,
   type BillingPricingRuleWithContext,
   type PricingRuleScopeLevel
@@ -54,12 +64,13 @@ import {
 } from '@/features/payers/hooks/use-all-pricing-rules';
 import { PricingRuleDialog } from '@/features/payers/components/pricing-rule-dialog';
 import { toast } from 'sonner';
-import type { ClientForPricing } from '@/features/clients/api/clients-pricing.api';
 import { clientDisplayName } from '@/features/clients/lib/client-display-name';
+import { setClientPriceTag } from '@/features/clients/api/clients-pricing.api';
 import {
-  useClientsForPricing,
-  useSetClientPriceTag
-} from '@/features/clients/hooks/use-clients-for-pricing';
+  deleteClientPriceTag,
+  listAllClientPriceTagsForCompany,
+  type ClientPriceTagWithContext
+} from '@/features/payers/api/client-price-tags.service';
 import { referenceKeys } from '@/query/keys/reference';
 
 const LEVEL_FILTER_ALL = 'all' as const;
@@ -68,7 +79,36 @@ const STRATEGY_FILTER_ALL = 'all' as const;
 
 type PricingRow =
   | { kind: 'rule'; data: BillingPricingRuleWithContext }
-  | { kind: 'client'; data: ClientForPricing };
+  | { kind: 'cpt'; data: ClientPriceTagWithContext };
+
+type PendingDelete =
+  | { kind: 'cpt-global'; clientId: string; label: string }
+  | { kind: 'cpt-scoped'; id: string; label: string }
+  | { kind: 'rule'; id: string; label: string };
+
+function grossFromCpt(v: unknown): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') return parseFloat(v);
+  return Number.NaN;
+}
+
+function cptScopeLabel(tag: ClientPriceTagWithContext): string {
+  if (!tag.payer_id && !tag.billing_variant_id) {
+    return 'Global';
+  }
+  if (tag.billing_variant_id && tag.billing_variant) {
+    const fam = tag.billing_variant.billing_type?.name;
+    const parts = [
+      tag.payer?.name,
+      fam ? `${fam} › ${tag.billing_variant.name}` : tag.billing_variant.name
+    ].filter(Boolean);
+    return parts.join(' › ');
+  }
+  if (tag.payer_id && tag.payer) {
+    return tag.payer.name;
+  }
+  return '—';
+}
 
 const SCOPE_LEVEL_LABELS: Record<PricingRuleScopeLevel, string> = {
   payer: 'Kostenträger',
@@ -91,10 +131,11 @@ export function PricingRulesPage() {
     refetch
   } = useAllPricingRules();
 
-  const { data: clients = [], isLoading: clientsLoading } =
-    useClientsForPricing();
-
-  const { mutateAsync: setClientPriceTag } = useSetClientPriceTag();
+  const { data: cptRows = [], isLoading: cptLoading } = useQuery({
+    queryKey: referenceKeys.allClientPriceTags(),
+    queryFn: listAllClientPriceTagsForCompany,
+    staleTime: 30_000
+  });
 
   const [scopeFilter, setScopeFilter] = useState<
     typeof LEVEL_FILTER_ALL | typeof LEVEL_FILTER_CLIENT | PricingRuleScopeLevel
@@ -113,22 +154,23 @@ export function PricingRulesPage() {
   const [dialogInitialClientId, setDialogInitialClientId] = useState<
     string | null
   >(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
+    null
+  );
 
   const allRows: PricingRow[] = useMemo(
     () => [
       ...rows.map((r) => ({ kind: 'rule' as const, data: r })),
-      ...clients
-        .filter((c) => c.price_tag != null)
-        .map((c) => ({ kind: 'client' as const, data: c }))
+      ...cptRows.map((t) => ({ kind: 'cpt' as const, data: t }))
     ],
-    [rows, clients]
+    [rows, cptRows]
   );
 
   // Scope → strategy (rules only) → search (breadcrumb / Fahrgastname)
   const filtered = useMemo(() => {
     let list = allRows;
     list = list.filter((row) => {
-      if (row.kind === 'client') {
+      if (row.kind === 'cpt') {
         return (
           scopeFilter === LEVEL_FILTER_ALL ||
           scopeFilter === LEVEL_FILTER_CLIENT
@@ -140,15 +182,19 @@ export function PricingRulesPage() {
     });
     if (strategyFilter !== STRATEGY_FILTER_ALL) {
       list = list.filter((row) => {
-        if (row.kind === 'client') return true;
+        if (row.kind === 'cpt') {
+          return strategyFilter === 'client_price_tag';
+        }
         return row.data.strategy === strategyFilter;
       });
     }
     const t = search.trim().toLowerCase();
     if (t) {
       list = list.filter((row) => {
-        if (row.kind === 'client') {
-          return clientDisplayName(row.data).toLowerCase().includes(t);
+        if (row.kind === 'cpt') {
+          const c = row.data.client;
+          if (!c) return false;
+          return clientDisplayName(c).toLowerCase().includes(t);
         }
         return row.data.breadcrumb.toLowerCase().includes(t);
       });
@@ -156,13 +202,35 @@ export function PricingRulesPage() {
     return list;
   }, [allRows, scopeFilter, strategyFilter, search]);
 
-  const tableLoading = isLoading || clientsLoading;
+  const tableLoading = isLoading || cptLoading;
 
-  const handleSaved = () => {
+  const handleSaved = useCallback(() => {
     invalidatePricingRuleCaches(qc);
     void qc.invalidateQueries({ queryKey: referenceKeys.clients() });
+    void qc.invalidateQueries({ queryKey: referenceKeys.allClientPriceTags() });
     void refetch();
-  };
+  }, [qc, refetch]);
+
+  const runDelete = useCallback(
+    async (p: PendingDelete) => {
+      try {
+        if (p.kind === 'cpt-global') {
+          await setClientPriceTag(p.clientId, null);
+        } else if (p.kind === 'cpt-scoped') {
+          await deleteClientPriceTag(p.id);
+        } else {
+          await deleteRule(p.id);
+        }
+        handleSaved();
+        toast.success('Entfernt');
+      } catch {
+        toast.error('Entfernen fehlgeschlagen');
+      } finally {
+        setPendingDelete(null);
+      }
+    },
+    [deleteRule, handleSaved]
+  );
 
   const openNewRule = () => {
     setEditing(null);
@@ -291,8 +359,8 @@ export function PricingRulesPage() {
               </TableHeader>
               <TableBody>
                 {filtered.map((row) =>
-                  row.kind === 'client' ? (
-                    <TableRow key={`client-${row.data.id}`}>
+                  row.kind === 'cpt' ? (
+                    <TableRow key={`cpt-${row.data.id}`}>
                       <TableCell className='py-2 align-top'>
                         <Badge
                           variant='outline'
@@ -302,18 +370,34 @@ export function PricingRulesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className='py-2 align-top'>
-                        <span className='text-sm font-medium'>
-                          {clientDisplayName(row.data)}
-                        </span>
+                        <div className='flex flex-col gap-0.5'>
+                          <span className='text-sm font-medium'>
+                            {row.data.client
+                              ? clientDisplayName(row.data.client)
+                              : '—'}
+                          </span>
+                          <span className='text-muted-foreground text-xs'>
+                            {cptScopeLabel(row.data)}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell className='py-2 align-top'>
-                        <span className='text-sm'>Kunden-Preis</span>
+                        <div className='flex flex-col gap-1'>
+                          <span className='text-sm'>Kunden-Preis (P-Tag)</span>
+                          <Badge
+                            variant={
+                              row.data.is_active ? 'secondary' : 'outline'
+                            }
+                            className='w-fit text-xs'
+                          >
+                            {row.data.is_active ? 'Aktiv' : 'Inaktiv'}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell className='py-2 align-top'>
                         <span className='text-muted-foreground font-mono text-xs'>
-                          {row.data.price_tag != null
-                            ? `${eur.format(row.data.price_tag)} brutto`
-                            : '—'}
+                          {eur.format(grossFromCpt(row.data.price_gross))}{' '}
+                          brutto
                         </span>
                       </TableCell>
                       <TableCell className='w-10 py-2 text-right align-top'>
@@ -331,7 +415,7 @@ export function PricingRulesPage() {
                           <DropdownMenuContent align='end'>
                             <DropdownMenuItem
                               onSelect={() =>
-                                openClientPriceEditor(row.data.id)
+                                openClientPriceEditor(row.data.client_id)
                               }
                             >
                               Bearbeiten
@@ -340,26 +424,26 @@ export function PricingRulesPage() {
                             <DropdownMenuItem
                               className='text-destructive focus:text-destructive'
                               onSelect={() => {
-                                if (
-                                  !window.confirm(
-                                    'Kunden-Preis wirklich entfernen?'
-                                  )
-                                ) {
-                                  return;
-                                }
-                                void setClientPriceTag({
-                                  clientId: row.data.id,
-                                  price: null
-                                })
-                                  .then(() => {
-                                    toast.success('Kunden-Preis entfernt');
-                                  })
-                                  .catch(() => {
-                                    toast.error('Entfernen fehlgeschlagen');
+                                const tag = row.data;
+                                const label = tag.client
+                                  ? clientDisplayName(tag.client)
+                                  : 'Kunden-Preis';
+                                if (!tag.payer_id && !tag.billing_variant_id) {
+                                  setPendingDelete({
+                                    kind: 'cpt-global',
+                                    clientId: tag.client_id,
+                                    label
                                   });
+                                } else {
+                                  setPendingDelete({
+                                    kind: 'cpt-scoped',
+                                    id: tag.id,
+                                    label
+                                  });
+                                }
                               }}
                             >
-                              Preis entfernen
+                              Löschen
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -443,7 +527,14 @@ export function PricingRulesPage() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className='text-destructive focus:text-destructive'
-                              onSelect={() => void deleteRule(row.data.id)}
+                              onSelect={() =>
+                                setPendingDelete({
+                                  kind: 'rule',
+                                  id: row.data.id,
+                                  label:
+                                    row.data.breadcrumb.trim() || 'Preisregel'
+                                })
+                              }
                             >
                               Löschen
                             </DropdownMenuItem>
@@ -458,6 +549,37 @@ export function PricingRulesPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eintrag löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `„${pendingDelete.label}" wird unwiderruflich entfernt.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                const p = pendingDelete;
+                if (!p) return;
+                void runDelete(p);
+              }}
+            >
+              Löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PricingRuleDialog
         open={dialogOpen}

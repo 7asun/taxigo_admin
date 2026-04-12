@@ -17,6 +17,14 @@ This pattern is the foundation of every professional dispatch pipeline: the cust
 
 **Rule:** A trip appears in the **Offene Touren** widget when `scheduled_at IS NULL`. Once a dispatcher assigns a date + time, `scheduled_at` is set and the trip leaves the widget.
 
+### 1.5 Stammdaten client resolution (best-effort)
+
+For each CSV row with passenger name columns, the importer first runs [`matchClient`](../src/features/trips/components/bulk-upload/match-client.ts) (phone → first+last → last+ZIP when first name omitted). If that yields a unique match, `trips.client_id` is set.
+
+If `matchClient` does **not** resolve, the same full name string is passed to `resolveClientByName` → RPC `resolve_client_id_by_name`, which applies **normalized full-name equality** within the company (same rules as the SQL backfill migration). Only an **unambiguous** single Stammdaten row sets `client_id`.
+
+If there is still no match, or multiple clients share the normalized name, `client_id` stays **null** and the row is **still imported** (non-blocking). The optional client-resolution wizard can help for remaining cases. See [trip-client-linking.md](./trip-client-linking.md).
+
 ---
 
 ### 2. Optional Time in CSV

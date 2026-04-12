@@ -53,6 +53,7 @@ import {
   buildTripFormValuesFromDraft,
   type CreateTripDraftStored
 } from '@/features/trips/lib/create-trip-draft';
+import { resolveClientByName } from '@/features/trips/lib/resolve-client-by-name';
 
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
@@ -110,6 +111,8 @@ export function CreateTripForm({
 
   // Dynamic multi-passenger state
   const [passengers, setPassengers] = React.useState<PassengerEntry[]>([]);
+  const [companyId, setCompanyId] = React.useState<string | null>(null);
+  const passengerClientResolveGen = React.useRef(0);
   const [pickupGroups, setPickupGroups] = React.useState<AddressGroupEntry[]>([
     { uid: crypto.randomUUID(), address: '' }
   ]);
@@ -263,6 +266,26 @@ export function CreateTripForm({
   const watchedReturnMode = form.watch('return_mode') as ReturnMode;
   const watchedDepartureDateYmd = form.watch('departure_date');
 
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseClient();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user?.id || cancelled) return;
+      const { data: profile } = await supabase
+        .from('accounts')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+      if (!cancelled) setCompanyId(profile?.company_id ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const {
     payers,
     billingTypes,
@@ -271,6 +294,41 @@ export function CreateTripForm({
     searchClients,
     searchClientsById
   } = useTripFormData(watchedPayerId || null);
+
+  React.useEffect(() => {
+    if (!companyId || !watchedPayerId) return;
+    const gen = ++passengerClientResolveGen.current;
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        if (passengerClientResolveGen.current !== gen) return;
+        const supabase = createSupabaseClient();
+        const patch = new Map<string, string>();
+        for (const p of passengers) {
+          if (p.client_id) continue;
+          const fullName = [p.first_name, p.last_name]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (!fullName) continue;
+          // Best-effort: attempt to link passenger to a Stammdaten client when
+          // an exact name match exists. Does not block submission on failure.
+          const id = await resolveClientByName(fullName, companyId, supabase);
+          if (id && passengerClientResolveGen.current === gen)
+            patch.set(p.uid, id);
+        }
+        if (patch.size === 0 || passengerClientResolveGen.current !== gen)
+          return;
+        setPassengers((prev) =>
+          prev.map((row) => {
+            const id = patch.get(row.uid);
+            if (!id || row.client_id) return row;
+            return { ...row, client_id: id };
+          })
+        );
+      })();
+    }, 400);
+    return () => window.clearTimeout(handle);
+  }, [passengers, watchedPayerId, companyId]);
 
   // ClientTripsPanel (parent): show trips for the active linked client, or the Cmd+K
   // preset when no passenger carries a client_id; clear when all linked passengers are removed.

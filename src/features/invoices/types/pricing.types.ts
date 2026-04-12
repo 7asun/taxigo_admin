@@ -74,6 +74,10 @@ export type BillingPricingRuleConfig =
   | FixedBelowThresholdThenKmConfig
   | TimeBasedConfig;
 
+/**
+ * Row-shaped input for pure resolvers. May include `_price_gross` when synthesized
+ * from `client_price_tags` in `resolvePricingRule` STEP 0 (not a DB column on billing_pricing_rules).
+ */
 export interface BillingPricingRuleLike {
   id: string;
   company_id: string;
@@ -82,6 +86,18 @@ export interface BillingPricingRuleLike {
   billing_variant_id: string | null;
   strategy: PricingStrategy;
   config: unknown;
+  is_active: boolean;
+  /** Gross € from `client_price_tags` when this object is a synthetic STEP 0 hit. */
+  _price_gross?: number;
+}
+
+/** Slim row for resolver / invoice builder (loaded with trips). */
+export interface ClientPriceTagLike {
+  id: string;
+  client_id: string;
+  payer_id: string | null;
+  billing_variant_id: string | null;
+  price_gross: number;
   is_active: boolean;
 }
 

@@ -5,12 +5,13 @@ Pure resolution for invoice line items: **no database access** inside the cascad
 ## Priority cascade (locked)
 
 1. **KTS** — `trips.kts_document_applies` forces €0 net with note (`kts_override`).
-2. **`clients.price_tag`** — gross → net using the line tax rate; **overrides all billing rules**.
-3. **Billing pricing rule** — one active row per scope (variant → billing type → payer); strategy from `billing_pricing_rules.config` (Zod-validated).
+2. **Client gross (negotiated)** — gross → net using the line tax rate; **overrides all billing rules**.  
+   Source order inside `resolveTripPrice` P1: **`rule._price_gross`** when `resolvePricingRule` matched a row in **`client_price_tags`** (STEP 0: variant-scoped → payer-scoped → global for that `client_id`); otherwise legacy **`clients.price_tag`**. See [client-price-tags.md](client-price-tags.md).
+3. **Billing pricing rule** — one active row per scope (variant → billing type → payer); strategy from `billing_pricing_rules.config` (Zod-validated). **STEP 0** in `resolve-pricing-rule.ts` runs **before** this catalog waterfall when the trip has a `client_id` and matching tags were loaded.
 4. **`trips.price`** — net fallback.
 5. **Unresolved** — `unit_price_net` null (manual entry in the builder).
 
-Rule selection mirrors KTS-style precedence: see `src/features/invoices/lib/resolve-pricing-rule.ts`.
+Rule + tag selection: `src/features/invoices/lib/resolve-pricing-rule.ts` (tags + billing cascade).
 
 ## Rounding
 
@@ -68,7 +69,7 @@ The invoice wizard does **not** call the resolvers from React with ad hoc fetche
 
 ### Trip fetch when filtering by Abrechnungsfamilie
 
-`fetchTripsForBuilder` must never compare `trips.billing_variant_id` to `billing_types.id` (different identifiers). The correct pattern: load all `billing_variants.id` for the selected `billing_type_id`, then `.in('billing_variant_id', variantIdsForType)`. If the family has no variants, the function returns an empty trip list.
+`fetchTripsForBuilder` returns **`{ trips, clientPriceTags }`**. It must never compare `trips.billing_variant_id` to `billing_types.id` (different identifiers). The correct pattern: load all `billing_variants.id` for the selected `billing_type_id`, then `.in('billing_variant_id', variantIdsForType)`. If the family has no variants, the function returns an empty trip list (and empty tags). After trips load, **active** `client_price_tags` for all distinct `trip.client.id` values are loaded in one query for STEP 0 resolution.
 
 ### Loading rules (shared cache)
 
@@ -93,8 +94,8 @@ The **Preisregeln** page under Abrechnung lists and edits every `billing_pricing
 For each `TripForInvoice`:
 
 1. **`resolveTaxRate(trip.driving_distance_km)`** — VAT rate for the line (7% / 19%).
-2. **`resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId })`** — picks at most one active row: **variant → billing type → payer** (see `resolve-pricing-rule.ts`). `billingTypeId` / `billingVariantId` come from the joined `billing_variant` on the trip.
-3. **`resolveTripPrice(tripInput, taxRate, rule | null)`** — applies the locked P0–P4 price cascade and returns a full **`PriceResolution`** (strategy, source, net, gross, `unit_price_net`, `quantity`, optional `note`).
+2. **`resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId, clientId, clientPriceTags })`** — **STEP 0** picks the best **`client_price_tags`** hit (variant → payer → global) and synthesizes a `BillingPricingRuleLike` with `strategy: 'client_price_tag'` and **`_price_gross`**; otherwise **STEP 1–3**: billing rules **variant → billing type → payer** (see `resolve-pricing-rule.ts`). `billingTypeId` / `billingVariantId` come from the joined `billing_variant` on the trip.
+3. **`resolveTripPrice(tripInput, taxRate, rule | null)`** — applies the locked P0–P4 price cascade and returns a full **`PriceResolution`** (strategy, source, net, gross, `unit_price_net`, `quantity`, optional `note`). P1 prefers **`_price_gross`** on the resolved rule over **`trip.client.price_tag`**.
 
 `buildLineItemsFromTrips` then maps that into a **`BuilderLineItem`**: `unit_price` from `unit_price_net`, `kts_override` when `strategy_used === 'kts_override'`, `no_invoice_warning` from `trips.no_invoice_required`, and attaches `warnings` from `validateLineItems`.
 

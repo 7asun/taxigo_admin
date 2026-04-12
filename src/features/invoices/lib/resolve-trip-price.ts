@@ -1,7 +1,8 @@
 /**
  * Pure trip price resolution — Spec C cascade (locked priorities).
  * Priority 0: KTS → €0
- * Priority 1: clients.price_tag (gross → net)
+ * Priority 1: client gross — `rule._price_gross` (client_price_tags via resolvePricingRule STEP 0)
+ *   else legacy `clients.price_tag` (gross → net)
  * Priority 2: billing_pricing_rules strategy
  * Priority 3: trips.price (net)
  * Priority 4: null / unresolved
@@ -404,12 +405,25 @@ export function resolveTripPrice(
     };
   }
 
-  // Priority 1 — client price_tag (gross → net), beats all catalog strategies (no Anfahrtspreis)
-  const tag = trip.client?.price_tag;
-  if (tag !== null && tag !== undefined) {
-    const net = tag / (1 + taxRate);
+  // Priority 1 — client price tag (gross → net), beats all catalog strategies (no Anfahrtspreis).
+  // Prefer `_price_gross` from resolvePricingRule STEP 0 (client_price_tags); else legacy clients.price_tag.
+  const syntheticGross =
+    rule?.strategy === 'client_price_tag' &&
+    typeof rule._price_gross === 'number' &&
+    !Number.isNaN(rule._price_gross)
+      ? rule._price_gross
+      : null;
+  const legacyTag = trip.client?.price_tag;
+  const tagGross =
+    syntheticGross !== null && syntheticGross > 0
+      ? syntheticGross
+      : legacyTag !== null && legacyTag !== undefined
+        ? legacyTag
+        : null;
+  if (tagGross !== null && tagGross !== undefined) {
+    const net = tagGross / (1 + taxRate);
     return {
-      gross: tag,
+      gross: tagGross,
       net,
       tax_rate: taxRate,
       strategy_used: 'client_price_tag',
