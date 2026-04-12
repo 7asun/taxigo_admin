@@ -26,6 +26,7 @@ export function invalidatePricingRuleCaches(qc: QueryClient): void {
     queryKey: referenceKeys.allBillingPricingRules()
   });
   void qc.invalidateQueries({ queryKey: ['reference', 'billingPricingRules'] });
+  void qc.invalidateQueries({ queryKey: ['reference', 'clientPriceTags'] });
 }
 
 export function useAllPricingRules() {

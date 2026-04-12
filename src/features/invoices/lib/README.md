@@ -7,8 +7,8 @@ Shared invoice logic (pure where possible).
 End-to-end order used by the invoice builder (see `useInvoiceBuilder` and `invoice-line-items.api.ts`):
 
 1. **Load rules (canonical cache)** — `queryClient.fetchQuery({ queryKey: referenceKeys.billingPricingRules(payerId), queryFn: () => listPricingRulesForPayer(payerId), staleTime: 30_000 })`. Same key as `useBillingPricingRules` in Kostenträger admin, so invalidations stay in sync. Map DB rows with `mapBillingPricingRuleRowsToLike`.
-2. **Load trips** — `fetchTripsForBuilder(params)` (billing-type filter resolves variant IDs via `billing_variants.billing_type_id`, never by comparing type id to `billing_variant_id`).
-3. **Pick one rule per trip** — `resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId })` (variant → type → payer).
+2. **Load trips** — `fetchTripsForBuilder(params)` returns `{ trips, clientPriceTags }` (billing-type filter resolves variant IDs via `billing_variants.billing_type_id`, never by comparing type id to `billing_variant_id`). Tags are loaded for all trip clients for STEP 0 pricing.
+3. **Pick one rule per trip** — `resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId, clientId, clientPriceTags })` (client tags STEP 0, then variant → type → payer).
 4. **Resolve price + attach warnings** — `resolveTaxRate` then `resolveTripPrice` inside `buildLineItemsFromTrips`; then `validateLineItems` for step-3 badges.
 5. **Freeze on save** — `createInvoice` (header + `rechnungsempfaenger_snapshot`), then `insertLineItems` (`price_resolution_snapshot` + denormalized pricing columns). Both snapshot sites carry the §14 UStG immutability comment in code.
 

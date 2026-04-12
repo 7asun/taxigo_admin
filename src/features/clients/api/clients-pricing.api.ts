@@ -36,8 +36,10 @@ export async function listClientsForPricing(): Promise<ClientForPricing[]> {
 }
 
 /**
- * Writes a gross brutto price tag directly to clients.price_tag.
- * Pass null to remove the price tag (client falls back to billing rules).
+ * Writes gross price to `clients.price_tag` and keeps the global row in
+ * `client_price_tags` (payer and variant null) in sync for invoice STEP 0.
+ * Pass null to clear both. Payer/variant-scoped tags are managed only via
+ * `client_price_tags` APIs — not here.
  *
  * This is the write side of the P1 price resolution path in resolveTripPrice().
  * No approach fee is applied to client price tags — see docs/preisregeln.md.
@@ -48,15 +50,58 @@ export async function setClientPriceTag(
 ): Promise<void> {
   const companyId = await getSessionCompanyId();
   const supabase = createClient();
+  const now = new Date().toISOString();
 
   const { error } = await supabase
     .from('clients')
     .update({
       price_tag: priceTagGross,
-      updated_at: new Date().toISOString()
+      updated_at: now
     })
     .eq('id', clientId)
     .eq('company_id', companyId);
 
   if (error) throw toQueryError(error);
+
+  if (priceTagGross !== null && priceTagGross > 0) {
+    const { data: existing, error: selErr } = await supabase
+      .from('client_price_tags')
+      .select('id')
+      .eq('client_id', clientId)
+      .is('payer_id', null)
+      .is('billing_variant_id', null)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (selErr) throw toQueryError(selErr);
+
+    if (existing?.id) {
+      const { error: uErr } = await supabase
+        .from('client_price_tags')
+        .update({
+          price_gross: priceTagGross,
+          updated_at: now
+        })
+        .eq('id', existing.id);
+      if (uErr) throw toQueryError(uErr);
+    } else {
+      const { error: iErr } = await supabase.from('client_price_tags').insert({
+        company_id: companyId,
+        client_id: clientId,
+        payer_id: null,
+        billing_variant_id: null,
+        price_gross: priceTagGross,
+        is_active: true
+      });
+      if (iErr) throw toQueryError(iErr);
+    }
+  } else {
+    const { error: dErr } = await supabase
+      .from('client_price_tags')
+      .delete()
+      .eq('client_id', clientId)
+      .is('payer_id', null)
+      .is('billing_variant_id', null);
+    if (dErr) throw toQueryError(dErr);
+  }
 }

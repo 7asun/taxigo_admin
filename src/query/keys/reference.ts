@@ -51,5 +51,13 @@ export const referenceKeys = {
    * @see useAllPricingRules
    */
   allBillingPricingRules: () =>
-    [...referenceKeys.root, 'allBillingPricingRules'] as const
+    [...referenceKeys.root, 'allBillingPricingRules'] as const,
+
+  /** Company-wide client price tags (Preisregeln table). */
+  allClientPriceTags: () =>
+    [...referenceKeys.root, 'clientPriceTags', 'all'] as const,
+
+  /** One client's tags in the Preisregeln dialog manager. */
+  clientPriceTagsManager: (clientId: string) =>
+    [...referenceKeys.root, 'clientPriceTags', 'manager', clientId] as const
 };

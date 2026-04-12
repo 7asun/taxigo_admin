@@ -56,6 +56,7 @@ Cron route (`GET /api/cron/generate-recurring-trips`) requires `Authorization: B
 | `company_profiles` / `companies` | none | Full CRUD, company-scoped |
 | `vehicles` | none | Full CRUD, company-scoped |
 | `billing_pricing_rules` | none | Full CRUD, company-scoped |
+| `client_price_tags` | none | Full CRUD, company-scoped |
 | `rechnungsempfaenger` | none | Full CRUD, company-scoped |
 | `fremdfirmen` | none | Full CRUD, company-scoped |
 | `pdf_vorlagen` | none | Full CRUD, company-scoped |

@@ -269,6 +269,71 @@ export type Database = {
         };
         Relationships: [];
       };
+      client_price_tags: {
+        Row: {
+          id: string;
+          company_id: string;
+          client_id: string;
+          payer_id: string | null;
+          billing_variant_id: string | null;
+          price_gross: number;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          client_id: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
+          price_gross: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          client_id?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
+          price_gross?: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'client_price_tags_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_price_tags_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'clients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_price_tags_payer_id_fkey';
+            columns: ['payer_id'];
+            isOneToOne: false;
+            referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_price_tags_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       companies: {
         Row: {
           code: string;
@@ -1428,6 +1493,10 @@ export type Database = {
       trip_ids_matching_invoice_effective_status: {
         Args: { p_effective: string };
         Returns: string[];
+      };
+      resolve_client_id_by_name: {
+        Args: { p_company_id: string; p_full_name: string };
+        Returns: string | null;
       };
     };
     Enums: {

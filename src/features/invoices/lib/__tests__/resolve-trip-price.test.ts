@@ -15,7 +15,8 @@ function rule(
     billing_variant_id: partial.billing_variant_id ?? null,
     strategy: partial.strategy,
     config: partial.config,
-    is_active: partial.is_active ?? true
+    is_active: partial.is_active ?? true,
+    _price_gross: partial._price_gross
   };
 }
 
@@ -70,6 +71,29 @@ describe('resolveTripPrice', () => {
     );
     expect(r.unit_price_net).not.toBe(30.47);
     expect(r.unit_price_net!).toBeCloseTo(32.6 / 1.07, 8);
+  });
+
+  test('rule _price_gross (client_price_tags) beats legacy clients.price_tag', () => {
+    const r = resolveTripPrice(
+      {
+        ...baseTrip,
+        client: { price_tag: 10 },
+        driving_distance_km: 100
+      },
+      0.19,
+      {
+        ...rule({
+          payer_id: null,
+          billing_type_id: null,
+          billing_variant_id: null,
+          strategy: 'client_price_tag',
+          config: {}
+        }),
+        _price_gross: 119
+      }
+    );
+    expect(r.strategy_used).toBe('client_price_tag');
+    expect(r.gross).toBe(119);
   });
 
   test('price_tag beats tiered rule', () => {

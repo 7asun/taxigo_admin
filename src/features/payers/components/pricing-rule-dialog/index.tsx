@@ -5,12 +5,10 @@
  *
  * Step routing:
  *   step 1  → strategy tile grid (create only)
- *   step 2  → config fields + scope assignment (create) / all fields (edit)
+ *   step 2  → billing rule config + scope, or `ClientPriceTagStep` for client_price_tag
  *
- * Special case: strategy === 'client_price_tag' + !editing
- *   Skips step 2 entirely. Submit calls setClientPriceTag() directly —
- *   the price lives on clients.price_tag, not in billing_pricing_rules.config.
- *   See docs/preisregeln.md § "client_price_tag bypass".
+ * `client_price_tag`: Step 2 opens the Kunden-Preis manager (`client_price_tags` + legacy
+ * `clients.price_tag` for global rows). See docs/preisregeln.md.
  *
  * Footer wiring: the <form> has id={FORM_ID}; the footer submit button uses
  *   type="submit" form={FORM_ID} so it works outside the scrollable body.
@@ -39,10 +37,6 @@ import {
 } from '@/features/payers/api/billing-pricing-rules.api';
 import { usePayers } from '@/features/payers/hooks/use-payers';
 import { useBillingTypes } from '@/features/payers/hooks/use-billing-types';
-import {
-  useClientsForPricing,
-  useSetClientPriceTag
-} from '@/features/clients/hooks/use-clients-for-pricing';
 import { toast } from 'sonner';
 
 import type { PricingRuleDialogProps } from './pricing-rule-dialog.types';
@@ -58,6 +52,7 @@ import {
 import { Step1StrategyPicker } from './step1-strategy-picker';
 import { Step2RuleConfig } from './step2-rule-config';
 import { Step2ScopePicker } from './step2-scope-picker';
+import { ClientPriceTagStep } from './client-price-tag-step';
 
 export { PRICING_STRATEGY_LABELS_DE };
 
@@ -70,7 +65,8 @@ export function PricingRuleDialog({
   editing,
   onSaved,
   initialStrategy,
-  initialClientId
+  initialClientId,
+  lockClientSelection = false
 }: PricingRuleDialogProps) {
   const eur = useMemo(
     () =>
@@ -98,26 +94,22 @@ export function PricingRuleDialog({
 
   const [holidayInput, setHolidayInput] = useState('');
   const [saving, setSaving] = useState(false);
-  const [clientIdForPriceTag, setClientIdForPriceTag] = useState<string | null>(
-    null
-  );
-  const [priceTagInput, setPriceTagInput] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
 
-  const { mutateAsync: saveClientPriceTag, isPending: savingClientPriceTag } =
-    useSetClientPriceTag();
-  const { data: clientsForPricing = [] } = useClientsForPricing();
-
-  // Step resets to 1 on open (create) or 2 (edit: no strategy step needed).
   useEffect(() => {
-    if (open) {
-      setStep(editing ? 2 : 1);
+    if (!open) return;
+    if (editing) {
+      setStep(2);
+      return;
     }
-  }, [open, editing]);
+    if (initialStrategy === 'client_price_tag') {
+      setStep(2);
+    } else {
+      setStep(1);
+    }
+  }, [open, editing, initialStrategy]);
 
   const showScopePicker = !editing && scope === null;
-  // Scope picker only shown when creating from global page (scope prop is null)
-  // and strategy is not client_price_tag (that flow has no scope assignment).
   const effectiveShowScopePicker =
     showScopePicker && strategy !== 'client_price_tag';
 
@@ -129,33 +121,6 @@ export function PricingRuleDialog({
   }, [open, effectiveShowScopePicker]);
 
   useEffect(() => {
-    if (!open) {
-      setClientIdForPriceTag(null);
-      setPriceTagInput('');
-      return;
-    }
-    if (editing || strategy !== 'client_price_tag') return;
-    if (initialClientId) {
-      const c = clientsForPricing.find((x) => x.id === initialClientId);
-      if (c) {
-        setClientIdForPriceTag(c.id);
-        setPriceTagInput(c.price_tag != null ? String(c.price_tag) : '');
-      }
-    } else {
-      setClientIdForPriceTag(null);
-      setPriceTagInput('');
-    }
-  }, [open, editing, initialClientId, clientsForPricing, strategy]);
-
-  useEffect(() => {
-    if (strategy !== 'client_price_tag') {
-      setClientIdForPriceTag(null);
-      setPriceTagInput('');
-    }
-  }, [strategy]);
-
-  // Downstream selects reset when upstream changes to prevent stale state.
-  useEffect(() => {
     setPickFamilyId(null);
     setPickVariantId(null);
   }, [pickPayerId]);
@@ -164,7 +129,6 @@ export function PricingRuleDialog({
     setPickVariantId(null);
   }, [pickFamilyId]);
 
-  // resolvedCreateScope: most specific scope wins (variant > family > payer).
   const resolvedCreateScope = useMemo(() => {
     if (scope !== null) return scope;
     if (!pickPayerId) return null;
@@ -238,33 +202,6 @@ export function PricingRuleDialog({
   }, [open, editing, reset, initialStrategy]);
 
   const onSubmit = async (v: PricingRuleFormValues) => {
-    // For client_price_tag creates: bypass rule API, write directly to clients.price_tag.
-    if (v.strategy === 'client_price_tag' && !editing) {
-      if (!clientIdForPriceTag) {
-        toast.error('Bitte Fahrgast wählen.');
-        return;
-      }
-      const rawPrice = priceTagInput.trim();
-      const priceGross =
-        rawPrice === '' ? null : parseFloat(rawPrice.replace(',', '.'));
-      if (priceGross !== null && (Number.isNaN(priceGross) || priceGross < 0)) {
-        toast.error('Ungültiger Preis.');
-        return;
-      }
-      try {
-        await saveClientPriceTag({
-          clientId: clientIdForPriceTag,
-          price: priceGross
-        });
-        toast.success('Kunden-Preis gespeichert');
-        onSaved();
-        onOpenChange(false);
-      } catch (e) {
-        toast.error(pricingRulesErrorMessage(e));
-      }
-      return;
-    }
-
     const raw = buildApiPayload(v);
     const parsed = billingPricingRuleUpsertSchema.safeParse(raw);
     if (!parsed.success) {
@@ -325,52 +262,35 @@ export function PricingRuleDialog({
     setHolidayInput('');
   };
 
-  const busy = saving || savingClientPriceTag;
+  const busy = saving;
   const strategySummaryLabel = PRICING_STRATEGY_LABELS_DE[strategy];
-  const isClientPriceStep1 =
-    !editing && step === 1 && strategy === 'client_price_tag';
   const showStep1Strategy = !editing && step === 1;
-  const showStep2Body =
-    !!editing || (step === 2 && strategy !== 'client_price_tag');
-  const showWeiter = !editing && step === 1 && strategy !== 'client_price_tag';
-  // showSpeichern: true in edit mode, step 2, or client_price_tag step 1 (complete in one step).
+  const showStep2 = !!editing || step === 2;
+  const isClientPriceManager =
+    !editing && step === 2 && strategy === 'client_price_tag';
+  const showBillingRuleStep2 =
+    showStep2 && (editing || strategy !== 'client_price_tag');
+  const showWeiter = !editing && step === 1;
   const showSpeichern =
-    !!editing || step === 2 || (step === 1 && strategy === 'client_price_tag');
+    !!editing || (step === 2 && strategy !== 'client_price_tag');
+  const showFertig = !editing && step === 2 && strategy === 'client_price_tag';
   const createNeedsScopeBlockingSubmit =
     !editing && step === 2 && effectiveShowScopePicker && !resolvedCreateScope;
   const submitDisabled =
-    busy ||
-    (isClientPriceStep1 && !clientIdForPriceTag) ||
-    (showSpeichern && createNeedsScopeBlockingSubmit);
+    busy || (showSpeichern && createNeedsScopeBlockingSubmit);
 
   const dialogTitle = editing
     ? 'Preisregel bearbeiten'
-    : isClientPriceStep1
-      ? 'Kunden-Preis setzen'
+    : isClientPriceManager
+      ? 'Kunden-Preise'
       : 'Neue Preisregel';
   const dialogDescription = editing
     ? strategySummaryLabel
-    : isClientPriceStep1
-      ? 'Fahrgast und Betrag wählen'
+    : isClientPriceManager
+      ? 'Preise je Kostenträger oder Unterart — globaler Preis bleibt mit Stammdaten synchron.'
       : !editing && step === 1
         ? 'Strategie wählen'
         : strategySummaryLabel;
-
-  const handleRemoveClientPriceTag = async () => {
-    if (!clientIdForPriceTag) return;
-    if (!window.confirm('Kunden-Preis wirklich entfernen?')) return;
-    try {
-      await saveClientPriceTag({
-        clientId: clientIdForPriceTag,
-        price: null
-      });
-      toast.success('Kunden-Preis entfernt');
-      onSaved();
-      onOpenChange(false);
-    } catch (e) {
-      toast.error(pricingRulesErrorMessage(e));
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
@@ -393,23 +313,20 @@ export function PricingRuleDialog({
               <Step1StrategyPicker
                 strategy={strategy}
                 onStrategyChange={(s) => setValue('strategy', s)}
-                clientId={clientIdForPriceTag}
-                priceTagInput={priceTagInput}
                 busy={busy}
-                onClientSelect={(id, tag) => {
-                  setClientIdForPriceTag(id);
-                  setPriceTagInput(tag != null ? String(tag) : '');
-                }}
-                onClientClear={() => {
-                  setClientIdForPriceTag(null);
-                  setPriceTagInput('');
-                }}
-                onPriceTagChange={setPriceTagInput}
-                onRemovePriceTag={() => void handleRemoveClientPriceTag()}
               />
             )}
 
-            {showStep2Body && (
+            {isClientPriceManager && (
+              <ClientPriceTagStep
+                busy={busy}
+                initialClientId={initialClientId ?? null}
+                lockClientSelection={lockClientSelection}
+                onSaved={onSaved}
+              />
+            )}
+
+            {showBillingRuleStep2 && (
               <>
                 <div className='flex flex-wrap items-center gap-2'>
                   <Badge variant='outline' className='font-normal'>
@@ -458,6 +375,18 @@ export function PricingRuleDialog({
             </Button>
           )}
           <div className='flex-1' />
+          {showFertig && (
+            <Button
+              type='button'
+              onClick={() => {
+                onSaved();
+                onOpenChange(false);
+              }}
+              disabled={busy}
+            >
+              Fertig
+            </Button>
+          )}
           {showSpeichern && (
             <Button type='submit' form={FORM_ID} disabled={submitDisabled}>
               {busy ? 'Speichern…' : 'Speichern'}

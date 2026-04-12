@@ -88,4 +88,9 @@ export interface PricingRuleDialogProps {
    * Populated when editing a client row from the pricing page table.
    */
   initialClientId?: string | null;
+  /**
+   * When true, the manager step hides client search and “Wechseln” so the
+   * Fahrgast cannot be changed (e.g. opened from the Fahrgast detail panel).
+   */
+  lockClientSelection?: boolean;
 }

@@ -3,10 +3,8 @@
 /**
  * React Query hooks for client price tag management on the Preisregeln page.
  *
- * useClientsForPricing   → reference list (stale 60s); used in ClientPriceSearch
- *                          and in the pricing-rules-page client rows.
- * useSetClientPriceTag   → mutation; invalidates referenceKeys.clients() on success
- *                          so both the dialog and the page table stay in sync.
+ * useClientsForPricing   → reference list (stale 60s); used in the Kunden-Preis dialog.
+ * useSetClientPriceTag   → mutation; invalidates clients + client_price_tags caches.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -36,6 +34,10 @@ export function useSetClientPriceTag() {
     }) => setClientPriceTag(clientId, price),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: referenceKeys.clients() });
+      void qc.invalidateQueries({
+        queryKey: referenceKeys.allClientPriceTags()
+      });
+      void qc.invalidateQueries({ queryKey: ['reference', 'clientPriceTags'] });
     }
   });
 }

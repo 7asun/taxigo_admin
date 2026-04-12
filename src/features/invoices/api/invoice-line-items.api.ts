@@ -27,7 +27,11 @@ import { resolvePricingRule } from '../lib/resolve-pricing-rule';
 import { resolveTripPrice as resolveTripPricePure } from '../lib/resolve-trip-price';
 import { validateLineItems } from '../lib/invoice-validators';
 import { buildTripMetaFromTrip } from '../lib/trip-meta-snapshot';
-import type { BillingPricingRuleLike } from '../types/pricing.types';
+import type {
+  BillingPricingRuleLike,
+  ClientPriceTagLike
+} from '../types/pricing.types';
+import { listClientPriceTagsForClientIds } from '@/features/payers/api/client-price-tags.service';
 import type { PriceResolution } from '../types/pricing.types';
 import type {
   TripForInvoice,
@@ -100,11 +104,14 @@ export function applyManualUnitNetToResolution(
  * Billing-type filter uses `billing_variants.billing_type_id` (not variant id).
  *
  * @param params - Filter parameters from the builder step 2.
- * @returns       Array of TripForInvoice objects ready for line item building.
+ * @returns       Trips plus active `client_price_tags` for embedded clients (invoice resolution STEP 0).
  */
 export async function fetchTripsForBuilder(
   params: FetchTripsForBuilderParams
-): Promise<TripForInvoice[]> {
+): Promise<{
+  trips: TripForInvoice[];
+  clientPriceTags: ClientPriceTagLike[];
+}> {
   const supabase = createClient();
 
   // Filter priority:
@@ -125,7 +132,7 @@ export async function fetchTripsForBuilder(
     if (vErr) throw toQueryError(vErr);
     variantIdsForType = (variants ?? []).map((v) => v.id);
     if (variantIdsForType.length === 0) {
-      return [];
+      return { trips: [], clientPriceTags: [] };
     }
   }
 
@@ -166,13 +173,25 @@ export async function fetchTripsForBuilder(
   }
 
   if (params.client_id) {
+    // Trips with client_id = null are excluded here by design.
+    // Best-effort resolution at trip creation ensures client_id is set
+    // when a Stammdaten match exists. See docs/trip-client-linking.md.
     query = query.eq('client_id', params.client_id);
   }
 
   const { data, error } = await query;
 
   if (error) throw toQueryError(error);
-  return (data ?? []) as unknown as TripForInvoice[];
+  const trips = (data ?? []) as unknown as TripForInvoice[];
+  const clientIds = [
+    ...new Set(
+      trips
+        .map((t) => t.client?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  ];
+  const clientPriceTags = await listClientPriceTagsForClientIds(clientIds);
+  return { trips, clientPriceTags };
 }
 
 /** Maps DB pricing rule rows to the shape expected by pure resolvers. */
@@ -201,8 +220,9 @@ export async function fetchBuilderTripsAndRules(
 ): Promise<{
   trips: TripForInvoice[];
   rules: BillingPricingRuleLike[];
+  clientPriceTags: ClientPriceTagLike[];
 }> {
-  const trips = await fetchTripsForBuilder(params);
+  const { trips, clientPriceTags } = await fetchTripsForBuilder(params);
   let rules: BillingPricingRuleLike[];
   if (preloadedRules !== undefined) {
     rules = preloadedRules;
@@ -210,7 +230,7 @@ export async function fetchBuilderTripsAndRules(
     const rulesRows = await listPricingRulesForPayer(params.payer_id);
     rules = mapBillingPricingRuleRowsToLike(rulesRows);
   }
-  return { trips, rules };
+  return { trips, rules, clientPriceTags };
 }
 
 // ─── Build line items ─────────────────────────────────────────────────────────
@@ -221,7 +241,8 @@ export async function fetchBuilderTripsAndRules(
  */
 export function buildLineItemsFromTrips(
   trips: TripForInvoice[],
-  rules: BillingPricingRuleLike[]
+  rules: BillingPricingRuleLike[],
+  clientPriceTags: ClientPriceTagLike[] = []
 ): BuilderLineItem[] {
   const rawItems = trips.map((trip, index) => {
     const { rate: taxRate } = resolveTaxRate(trip.driving_distance_km);
@@ -230,7 +251,9 @@ export function buildLineItemsFromTrips(
       rules,
       payerId: trip.payer_id,
       billingTypeId: trip.billing_variant?.billing_type_id ?? null,
-      billingVariantId: trip.billing_variant_id
+      billingVariantId: trip.billing_variant_id,
+      clientId: trip.client?.id ?? null,
+      clientPriceTags
     });
 
     const priceResolution = resolveTripPricePure(

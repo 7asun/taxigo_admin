@@ -98,7 +98,7 @@ export function useInvoiceBuilder(
         staleTime: 30_000
       });
       const rules = mapBillingPricingRuleRowsToLike(rulesRows);
-      const trips = await fetchTripsForBuilder({
+      const { trips, clientPriceTags } = await fetchTripsForBuilder({
         payer_id: payerId,
         billing_type_id: step2Values?.billing_type_id,
         billing_variant_id: step2Values?.billing_variant_id,
@@ -106,7 +106,7 @@ export function useInvoiceBuilder(
         period_to: step2Values!.period_to,
         client_id: step2Values?.client_id
       });
-      const items = buildLineItemsFromTrips(trips, rules);
+      const items = buildLineItemsFromTrips(trips, rules, clientPriceTags);
       setLineItems(items);
 
       const t0 = trips[0];

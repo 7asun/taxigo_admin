@@ -39,6 +39,7 @@ import {
   type RehydratedTripRow
 } from '@/features/trips/components/bulk-upload/bulk-upload-types';
 import { matchClient } from '@/features/trips/components/bulk-upload/match-client';
+import { resolveClientByName } from '@/features/trips/lib/resolve-client-by-name';
 import { ResolveClientsStep } from '@/features/trips/components/bulk-upload/resolve-clients-step';
 import { ResolveBillingVariantsStep } from '@/features/trips/components/bulk-upload/resolve-billing-variants-step';
 import {
@@ -888,6 +889,14 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             null;
 
           const matchedClient = findMatchingClient(parsedRow);
+          let resolvedClientId = matchedClient?.id ?? null;
+          if (!resolvedClientId && fullNameFromCsv && companyId) {
+            resolvedClientId = await resolveClientByName(
+              fullNameFromCsv,
+              companyId,
+              supabase
+            );
+          }
 
           const matchedDriver = findMatchingDriver(parsedRow);
           const hasDriverNameFromCsv =
@@ -903,7 +912,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               ? {
                   payer_id: payer.id,
                   billing_variant_id: billingVariantId,
-                  client_id: matchedClient?.id ?? null,
+                  client_id: resolvedClientId,
                   client_name: matchedClient
                     ? `${matchedClient.first_name || ''} ${
                         matchedClient.last_name || ''
@@ -1006,7 +1015,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             rowNeedsReturnTrip = false;
           }
 
-          const matchedClientId: string | null = matchedClient?.id ?? null;
+          const matchedClientId: string | null = resolvedClientId;
 
           validatedRows.push({
             rowNumber: rowNum,
