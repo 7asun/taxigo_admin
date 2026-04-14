@@ -71,6 +71,11 @@ export const navItems: NavItem[] = [
         title: 'Vorlagen',
         url: '/dashboard/abrechnung/vorlagen',
         shortcut: ['v', 'v']
+      },
+      {
+        title: 'Angebotsvorlagen',
+        url: '/dashboard/abrechnung/angebot-vorlagen',
+        shortcut: ['a', 'v']
       }
     ]
   },

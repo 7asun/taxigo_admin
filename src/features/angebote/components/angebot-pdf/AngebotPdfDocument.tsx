@@ -16,7 +16,6 @@
 
 import { Document, Page, View } from '@react-pdf/renderer';
 
-// Reused from invoices module — do not modify invoice-side types
 import { InvoicePdfCoverHeader } from '@/features/invoices/components/invoice-pdf/invoice-pdf-cover-header';
 import { InvoicePdfFooter } from '@/features/invoices/components/invoice-pdf/invoice-pdf-footer';
 import {
@@ -27,9 +26,33 @@ import { buildInvoicePdfSenderOneLine } from '@/features/invoices/components/inv
 import { fitSenderLine } from '@/features/invoices/components/invoice-pdf/resolve-sender-font-size';
 import type { InvoiceDetail } from '@/features/invoices/types/invoice.types';
 
-import type { AngebotWithLineItems } from '../../types/angebot.types';
+import { profileToAngebotColumnDefs } from '../../lib/resolve-angebot-table-schema';
+import type {
+  AngebotColumnDef,
+  AngebotWithLineItems
+} from '../../types/angebot.types';
 import { ANGEBOT_STANDARD_COLUMN_PROFILE } from '../../types/angebot.types';
 import { AngebotPdfCoverBody } from './AngebotPdfCoverBody';
+
+/**
+ * Shared by PDF export and detail UI — resolves the same column schema as the document body.
+ */
+export function resolveAngebotPdfColumnSchema(
+  angebot: AngebotWithLineItems
+): AngebotColumnDef[] {
+  // Precedence: table_schema_snapshot (Phase 2a+) → pdf_column_override (legacy, pre–Phase-2a offers only) → standard profile fallback. Remove step 2 once all offers have a snapshot.
+  if (
+    angebot.table_schema_snapshot &&
+    angebot.table_schema_snapshot.length > 0
+  ) {
+    return angebot.table_schema_snapshot;
+  }
+  const legacy = angebot.pdf_column_override;
+  if (legacy?.columns?.length) {
+    return profileToAngebotColumnDefs(legacy);
+  }
+  return profileToAngebotColumnDefs(ANGEBOT_STANDARD_COLUMN_PROFILE);
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -86,9 +109,6 @@ export function AngebotPdfDocument({
   const person = contactDisplayName;
   const company = angebot.recipient_company?.trim() ?? '';
 
-  // Window address only (DIN 5008): name + postal lines — no E-Mail/Telefon here.
-  // companyName line 1 only when both Firma and Ansprechperson exist (avoids duplicate
-  // when only Firma is set — header would otherwise show the same string twice).
   const recipient = {
     companyName: person ? company : '',
     personName: person,
@@ -101,8 +121,7 @@ export function AngebotPdfDocument({
     addressLine2: null as string | null
   };
 
-  const columnProfile =
-    angebot.pdf_column_override ?? ANGEBOT_STANDARD_COLUMN_PROFILE;
+  const columnSchema = resolveAngebotPdfColumnSchema(angebot);
 
   const resolvedIntroText = introText ?? angebot.intro_text ?? null;
   const resolvedOutroText = outroText ?? angebot.outro_text ?? null;
@@ -113,7 +132,6 @@ export function AngebotPdfDocument({
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.angebotPage} wrap>
-        {/* Header — reused unchanged; metaConfig overrides labels for offer context */}
         <InvoicePdfCoverHeader
           companyProfile={cp}
           senderFit={senderFit}
@@ -135,7 +153,6 @@ export function AngebotPdfDocument({
           }}
         />
 
-        {/* Body — flex column, wrap so long Html intro/outro can paginate (no minHeight). */}
         <View style={styles.angebotPageBody} wrap>
           <AngebotPdfCoverBody
             subject={angebot.subject}
@@ -144,13 +161,12 @@ export function AngebotPdfDocument({
             recipientLastName={angebot.recipient_last_name}
             recipientLegacyName={angebot.recipient_name}
             lineItems={angebot.line_items}
-            columnKeys={columnProfile.columns}
+            columnSchema={columnSchema}
             introText={resolvedIntroText}
             outroText={resolvedOutroText}
           />
         </View>
 
-        {/* Footer — reused unchanged; shows company legal info + bank details */}
         <InvoicePdfFooter companyProfile={cp} notes={null} />
       </Page>
     </Document>

@@ -16,18 +16,13 @@ import { usePDF } from '@react-pdf/renderer';
 
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
 import type { InvoiceDetail } from '@/features/invoices/types/invoice.types';
-import type {
-  AngebotWithLineItems,
-  AngebotColumnProfile
-} from '../../types/angebot.types';
-import { ANGEBOT_STANDARD_COLUMN_PROFILE } from '../../types/angebot.types';
+import type { AngebotWithLineItems } from '../../types/angebot.types';
 import { AngebotPdfDocument } from '../angebot-pdf/AngebotPdfDocument';
 
 export interface UseAngebotBuilderPdfPreviewParams {
   companyProfile: InvoiceDetail['company_profile'] | null;
   /** Draft Angebot assembled from form state — may be partially filled. */
   draftAngebot: AngebotWithLineItems | null;
-  columnProfile?: AngebotColumnProfile;
 }
 
 /**
@@ -37,8 +32,7 @@ export interface UseAngebotBuilderPdfPreviewParams {
  */
 export function useAngebotBuilderPdfPreview({
   companyProfile,
-  draftAngebot,
-  columnProfile = ANGEBOT_STANDARD_COLUMN_PROFILE
+  draftAngebot
 }: UseAngebotBuilderPdfPreviewParams): {
   pdf: ReturnType<typeof usePDF>[0];
   livePreviewActive: boolean;
@@ -46,7 +40,6 @@ export function useAngebotBuilderPdfPreview({
   const [pdf, updatePdf] = usePDF();
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
 
-  // Resolves a short-lived signed URL for the PDF renderer's logo fetch.
   useEffect(() => {
     if (!companyProfile) {
       setPdfLogoUrl(null);
@@ -79,26 +72,20 @@ export function useAngebotBuilderPdfPreview({
 
   const livePreviewActive = !!draftAngebot && !!companyProfileForDraft;
 
-  // Debounced PDF update — 600ms (see JSDoc above)
   useEffect(() => {
     if (!draftAngebot || !companyProfileForDraft) return undefined;
-
-    const angebotWithProfile: AngebotWithLineItems = {
-      ...draftAngebot,
-      pdf_column_override: columnProfile
-    };
 
     const t = window.setTimeout(() => {
       updatePdf(
         <AngebotPdfDocument
-          angebot={angebotWithProfile}
+          angebot={draftAngebot}
           companyProfile={companyProfileForDraft}
         />
       );
     }, 600);
 
     return () => window.clearTimeout(t);
-  }, [draftAngebot, companyProfileForDraft, columnProfile, updatePdf]);
+  }, [draftAngebot, companyProfileForDraft, updatePdf]);
 
   return { pdf, livePreviewActive };
 }

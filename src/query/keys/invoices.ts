@@ -76,8 +76,11 @@ export const invoiceKeys = {
     /** Root — invalidate to refetch all text block queries. */
     all: ['invoice-text-blocks'] as const,
 
-    /** List all text blocks for the current company. */
+    /** Grouped list (intro / outro). Must not share cache with `flatList()` (different result shape). */
     list: () => ['invoice-text-blocks', 'list'] as const,
+
+    /** Flat array for dropdowns. Must not share `list()` key (grouped vs flat cache shape). */
+    flatList: () => ['invoice-text-blocks', 'flat-list'] as const,
 
     /** Single text block by ID. */
     detail: (id: string) => ['invoice-text-blocks', 'detail', id] as const

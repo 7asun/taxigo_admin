@@ -20,19 +20,20 @@ import { View, Text } from '@react-pdf/renderer';
 import Html from 'react-pdf-html';
 import type { HtmlStyles } from 'react-pdf-html';
 
-import type {
-  AngebotLineItemRow,
-  AngebotColumnKey
-} from '../../types/angebot.types';
-import {
-  ANGEBOT_COLUMN_MAP,
-  calcAngebotColumnWidths
-} from './angebot-pdf-columns';
+import type { AngebotLineItemRow } from '../../types/angebot.types';
+import type { AngebotColumnDef } from '../../types/angebot.types';
+import { calcAngebotColumnWidths } from './angebot-pdf-columns';
+import { resolveColumnLayout } from '../../lib/angebot-column-presets';
 import {
   PDF_COLORS,
   PDF_FONT_SIZES,
   styles
 } from '@/features/invoices/components/invoice-pdf/pdf-styles';
+import {
+  ANGEBOT_POSITION_COLUMN,
+  ANGEBOT_POSITION_COLUMN_ID
+} from '../../lib/angebot-auto-columns';
+import { ANGEBOT_LEGACY_COLUMN_IDS } from '../../lib/angebot-legacy-column-ids';
 
 /** Intro/outro prose — mirrors `styles.bodyText` (invoice PDF); does not affect the table. */
 const HTML_PROSE = {
@@ -85,27 +86,110 @@ function formatEurPerKm(value: number | null | undefined): string {
   }).format(value)} €/km`;
 }
 
-function renderCellValue(
+/**
+ * PostgREST may return JSONB `data` as a stringified object — same rationale as
+ * `coerceLineItemJsonbSnapshots` / `parseJsonbField` in pdf-column-layout.ts (L90–113).
+ */
+function coerceLineItemData(
+  item: AngebotLineItemRow
+): Record<string, string | number | null> {
+  const raw = item.data;
+  if (raw == null) return {};
+  if (typeof raw === 'string') {
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        return v as Record<string, string | number | null>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, string | number | null>;
+  }
+  return {};
+}
+
+/**
+ * Temporary bridge: maps well-known column IDs to typed fields on AngebotLineItemRow.
+ * Remove once all line items use data jsonb and typed columns are dropped.
+ */
+function legacyFallback(
   item: AngebotLineItemRow,
-  key: AngebotColumnKey,
-  index: number
+  colId: string
+): string | number | null {
+  switch (colId) {
+    case ANGEBOT_LEGACY_COLUMN_IDS.leistung:
+      return item.leistung;
+    case ANGEBOT_LEGACY_COLUMN_IDS.anfahrtkosten:
+      return item.anfahrtkosten;
+    case ANGEBOT_LEGACY_COLUMN_IDS.price_first_5km:
+      return item.price_first_5km;
+    case ANGEBOT_LEGACY_COLUMN_IDS.price_per_km_after_5:
+      return item.price_per_km_after_5;
+    case ANGEBOT_LEGACY_COLUMN_IDS.notes:
+      return item.notes;
+    default:
+      return null;
+  }
+}
+
+function cellRawValue(
+  item: AngebotLineItemRow,
+  col: AngebotColumnDef,
+  _rowIndex: number
+): string | number | null {
+  if (col.id === ANGEBOT_POSITION_COLUMN_ID) return null;
+  const data = coerceLineItemData(item);
+  const fromData = data[col.id];
+  if (fromData !== undefined && fromData !== null && fromData !== '') {
+    return fromData;
+  }
+  return legacyFallback(item, col.id);
+}
+
+function renderCell(
+  col: AngebotColumnDef,
+  raw: string | number | null,
+  rowIndex: number
 ): string {
-  switch (key) {
-    case 'position':
-      return String(index + 1);
-    case 'leistung':
-      return item.leistung || '—';
-    case 'anfahrtkosten':
-      return formatEur(item.anfahrtkosten);
-    case 'price_first_5km':
-      return formatEurPerKm(item.price_first_5km);
-    case 'price_per_km_after_5':
-      return formatEurPerKm(item.price_per_km_after_5);
-    case 'notes':
-      return item.notes || '—';
+  // col_position is never in item.data — value is always the 1-based row index.
+  if (col.id === ANGEBOT_POSITION_COLUMN_ID) {
+    return String(rowIndex + 1);
+  }
+  const layout = resolveColumnLayout(col);
+  switch (layout.pdfRenderType) {
+    case 'text': {
+      if (raw == null || raw === '') return '—';
+      return String(raw);
+    }
+    case 'integer': {
+      if (raw == null || raw === '') return '—';
+      const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+      return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'currency': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEur(Number.isFinite(n) ? n : null);
+    }
+    case 'currency_per_km': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEurPerKm(Number.isFinite(n) ? n : null);
+    }
+    case 'percent': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      if (!Number.isFinite(n)) return '—';
+      return `${n} %`;
+    }
     default:
       return '—';
   }
+}
+
+function textAlignForCol(col: AngebotColumnDef): 'left' | 'right' | 'center' {
+  return resolveColumnLayout(col).align;
 }
 
 function buildSalutation(
@@ -117,8 +201,6 @@ function buildSalutation(
   const last = (lastName ?? '').trim() || (legacyName ?? '').trim();
   if (!last) return 'Sehr geehrte Damen und Herren,';
 
-  // Herr/Frau: always last name only. For legacy full-name strings, fall back
-  // to the last token ("Max Mustermann" → "Mustermann").
   const lastOnlyForAnrede = lastName?.trim()
     ? lastName.trim()
     : (last.split(/\s+/).slice(-1)[0] ?? last);
@@ -126,7 +208,6 @@ function buildSalutation(
   if (anrede === 'Herr') return `Sehr geehrter Herr ${lastOnlyForAnrede},`;
   if (anrede === 'Frau') return `Sehr geehrte Frau ${lastOnlyForAnrede},`;
 
-  // No anrede: use full name (first + last/fallback).
   const full = [firstName, last].filter(Boolean).join(' ').trim();
   return `Guten Tag ${full},`;
 }
@@ -140,7 +221,7 @@ export interface AngebotPdfCoverBodyProps {
   recipientLastName: string | null | undefined;
   recipientLegacyName: string | null | undefined;
   lineItems: AngebotLineItemRow[];
-  columnKeys: AngebotColumnKey[];
+  columnSchema: AngebotColumnDef[];
   introText: string | null;
   outroText: string | null;
 }
@@ -154,11 +235,18 @@ export function AngebotPdfCoverBody({
   recipientLastName,
   recipientLegacyName,
   lineItems,
-  columnKeys,
+  columnSchema,
   introText,
   outroText
 }: AngebotPdfCoverBodyProps) {
-  const colWidths = calcAngebotColumnWidths(columnKeys);
+  // Strip col_position before prepending — it must never come from the stored schema.
+  // Defensive guard: seed data or legacy snapshots may contain it.
+  const userColumns = columnSchema.filter(
+    (c) => c.id !== ANGEBOT_POSITION_COLUMN_ID
+  );
+  const effectiveColumns =
+    userColumns.length > 0 ? [ANGEBOT_POSITION_COLUMN, ...userColumns] : [];
+  const colWidths = calcAngebotColumnWidths(effectiveColumns);
   const salutation = buildSalutation(
     recipientAnrede,
     recipientFirstName,
@@ -171,16 +259,13 @@ export function AngebotPdfCoverBody({
   return (
     <>
       <View style={{ marginTop: 8 }}>
-        {/* Subject line */}
         {subject?.trim() ? (
           <Text style={styles.subject}>{subject.trim()}</Text>
         ) : null}
 
-        {/* Salutation */}
         <Text style={styles.salutation}>{salutation}</Text>
       </View>
 
-      {/* Intro — separate wrap-friendly block so Html can break across pages */}
       {introHtml ? (
         <View wrap style={[styles.htmlBlock, { marginBottom: 8 }]}>
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
@@ -189,57 +274,58 @@ export function AngebotPdfCoverBody({
         </View>
       ) : null}
 
-      {/* Line items table — no totals row */}
-      {lineItems.length > 0 ? (
+      {lineItems.length > 0 && effectiveColumns.length > 0 ? (
         <>
-          {/* Header */}
           <View style={styles.tableHeader}>
-            {columnKeys.map((key) => {
-              const def = ANGEBOT_COLUMN_MAP[key];
-              if (!def) return null;
-              const w = colWidths[key] ?? def.minWidthPt;
+            {effectiveColumns.map((col) => {
+              // minWidth no longer on AngebotColumnDef — using safe floor 20pt
+              const w = colWidths[col.id] ?? 20;
               return (
                 <View
-                  key={key}
+                  key={col.id}
                   style={{
                     width: w,
                     minWidth: 0,
-                    overflow: 'hidden',
-                    flexWrap: 'nowrap',
+                    flexWrap: 'wrap',
                     paddingRight: 4,
                     justifyContent: 'center'
                   }}
                 >
+                  {/* Long admin-defined labels must wrap, not truncate — row height grows to fit. */}
                   <Text
                     style={[
                       styles.tableHeaderText,
                       {
-                        textAlign: def.align,
-                        fontSize: PDF_FONT_SIZES.xs
+                        // Pos. is always left-aligned and narrowest — never centre or right.
+                        textAlign:
+                          col.id === ANGEBOT_POSITION_COLUMN_ID
+                            ? 'left'
+                            : textAlignForCol(col),
+                        fontSize: PDF_FONT_SIZES.xs,
+                        flexWrap: 'wrap'
                       }
                     ]}
                   >
-                    {def.label}
+                    {col.header}
                   </Text>
                 </View>
               );
             })}
           </View>
 
-          {/* Rows */}
           {lineItems.map((item, idx) => (
             <View
               key={item.id}
               style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]}
               wrap={false}
             >
-              {columnKeys.map((key) => {
-                const def = ANGEBOT_COLUMN_MAP[key];
-                if (!def) return null;
-                const w = colWidths[key] ?? def.minWidthPt;
+              {effectiveColumns.map((col) => {
+                // minWidth no longer on AngebotColumnDef — using safe floor 20pt
+                const w = colWidths[col.id] ?? 20;
+                const raw = cellRawValue(item, col, idx);
                 return (
                   <View
-                    key={key}
+                    key={col.id}
                     style={{
                       width: w,
                       minWidth: 0,
@@ -252,10 +338,14 @@ export function AngebotPdfCoverBody({
                       style={{
                         fontSize: PDF_FONT_SIZES.sm,
                         color: PDF_COLORS.text,
-                        textAlign: def.align
+                        // Pos. is always left-aligned and narrowest — never centre or right.
+                        textAlign:
+                          col.id === ANGEBOT_POSITION_COLUMN_ID
+                            ? 'left'
+                            : textAlignForCol(col)
                       }}
                     >
-                      {renderCellValue(item, key, idx)}
+                      {renderCell(col, raw, idx)}
                     </Text>
                   </View>
                 );
@@ -265,7 +355,6 @@ export function AngebotPdfCoverBody({
         </>
       ) : null}
 
-      {/* Outro — marginTop: 8 overrides bodyOutroSection (16) so invoice PDF spacing stays unchanged */}
       {outroHtml ? (
         <View
           wrap

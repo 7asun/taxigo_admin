@@ -22,25 +22,23 @@ import {
   replaceAngebotLineItems,
   updateAngebot
 } from '../api/angebote.api';
+import { ANGEBOT_LEGACY_COLUMN_IDS } from '../lib/angebot-legacy-column-ids';
 import type {
+  AngebotColumnDef,
   CreateAngebotPayload,
   AngebotLineItemRow,
   UpdateAngebotPayload
 } from '../types/angebot.types';
 
-export type BuilderLineItem = Omit<
-  AngebotLineItemRow,
-  'id' | 'angebot_id' | 'created_at'
->;
+export interface BuilderLineItem {
+  position: number;
+  data: Record<string, string | number | null>;
+}
 
 export function newEmptyLineItem(position: number): BuilderLineItem {
   return {
     position,
-    leistung: '',
-    anfahrtkosten: null,
-    price_first_5km: null,
-    price_per_km_after_5: null,
-    notes: null
+    data: {}
   };
 }
 
@@ -52,22 +50,31 @@ export function lineItemsFromAngebotRows(
     return [newEmptyLineItem(1)];
   }
   const sorted = [...rows].sort((a, b) => a.position - b.position);
-  return sorted.map((li, i) => ({
-    position: i + 1,
-    leistung: li.leistung,
-    anfahrtkosten: li.anfahrtkosten,
-    price_first_5km: li.price_first_5km,
-    price_per_km_after_5: li.price_per_km_after_5,
-    notes: li.notes
-  }));
+  return sorted.map((li, i) => {
+    let data = { ...li.data };
+    if (Object.keys(data).length === 0) {
+      data = {
+        [ANGEBOT_LEGACY_COLUMN_IDS.leistung]: li.leistung || null,
+        [ANGEBOT_LEGACY_COLUMN_IDS.anfahrtkosten]: li.anfahrtkosten,
+        [ANGEBOT_LEGACY_COLUMN_IDS.price_first_5km]: li.price_first_5km,
+        [ANGEBOT_LEGACY_COLUMN_IDS.price_per_km_after_5]:
+          li.price_per_km_after_5,
+        [ANGEBOT_LEGACY_COLUMN_IDS.notes]: li.notes
+      };
+    }
+    return {
+      position: i + 1,
+      data
+    };
+  });
 }
 
 export interface UseAngebotBuilderOptions {
   mode?: 'create' | 'edit';
-  /** Required when mode === 'edit' */
   angebotId?: string;
-  /** Pre-filled rows when mode === 'edit' */
   initialLineItems?: BuilderLineItem[];
+  /** Resolved template / snapshot columns — returned unchanged for Step 2 + payload builders. */
+  columnSchema: AngebotColumnDef[];
   onSuccess: (id: string) => void;
 }
 
@@ -75,6 +82,7 @@ export function useAngebotBuilder({
   mode = 'create',
   angebotId,
   initialLineItems,
+  columnSchema,
   onSuccess
 }: UseAngebotBuilderOptions) {
   const queryClient = useQueryClient();
@@ -86,16 +94,12 @@ export function useAngebotBuilder({
       : [newEmptyLineItem(1)]
   );
 
-  // ─── Line item operations ──────────────────────────────────────────────────
-
   const addLineItem = useCallback(() => {
     setLineItems((prev) => [...prev, newEmptyLineItem(prev.length + 1)]);
   }, []);
 
   const deleteLineItem = useCallback((index: number) => {
     setLineItems((prev) => {
-      // Cannot delete the last row — an offer must always have at least one Leistung.
-      // This is a UX guard only; the DB has no min-row constraint.
       if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== index);
       return next.map((item, i) => ({ ...item, position: i + 1 }));
@@ -105,7 +109,17 @@ export function useAngebotBuilder({
   const updateLineItem = useCallback(
     (index: number, patch: Partial<BuilderLineItem>) => {
       setLineItems((prev) =>
-        prev.map((item, i) => (i === index ? { ...item, ...patch } : item))
+        prev.map((item, i) => {
+          if (i !== index) return item;
+          if (patch.data) {
+            return {
+              ...item,
+              ...patch,
+              data: { ...item.data, ...patch.data }
+            };
+          }
+          return { ...item, ...patch };
+        })
       );
     },
     []
@@ -115,7 +129,9 @@ export function useAngebotBuilder({
     setLineItems(reordered.map((item, i) => ({ ...item, position: i + 1 })));
   }, []);
 
-  // ─── Create mutation ───────────────────────────────────────────────────────
+  const resetLineItems = useCallback(() => {
+    setLineItems([newEmptyLineItem(1)]);
+  }, []);
 
   const { mutate: createAngebotMutation, isPending: isCreating } = useMutation({
     mutationFn: (payload: CreateAngebotPayload) => createAngebot(payload),
@@ -129,8 +145,6 @@ export function useAngebotBuilder({
       toast.error(`Angebot konnte nicht erstellt werden: ${message}`);
     }
   });
-
-  // ─── Update mutation (header + replace line items) ───────────────────────
 
   const { mutate: saveEditMutation, isPending: isSavingEdit } = useMutation({
     mutationFn: async ({
@@ -163,10 +177,12 @@ export function useAngebotBuilder({
 
   return {
     lineItems,
+    columnSchema,
     addLineItem,
     deleteLineItem,
     updateLineItem,
     reorderLineItems,
+    resetLineItems,
     createAngebotMutation,
     saveEditMutation,
     isCreating,
