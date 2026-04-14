@@ -3,21 +3,14 @@
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { DatePicker } from '@/components/ui/date-time-picker';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 
 import { AngebotTiptapField } from './angebot-tiptap-field';
 
 export interface DetailsValues {
   subject: string;
-  offer_date: string; // yyyy-MM-dd
-  valid_until: string; // yyyy-MM-dd or ''
+  offer_date: string;
+  valid_until: string;
   intro_text: string;
   outro_text: string;
 }
@@ -29,18 +22,17 @@ export interface Step3DetailsProps {
 
 export function Step3Details({ values, onChange }: Step3DetailsProps) {
   const { data: textBlocks } = useAllInvoiceTextBlocks();
-  const introBlocks =
-    textBlocks
-      ?.filter((b) => b.type === 'intro')
-      .map((b) => ({ id: b.id, label: b.name, content: b.content })) ?? [];
-  const outroBlocks =
-    textBlocks
-      ?.filter((b) => b.type === 'outro')
-      .map((b) => ({ id: b.id, label: b.name, content: b.content })) ?? [];
+  // Guard against non-array: hook may return undefined or object shape during loading — always operate on a safe array.
+  const safeBlocks = Array.isArray(textBlocks) ? textBlocks : [];
+  const introBlocks = safeBlocks
+    .filter((b) => b.type === 'intro')
+    .map((b) => ({ id: b.id, label: b.name, content: b.content }));
+  const outroBlocks = safeBlocks
+    .filter((b) => b.type === 'outro')
+    .map((b) => ({ id: b.id, label: b.name, content: b.content }));
 
   return (
     <div className='space-y-4'>
-      {/* Betreff */}
       <div className='space-y-1.5'>
         <Label htmlFor='subject'>Betreff</Label>
         <Input
@@ -51,7 +43,6 @@ export function Step3Details({ values, onChange }: Step3DetailsProps) {
         />
       </div>
 
-      {/* Dates row */}
       <div className='flex gap-3'>
         <div className='min-w-0 flex-1 space-y-1.5'>
           <Label htmlFor='offer_date'>Angebotsdatum</Label>
@@ -88,24 +79,6 @@ export function Step3Details({ values, onChange }: Step3DetailsProps) {
         placeholder='Schlussformel eingeben…'
         templateBlocks={outroBlocks}
       />
-
-      {/* Angebotsvorlage — single "Standard" preset for now */}
-      <div className='space-y-1.5'>
-        <Label>Angebotsvorlage</Label>
-        <Select value='standard' disabled>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='standard'>
-              Standard (Pos / Leistung / Anfahrt / erste 5 km / ab 5 km)
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <p className='text-muted-foreground text-xs'>
-          Weitere Vorlagen werden in einem späteren Update verfügbar.
-        </p>
-      </div>
     </div>
   );
 }

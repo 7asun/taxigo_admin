@@ -29,8 +29,8 @@ Implemented in [`src/features/invoices/lib/resolve-pdf-column-profile.ts`](../sr
 | `id` | UUID | Primary key |
 | `company_id` | UUID | FK to `company_profiles` — multi-tenant scope |
 | `name` | VARCHAR | Human-readable name (e.g. "Standard", "Reha Kompakt") |
-| `main_columns` | `text[]` | Ordered list of column keys for the main page table |
-| `appendix_columns` | `text[]` | Ordered list of column keys for the appendix table |
+| `main_columns` | `jsonb` | Ordered array of column keys for the main page table (stored as JSON; app validates as `PdfColumnKey[]`) |
+| `appendix_columns` | `jsonb` | Ordered array of column keys for the appendix table |
 | `main_layout` | text | `grouped` or `flat` |
 | `is_default` | boolean | At most one `true` per company (partial unique index) |
 | `intro_block_id` | UUID (nullable) | FK → `invoice_text_blocks` (`ON DELETE SET NULL`) — builder default intro only (Phase 10) |
@@ -182,3 +182,7 @@ change issued invoices; those freeze their own `invoices.intro_block_id` /
 
 The former settings route `/dashboard/settings/pdf-vorlagen` permanently
 redirects to `/dashboard/abrechnung/vorlagen`.
+
+## Reuse in Angebote (offers)
+
+**Angebote** use the **same UX patterns** (list + editor, React Query, default template, Zod at the API boundary) but **not** the `pdf_vorlagen` table. Offer tables need admin-defined headers and stable per-column UUIDs, so they use **`angebot_vorlagen`** + `angebote.table_schema_snapshot` + `angebot_line_items.data` instead. See [angebote-vorlagen.md](angebote-vorlagen.md) and [angebote-module.md](angebote-module.md).

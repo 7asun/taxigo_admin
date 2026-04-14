@@ -15,7 +15,7 @@
  *   sent      → declined   ("Abgelehnt")
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -37,8 +37,16 @@ import type { InvoiceDetail } from '@/features/invoices/types/invoice.types';
 
 import { useAngebotDetail } from '../hooks/use-angebote';
 import { updateAngebotStatus } from '../api/angebote.api';
-import { AngebotPdfDocument } from './angebot-pdf/AngebotPdfDocument';
+import {
+  AngebotPdfDocument,
+  resolveAngebotPdfColumnSchema
+} from './angebot-pdf/AngebotPdfDocument';
+import { ANGEBOT_LEGACY_COLUMN_IDS } from '../lib/angebot-legacy-column-ids';
+import { ANGEBOT_POSITION_COLUMN_ID } from '../lib/angebot-auto-columns';
+import { resolveColumnLayout } from '../lib/angebot-column-presets';
 import type {
+  AngebotColumnDef,
+  AngebotLineItemRow,
   AngebotStatus,
   AngebotWithLineItems
 } from '../types/angebot.types';
@@ -79,6 +87,117 @@ const formatEur = (v: number | null | undefined) => {
   }).format(v);
 };
 
+function formatEurPerKm(v: number | null | undefined): string {
+  if (v == null) return '—';
+  return `${new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(v)} €/km`;
+}
+
+function coerceLineItemDataRecord(
+  item: AngebotLineItemRow
+): Record<string, string | number | null> {
+  const raw = item.data;
+  if (raw == null) return {};
+  if (typeof raw === 'string') {
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        return v as Record<string, string | number | null>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, string | number | null>;
+  }
+  return {};
+}
+
+function legacyScalar(
+  item: AngebotLineItemRow,
+  colId: string
+): string | number | null {
+  switch (colId) {
+    case ANGEBOT_LEGACY_COLUMN_IDS.leistung:
+      return item.leistung;
+    case ANGEBOT_LEGACY_COLUMN_IDS.anfahrtkosten:
+      return item.anfahrtkosten;
+    case ANGEBOT_LEGACY_COLUMN_IDS.price_first_5km:
+      return item.price_first_5km;
+    case ANGEBOT_LEGACY_COLUMN_IDS.price_per_km_after_5:
+      return item.price_per_km_after_5;
+    case ANGEBOT_LEGACY_COLUMN_IDS.notes:
+      return item.notes;
+    default:
+      return null;
+  }
+}
+
+function rawCellValue(
+  item: AngebotLineItemRow,
+  col: AngebotColumnDef,
+  rowIndex: number
+): string | number | null {
+  const data = coerceLineItemDataRecord(item);
+  const fromData = data[col.id];
+  if (fromData !== undefined && fromData !== null && fromData !== '') {
+    return fromData;
+  }
+  return (
+    legacyScalar(item, col.id) ??
+    (col.id === ANGEBOT_POSITION_COLUMN_ID ? rowIndex + 1 : null)
+  );
+}
+
+function formatDetailCell(
+  col: AngebotColumnDef,
+  raw: string | number | null,
+  rowIndex: number
+): string {
+  // Parity with AngebotPdfCoverBody renderCell — keep in sync.
+  if (col.id === ANGEBOT_POSITION_COLUMN_ID) return String(rowIndex + 1);
+
+  const layout = resolveColumnLayout(col);
+  switch (layout.pdfRenderType) {
+    case 'text':
+      if (raw == null || raw === '') return '—';
+      return String(raw);
+    case 'integer': {
+      if (raw == null || raw === '') return '—';
+      const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+      return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'currency': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEur(Number.isFinite(n) ? n : null);
+    }
+    case 'currency_per_km': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEurPerKm(Number.isFinite(n) ? n : null);
+    }
+    case 'percent': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      if (!Number.isFinite(n)) return '—';
+      return `${n} %`;
+    }
+    default:
+      return '—';
+  }
+}
+
+function alignClass(col: AngebotColumnDef): string {
+  // Parity with AngebotPdfCoverBody textAlignForCol — keep in sync.
+  if (col.id === ANGEBOT_POSITION_COLUMN_ID) return 'text-left';
+  const align = resolveColumnLayout(col).align;
+  if (align === 'right') return 'text-right';
+  if (align === 'center') return 'text-center';
+  return 'text-left';
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface AngebotDetailViewProps {
@@ -92,6 +211,11 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
   const queryClient = useQueryClient();
 
   const { data: angebot, isLoading, isError } = useAngebotDetail(angebotId);
+
+  const columnSchema = useMemo(
+    () => (angebot ? resolveAngebotPdfColumnSchema(angebot) : []),
+    [angebot]
+  );
 
   // Company profile needed for PDF generation
   const [companyProfile, setCompanyProfile] = useState<
@@ -284,22 +408,19 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
           ) : null}
 
           {/* Line items */}
-          {angebot.line_items.length > 0 ? (
+          {angebot.line_items.length > 0 && columnSchema.length > 0 ? (
             <div className='border-border overflow-hidden rounded-xl border'>
               <table className='w-full text-sm'>
                 <thead className='bg-muted/50'>
                   <tr>
-                    <th className='p-3 text-left font-medium'>Pos.</th>
-                    <th className='p-3 text-left font-medium'>Leistung</th>
-                    <th className='p-3 text-right font-medium'>
-                      Anfahrtkosten
-                    </th>
-                    <th className='p-3 text-right font-medium'>
-                      erste 5 km (je km)
-                    </th>
-                    <th className='p-3 text-right font-medium'>
-                      ab 5 km (je km)
-                    </th>
+                    {columnSchema.map((col) => (
+                      <th
+                        key={col.id}
+                        className={cn('p-3 font-medium', alignClass(col))}
+                      >
+                        {col.header}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -311,21 +432,17 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
                         idx % 2 === 1 && 'bg-muted/20'
                       )}
                     >
-                      <td className='p-3 text-center'>{item.position}</td>
-                      <td className='p-3'>{item.leistung || '—'}</td>
-                      <td className='p-3 text-right'>
-                        {formatEur(item.anfahrtkosten)}
-                      </td>
-                      <td className='p-3 text-right'>
-                        {item.price_first_5km != null
-                          ? `${item.price_first_5km.toFixed(2).replace('.', ',')} €/km`
-                          : '—'}
-                      </td>
-                      <td className='p-3 text-right'>
-                        {item.price_per_km_after_5 != null
-                          ? `${item.price_per_km_after_5.toFixed(2).replace('.', ',')} €/km`
-                          : '—'}
-                      </td>
+                      {columnSchema.map((col) => {
+                        const raw = rawCellValue(item, col, idx);
+                        return (
+                          <td
+                            key={col.id}
+                            className={cn('p-3', alignClass(col))}
+                          >
+                            {formatDetailCell(col, raw, idx)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>

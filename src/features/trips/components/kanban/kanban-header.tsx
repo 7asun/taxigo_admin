@@ -11,7 +11,7 @@
  * - Verwerfen / Speichern action buttons
  */
 
-import { Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Info, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,10 +22,16 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import type { GroupByMode } from '@/features/trips/lib/kanban-types';
 
 export interface KanbanHeaderProps {
   tripCount: number;
+  cancelledTripCount: number;
   groupBy: GroupByMode;
   onGroupByChange: (value: GroupByMode) => void;
   zoom: number;
@@ -46,6 +52,7 @@ export interface KanbanHeaderProps {
 
 export function KanbanHeader({
   tripCount,
+  cancelledTripCount,
   groupBy,
   onGroupByChange,
   zoom,
@@ -130,7 +137,21 @@ export function KanbanHeader({
 
         {/* Board title */}
         <div className='flex flex-col'>
-          <span className='font-medium'>Kanban-Ansicht</span>
+          <div className='flex items-center gap-1.5'>
+            <span className='font-medium'>Kanban-Ansicht</span>
+            {cancelledTripCount > 0 && (
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <Info className='text-muted-foreground h-4 w-4 cursor-help' />
+                </TooltipTrigger>
+                <TooltipContent side='bottom' align='center' sideOffset={6}>
+                  {cancelledTripCount} stornierte
+                  {cancelledTripCount === 1 ? ' Fahrt' : ' Fahrten'}{' '}
+                  ausgeblendet
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           <span className='text-muted-foreground text-xs'>
             {tripCount} Fahrten – gruppiert nach {groupByLabel}
           </span>

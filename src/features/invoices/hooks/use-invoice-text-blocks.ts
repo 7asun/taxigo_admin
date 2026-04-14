@@ -50,7 +50,7 @@ export function useInvoiceTextBlocks() {
  */
 export function useAllInvoiceTextBlocks() {
   return useQuery({
-    queryKey: invoiceKeys.textBlocks.list(),
+    queryKey: invoiceKeys.textBlocks.flatList(),
     queryFn: listAllInvoiceTextBlocks,
     staleTime: 5 * 60 * 1000
   });

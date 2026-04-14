@@ -188,6 +188,17 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     [trips, pendingChanges]
   );
 
+  // Filter out cancelled trips for display in the kanban board
+  const visibleTrips = useMemo(
+    () => effectiveTrips.filter((trip) => trip.status !== 'cancelled'),
+    [effectiveTrips]
+  );
+
+  const cancelledTripCount = useMemo(
+    () => effectiveTrips.filter((trip) => trip.status === 'cancelled').length,
+    [effectiveTrips]
+  );
+
   // ── Callbacks staged in pendingChanges ─────────────────────────────────────
 
   const onTimeChange = useCallback(
@@ -236,13 +247,13 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   // ── Columns & layout ────────────────────────────────────────────────────────
 
   const columns: KanbanColumn[] = useMemo(
-    () => buildColumns(effectiveTrips, groupBy, drivers),
-    [effectiveTrips, groupBy, drivers]
+    () => buildColumns(visibleTrips, groupBy, drivers),
+    [visibleTrips, groupBy, drivers]
   );
 
   const itemsByColumn = useMemo(
-    () => buildItemsByColumn(effectiveTrips, columns, groupBy),
-    [effectiveTrips, columns, groupBy]
+    () => buildItemsByColumn(visibleTrips, columns, groupBy),
+    [visibleTrips, columns, groupBy]
   );
 
   const effectiveColumns = useMemo(() => {
@@ -491,7 +502,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
 
   const header = (
     <KanbanHeader
-      tripCount={effectiveTrips.length}
+      tripCount={visibleTrips.length}
+      cancelledTripCount={cancelledTripCount}
       groupBy={groupBy}
       onGroupByChange={setGroupBy}
       zoom={zoom}

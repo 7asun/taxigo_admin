@@ -23,6 +23,8 @@ export function formatTripForSharing(trip: Trip): string {
     ? format(new Date(trip.scheduled_at), 'HH:mm', { locale: de })
     : '--:--';
 
+  const wheelchairIndicator = trip.is_wheelchair ? ' **Rollstuhl**' : '';
+
   const passenger = trip.client_name || 'Anonym';
 
   const formatAddress = (address: string | null | undefined) => {
@@ -36,7 +38,7 @@ export function formatTripForSharing(trip: Trip): string {
   const to = formatAddress(trip.dropoff_address);
   const toStation = trip.dropoff_station ? ` (${trip.dropoff_station})` : '';
 
-  let text = `${time} - ${passenger} - von ${from}${fromStation} - nach ${to}${toStation}`;
+  let text = `${time}${wheelchairIndicator} - ${passenger} - von ${from}${fromStation} - nach ${to}${toStation}`;
 
   const anruf = trip.billing_calling_station?.trim();
   const betr = trip.billing_betreuer?.trim();

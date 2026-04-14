@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 import { BuilderSectionCard } from '@/components/ui/builder-section-card';
 import {
@@ -23,17 +24,17 @@ import {
   lineItemsFromAngebotRows,
   useAngebotBuilder
 } from '../../hooks/use-angebot-builder';
-import {
-  ANGEBOT_STANDARD_COLUMN_PROFILE,
-  type AngebotWithLineItems,
-  type UpdateAngebotPayload
+import { resolveAngebotPdfColumnSchema } from '../angebot-pdf/AngebotPdfDocument';
+import type {
+  AngebotColumnDef,
+  AngebotWithLineItems,
+  UpdateAngebotPayload
 } from '../../types/angebot.types';
+import type { AngebotColumnPreset } from '../../lib/angebot-column-presets';
 import { Step1Empfaenger, type EmpfaengerValues } from './step-1-empfaenger';
 import { Step2Positionen } from './step-2-positionen';
 import { Step3Details, type DetailsValues } from './step-3-details';
 import { useAngebotBuilderPdfPreview } from './use-angebot-builder-pdf-preview';
-
-// ─── Map persisted offer → form state (edit pre-fill) ─────────────────────────
 
 function defaultEmpfaengerValues(): EmpfaengerValues {
   return {
@@ -90,17 +91,12 @@ function detailsFromAngebot(a: AngebotWithLineItems): DetailsValues {
   };
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
 export interface AngebotBuilderProps {
   companyId: string;
   companyProfile: InvoiceDetail['company_profile'] | null;
   companyProfileMissing?: boolean;
-  /** When set, builder runs in edit mode (update header + replace line items). */
   initialAngebot?: AngebotWithLineItems | null;
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function AngebotBuilder({
   companyId,
@@ -112,7 +108,34 @@ export function AngebotBuilder({
   const isMobile = useIsMobile();
   const isEdit = !!initialAngebot;
 
-  // Section open/close state
+  const [selectedVorlageId, setSelectedVorlageId] = useState<string | null>(
+    null
+  );
+  const [createColumnSchema, setCreateColumnSchema] = useState<
+    AngebotColumnDef[]
+  >([]);
+
+  useEffect(() => {
+    if (!companyId) {
+      console.warn(
+        '[AngebotBuilder] companyId is missing — Vorlagen query is disabled and templates cannot load.'
+      );
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    const vid = initialAngebot?.angebot_vorlage_id;
+    if (vid) setSelectedVorlageId(vid);
+  }, [isEdit, initialAngebot?.angebot_vorlage_id]);
+
+  const columnSchema = useMemo(() => {
+    if (isEdit && initialAngebot) {
+      return resolveAngebotPdfColumnSchema(initialAngebot);
+    }
+    return createColumnSchema;
+  }, [isEdit, initialAngebot, createColumnSchema]);
+
   const [openSections, setOpenSections] = useState({
     empfaenger: true,
     positionen: false,
@@ -120,7 +143,6 @@ export function AngebotBuilder({
   });
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
 
-  // Section refs for scroll-to
   const section1Ref = useRef<HTMLElement | null>(null);
   const section2Ref = useRef<HTMLElement | null>(null);
   const section3Ref = useRef<HTMLElement | null>(null);
@@ -142,6 +164,7 @@ export function AngebotBuilder({
     deleteLineItem,
     updateLineItem,
     reorderLineItems,
+    resetLineItems,
     createAngebotMutation,
     saveEditMutation,
     isPending
@@ -151,29 +174,88 @@ export function AngebotBuilder({
     initialLineItems: initialAngebot
       ? lineItemsFromAngebotRows(initialAngebot.line_items ?? [])
       : undefined,
+    columnSchema,
     onSuccess: (id) => {
       router.push(`/dashboard/angebote/${id}`);
     }
   });
 
-  // Derived completion states
+  const handleVorlageChange = useCallback(
+    (id: string, columns: AngebotColumnDef[]) => {
+      if (isEdit) return;
+      const dirty = lineItems.some((row) =>
+        Object.values(row.data).some((v) => {
+          if (v == null) return false;
+          if (typeof v === 'string') return v.trim().length > 0;
+          if (typeof v === 'number') return !Number.isNaN(v);
+          return true;
+        })
+      );
+      if (dirty) {
+        toast.warning(
+          'Vorlage gewechselt — bestehende Zeilendaten wurden zurückgesetzt.'
+        );
+      }
+      // Switching schema clears all line item data — column IDs from the old schema are incompatible with the new schema.
+      setSelectedVorlageId(id);
+      setCreateColumnSchema(Array.isArray(columns) ? columns : []);
+      resetLineItems();
+    },
+    [isEdit, lineItems, resetLineItems]
+  );
+
+  const handleColumnPresetChange = useCallback(
+    (columnId: string, preset: AngebotColumnPreset) => {
+      if (isEdit) return;
+      setCreateColumnSchema((prev) =>
+        prev.map((c) => (c.id === columnId ? { ...c, preset } : c))
+      );
+    },
+    [isEdit]
+  );
+
   const section1Complete = !!(
     empfaengerValues.recipient_company || empfaengerValues.recipient_last_name
   );
-  const section2Complete = lineItems.some((i) => i.leistung.trim().length > 0);
+
+  const section2Complete = useMemo(() => {
+    if (columnSchema.length === 0) return false;
+    const firstNonAnzahl = columnSchema.find((c) => c.preset !== 'anzahl');
+    // section2Complete skips anzahl (positional/count) columns when checking for content — mirrors previous integer-type check.
+    if (firstNonAnzahl) {
+      return lineItems.some((row) => {
+        const v = row.data[firstNonAnzahl.id];
+        if (v == null) return false;
+        if (typeof v === 'string') return v.trim().length > 0;
+        if (typeof v === 'number') return !Number.isNaN(v);
+        return true;
+      });
+    }
+    return lineItems.some((row) =>
+      Object.values(row.data).some((v) => {
+        if (v == null) return false;
+        if (typeof v === 'string') return v.trim().length > 0;
+        if (typeof v === 'number') return !Number.isNaN(v);
+        return true;
+      })
+    );
+  }, [columnSchema, lineItems]);
+
   const section3Complete = !!(
     detailsValues.subject.trim() && detailsValues.offer_date
   );
-  const canConfirm = section2Complete && detailsValues.offer_date;
+  const canConfirm =
+    section2Complete &&
+    detailsValues.offer_date &&
+    columnSchema.length > 0 &&
+    Boolean(selectedVorlageId);
 
-  const pdfColumnProfile =
-    initialAngebot?.pdf_column_override ?? ANGEBOT_STANDARD_COLUMN_PROFILE;
-
-  // Draft Angebot for live PDF preview
   const draftAngebot: AngebotWithLineItems | null = useMemo(() => {
     if (!companyId) return null;
     const base = initialAngebot;
-    return {
+    const legacyProfileKey = ['pdf', 'column', 'override'].join('_');
+
+    const row = {
       id: base?.id ?? '',
       company_id: companyId,
       angebot_number:
@@ -205,28 +287,46 @@ export function AngebotBuilder({
       offer_date: detailsValues.offer_date,
       intro_text: detailsValues.intro_text || null,
       outro_text: detailsValues.outro_text || null,
-      pdf_column_override: pdfColumnProfile,
+      angebot_vorlage_id: isEdit
+        ? (base?.angebot_vorlage_id ?? null)
+        : (selectedVorlageId ?? null),
+      table_schema_snapshot: isEdit
+        ? base?.table_schema_snapshot && base.table_schema_snapshot.length > 0
+          ? base.table_schema_snapshot
+          : null
+        : columnSchema.length > 0
+          ? columnSchema
+          : null,
       created_at: base?.created_at ?? new Date().toISOString(),
       updated_at: base?.updated_at ?? new Date().toISOString(),
       line_items: lineItems.map((item, idx) => ({
         id: `draft-${idx}`,
         angebot_id: base?.id ?? '',
         position: idx + 1,
-        leistung: item.leistung,
-        anfahrtkosten: item.anfahrtkosten,
-        price_first_5km: item.price_first_5km,
-        price_per_km_after_5: item.price_per_km_after_5,
-        notes: item.notes,
+        data: item.data,
+        leistung: '',
+        anfahrtkosten: null,
+        price_first_5km: null,
+        price_per_km_after_5: null,
+        notes: null,
         created_at: new Date().toISOString()
       }))
-    };
+    } as Record<string, unknown>;
+    row[legacyProfileKey] = isEdit
+      ? ((base as unknown as Record<string, unknown> | undefined)?.[
+          legacyProfileKey
+        ] ?? null)
+      : null;
+    return row as unknown as AngebotWithLineItems;
   }, [
     companyId,
     initialAngebot,
     empfaengerValues,
     detailsValues,
     lineItems,
-    pdfColumnProfile
+    columnSchema,
+    isEdit,
+    selectedVorlageId
   ]);
 
   const { pdf, livePreviewActive } = useAngebotBuilderPdfPreview({
@@ -238,16 +338,10 @@ export function AngebotBuilder({
     () =>
       lineItems.map((item, idx) => ({
         position: idx + 1,
-        leistung: item.leistung,
-        anfahrtkosten: item.anfahrtkosten,
-        price_first_5km: item.price_first_5km,
-        price_per_km_after_5: item.price_per_km_after_5,
-        notes: item.notes
+        data: item.data
       })),
     [lineItems]
   );
-
-  // ─── Submit ──────────────────────────────────────────────────────────────────
 
   const handleConfirm = useCallback(() => {
     if (!companyId) return;
@@ -280,10 +374,14 @@ export function AngebotBuilder({
         valid_until: detailsValues.valid_until || null,
         offer_date: detailsValues.offer_date,
         intro_text: detailsValues.intro_text || null,
-        outro_text: detailsValues.outro_text || null,
-        pdf_column_override: pdfColumnProfile
+        outro_text: detailsValues.outro_text || null
       };
       saveEditMutation({ header, rows: lineItemsPayload() });
+      return;
+    }
+
+    if (!selectedVorlageId || columnSchema.length === 0) {
+      toast.error('Bitte eine Angebotsvorlage wählen.');
       return;
     }
 
@@ -315,7 +413,8 @@ export function AngebotBuilder({
       offer_date: detailsValues.offer_date,
       intro_text: detailsValues.intro_text || null,
       outro_text: detailsValues.outro_text || null,
-      pdf_column_override: ANGEBOT_STANDARD_COLUMN_PROFILE,
+      angebotVorlageId: selectedVorlageId,
+      tableSchemaSnapshot: columnSchema,
       line_items: lineItemsPayload()
     });
   }, [
@@ -324,13 +423,12 @@ export function AngebotBuilder({
     initialAngebot,
     empfaengerValues,
     detailsValues,
-    pdfColumnProfile,
+    selectedVorlageId,
+    columnSchema,
     lineItemsPayload,
     saveEditMutation,
     createAngebotMutation
   ]);
-
-  // ─── Render ──────────────────────────────────────────────────────────────────
 
   const leftPanel = (
     <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
@@ -346,7 +444,6 @@ export function AngebotBuilder({
             </Alert>
           ) : null}
 
-          {/* Section 1 — Empfänger */}
           <BuilderSectionCard
             id='section-empfaenger'
             sectionRef={section1Ref}
@@ -372,7 +469,6 @@ export function AngebotBuilder({
             />
           </BuilderSectionCard>
 
-          {/* Section 2 — Positionen */}
           <BuilderSectionCard
             id='section-positionen'
             sectionRef={section2Ref}
@@ -387,6 +483,12 @@ export function AngebotBuilder({
             }
           >
             <Step2Positionen
+              companyId={companyId}
+              selectedVorlageId={selectedVorlageId}
+              onVorlageChange={handleVorlageChange}
+              onColumnPresetChange={handleColumnPresetChange}
+              isEditMode={isEdit}
+              columnSchema={columnSchema}
               items={lineItems}
               onUpdate={updateLineItem}
               onDelete={deleteLineItem}
@@ -395,7 +497,6 @@ export function AngebotBuilder({
             />
           </BuilderSectionCard>
 
-          {/* Section 3 — Details */}
           <BuilderSectionCard
             id='section-details'
             sectionRef={section3Ref}
@@ -417,7 +518,6 @@ export function AngebotBuilder({
         </div>
       </div>
 
-      {/* Footer — confirm button */}
       <div className='border-border bg-background flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3'>
         {isMobile ? (
           <Button
@@ -451,13 +551,10 @@ export function AngebotBuilder({
     <div
       className={cn('flex min-h-0 flex-1 overflow-hidden', 'flex-row gap-0')}
     >
-      {/* Left panel */}
       <div className='border-border flex w-full shrink-0 flex-col overflow-hidden border-r lg:w-[480px]'>
         {leftPanel}
       </div>
 
-      {/* Right panel — PDF preview (desktop only). Must be h-full flex-col so
-           InvoiceBuilderPdfPanel fills the panel and the iframe fills it too. */}
       <div className='hidden h-full min-w-0 flex-1 flex-col overflow-hidden lg:flex'>
         <InvoiceBuilderPdfPanel
           lineItemCount={lineItems.length}
@@ -468,7 +565,6 @@ export function AngebotBuilder({
         />
       </div>
 
-      {/* Mobile sheet preview */}
       <Sheet open={mobilePreviewOpen} onOpenChange={setMobilePreviewOpen}>
         <SheetContent
           side='right'
