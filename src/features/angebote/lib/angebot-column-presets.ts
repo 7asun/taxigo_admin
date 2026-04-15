@@ -12,10 +12,8 @@ export type AngebotColumnPreset =
   | 'percent';
 
 export interface AngebotColumnLayoutSpec {
-  width:
-    | { mode: 'fill' }
-    | { mode: 'fixed'; pt: number }
-    | { mode: 'auto'; flex: number };
+  // Two modes only — fixed claims exact pt, flex distributes remaining space by weight. No fill/auto distinction. This mirrors CSS flexbox and pdfmake's native widths model.
+  width: { mode: 'fixed'; pt: number } | { mode: 'flex'; flex: number };
   align: 'left' | 'right' | 'center';
   pdfRenderType:
     | 'text'
@@ -28,36 +26,39 @@ export interface AngebotColumnLayoutSpec {
   inputMax?: number;
 }
 
+/*
+ * Widths calibrated 2026-04-15. Fixed widths sized to widest realistic content value. Flex weights: beschreibung:notiz = 3:1, so when both present beschreibung gets 75% and notiz gets 25% of remaining space. When only one flex column present it gets 100% of remaining. This is the correct behaviour — no special cases needed.
+ */
 export const COLUMN_PRESET_SPECS: Record<
   AngebotColumnPreset,
   AngebotColumnLayoutSpec
 > = {
   beschreibung: {
-    width: { mode: 'fill' },
+    width: { mode: 'flex', flex: 3 },
     align: 'left',
     pdfRenderType: 'text'
   },
   betrag: {
-    width: { mode: 'fixed', pt: 80 },
+    width: { mode: 'fixed', pt: 65 },
     align: 'right',
     pdfRenderType: 'currency',
     inputStep: 0.01,
     inputMin: 0
   },
   preis_km: {
-    width: { mode: 'fixed', pt: 80 },
+    width: { mode: 'fixed', pt: 65 },
     align: 'right',
     pdfRenderType: 'currency_per_km',
     inputStep: 0.01,
     inputMin: 0
   },
   notiz: {
-    width: { mode: 'auto', flex: 2 },
+    width: { mode: 'flex', flex: 1 },
     align: 'left',
     pdfRenderType: 'text'
   },
   anzahl: {
-    width: { mode: 'fixed', pt: 48 },
+    width: { mode: 'fixed', pt: 28 },
     align: 'right',
     pdfRenderType: 'integer',
     inputStep: 1,
@@ -85,31 +86,31 @@ export const COLUMN_PRESET_UI: Record<
   beschreibung: {
     label: 'Beschreibung',
     emoji: '📝',
-    description: 'Links ausgerichtet, füllt den restlichen Platz.',
+    description: 'Links ausgerichtet, flex (Gewicht 3).',
     adminSelectable: true
   },
   betrag: {
     label: 'Betrag (€)',
     emoji: '💶',
-    description: 'Rechts ausgerichtet, feste Breite 80pt.',
+    description: 'Rechts ausgerichtet, feste Breite 65pt.',
     adminSelectable: true
   },
   preis_km: {
     label: 'Preis / km',
     emoji: '📍',
-    description: 'Rechts ausgerichtet, feste Breite 80pt.',
+    description: 'Rechts ausgerichtet, feste Breite 65pt.',
     adminSelectable: true
   },
   notiz: {
     label: 'Notiz',
     emoji: '💬',
-    description: 'Links ausgerichtet, mittlere automatische Breite (flex 2).',
+    description: 'Links ausgerichtet, flex (Gewicht 1).',
     adminSelectable: true
   },
   anzahl: {
     label: 'Anzahl',
     emoji: '#',
-    description: 'Rechts ausgerichtet, feste Breite 48pt.',
+    description: 'Rechts ausgerichtet, feste Breite 28pt.',
     adminSelectable: true
   },
   percent: {

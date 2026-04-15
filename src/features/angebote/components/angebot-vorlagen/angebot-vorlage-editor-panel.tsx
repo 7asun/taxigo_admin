@@ -138,15 +138,14 @@ export function AngebotVorlageEditorPanel({
     }, 0);
   }, [editableColumns]);
 
-  const remainingAfterFixed = ANGEBOT_PDF_AVAILABLE_WIDTH - fixedTotal;
-  const hasFillOrAuto = useMemo(() => {
+  const hasFlex = useMemo(() => {
     const effective = [ANGEBOT_POSITION_COLUMN, ...editableColumns];
-    return effective.some((col) => {
-      const w = resolveColumnLayout(col).width;
-      return w.mode === 'fill' || w.mode === 'auto';
-    });
+    return effective.some(
+      (col) => resolveColumnLayout(col).width.mode === 'flex'
+    );
   }, [editableColumns]);
-  const noRoomForFlexible = remainingAfterFixed <= 0 && hasFillOrAuto;
+  const fixedWarn = fixedTotal >= 455 && hasFlex;
+  const fixedHardBlock = fixedTotal >= 487 && hasFlex;
 
   if (!vorlage) {
     return (
@@ -182,7 +181,7 @@ export function AngebotVorlageEditorPanel({
     editableColumns.length > 0 &&
     !editableReservedPosErrors &&
     !editableHeaderTooLong &&
-    !noRoomForFlexible;
+    !fixedHardBlock;
 
   function handleAddColumn() {
     const h = newHeader.trim();
@@ -417,15 +416,19 @@ export function AngebotVorlageEditorPanel({
 
         <div className='bg-muted/40 space-y-2 rounded-md p-3'>
           <p className='text-xs font-medium'>Breiten-Vorschau</p>
-          {noRoomForFlexible ? (
+          {fixedHardBlock ? (
             <p className='text-destructive text-sm'>
-              Zu viele feste Spalten — kein Platz für Beschreibung-Spalten.
+              Zu viele feste Spalten — kein Platz für Flex-Spalten.
+            </p>
+          ) : fixedWarn ? (
+            <p className='text-muted-foreground text-sm'>
+              Viele feste Spalten — Flex-Spalten werden sehr schmal.
             </p>
           ) : null}
           <div
             className={cn(
               'flex h-10 w-full overflow-hidden rounded-sm border',
-              noRoomForFlexible && 'border-destructive'
+              fixedHardBlock && 'border-destructive'
             )}
           >
             {[ANGEBOT_POSITION_COLUMN, ...editableColumns].map((col) => {

@@ -67,15 +67,14 @@ export const styles = StyleSheet.create({
     width: '100%'
   },
   /**
-   * Angebot PDF page shell — same typography as `page` but less bottom padding.
-   * Invoice footer needs `page.paddingBottom: 100`; offer footer is shorter, so 80pt suffices.
+   * Angebot PDF page shell — same typography and bottom reserve as `page` (invoice cover).
    */
   angebotPage: {
     fontFamily: 'Helvetica',
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
     paddingTop: 57,
-    paddingBottom: 80,
+    paddingBottom: 100 /* Matches invoice page paddingBottom — consistent footer zone across document types */,
     paddingLeft: 45,
     paddingRight: 45,
     lineHeight: 1.45

@@ -258,7 +258,8 @@ export function AngebotPdfCoverBody({
 
   return (
     <>
-      <View style={{ marginTop: 8 }}>
+      <View style={{ marginTop: 12 }}>
+        {/* DIN 5008 alignment: 12pt matches invoice no-reference-bar default */}
         {subject?.trim() ? (
           <Text style={styles.subject}>{subject.trim()}</Text>
         ) : null}
@@ -267,7 +268,8 @@ export function AngebotPdfCoverBody({
       </View>
 
       {introHtml ? (
-        <View wrap style={[styles.htmlBlock, { marginBottom: 8 }]}>
+        <View wrap style={[styles.htmlBlock, { marginBottom: 16 }]}>
+          {/* Matches invoice bodyText.marginBottom = 16 — consistent spacing before table */}
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
             {introHtml}
           </Html>

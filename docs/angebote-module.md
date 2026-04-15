@@ -153,6 +153,8 @@ Implemented in `buildSalutation()` using `recipient_anrede`, `recipient_first_na
 - **Well-known ids:** `angebot-legacy-column-ids.ts` + SQL migration comments keep backfill strings aligned.
 - **Presets:** `AngebotColumnDef` stores `preset` (not `type/weight/minWidth`). Layout and formatting are derived via `resolveColumnLayout(col)` in `angebot-column-presets.ts`. Do not switch on `col.preset` outside that module for layout/formatting decisions.
 
+Tech note: @react-pdf/renderer handles current Angebot table complexity well. If requirements grow (many columns, complex multi-page pagination, server-side generation without React), evaluate migration to pdfmake — its native widths array ([28, '*', 65, 65, 65, '*']) and JSON document definition model map directly to AngebotColumnDef[]. See docs/plans/angebote-column-width-audit.md for current width constraints and calibration history.
+
 ---
 
 ## Shared infrastructure
