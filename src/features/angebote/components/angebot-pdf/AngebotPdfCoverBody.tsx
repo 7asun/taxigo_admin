@@ -29,6 +29,7 @@ import {
   PDF_FONT_SIZES,
   styles
 } from '@/features/invoices/components/invoice-pdf/pdf-styles';
+import { PDF_ZONES } from '@/features/invoices/lib/pdf-layout-constants';
 import {
   ANGEBOT_POSITION_COLUMN,
   ANGEBOT_POSITION_COLUMN_ID
@@ -258,7 +259,12 @@ export function AngebotPdfCoverBody({
 
   return (
     <>
-      <View style={{ marginTop: 12 }}>
+      <View
+        style={{
+          marginTop:
+            PDF_ZONES.subjectMarginTopOffer /* offer has no reference bar concept — uses fixed 12pt separation from header */
+        }}
+      >
         {/* DIN 5008 alignment: 12pt matches invoice no-reference-bar default */}
         {subject?.trim() ? (
           <Text style={styles.subject}>{subject.trim()}</Text>
@@ -268,7 +274,16 @@ export function AngebotPdfCoverBody({
       </View>
 
       {introHtml ? (
-        <View wrap style={[styles.htmlBlock, { marginBottom: 16 }]}>
+        <View
+          wrap
+          style={[
+            styles.htmlBlock,
+            {
+              marginBottom:
+                PDF_ZONES.bodyMarginBottom /* spacing from intro prose to table — matches invoice bodyText */
+            }
+          ]}
+        >
           {/* Matches invoice bodyText.marginBottom = 16 — consistent spacing before table */}
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
             {introHtml}
@@ -281,7 +296,9 @@ export function AngebotPdfCoverBody({
           <View style={styles.tableHeader}>
             {effectiveColumns.map((col) => {
               // minWidth no longer on AngebotColumnDef — using safe floor 20pt
-              const w = colWidths[col.id] ?? 20;
+              const w =
+                colWidths[col.id] ??
+                PDF_ZONES.columnWidthFloor; /* minimum flex column width before layout warning */
               return (
                 <View
                   key={col.id}
@@ -289,7 +306,8 @@ export function AngebotPdfCoverBody({
                     width: w,
                     minWidth: 0,
                     flexWrap: 'wrap',
-                    paddingRight: 4,
+                    paddingRight:
+                      PDF_ZONES.tableCellPaddingRight /* consistent column breathing room across tables */,
                     justifyContent: 'center'
                   }}
                 >
@@ -323,7 +341,9 @@ export function AngebotPdfCoverBody({
             >
               {effectiveColumns.map((col) => {
                 // minWidth no longer on AngebotColumnDef — using safe floor 20pt
-                const w = colWidths[col.id] ?? 20;
+                const w =
+                  colWidths[col.id] ??
+                  PDF_ZONES.columnWidthFloor; /* minimum flex column width before layout warning */
                 const raw = cellRawValue(item, col, idx);
                 return (
                   <View
@@ -333,7 +353,8 @@ export function AngebotPdfCoverBody({
                       minWidth: 0,
                       overflow: 'hidden',
                       flexWrap: 'nowrap',
-                      paddingRight: 4
+                      paddingRight:
+                        PDF_ZONES.tableCellPaddingRight /* consistent column breathing room across tables */
                     }}
                   >
                     <Text
@@ -360,7 +381,14 @@ export function AngebotPdfCoverBody({
       {outroHtml ? (
         <View
           wrap
-          style={[styles.bodyOutroSection, styles.htmlBlock, { marginTop: 8 }]}
+          style={[
+            styles.bodyOutroSection,
+            styles.htmlBlock,
+            {
+              marginTop:
+                PDF_ZONES.outroMarginTop /* matches invoice bodyOutroSection.marginTop via PDF_ZONES */
+            }
+          ]}
         >
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
             {outroHtml}

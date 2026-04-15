@@ -410,31 +410,53 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
 
           {/* PDF download — block wrapper so space-y-4 gaps the next sibling reliably */}
           <div className='w-full'>
-            <PDFDownloadLink
-              className='block w-full'
-              document={
-                <InvoicePdfDocument
-                  invoice={pdfInvoice}
-                  paymentQrDataUrl={paymentQrDataUrl}
-                />
-              }
-              fileName={`${invoice.invoice_number}.pdf`}
-            >
-              {({ loading }) => (
-                <Button
-                  variant='outline'
-                  className='w-full gap-2'
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <Loader2 className='h-4 w-4 animate-spin' />
-                  ) : (
+            <div className='flex w-full gap-2'>
+              <PDFDownloadLink
+                className='flex-1'
+                document={
+                  <InvoicePdfDocument
+                    invoice={pdfInvoice}
+                    paymentQrDataUrl={paymentQrDataUrl}
+                    renderMode='digital'
+                  />
+                }
+                fileName={`${invoice.invoice_number ?? 'rechnung'}-digital.pdf`}
+              >
+                {({ loading }) => (
+                  <Button
+                    variant='outline'
+                    className='w-full gap-2'
+                    disabled={loading}
+                  >
                     <FileDown className='h-4 w-4' />
-                  )}
-                  PDF herunterladen
-                </Button>
-              )}
-            </PDFDownloadLink>
+                    {loading ? 'Wird erstellt…' : 'Digital'}
+                  </Button>
+                )}
+              </PDFDownloadLink>
+              <PDFDownloadLink
+                className='flex-1'
+                document={
+                  <InvoicePdfDocument
+                    invoice={pdfInvoice}
+                    paymentQrDataUrl={paymentQrDataUrl}
+                    renderMode='brief'
+                  />
+                }
+                fileName={`${invoice.invoice_number ?? 'rechnung'}-brief.pdf`}
+              >
+                {({ loading }) => (
+                  <Button
+                    variant='outline'
+                    className='w-full gap-2'
+                    disabled={loading}
+                  >
+                    <FileDown className='h-4 w-4' />
+                    {loading ? 'Wird erstellt…' : 'Als Brief'}
+                  </Button>
+                )}
+              </PDFDownloadLink>
+            </div>
+            {/* TODO: 'Als Brief' falls back to digital until Brief mode (DIN 5008 header redesign) is implemented — see docs/plans/pdf-architecture-audit.md */}
           </div>
 
           <InvoiceEmailDraft invoice={invoice} />

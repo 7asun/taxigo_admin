@@ -44,6 +44,7 @@ import {
 } from './lib/invoice-pdf-format';
 import { PDF_COLORS, PDF_FONT_SIZES, styles } from './pdf-styles';
 import { formatTaxRate } from '../../lib/tax-calculator';
+import { PDF_ZONES } from '../../lib/pdf-layout-constants';
 
 export interface InvoicePdfCoverBodyProps {
   invoiceNumber: string;
@@ -52,6 +53,7 @@ export interface InvoicePdfCoverBodyProps {
   dueDateFormatted: string;
   companyProfile: InvoiceDetail['company_profile'];
   paymentQrDataUrl: string | null;
+  renderMode?: import('@/features/invoices/lib/pdf-layout-constants').PdfRenderMode;
   /** Full invoice — required for flat main_layout (line_items). */
   invoice: InvoiceDetail;
   columnProfile: PdfColumnProfile;
@@ -105,6 +107,7 @@ export function InvoicePdfCoverBody({
   dueDateFormatted,
   companyProfile: cp,
   paymentQrDataUrl,
+  renderMode: _renderMode,
   invoice,
   columnProfile,
   summaryItems,
@@ -114,7 +117,7 @@ export function InvoicePdfCoverBody({
   introText,
   outroText,
   isStorno,
-  subjectSectionMarginTop = 8
+  subjectSectionMarginTop = PDF_ZONES.subjectMarginTopDefault // cover body internal fallback — overridden by InvoicePdfDocument conditional
 }: InvoicePdfCoverBodyProps) {
   // isStorno is invoice.cancels_invoice_id != null (Storno document); only then use §14 Abs. 9 intro.
   const defaultIntroText = isStorno
@@ -164,7 +167,7 @@ export function InvoicePdfCoverBody({
                 minWidth: 0,
                 overflow: 'hidden',
                 flexWrap: 'nowrap',
-                paddingRight: 4,
+                paddingRight: PDF_ZONES.tableCellPaddingRight, // consistent column breathing room across invoice tables
                 justifyContent: 'center'
               }}
             >
@@ -204,7 +207,7 @@ export function InvoicePdfCoverBody({
                         minWidth: 0,
                         overflow: 'hidden',
                         flexWrap: 'nowrap',
-                        paddingRight: 4
+                        paddingRight: PDF_ZONES.tableCellPaddingRight // consistent column breathing room across invoice tables
                       }}
                     >
                       <Text style={styles.routePrimary}>{primary}</Text>
@@ -223,7 +226,7 @@ export function InvoicePdfCoverBody({
                       minWidth: 0,
                       overflow: 'hidden',
                       flexWrap: 'nowrap',
-                      paddingRight: 4,
+                      paddingRight: PDF_ZONES.tableCellPaddingRight, // consistent column breathing room across invoice tables
                       justifyContent: 'center'
                     }}
                   >
@@ -260,7 +263,7 @@ export function InvoicePdfCoverBody({
                       minWidth: 0,
                       overflow: 'hidden',
                       flexWrap: 'nowrap',
-                      paddingRight: 4,
+                      paddingRight: PDF_ZONES.tableCellPaddingRight, // consistent column breathing room across invoice tables
                       justifyContent: 'center'
                     }}
                   >
@@ -286,7 +289,13 @@ export function InvoicePdfCoverBody({
             </View>
           ))}
 
-      <View style={[styles.totalsSection, { marginTop: 8 }]} wrap={false}>
+      <View
+        style={[
+          styles.totalsSection,
+          { marginTop: PDF_ZONES.totalsSectionMarginTop } // margin above totals block
+        ]}
+        wrap={false}
+      >
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabel}>Summe Nettobeträge</Text>
           <Text style={styles.totalsValue}>
@@ -314,7 +323,15 @@ export function InvoicePdfCoverBody({
 
       <View style={styles.paymentInstructions}>
         <Text style={styles.boldText}>Zahlungsinformation</Text>
-        <Text style={[styles.normalText, { marginBottom: 4, marginTop: 2 }]}>
+        <Text
+          style={[
+            styles.normalText,
+            {
+              marginBottom: PDF_ZONES.paymentParaMarginBottom, // payment paragraph bottom spacing
+              marginTop: PDF_ZONES.paymentParaMarginTop // payment paragraph top spacing
+            }
+          ]}
+        >
           Zahlungsziel: {paymentDueDays} Tage netto — fällig zum{' '}
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>
             {dueDateFormatted}
@@ -326,7 +343,12 @@ export function InvoicePdfCoverBody({
 
         <View style={styles.paymentContentRow} wrap={false}>
           <View style={styles.paymentDetailsCol} wrap={false}>
-            <View style={[styles.paymentDetailRow, { marginTop: 0 }]}>
+            <View
+              style={[
+                styles.paymentDetailRow,
+                { marginTop: PDF_ZONES.paymentFirstRowMarginTop } // first payment detail row override
+              ]}
+            >
               <Text style={styles.paymentLabel}>Begünstigter</Text>
               <Text style={styles.paymentValue}>
                 {cp?.legal_name?.trim() || '—'}

@@ -283,3 +283,15 @@ Checked `package.json` for PDF/layout helpers, measurement utilities, or mm→pt
 
 **No relevant dependency found.**
 
+## Implementation status
+| Item | Status | Date |
+|---|---|---|
+| `pdf-layout-constants.ts` created | ✅ Done | 2026-04-15 |
+| `pdf-styles.ts` — all magic numbers replaced | ✅ Done | 2026-04-15 |
+| Quote spacing fixed (subject/body/outro) | ✅ Done | 2026-04-15 |
+| `renderMode` prop added to both documents | ✅ Done | 2026-04-15 |
+| Download button added to invoice + quote detail views | ✅ Done | 2026-04-15 |
+| Brief mode — fold marks | ✅ Done | 2026-04-15 |
+| Brief mode — fixed 127pt header zone | ✅ Done | 2026-04-15 |
+| Brief mode — DIN 5008 margins (71pt/57pt) | ⏳ Deferred |  |
+

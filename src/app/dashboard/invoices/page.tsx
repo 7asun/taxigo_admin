@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { InvoiceListTable } from '@/features/invoices/components/invoice-list-table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { InvoiceKpiSection } from '@/features/invoices/components/invoice-kpi-section';
 
 export const metadata: Metadata = {
   title: 'Rechnungen | Taxigo',
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
  * Invoice list page.
  * Fetches the list of payers for the filter dropdown, then renders
  * the client-side InvoiceListTable containing TanStack Table logic.
+ * KPI cards (billing stats) are shown at the top of the page.
  */
 export default async function InvoicesPage() {
   const supabase = await createClient();
@@ -31,6 +33,9 @@ export default async function InvoicesPage() {
         <div className='flex items-center justify-between space-y-2'>
           <h2 className='text-3xl font-bold tracking-tight'>Rechnungen</h2>
         </div>
+
+        {/* Billing KPI stats (moved from /dashboard/abrechnung) */}
+        <InvoiceKpiSection />
 
         <Suspense fallback={<Skeleton className='h-96 w-full' />}>
           <InvoiceListTable payers={payers ?? []} />

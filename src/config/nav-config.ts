@@ -8,15 +8,14 @@
  *
  *  2. COLLAPSE-ONLY GROUP — url === '#', has children. Parent row is a
  *     CollapsibleTrigger only — clicking navigates nowhere.
- *     Example: Account, Einstellungen.
+ *     Example: Account, Einstellungen, Abrechnung.
  *
  *  3. EXPAND-AND-NAVIGATE — url is a real page AND has children.
  *     Clicking the label navigates to the parent page.
  *     A separate chevron-only button toggles the submenu.
- *     Example: Abrechnung → /dashboard/abrechnung.
  *
  * Rules for adding new items:
- *  - Billing-related items belong under Abrechnung (type 3), not Einstellungen.
+ *  - Billing-related items belong under Abrechnung (type 2), not Einstellungen.
  *  - App-wide settings belong under Einstellungen (type 2).
  *  - Shortcuts must not duplicate existing combinations.
  */
@@ -42,7 +41,7 @@ export const navItems: NavItem[] = [
   },
   {
     title: 'Abrechnung',
-    url: '/dashboard/abrechnung',
+    url: '#',
     icon: 'billing',
     shortcut: ['a', 'a'],
     isActive: false,

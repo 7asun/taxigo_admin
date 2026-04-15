@@ -14,6 +14,8 @@
 
 import { StyleSheet } from '@react-pdf/renderer';
 
+import { PDF_PAGE, PDF_ZONES } from '../../lib/pdf-layout-constants';
+
 /** Shared color palette for the PDF. Adjust here to retheme. */
 export const PDF_COLORS = {
   /** Primary text color */
@@ -50,11 +52,11 @@ export const styles = StyleSheet.create({
     fontFamily: 'Helvetica',
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    paddingTop: 57,
+    paddingTop: PDF_PAGE.marginTop, // current top inset baseline shared across invoice/offer pages
     // Reserve space for fixed footer (~bottom 28 + column block) + page line; avoid over-reserving vs body
-    paddingBottom: 100,
-    paddingLeft: 45,
-    paddingRight: 45,
+    paddingBottom: PDF_PAGE.marginBottom, // reserves footer zone so body never collides with fixed footer
+    paddingLeft: PDF_PAGE.marginLeft, // fixed left rail aligns header/address/table consistently
+    paddingRight: PDF_PAGE.marginRight, // fixed right rail aligns meta + body content width
     lineHeight: 1.45
   },
   /** react-pdf-html — full width; parent `View` should use `wrap` for pagination. */
@@ -73,20 +75,20 @@ export const styles = StyleSheet.create({
     fontFamily: 'Helvetica',
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    paddingTop: 57,
-    paddingBottom: 100 /* Matches invoice page paddingBottom — consistent footer zone across document types */,
-    paddingLeft: 45,
-    paddingRight: 45,
+    paddingTop: PDF_PAGE.marginTop, // offers share the same vertical baseline as invoices
+    paddingBottom: PDF_PAGE.marginBottom, // consistent footer reserve across document types
+    paddingLeft: PDF_PAGE.marginLeft, // offer left rail matches invoice for consistent window alignment
+    paddingRight: PDF_PAGE.marginRight, // offer right rail matches invoice for identical content width
     lineHeight: 1.45
   },
   appendixPage: {
     fontFamily: 'Helvetica',
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    paddingTop: 57,
-    paddingBottom: 100,
-    paddingLeft: 45,
-    paddingRight: 45,
+    paddingTop: PDF_PAGE.marginTop, // appendix keeps same header baseline as cover for visual continuity
+    paddingBottom: PDF_PAGE.marginBottom, // appendix needs the same footer reserve as cover pages
+    paddingLeft: PDF_PAGE.marginLeft, // appendix left rail aligns with cover pages for scanning
+    paddingRight: PDF_PAGE.marginRight, // appendix right rail aligns with cover pages for scanning
     lineHeight: 1.45
   },
   /** A4 landscape — same vertical rhythm as appendixPage; horizontal padding matches DIN margins. */
@@ -94,10 +96,10 @@ export const styles = StyleSheet.create({
     fontFamily: 'Helvetica',
     fontSize: PDF_FONT_SIZES.base,
     color: PDF_COLORS.text,
-    paddingTop: 57,
-    paddingBottom: 100,
-    paddingLeft: 36,
-    paddingRight: 36,
+    paddingTop: PDF_PAGE.marginTop, // landscape pages keep the same top baseline as portrait pages
+    paddingBottom: PDF_PAGE.marginBottom, // footer reserve stays constant regardless of orientation
+    paddingLeft: PDF_PAGE.marginLandscape, // slightly tighter horizontal rails to fit more columns
+    paddingRight: PDF_PAGE.marginLandscape, // slightly tighter horizontal rails to fit more columns
     lineHeight: 1.45
   },
 
@@ -108,7 +110,7 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 2
+    marginBottom: PDF_ZONES.headerRowMarginBottom // small gap under header before subject/reference bar
   },
   /** Legacy / unused — reference bar styles live in invoice-pdf-reference-bar.tsx. */
   referenceBarWrap: {
@@ -150,7 +152,7 @@ export const styles = StyleSheet.create({
   },
   /** Logo oben, Slogan direkt darunter (nicht daneben) */
   brandStack: {
-    marginBottom: 12,
+    marginBottom: PDF_ZONES.brandStackMarginBottom, // separates brand block from sender/address window
     width: '100%'
   },
   sloganBelowLogo: {
@@ -183,7 +185,7 @@ export const styles = StyleSheet.create({
   },
   recipientBlock: {
     width: '100%',
-    marginTop: 4
+    marginTop: PDF_ZONES.recipientBlockMarginTop // nudges address down to match window alignment rhythm
   },
   addressCompanySecondary: {
     fontSize: PDF_FONT_SIZES.base,
@@ -331,22 +333,22 @@ export const styles = StyleSheet.create({
   subject: {
     fontSize: PDF_FONT_SIZES.lg,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 16
+    marginBottom: PDF_ZONES.subjectMarginBottom // spacing from Betreff to Anrede matches DIN rhythm
   },
   salutation: {
     fontSize: PDF_FONT_SIZES.base,
-    marginBottom: 8,
+    marginBottom: PDF_ZONES.salutationMarginBottom, // consistent salutation separation before intro/body
     lineHeight: 1.5
   },
   bodyText: {
     fontSize: PDF_FONT_SIZES.base,
     lineHeight: 1.6,
     color: PDF_COLORS.text,
-    marginBottom: 16
+    marginBottom: PDF_ZONES.bodyMarginBottom // spacing from intro prose to table — matches invoice bodyText
   },
   /** Standalone block after payment — not wrapped with Zahlungsinformation for pagination */
   bodyOutroSection: {
-    marginTop: 16
+    marginTop: PDF_ZONES.outroMarginTop // spacing after payment/table before outro prose
   },
   bodyOutro: {
     fontSize: PDF_FONT_SIZES.base,
@@ -357,7 +359,7 @@ export const styles = StyleSheet.create({
     fontSize: PDF_FONT_SIZES.base,
     lineHeight: 1.6,
     color: PDF_COLORS.text,
-    marginTop: 12
+    marginTop: PDF_ZONES.closingMarginTop // closing line sits after outro with consistent breathing room
   },
 
   // ── Line items table ───────────────────────────────────────────────────────
@@ -368,14 +370,14 @@ export const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1.5,
     borderBottomColor: '#94a3b8',
-    paddingVertical: 6,
-    paddingHorizontal: 8
+    paddingVertical: PDF_ZONES.tableHeaderPaddingV, // header padding balances label density vs readability
+    paddingHorizontal: PDF_ZONES.tableHeaderPaddingH // horizontal inset matches body/table rhythm
   },
   tableRow: {
     flexDirection: 'row',
     width: '100%',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+    paddingVertical: PDF_ZONES.tableRowPaddingV, // row height tuned to fit typical line items per page
+    paddingHorizontal: PDF_ZONES.tableRowPaddingH, // keep table text aligned with header padding
     borderBottomWidth: 0.5,
     borderBottomColor: PDF_COLORS.border
   },
@@ -566,12 +568,12 @@ export const styles = StyleSheet.create({
   /** Bottom edge of column block — keep above footerPageNumber (larger = higher on page) */
   footer: {
     position: 'absolute',
-    bottom: 28,
-    left: 45,
-    right: 45,
+    bottom: PDF_ZONES.footerBottom, // keeps footer block above physical bottom edge and page number
+    left: PDF_PAGE.marginLeft, // footer aligns with page content rail (left)
+    right: PDF_PAGE.marginRight, // footer aligns with page content rail (right)
     borderTopWidth: 0.5,
     borderTopColor: PDF_COLORS.border,
-    paddingTop: 8,
+    paddingTop: PDF_ZONES.footerPaddingTop, // breathing room above legal/contact/footer columns
     flexDirection: 'row',
     justifyContent: 'space-between'
   },
@@ -613,9 +615,9 @@ export const styles = StyleSheet.create({
    */
   footerPageNumber: {
     position: 'absolute',
-    top: 818,
-    left: 45,
-    right: 45,
+    top: PDF_ZONES.footerPageNumberTop, // stable page number position; avoids react-pdf bottom+render bug
+    left: PDF_PAGE.marginLeft, // center within same rail as footer/content
+    right: PDF_PAGE.marginRight, // center within same rail as footer/content
     minHeight: 14,
     fontSize: PDF_FONT_SIZES.xs,
     color: PDF_COLORS.muted,
