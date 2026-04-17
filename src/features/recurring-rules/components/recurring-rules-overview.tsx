@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { useDataTable } from '@/hooks/use-data-table';
 import type { RecurringRuleWithClientEmbed } from '@/features/trips/api/recurring-rules.server';
 import { CreateRecurringRuleSheet } from './create-recurring-rule-sheet';
+import { DeleteRecurringRuleDialog } from './delete-recurring-rule-dialog';
 import { recurringRulesColumns } from './recurring-rules-columns';
 import { RECURRING_RULES_TABLE_DEFAULT_PAGE_SIZE } from '@/features/recurring-rules/lib/recurring-rules-sort-column-ids';
 
@@ -40,6 +41,7 @@ export function RecurringRulesOverview({
 }: RecurringRulesOverviewProps) {
   const router = useRouter();
   const [isCreateSheetOpen, setIsCreateSheetOpen] = React.useState(false);
+  const [deleteRuleId, setDeleteRuleId] = React.useState<string | null>(null);
 
   const pageCount = Math.max(1, Math.ceil(totalDatasetCount / perPage));
 
@@ -56,7 +58,10 @@ export function RecurringRulesOverview({
     shallow: false,
     clearOnDefault: true,
     debounceMs: 500,
-    getRowId: (row) => row.id
+    getRowId: (row) => row.id,
+    meta: {
+      onDelete: (id: string) => setDeleteRuleId(id)
+    }
   });
 
   return (
@@ -88,6 +93,15 @@ export function RecurringRulesOverview({
         onOpenChange={setIsCreateSheetOpen}
         onSuccess={() => {
           router.push('/dashboard/regelfahrten');
+        }}
+      />
+
+      <DeleteRecurringRuleDialog
+        ruleId={deleteRuleId || ''}
+        isOpen={!!deleteRuleId}
+        onOpenChange={(open) => !open && setDeleteRuleId(null)}
+        onSuccess={() => {
+          router.refresh();
         }}
       />
     </div>

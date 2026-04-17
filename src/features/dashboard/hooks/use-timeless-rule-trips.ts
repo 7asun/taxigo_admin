@@ -4,10 +4,24 @@ import { addDays, format } from 'date-fns';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
+import {
+  billingFamilyFromEmbed,
+  formatBillingDisplayLabel
+} from '@/features/trips/lib/format-billing-display-label';
 import { tripKeys } from '@/query/keys';
 import { createDebouncedInvalidateByQueryKey } from '@/query/realtime-bridge';
 
 const TIMELESS_WIDGET_LOOKAHEAD_DAYS = 1;
+
+/** Trip row with Kostenträger / Abrechnung embeds from the timeless widget query. */
+export type TimelessWidgetTrip = Trip & {
+  payer?: { name: string | null } | null;
+  billing_variant?: {
+    name: string | null;
+    code: string | null;
+    billing_types?: unknown;
+  } | null;
+};
 
 export type TimelessRulePair = {
   id: string;
@@ -15,12 +29,18 @@ export type TimelessRulePair = {
   pickup_address: string | null;
   dropoff_address: string | null;
   requested_date: string;
-  outbound: Trip | null;
-  return: Trip | null;
+  payer_name: string | null;
+  billing_label: string;
+  billing_color: string | null;
+  outbound: TimelessWidgetTrip | null;
+  return: TimelessWidgetTrip | null;
 };
 
+const TIMELESS_TRIP_EMBEDS =
+  'payer:payers(name), billing_variant:billing_variants!trips_billing_variant_id_fkey(name, code, billing_types!billing_variants_billing_type_id_fkey(name, color))';
+
 type TripPartnerRow = Pick<
-  Trip,
+  TimelessWidgetTrip,
   | 'id'
   | 'scheduled_at'
   | 'status'
@@ -33,7 +53,27 @@ type TripPartnerRow = Pick<
   | 'dropoff_address'
   | 'driver_id'
   | 'linked_trip_id'
+  | 'payer_id'
+  | 'billing_variant_id'
+  | 'payer'
+  | 'billing_variant'
 >;
+
+function billingSummaryForPair(
+  outbound: TimelessWidgetTrip | null,
+  ret: TimelessWidgetTrip | null
+): Pick<TimelessRulePair, 'payer_name' | 'billing_label' | 'billing_color'> {
+  const payerName =
+    outbound?.payer?.name?.trim() || ret?.payer?.name?.trim() || null;
+  const bv = outbound?.billing_variant ?? ret?.billing_variant ?? null;
+  const label = formatBillingDisplayLabel(bv).trim();
+  const fam = billingFamilyFromEmbed(bv?.billing_types);
+  return {
+    payer_name: payerName,
+    billing_label: label,
+    billing_color: fam?.color ?? null
+  };
+}
 
 function isOutboundish(linkType: string | null): boolean {
   return linkType == null || linkType === 'outbound';
@@ -55,7 +95,7 @@ export async function fetchTimelessRulePairs(
 
   const { data: rowsRaw, error } = await supabase
     .from('trips')
-    .select('*, requested_date')
+    .select(`*, requested_date, ${TIMELESS_TRIP_EMBEDS}`)
     .not('rule_id', 'is', null)
     .is('scheduled_at', null)
     .eq('requested_date', requestedDate)
@@ -63,7 +103,7 @@ export async function fetchTimelessRulePairs(
 
   if (error) throw error;
 
-  const rows = (rowsRaw ?? []) as Trip[];
+  const rows = (rowsRaw ?? []) as TimelessWidgetTrip[];
 
   const linkedIds = Array.from(
     new Set(
@@ -76,13 +116,13 @@ export async function fetchTimelessRulePairs(
     const { data: partnerRowsRaw, error: partnerError } = await supabase
       .from('trips')
       .select(
-        'id, scheduled_at, status, link_type, requested_date, rule_id, client_id, client_name, pickup_address, dropoff_address, driver_id, linked_trip_id'
+        `id, scheduled_at, status, link_type, requested_date, rule_id, client_id, client_name, pickup_address, dropoff_address, driver_id, linked_trip_id, payer_id, billing_variant_id, ${TIMELESS_TRIP_EMBEDS}`
       )
       .in('id', linkedIds);
 
     if (partnerError) throw partnerError;
 
-    for (const r of (partnerRowsRaw ?? []) as TripPartnerRow[]) {
+    for (const r of (partnerRowsRaw ?? []) as unknown as TripPartnerRow[]) {
       partnerMap.set(r.id, r);
     }
   }
@@ -114,16 +154,17 @@ export async function fetchTimelessRulePairs(
       dropoff_address: trip.dropoff_address ?? partner?.dropoff_address ?? null
     };
 
+    const partnerTrip = partner ? (partner as TimelessWidgetTrip | null) : null;
+    const billing = billingSummaryForPair(trip, partnerTrip);
+
     addPair(
       {
         id: trip.id,
         ...display,
+        ...billing,
         requested_date: trip.requested_date,
         outbound: trip,
-        return:
-          partner && partner.link_type === 'return'
-            ? (partner as Trip)
-            : (partner as Trip | null)
+        return: partnerTrip
       },
       dedupKey
     );
@@ -146,15 +187,19 @@ export async function fetchTimelessRulePairs(
       dropoff_address: partner?.dropoff_address ?? trip.dropoff_address ?? null
     };
 
+    const partnerTrip =
+      partner && isOutboundish(partner.link_type)
+        ? (partner as TimelessWidgetTrip)
+        : (partner as TimelessWidgetTrip | null);
+    const billing = billingSummaryForPair(partnerTrip, trip);
+
     addPair(
       {
         id: partner?.id ?? trip.id,
         ...display,
+        ...billing,
         requested_date: trip.requested_date,
-        outbound:
-          partner && isOutboundish(partner.link_type)
-            ? (partner as Trip)
-            : (partner as Trip | null),
+        outbound: partnerTrip,
         return: trip
       },
       dedupKey

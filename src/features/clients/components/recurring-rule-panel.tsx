@@ -49,12 +49,15 @@ import {
   RecurringRuleFormBody,
   RuleFormValues,
   ruleFormSchema,
-  getRuleFormDefaults
+  getRuleFormDefaults,
+  NO_BILLING_VARIANT_SENTINEL,
+  handleRuleFormInvalid
 } from './recurring-rule-form-body';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
 import { formatClientAddress } from '@/features/clients/lib/format-client-address';
 import type { ClientOption } from '@/features/trips/types/trip-form-reference.types';
+import { DeleteRecurringRuleDialog } from '@/features/recurring-rules/components/delete-recurring-rule-dialog';
 
 interface RecurringRulePanelProps {
   clientId: string;
@@ -81,20 +84,49 @@ export function RecurringRulePanel({
   const [homeRole, setHomeRole] = React.useState<'pickup' | 'dropoff'>(
     'pickup'
   );
+  const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
 
   const form = useForm<RuleFormValues>({
     resolver: zodResolver(ruleFormSchema),
     defaultValues: getRuleFormDefaults(null)
   });
+  const { reset, setValue, getValues, watch } = form;
 
-  const payerWatch = form.watch('payer_id');
+  const payerWatch = watch('payer_id');
   const { payers, billingTypes, searchClientsById } =
     useTripFormData(payerWatch);
+
+  const payerHasNoVariants = !!payerWatch && billingTypes.length === 0;
 
   const formattedHomeAddress = React.useMemo(
     () => formatClientAddress(client),
     [client]
   );
+
+  // Load the client and existing rule when opening
+  React.useEffect(() => {
+    // If the selected payer has no variants (Unterart), keep a sentinel in the
+    // form state so the shared schema does not block submit.
+    const current = getValues('billing_variant_id');
+    if (payerHasNoVariants) {
+      if (current !== NO_BILLING_VARIANT_SENTINEL) {
+        setValue('billing_variant_id', NO_BILLING_VARIANT_SENTINEL, {
+          shouldValidate: false,
+          shouldDirty: false
+        });
+      }
+      return;
+    }
+
+    // If we move back to a payer that *does* have variants, clear the sentinel
+    // so the user must pick a real Unterart.
+    if (current === NO_BILLING_VARIANT_SENTINEL) {
+      setValue('billing_variant_id', '', {
+        shouldValidate: false,
+        shouldDirty: false
+      });
+    }
+  }, [payerHasNoVariants, getValues, setValue]);
 
   // Load the client and existing rule when opening
   React.useEffect(() => {
@@ -112,7 +144,7 @@ export function RecurringRulePanel({
       // Initialize with home address as pickup by default for new rules
       searchClientsById(clientId).then((clientData) => {
         const defaults = getRuleFormDefaults(null);
-        form.reset({
+        reset({
           ...defaults,
           pickup_address:
             formatClientAddress(clientData) || defaults.pickup_address
@@ -125,14 +157,20 @@ export function RecurringRulePanel({
     recurringRulesService
       .getRuleById(ruleId)
       .then((rule) => {
+        if (!rule) {
+          // Rule might have been deleted just now, or URL is invalid.
+          // Don't show an error toast here to avoid "Fehler beim Laden"
+          // during deletion transitions.
+          return;
+        }
         setExistingRule(rule);
-        form.reset(getRuleFormDefaults(rule));
+        reset(getRuleFormDefaults(rule));
       })
       .catch((err: any) => {
         toast.error('Fehler beim Laden der Regel: ' + err.message);
       })
       .finally(() => setLoadingRule(false));
-  }, [ruleId, isNew, form, clientId, searchClientsById]);
+  }, [ruleId, isNew, reset, clientId, searchClientsById]);
 
   const handleHomeRoleChange = (role: 'pickup' | 'dropoff') => {
     setHomeRole(role);
@@ -160,10 +198,19 @@ export function RecurringRulePanel({
       });
 
       if (existingRule) {
-        await recurringRulesService.updateRule(existingRule.id, ruleData);
+        const payload = { ...ruleData };
+        // Coerce sentinel to null for DB consistency
+        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+          payload.billing_variant_id = null;
+        }
+        await recurringRulesService.updateRule(existingRule.id, payload);
         toast.success('Regel erfolgreich aktualisiert');
       } else {
-        await recurringRulesService.createRule(ruleData);
+        const payload = { ...ruleData };
+        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+          payload.billing_variant_id = null;
+        }
+        await recurringRulesService.createRule(payload);
         toast.success('Regel erfolgreich erstellt');
       }
 
@@ -198,7 +245,7 @@ export function RecurringRulePanel({
                 HTML `form` attribute — no nested <form> elements needed */}
             <form
               id='recurring-rule-panel-form'
-              onSubmit={form.handleSubmit(handleSubmit)}
+              onSubmit={form.handleSubmit(handleSubmit, handleRuleFormInvalid)}
             >
               <RecurringRuleFormBody
                 form={form}
@@ -232,7 +279,25 @@ export function RecurringRulePanel({
           {isSubmitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
           {isNew ? 'Hinzufügen' : 'Speichern'}
         </Button>
+        {!isNew && (
+          <Button
+            type='button'
+            variant='ghost'
+            onClick={() => setShowDeleteDialog(true)}
+            className='text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0'
+            disabled={isSubmitting}
+          >
+            Löschen
+          </Button>
+        )}
       </PanelFooter>
+
+      <DeleteRecurringRuleDialog
+        ruleId={ruleId}
+        isOpen={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        onSuccess={onSuccess}
+      />
     </Panel>
   );
 }

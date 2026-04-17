@@ -11,7 +11,6 @@ import {
   CardDescription,
   CardContent
 } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -126,6 +125,33 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
           <Badge variant='outline' className='px-1.5 py-0 text-xs'>
             {format(new Date(pair.requested_date), 'dd.MM.yyyy')}
           </Badge>
+          {pair.payer_name ? (
+            <Badge
+              variant='outline'
+              className='border-dashed px-1.5 py-0 text-xs'
+              title='Kostenträger'
+            >
+              {pair.payer_name}
+            </Badge>
+          ) : null}
+          {pair.billing_label ? (
+            <Badge
+              variant='outline'
+              className='max-w-[200px] truncate px-1.5 py-0 text-xs'
+              style={
+                pair.billing_color
+                  ? {
+                      borderColor: pair.billing_color,
+                      color: pair.billing_color,
+                      backgroundColor: `color-mix(in srgb, ${pair.billing_color}, var(--background) 90%)`
+                    }
+                  : undefined
+              }
+              title={pair.billing_label}
+            >
+              {pair.billing_label}
+            </Badge>
+          ) : null}
         </div>
         <p className='text-muted-foreground line-clamp-1 text-xs'>
           {firstAddressLine(pair.pickup_address)} →{' '}
@@ -133,7 +159,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
         </p>
       </div>
 
-      <div className='flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end'>
+      <div className='flex w-full min-w-0 flex-wrap items-end gap-2 sm:w-auto sm:flex-nowrap sm:justify-end'>
         {/* Hinfahrt */}
         <div className='min-w-0 flex-1 sm:w-28 sm:flex-none'>
           <div className='text-muted-foreground mb-1 text-[10px] font-medium tracking-wide uppercase'>
@@ -180,7 +206,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
 
         <Button
           size='sm'
-          className='h-8 px-2'
+          className='h-8 shrink-0 self-end px-2'
           onClick={handleSave}
           disabled={!canSave || isSubmitting}
         >
@@ -214,25 +240,16 @@ export function TimelessRuleTripsWidget() {
   }, [pairs, payerFilterId]);
 
   const description = useMemo(() => {
-    const count = filteredPairs.length;
-    if (count === 0) return 'Alle Fahrten geplant';
-    return `${count} Fahrten morgen ohne Zeit`;
-  }, [filteredPairs.length]);
+    if (filteredPairs.length === 0) {
+      return payerFilterId !== 'all'
+        ? 'Keine Fahrten für diesen Kostenträger morgen ohne Zeit'
+        : 'Fahrten morgen ohne Zeit';
+    }
+    return `${filteredPairs.length} Fahrten morgen ohne Zeit`;
+  }, [filteredPairs.length, payerFilterId]);
 
-  if (isLoading) {
-    return (
-      <Card className='h-full'>
-        <CardHeader>
-          <CardTitle>Wiederkehrende Trips</CardTitle>
-          <CardDescription>Lade Fahrten...</CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-4'>
-          <Skeleton className='h-10 w-full' />
-          <Skeleton className='h-12 w-full' />
-          <Skeleton className='h-12 w-full' />
-        </CardContent>
-      </Card>
-    );
+  if (isLoading || pairs.length === 0) {
+    return null;
   }
 
   return (

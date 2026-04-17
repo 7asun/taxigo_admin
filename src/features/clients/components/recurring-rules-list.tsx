@@ -9,32 +9,51 @@ import {
   MapPin,
   Navigation,
   CalendarDays,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { RecurringRuleSheet } from './recurring-rule-sheet';
 import { recurringReturnModeFromRow } from '@/features/trips/lib/recurring-return-mode';
+import { DeleteRecurringRuleDialog } from '@/features/recurring-rules/components/delete-recurring-rule-dialog';
 
 function RecurringRuleBillingCaption({
   rule
 }: {
   rule: RecurringRuleWithBillingEmbed;
 }) {
-  const label = formatBillingDisplayLabel(rule.billing_variant).trim();
-  if (label) {
+  const billingLabel = formatBillingDisplayLabel(rule.billing_variant).trim();
+  const payerName = rule.payer?.name?.trim();
+
+  // 1. If we have a full billing variant (e.g. "AOK · Krankenfahrt"), show it.
+  if (billingLabel) {
     return (
       <div className='text-muted-foreground mt-1 text-xs'>
-        Abrechnung: <span className='text-foreground font-medium'>{label}</span>
+        Abrechnung:{' '}
+        <span className='text-foreground font-medium'>{billingLabel}</span>
       </div>
     );
   }
-  if (!rule.payer_id || !rule.billing_variant_id) {
+
+  // 2. If we only have the Payer (e.g. no sub-variants), show the Payer name.
+  if (payerName) {
+    return (
+      <div className='text-muted-foreground mt-1 text-xs'>
+        Kostenträger:{' '}
+        <span className='text-foreground font-medium'>{payerName}</span>
+      </div>
+    );
+  }
+
+  // 3. Only show a warning if the Payer itself is missing.
+  if (!rule.payer_id) {
     return (
       <div className='mt-1 text-xs text-amber-600/90'>
-        Abrechnung fehlt — Regel bearbeiten und speichern.
+        Kostenträger fehlt — Regel bearbeiten und speichern.
       </div>
     );
   }
+
   return null;
 }
 
@@ -69,6 +88,7 @@ export function RecurringRulesList({
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [selectedRule, setSelectedRule] =
     useState<RecurringRuleWithBillingEmbed | null>(null);
+  const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
 
   const handleEdit = (rule: RecurringRuleWithBillingEmbed) => {
     if (onEditRule) {
@@ -130,7 +150,7 @@ export function RecurringRulesList({
             {rules.map((rule) => (
               <div
                 key={rule.id}
-                className={`bg-card hover:border-primary/50 relative cursor-pointer overflow-hidden rounded-xl border p-4 transition-all ${!rule.is_active ? 'opacity-50' : ''}`}
+                className={`bg-card hover:border-primary/50 group relative cursor-pointer overflow-hidden rounded-xl border p-4 transition-all ${!rule.is_active ? 'opacity-50' : ''}`}
                 onClick={() => handleEdit(rule)}
               >
                 {!rule.is_active && (
@@ -138,6 +158,22 @@ export function RecurringRulesList({
                     Inaktiv
                   </div>
                 )}
+
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-destructive hover:bg-destructive/10 absolute top-2 right-2 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100'
+                  style={{
+                    // If inactive badge is there, move trash left a bit
+                    right: !rule.is_active ? '54px' : '8px'
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteRuleId(rule.id);
+                  }}
+                >
+                  <Trash2 className='h-4 w-4' />
+                </Button>
 
                 <div className='flex flex-col gap-3'>
                   <div className='flex items-center gap-3'>
@@ -240,6 +276,13 @@ export function RecurringRulesList({
         onOpenChange={setIsSheetOpen}
         clientId={clientId}
         initialData={selectedRule || undefined}
+        onSuccess={onRulesChange}
+      />
+
+      <DeleteRecurringRuleDialog
+        ruleId={deleteRuleId || ''}
+        isOpen={!!deleteRuleId}
+        onOpenChange={(open) => !open && setDeleteRuleId(null)}
         onSuccess={onRulesChange}
       />
     </Card>

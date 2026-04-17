@@ -266,6 +266,7 @@ export async function GET(request: NextRequest) {
         has_missing_geodata: !geodataOk,
         scheduled_at: scheduledAtIso,
         rule_id: rule.id,
+        ingestion_source: 'recurring_rule',
         link_type,
         linked_trip_id: linkedTripId
       };
@@ -339,9 +340,9 @@ export async function GET(request: NextRequest) {
 
       if (clientError || !client) continue;
 
-      if (!rule.payer_id || !rule.billing_variant_id) {
+      if (!rule.payer_id) {
         console.warn(
-          `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id or billing_variant_id (edit and save the rule in Admin).`
+          `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id (edit and save the rule in Admin).`
         );
         continue;
       }

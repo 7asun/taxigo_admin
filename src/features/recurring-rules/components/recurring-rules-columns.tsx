@@ -15,6 +15,17 @@ import { Badge } from '@/components/ui/badge';
 import type { RecurringRuleWithClientEmbed } from '@/features/trips/api/recurring-rules.server';
 import { formatBillingDisplayLabel } from '@/features/trips/lib/format-billing-display-label';
 import { recurringReturnModeFromRow } from '@/features/trips/lib/recurring-return-mode';
+import { MoreHorizontal, Trash2 } from 'lucide-react';
+import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 
 /** Max visible chars for Von/Nach; full text in `title`. */
 export const RECURRING_RULE_ADDRESS_PREVIEW_MAX_LEN = 40;
@@ -117,14 +128,24 @@ export const recurringRulesColumns: ColumnDef<RecurringRuleWithClientEmbed>[] =
         <DataTableColumnHeader column={column} title='Von' />
       ),
       cell: ({ row }) => {
-        const { display, title } = truncateWithTitle(
+        const { street, cityLine } = parseTripAddressForDisplay(
           row.original.pickup_address,
-          RECURRING_RULE_ADDRESS_PREVIEW_MAX_LEN
+          { alwaysShowZipCity: true }
         );
         return (
-          <span className='max-w-[220px] truncate text-sm' title={title}>
-            {display}
-          </span>
+          <div
+            className='flex max-w-[200px] flex-col'
+            title={row.original.pickup_address ?? ''}
+          >
+            <span className='truncate text-sm font-medium'>
+              {street || '—'}
+            </span>
+            {cityLine && (
+              <span className='text-muted-foreground truncate text-xs'>
+                {cityLine}
+              </span>
+            )}
+          </div>
         );
       }
     },
@@ -135,14 +156,24 @@ export const recurringRulesColumns: ColumnDef<RecurringRuleWithClientEmbed>[] =
         <DataTableColumnHeader column={column} title='Nach' />
       ),
       cell: ({ row }) => {
-        const { display, title } = truncateWithTitle(
+        const { street, cityLine } = parseTripAddressForDisplay(
           row.original.dropoff_address,
-          RECURRING_RULE_ADDRESS_PREVIEW_MAX_LEN
+          { alwaysShowZipCity: true }
         );
         return (
-          <span className='max-w-[220px] truncate text-sm' title={title}>
-            {display}
-          </span>
+          <div
+            className='flex max-w-[200px] flex-col'
+            title={row.original.dropoff_address ?? ''}
+          >
+            <span className='truncate text-sm font-medium'>
+              {street || '—'}
+            </span>
+            {cityLine && (
+              <span className='text-muted-foreground truncate text-xs'>
+                {cityLine}
+              </span>
+            )}
+          </div>
         );
       }
     },
@@ -226,6 +257,66 @@ export const recurringRulesColumns: ColumnDef<RecurringRuleWithClientEmbed>[] =
           <span className='text-sm'>
             {format(d, 'dd.MM.yyyy', { locale: de })}
           </span>
+        );
+      }
+    },
+    {
+      id: 'end_date',
+      accessorKey: 'end_date',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='Gültig bis' />
+      ),
+      cell: ({ row }) => {
+        const end = row.original.end_date;
+        if (!end) {
+          return <span className='text-muted-foreground'>—</span>;
+        }
+        const d = new Date(end);
+        if (Number.isNaN(d.getTime())) {
+          return <span className='text-muted-foreground'>—</span>;
+        }
+        return (
+          <span className='text-sm'>
+            {format(d, 'dd.MM.yyyy', { locale: de })}
+          </span>
+        );
+      }
+    },
+    {
+      id: 'actions',
+      cell: ({ row, table }) => {
+        const rule = row.original;
+        const meta = table.options.meta as any;
+
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='ghost' className='h-8 w-8 p-0'>
+                <span className='sr-only'>Menü öffnen</span>
+                <MoreHorizontal className='h-4 w-4' />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuLabel>Aktionen</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  window.location.href = `/dashboard/clients?clientId=${
+                    rule.clients?.id || rule.client_id
+                  }&ruleId=${rule.id}`;
+                }}
+              >
+                Bearbeiten
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className='text-destructive focus:text-destructive'
+                onClick={() => meta?.onDelete?.(rule.id)}
+              >
+                <Trash2 className='mr-2 h-4 w-4' />
+                Löschen
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         );
       }
     }

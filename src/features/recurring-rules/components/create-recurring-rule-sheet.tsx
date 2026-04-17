@@ -31,7 +31,9 @@ import {
   RecurringRuleFormBody,
   RuleFormValues,
   getRuleFormDefaults,
-  ruleFormSchema
+  ruleFormSchema,
+  NO_BILLING_VARIANT_SENTINEL,
+  handleRuleFormInvalid
 } from '@/features/clients/components/recurring-rule-form-body';
 import { recurringRulesService } from '@/features/trips/api/recurring-rules.service';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
@@ -46,16 +48,6 @@ export interface CreateRecurringRuleSheetProps {
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }
-
-/**
- * `RecurringRuleFormBody` requires `billing_variant_id` via its shared Zod schema.
- * Some tenants/payers have **no variants at all** (Unterart does not exist).
- *
- * We use this internal sentinel to satisfy the schema, then coerce the payload
- * to `billing_variant_id: null` before inserting into `recurring_rules` (the DB
- * column is nullable for this legacy/transition case).
- */
-const NO_BILLING_VARIANT_SENTINEL = '__no_billing_variant__';
 
 async function searchClientsForSheet(query: string): Promise<ClientOption[]> {
   // Threshold intentionally lives in ClientAutoSuggest (query.length >= 2) so it is not duplicated here.
@@ -221,22 +213,6 @@ export function CreateRecurringRuleSheet({
     }
   };
 
-  const handleInvalid = (errors: Record<string, unknown>) => {
-    // React Hook Form blocks submit when schema validation fails; without an
-    // explicit handler this can feel like the button does nothing (especially
-    // if the first invalid field is below the fold).
-    const firstMessage = (() => {
-      for (const v of Object.values(errors)) {
-        if (v && typeof v === 'object' && 'message' in v) {
-          const m = (v as { message?: unknown }).message;
-          if (typeof m === 'string' && m.trim().length > 0) return m;
-        }
-      }
-      return null;
-    })();
-    toast.error(firstMessage ?? 'Bitte alle Pflichtfelder ausfüllen.');
-  };
-
   const guestDescription =
     selectedClient != null
       ? `Fahrgast: ${clientDisplayName(selectedClient)}`
@@ -289,7 +265,10 @@ export function CreateRecurringRuleSheet({
             <div className='min-h-0 flex-1 overflow-y-auto px-6'>
               <form
                 id='create-recurring-rule-from-overview-form'
-                onSubmit={form.handleSubmit(handleSubmit, handleInvalid)}
+                onSubmit={form.handleSubmit(
+                  handleSubmit,
+                  handleRuleFormInvalid
+                )}
               >
                 <RecurringRuleFormBody
                   form={form}

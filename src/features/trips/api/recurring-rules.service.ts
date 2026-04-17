@@ -17,6 +17,9 @@ export type RecurringRuleWithBillingEmbed = RecurringRule & {
     billing_type_id: string;
     billing_types: unknown;
   } | null;
+  payer: {
+    name: string;
+  } | null;
 };
 
 export const recurringRulesService = {
@@ -33,7 +36,8 @@ export const recurringRulesService = {
           code,
           billing_type_id,
           billing_types ( name, color )
-        )
+        ),
+        payer:payers ( name )
       `
       )
       .eq('client_id', clientId)
@@ -44,15 +48,16 @@ export const recurringRulesService = {
   },
 
   async getRuleById(id: string) {
+    if (!id) return null;
     const supabase = createClient();
     const { data, error } = await supabase
       .from('recurring_rules')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
-    return data as RecurringRule;
+    return data as RecurringRule | null;
   },
 
   async createRule(rule: InsertRecurringRule) {
@@ -80,8 +85,27 @@ export const recurringRulesService = {
     return data as RecurringRule;
   },
 
-  async deleteRule(id: string) {
+  async deleteRule(id: string, deleteFutureTrips: boolean = false) {
     const supabase = createClient();
+
+    if (deleteFutureTrips) {
+      // Find trips linked to this rule that are scheduled for today or the future.
+      // 1. rule_id === id
+      // 2. requested_date >= today (ISO format YYYY-MM-DD)
+      // 3. status is not completion-like (completed, cancelled)
+      // 4. ingestion_source is either 'recurring_rule' (new ones) or NULL (old ones)
+      const today = new Date().toISOString().split('T')[0];
+      const { error: tripError } = await supabase
+        .from('trips')
+        .delete()
+        .eq('rule_id', id)
+        .gte('requested_date', today)
+        .not('status', 'in', '("completed","cancelled")')
+        .or('ingestion_source.eq.recurring_rule,ingestion_source.is.null');
+
+      if (tripError) throw tripError;
+    }
+
     const { error } = await supabase
       .from('recurring_rules')
       .delete()

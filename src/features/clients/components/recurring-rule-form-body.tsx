@@ -75,6 +75,33 @@ import {
 } from '@/features/trips/lib/recurring-return-mode';
 import { RecurringRuleBillingFields } from './recurring-rule-billing-fields';
 import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
+import { toast } from 'sonner';
+
+/**
+ * `RecurringRuleFormBody` requires `billing_variant_id` via its shared Zod schema.
+ * Some tenants/payers have **no variants at all** (Unterart does not exist).
+ *
+ * We use this internal sentinel to satisfy the schema, then coerce the payload
+ * to `billing_variant_id: null` before inserting into `recurring_rules` (the DB
+ * column is nullable for this legacy/transition case).
+ */
+export const NO_BILLING_VARIANT_SENTINEL = '__no_billing_variant__';
+
+/**
+ * Shared error handler for react-hook-form to show why a submit was blocked.
+ */
+export const handleRuleFormInvalid = (errors: Record<string, any>) => {
+  const firstMessage = (() => {
+    for (const v of Object.values(errors)) {
+      if (v && typeof v === 'object' && 'message' in v) {
+        const m = (v as { message?: unknown }).message;
+        if (typeof m === 'string' && m.trim().length > 0) return m;
+      }
+    }
+    return null;
+  })();
+  toast.error(firstMessage ?? 'Bitte alle Pflichtfelder ausfüllen.');
+};
 
 // ─── Schema (shared between Sheet and Panel) ─────────────────────────────────
 
@@ -449,8 +476,22 @@ export function RecurringRuleFormBody({
                         field.onChange(result);
                         return;
                       }
-                      // Single-line rule fields: use formatted line after Place Details (or typed query).
-                      field.onChange(result.address ?? '');
+                      // If only address is present (typing), use it directly
+                      if (!result.street && !result.zip_code) {
+                        field.onChange(result.address ?? '');
+                        return;
+                      }
+                      // After place details: construct full address with zip and city
+                      const street = [result.street, result.street_number]
+                        .filter(Boolean)
+                        .join(' ');
+                      const cityLine = [result.zip_code, result.city]
+                        .filter(Boolean)
+                        .join(' ');
+                      const fullAddress = [street, cityLine]
+                        .filter(Boolean)
+                        .join(', ');
+                      field.onChange(fullAddress);
                     }}
                     placeholder='Adresse suchen…'
                     className={cn(fieldState.error && 'border-destructive')}
@@ -474,7 +515,22 @@ export function RecurringRuleFormBody({
                         field.onChange(result);
                         return;
                       }
-                      field.onChange(result.address ?? '');
+                      // If only address is present (typing), use it directly
+                      if (!result.street && !result.zip_code) {
+                        field.onChange(result.address ?? '');
+                        return;
+                      }
+                      // After place details: construct full address with zip and city
+                      const street = [result.street, result.street_number]
+                        .filter(Boolean)
+                        .join(' ');
+                      const cityLine = [result.zip_code, result.city]
+                        .filter(Boolean)
+                        .join(' ');
+                      const fullAddress = [street, cityLine]
+                        .filter(Boolean)
+                        .join(', ');
+                      field.onChange(fullAddress);
                     }}
                     placeholder='Adresse suchen…'
                     className={cn(fieldState.error && 'border-destructive')}

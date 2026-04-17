@@ -110,6 +110,11 @@ function compareColumn(
       return Number(a.is_active) - Number(b.is_active);
     case 'start_date':
       return a.start_date.localeCompare(b.start_date);
+    case 'end_date':
+      // Treat null end_date as infinity (sort last when ascending, first when descending)
+      const aEnd = a.end_date ?? '';
+      const bEnd = b.end_date ?? '';
+      return aEnd.localeCompare(bEnd);
     default:
       return 0;
   }

@@ -18,5 +18,6 @@ export const RECURRING_RULES_SORT_COLUMN_IDS = new Set([
   'return_mode',
   'billing',
   'is_active',
-  'start_date'
+  'start_date',
+  'end_date'
 ]);
