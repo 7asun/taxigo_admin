@@ -40,6 +40,14 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: 'Regelfahrten',
+    url: '/dashboard/regelfahrten',
+    icon: 'kanban',
+    shortcut: ['r', 'f'],
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Abrechnung',
     url: '#',
     icon: 'billing',

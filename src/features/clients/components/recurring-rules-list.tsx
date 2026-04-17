@@ -166,7 +166,8 @@ export function RecurringRulesList({
                       <div className='flex gap-2'>
                         <Clock className='text-muted-foreground mt-0.5 h-3.5 w-3.5 shrink-0' />
                         <span className='font-mono'>
-                          {rule.pickup_time.substring(0, 5)}
+                          {/* Daily-agreement rules have `pickup_time = null` (no fixed clock time). */}
+                          {(rule.pickup_time ?? '').substring(0, 5) || '—'}
                         </span>
                       </div>
                       <div className='flex gap-2'>

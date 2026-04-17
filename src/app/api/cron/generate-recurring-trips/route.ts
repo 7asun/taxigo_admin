@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
       isReturnTrip: boolean;
       returnMode: RecurringRuleReturnMode;
       /** HH:mm:ss for exception matching (`original_pickup_time`) */
-      exceptionTimeKey: string;
+      exceptionTimeKey: string | null;
       /** ISO string or null when the leg has no clock time (Zeitabsprache return) */
       scheduledAtIso: string | null;
       linkedTripId: string | null;
@@ -168,7 +168,9 @@ export async function GET(request: NextRequest) {
 
       if (!isReturnTrip) {
         const pt = exception?.modified_pickup_time || rule.pickup_time;
-        if (!pt) return null;
+        // Daily-agreement rules intentionally have `pickup_time = null` and are allowed
+        // to proceed when the occurrence loop already decided this leg has no clock time.
+        if (!pt && scheduledAtIso !== null) return null;
       } else if (returnMode === 'exact') {
         const pt = exception?.modified_pickup_time || rule.return_time;
         if (!pt) return null;
@@ -414,16 +416,25 @@ export async function GET(request: NextRequest) {
       for (const dateUTC of occurrencesUTC) {
         const dateStr = dateUTC.toISOString().split('T')[0];
 
-        const outboundExceptionKey = clockToHhMmSs(rule.pickup_time);
-        const outboundScheduledIso = toScheduledIso(
-          dateStr,
-          exceptions?.find(
-            (e) =>
-              e.rule_id === rule.id &&
-              e.exception_date === dateStr &&
-              e.original_pickup_time === outboundExceptionKey
-          )?.modified_pickup_time || rule.pickup_time
-        );
+        // When pickup_time is null the rule uses daily-agreement mode: the outbound trip
+        // is generated with scheduled_at = null so the dispatcher can fill the time in Phase 2.
+        const isOutboundTimeless = !rule.pickup_time;
+
+        const outboundExceptionKey = isOutboundTimeless
+          ? null
+          : clockToHhMmSs(rule.pickup_time!);
+
+        const outboundScheduledIso = isOutboundTimeless
+          ? null
+          : toScheduledIso(
+              dateStr,
+              exceptions?.find(
+                (e) =>
+                  e.rule_id === rule.id &&
+                  e.exception_date === dateStr &&
+                  e.original_pickup_time === outboundExceptionKey
+              )?.modified_pickup_time || rule.pickup_time!
+            );
 
         const outboundPayload = await buildTripPayload({
           rule,

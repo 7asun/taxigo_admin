@@ -46,6 +46,7 @@ import * as z from 'zod';
 import {
   FormControl,
   FormField,
+  FormDescription,
   FormItem,
   FormLabel,
   FormMessage
@@ -60,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
   AddressAutocomplete,
@@ -111,12 +113,17 @@ export const ruleFormSchema = z
       .nullable()
       .optional(),
     fremdfirma_cost: z.string().optional(),
-    pickup_time: z
-      .string()
-      .regex(
-        /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
-        'Bitte ein gültiges Zeitformat verwenden (HH:MM)'
-      ),
+    // Mirrors the Neue Fahrt empty-time pattern: the form uses '' for “no clock time”,
+    // which is later persisted as NULL so the dispatcher can confirm time day-before.
+    pickup_time: z.union([
+      z.literal(''),
+      z
+        .string()
+        .regex(
+          /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
+          'Bitte ein gültiges Zeitformat verwenden (HH:MM)'
+        )
+    ]),
     pickup_address: z.string().min(1, 'Abholadresse ist erforderlich'),
     dropoff_address: z.string().min(1, 'Zieladresse ist erforderlich'),
     return_mode: z.enum(['none', 'time_tbd', 'exact']),
@@ -162,7 +169,7 @@ export type RuleFormValues = z.infer<typeof ruleFormSchema>;
 export function getRuleFormDefaults(
   initialData?: {
     rrule_string: string;
-    pickup_time: string;
+    pickup_time: string | null;
     pickup_address: string;
     dropoff_address: string;
     return_mode?: string | null;
@@ -195,7 +202,7 @@ export function getRuleFormDefaults(
       fremdfirma_id: '',
       fremdfirma_payment_mode: null,
       fremdfirma_cost: '',
-      pickup_time: '08:00',
+      pickup_time: '',
       pickup_address: '',
       dropoff_address: '',
       return_mode: 'exact',
@@ -227,7 +234,9 @@ export function getRuleFormDefaults(
       initialData.fremdfirma_cost != null
         ? String(initialData.fremdfirma_cost)
         : '',
-    pickup_time: initialData.pickup_time.substring(0, 5),
+    pickup_time: initialData.pickup_time
+      ? initialData.pickup_time.substring(0, 5)
+      : '',
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,
     return_mode: returnMode,
@@ -247,11 +256,18 @@ interface RecurringRuleFormBodyProps {
   form: UseFormReturn<RuleFormValues>;
   /** Show the "Regel Aktiv" toggle — only relevant when editing an existing rule */
   showIsActive?: boolean;
+  /** Optional address pre-fill selector (Home as Pickup/Dropoff) */
+  addressRoleSelection?: {
+    homeRole: 'pickup' | 'dropoff';
+    formattedHomeAddress: string;
+    onRoleChange: (role: 'pickup' | 'dropoff') => void;
+  };
 }
 
 export function RecurringRuleFormBody({
   form,
-  showIsActive = false
+  showIsActive = false,
+  addressRoleSelection
 }: RecurringRuleFormBodyProps) {
   const watchedPayerId = form.watch('payer_id');
   const watchedBillingVariantId = form.watch('billing_variant_id');
@@ -374,6 +390,32 @@ export function RecurringRuleFormBody({
 
         <RecurringRuleBillingFields form={form} />
 
+        {addressRoleSelection && (
+          <div className='bg-muted/20 rounded-lg border p-4'>
+            <div className='mb-3 flex items-center justify-between'>
+              <span className='text-sm font-medium'>
+                Home-Adresse verwenden als:
+              </span>
+            </div>
+            <Tabs
+              value={addressRoleSelection.homeRole}
+              onValueChange={(v) =>
+                addressRoleSelection.onRoleChange(v as 'pickup' | 'dropoff')
+              }
+              className='w-full'
+            >
+              <TabsList className='grid w-full grid-cols-2'>
+                <TabsTrigger value='pickup'>Abholung</TabsTrigger>
+                <TabsTrigger value='dropoff'>Ziel</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <p className='text-muted-foreground mt-2 text-[10px]'>
+              {addressRoleSelection.formattedHomeAddress ||
+                'Keine Adresse hinterlegt'}
+            </p>
+          </div>
+        )}
+
         {/* ── Hinfahrt Details ────────────────────────────────── */}
         <div className='bg-muted/20 space-y-4 rounded-lg border p-4'>
           <h4 className='text-sm font-medium'>Hinfahrt Details</h4>
@@ -386,6 +428,9 @@ export function RecurringRuleFormBody({
                 <FormControl>
                   <Input type='time' {...field} />
                 </FormControl>
+                <FormDescription>
+                  Leer lassen für tägliche Zeitabsprache
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

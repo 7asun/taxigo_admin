@@ -53,6 +53,8 @@ import {
 } from './recurring-rule-form-body';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
+import { formatClientAddress } from '@/features/clients/lib/format-client-address';
+import type { ClientOption } from '@/features/trips/types/trip-form-reference.types';
 
 interface RecurringRulePanelProps {
   clientId: string;
@@ -75,20 +77,47 @@ export function RecurringRulePanel({
   const [loadingRule, setLoadingRule] = React.useState(!isNew);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
+  const [client, setClient] = React.useState<ClientOption | null>(null);
+  const [homeRole, setHomeRole] = React.useState<'pickup' | 'dropoff'>(
+    'pickup'
+  );
+
   const form = useForm<RuleFormValues>({
     resolver: zodResolver(ruleFormSchema),
     defaultValues: getRuleFormDefaults(null)
   });
 
   const payerWatch = form.watch('payer_id');
-  const { payers, billingTypes } = useTripFormData(payerWatch);
+  const { payers, billingTypes, searchClientsById } =
+    useTripFormData(payerWatch);
 
-  // Load the existing rule when opening in edit mode
+  const formattedHomeAddress = React.useMemo(
+    () => formatClientAddress(client),
+    [client]
+  );
+
+  // Load the client and existing rule when opening
   React.useEffect(() => {
+    // 1. Fetch Client info (for address selection)
+    searchClientsById(clientId).then((data) => {
+      setClient(data);
+    });
+
+    // 2. Fetch Rule info
     if (isNew) {
       setExistingRule(null);
       setLoadingRule(false);
-      form.reset(getRuleFormDefaults(null));
+      setHomeRole('pickup');
+
+      // Initialize with home address as pickup by default for new rules
+      searchClientsById(clientId).then((clientData) => {
+        const defaults = getRuleFormDefaults(null);
+        form.reset({
+          ...defaults,
+          pickup_address:
+            formatClientAddress(clientData) || defaults.pickup_address
+        });
+      });
       return;
     }
 
@@ -103,7 +132,22 @@ export function RecurringRulePanel({
         toast.error('Fehler beim Laden der Regel: ' + err.message);
       })
       .finally(() => setLoadingRule(false));
-  }, [ruleId, isNew, form]);
+  }, [ruleId, isNew, form, clientId, searchClientsById]);
+
+  const handleHomeRoleChange = (role: 'pickup' | 'dropoff') => {
+    setHomeRole(role);
+    if (role === 'pickup') {
+      form.setValue('pickup_address', formattedHomeAddress, {
+        shouldValidate: true
+      });
+      form.setValue('dropoff_address', '', { shouldValidate: true });
+    } else {
+      form.setValue('dropoff_address', formattedHomeAddress, {
+        shouldValidate: true
+      });
+      form.setValue('pickup_address', '', { shouldValidate: true });
+    }
+  };
 
   const handleSubmit = async (values: RuleFormValues) => {
     try {
@@ -156,7 +200,15 @@ export function RecurringRulePanel({
               id='recurring-rule-panel-form'
               onSubmit={form.handleSubmit(handleSubmit)}
             >
-              <RecurringRuleFormBody form={form} showIsActive={!isNew} />
+              <RecurringRuleFormBody
+                form={form}
+                showIsActive={!isNew}
+                addressRoleSelection={{
+                  homeRole,
+                  formattedHomeAddress,
+                  onRoleChange: handleHomeRoleChange
+                }}
+              />
             </form>
           </div>
         )}

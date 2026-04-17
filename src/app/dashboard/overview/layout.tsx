@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { IconTrendingUp } from '@tabler/icons-react';
 import { PendingToursWidget } from '@/features/dashboard/components/pending-tours-widget';
+import { TimelessRuleTripsWidget } from '@/features/dashboard/components/timeless-rule-trips-widget';
 import { useInvoiceRevenueTotal } from '@/features/invoices/hooks/use-invoice-revenue-total';
 import { useTrips } from '@/features/trips/hooks/use-trips';
 import {
@@ -146,6 +147,7 @@ export default function OverViewLayout({
         </div>
         <div className='flex flex-col gap-4 lg:grid lg:grid-cols-7 lg:items-start'>
           <div className='flex flex-col gap-4 lg:col-span-4'>
+            <TimelessRuleTripsWidget />
             <PendingToursWidget />
             <div className='hidden gap-4 lg:flex lg:flex-col'>
               {React.Children.toArray(bar_stats)}

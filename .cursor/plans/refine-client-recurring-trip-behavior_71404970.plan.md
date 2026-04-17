@@ -7,16 +7,16 @@ todos:
     status: pending
   - id: design-rule-time-mode
     content: Design a minimal extension to the recurring_rules model to support fixed vs daily-agreement time modes on outbound and/or return legs.
-    status: pending
+    status: completed
   - id: update-recurring-rule-ui
     content: Update the recurring-rule sheet UX to configure time modes and, when appropriate, hide or require specific time fields accordingly.
     status: pending
   - id: adjust-cron-generation
     content: Adjust the generate-recurring-trips cron to respect the new time modes and avoid generating fixed-time trips for daily-agreement legs.
-    status: pending
+    status: completed
   - id: plan-dashboard-widgets
     content: Design how tomorrow and same-day dashboard widgets should query trips and rules to surface pending legs that still need a concrete time.
-    status: pending
+    status: completed
 isProject: false
 ---
 
