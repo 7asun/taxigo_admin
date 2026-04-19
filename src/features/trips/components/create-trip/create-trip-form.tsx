@@ -1254,6 +1254,7 @@ export function CreateTripForm({
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
+        billing_type_id: ktsVariantRow?.billing_type_id || null,
         kts_document_applies: values.kts_document_applies,
         kts_source: ktsSource,
         no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
@@ -1269,6 +1270,8 @@ export function CreateTripForm({
         status: tripStatus,
         company_id: companyId,
         created_by: user?.id || null,
+        gross_price: null,
+        tax_rate: null,
         stop_updates: [] as any[]
       };
 
@@ -1390,9 +1393,13 @@ export function CreateTripForm({
           } as any);
         }
       } else {
-        // Passenger mode: each passenger has their own is_wheelchair flag
+        // Passenger mode: each passenger has their own is_wheelchair flag.
+        // Driving metrics are now resolved here at creation time — the cache-first
+        // resolver is fast enough that the per-passenger HTTP call is not a bottleneck,
+        // and deferring to the backfill script (the old approach) left outbound trips
+        // permanently without metrics whenever the script was not run.
         outboundTrips = await Promise.all(
-          passengers.map((p, idx) => {
+          passengers.map(async (p, idx) => {
             const pickupGroup = pickupGroupMap[p.pickup_group_uid];
             const dropoffGroup = dropoffGroupMap[p.dropoff_group_uid!];
 
@@ -1402,6 +1409,22 @@ export function CreateTripForm({
             const dropoffHasCoords =
               typeof dropoffGroup?.lat === 'number' &&
               typeof dropoffGroup?.lng === 'number';
+
+            let outboundDrivingDistanceKm: number | null = null;
+            let outboundDrivingDurationSeconds: number | null = null;
+
+            if (pickupHasCoords && dropoffHasCoords) {
+              const metrics = await fetchDrivingMetrics(
+                pickupGroup!.lat as number,
+                pickupGroup!.lng as number,
+                dropoffGroup!.lat as number,
+                dropoffGroup!.lng as number
+              );
+              if (metrics) {
+                outboundDrivingDistanceKm = metrics.distanceKm;
+                outboundDrivingDurationSeconds = metrics.durationSeconds;
+              }
+            }
 
             return tripsService.createTrip({
               ...baseTrip,
@@ -1430,10 +1453,8 @@ export function CreateTripForm({
               dropoff_station: p.dropoff_station || null,
               group_id: groupId,
               stop_order: passengers.length > 1 ? idx + 1 : null,
-              // For passenger mode, we currently compute driving distance in the backfill script
-              // to avoid excessive synchronous API calls when creating many trips at once.
-              driving_distance_km: null,
-              driving_duration_seconds: null
+              driving_distance_km: outboundDrivingDistanceKm,
+              driving_duration_seconds: outboundDrivingDurationSeconds
             } as any);
           })
         );

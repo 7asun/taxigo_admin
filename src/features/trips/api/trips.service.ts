@@ -137,5 +137,32 @@ export const tripsService = {
 
     if (error) throw toQueryError(error);
     return data;
+  },
+
+  /**
+   * Get trips with billing_variant data for analytics (pie chart distribution)
+   * Includes date range filtering support
+   */
+  async getTripsForAnalytics(dateRange?: { from: Date; to: Date }) {
+    const supabase = createClient();
+    let query = supabase
+      .from('trips')
+      .select(
+        '*, billing_variant:billing_variants!trips_billing_variant_id_fkey(name, code, billing_types!billing_variants_billing_type_id_fkey(name, color))'
+      )
+      .order('scheduled_at', { ascending: false })
+      .limit(1000000);
+
+    if (dateRange?.from) {
+      query = query.gte('scheduled_at', dateRange.from.toISOString());
+    }
+    if (dateRange?.to) {
+      query = query.lte('scheduled_at', dateRange.to.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw toQueryError(error);
+    return data;
   }
 };

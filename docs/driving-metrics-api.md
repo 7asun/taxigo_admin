@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The app stores **`driving_distance_km`** and **`driving_duration_seconds`** on every `trips` row whenever it can resolve a driving route between pickup and dropoff coordinates. These fields are populated across **all creation paths** — manual creation, CSV bulk upload, trip duplication, and recurring-rule materialisation.
+The app stores **`driving_distance_km`** and **`driving_duration_seconds`** on every `trips` row whenever it can resolve a driving route between pickup and dropoff coordinates. These fields are populated across **all creation paths** — manual creation (anonymous and passenger mode), CSV bulk upload, trip duplication, and recurring-rule materialisation.
 
 The raw data comes from the Google **Directions API** (driving mode, metric units). The server-only module is [`src/lib/google-directions.ts`](../src/lib/google-directions.ts).
 
@@ -16,21 +16,69 @@ Do **not** confuse this with:
 
 ---
 
-## DB-level cache (`resolveDrivingMetricsWithCache`)
+## Cache table — `route_metrics_cache`
 
-All callers now go through `resolveDrivingMetricsWithCache` instead of calling `getDrivingMetrics` directly. The resolver implements a two-tier lookup:
+All callers go through `resolveDrivingMetricsWithCache` in `src/lib/google-directions.ts`. The resolver uses a dedicated `route_metrics_cache` table as its primary cache layer.
+
+### Schema
+
+```sql
+CREATE TABLE public.route_metrics_cache (
+  id               uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id       uuid         NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  origin_lat       decimal(8,5) NOT NULL,
+  origin_lng       decimal(8,5) NOT NULL,
+  dest_lat         decimal(8,5) NOT NULL,
+  dest_lng         decimal(8,5) NOT NULL,
+  distance_km      float8       NOT NULL,
+  duration_seconds int4         NOT NULL,
+  created_at       timestamptz  DEFAULT now(),
+  UNIQUE (company_id, origin_lat, origin_lng, dest_lat, dest_lng)
+);
+
+CREATE INDEX idx_route_metrics_lookup
+  ON public.route_metrics_cache (company_id, origin_lat, origin_lng, dest_lat, dest_lng);
+```
+
+### Why coordinates are rounded to 5 decimal places
+
+The Google Geocoding API can return slightly different coordinates for the same address depending on: the code path that calls it (form vs. cron vs. bulk upload), the API version, or the date of the call. A difference of as little as one ULP (unit in the last place) in a raw `float8` would cause an exact-equality cache miss, defeating the cache entirely for the routes it is most valuable for (frequently repeated patient routes).
+
+Rounding to 5 decimal places (~1 m precision) absorbs this noise while remaining accurate enough for driving-distance purposes. The constant is `COORD_PRECISION = 5`, exported from `src/lib/google-directions.ts` and imported wherever a cache key is constructed — never hardcoded.
+
+### Cache lookup sequence
 
 ```
-1. Query trips WHERE pickup_lat = ? AND pickup_lng = ? AND dropoff_lat = ? AND dropoff_lng = ?
-   AND driving_distance_km IS NOT NULL
-   → If a match exists: return cached values immediately (no Google call)
+1. Round all four coordinates to COORD_PRECISION decimal places.
+2. Query route_metrics_cache WHERE company_id = ? AND origin_lat = ? ... (rounded values)
+   → If a match exists: return { distanceKm, durationSeconds, source: 'cache' }
 
-2. Otherwise: call getDrivingMetrics (Google Directions API) and return the result
+3. Call getDrivingMetrics with the ORIGINAL (un-rounded) coordinates for maximum precision.
+   → If null (key missing, API error, no route): return null
+
+4. Upsert result into route_metrics_cache using rounded coords.
+   onConflict = 'company_id,...' + ignoreDuplicates: true
+   (concurrent racing writes are silently dropped by the DB unique constraint)
+
+5. Return { distanceKm, durationSeconds, source: 'google' }
 ```
 
-**Why this matters for a Taxigo context:** repeating patients (e.g. dialysis 3×/week, school transport) take the same route dozens of times per month. Without the cache every trip would cost one Google Directions call. With the cache, only the **first** occurrence ever hits Google — all subsequent trips on that route are resolved from the database in milliseconds.
+### Why write-back happens before returning to the caller
 
-The `ResolvingMetrics` type extends `DrivingMetrics` with a `source: 'cache' | 'google'` field so callers can observe the resolution path (useful for debugging quota usage).
+A bulk CSV upload with 20 rows all going to the same dialysis clinic launches 20 concurrent `fetchDrivingMetrics` calls. All 20 miss the cache simultaneously because no trips have been inserted yet. By writing back to `route_metrics_cache` **immediately after the first Google response** (before returning from the resolver), subsequent concurrent requests from the same batch will find the result in the DB on their own lookup. The `ignoreDuplicates: true` upsert means the second write from a racing request is silently discarded — no error, no duplicate row.
+
+### Why `companyId` is required
+
+The cache is scoped per company so that one company's routes never populate another company's cache. Cross-company sharing is deferred.
+
+### Previous approach (removed)
+
+The old cache queried the `trips` table itself with exact float equality:
+```sql
+SELECT driving_distance_km, ...
+FROM trips WHERE pickup_lat = ? AND ... AND driving_distance_km IS NOT NULL
+```
+This was fragile because it assumed the geocoder always returns bit-identical floats for the same address — an assumption that fails across different code paths and over time. It also never wrote back to any dedicated store, so concurrent bulk-upload requests all missed and hit Google regardless. It has been **removed entirely**.
 
 ---
 
@@ -38,12 +86,15 @@ The `ResolvingMetrics` type extends `DrivingMetrics` with a `source: 'cache' | '
 
 | Creation path | Where enrichment happens | Notes |
 |---|---|---|
-| Manual creation (Hin-/Rückfahrt) | `create-trip-form.tsx` (client) | Calls `fetchDrivingMetrics` → `/api/trips/driving-metrics` |
+| Manual creation — anonymous mode (Hin-/Rückfahrt) | `create-trip-form.tsx` (client) | Calls `fetchDrivingMetrics` → `/api/trips/driving-metrics` |
+| Manual creation — passenger mode (outbound) | `create-trip-form.tsx` (client) | Same pattern as anonymous mode — no longer deferred to backfill |
+| Manual creation — passenger mode (return) | `create-trip-form.tsx` (client) | Reversed coords; awaited before insert |
 | Trip detail-sheet save | `build-trip-details-patch.ts` | Recalculates when pickup/dropoff coords change |
-| **CSV bulk upload** | `bulk-upload-dialog.tsx` → `runBulkInsert` | Added: called immediately after geocoding resolves lat/lng, before insert |
-| **Trip duplication** | `duplicate-trips.ts` → `enrichInsertWithMetrics` | Added: fills gaps left by source trips with null metrics |
-| Recurring-rule cron | `generate-recurring-trips/route.ts` | Uses in-memory map as first level, then DB cache, then Google |
-| **Backfill script** | `scripts/backfill-driving-distance.ts` | Idempotent; safe to re-run; uses DB cache to skip Google for already-known routes |
+| CSV bulk upload (outbound) | `bulk-upload-dialog.tsx → runBulkInsert Pass 0` | After geocoding resolves lat/lng, before insert |
+| CSV bulk upload (return) | `bulk-upload-dialog.tsx → runBulkInsert Pass 2` | Recalculated with reversed coords after `buildReturnTrip`; metrics NOT inherited from outbound |
+| Trip duplication | `duplicate-trips.ts → enrichInsertWithMetrics` | Fills gaps left by source trips with null metrics; skips when source already has metrics |
+| Recurring-rule cron | `generate-recurring-trips/route.ts` | In-memory Map as first level (within invocation), then `route_metrics_cache`, then Google |
+| Backfill script | `scripts/backfill-driving-distance.ts` | Idempotent; safe to re-run; uses `route_metrics_cache` to skip Google for already-known routes |
 
 ---
 
@@ -78,7 +129,7 @@ Operational hygiene: use GCP **budget alerts** and **API key restrictions** (res
 1. Supabase session via [`createClient`](../src/lib/supabase/server) — user must be signed in (**401** if not).
 2. Row in `accounts` with **`company_id`** — (**403** if missing).
 
-This avoids exposing a public proxy to Google's billed Directions API.
+This avoids exposing a public proxy to Google's billed Directions API. The `company_id` obtained here is also passed as the `companyId` argument to `resolveDrivingMetricsWithCache` so that the cache lookup and write-back are scoped to the correct company.
 
 ---
 
@@ -113,14 +164,37 @@ If the API key is missing, Google returns an error, or the route cannot parse di
 
 ## Running the backfill script
 
-The script is idempotent — it only touches rows where `driving_distance_km IS NULL` and geodata is present. Re-running it is safe.
+The script is idempotent — it only touches rows where `driving_distance_km IS NULL` and all four coordinate columns are non-null. Re-running it is safe.
 
 ```bash
 # Requires .env.local with NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_MAPS_API_KEY
 bun run scripts/backfill-driving-distance.ts
+
+# Dry run — log what would be updated without writing to the DB
+bun run scripts/backfill-driving-distance.ts --dry-run
 ```
 
-For large databases the 500 ms sleep between rows keeps you well within Google's default rate limit of 50 QPS. The DB cache dramatically reduces actual API calls for repeated routes.
+The script processes trips sequentially within each batch of 50. It sleeps 200 ms after every 10 Google calls (not after every row). Cache-hit rows require no sleep because no Google call is made — the old per-row 500 ms sleep is gone.
+
+At the end the script prints a summary:
+
+```
+── Backfill summary ──────────────────────────────
+  Trips processed : 342
+  Cache hits      : 298 (87.1%)
+  Google calls    : 44
+  Errors / skipped: 0
+──────────────────────────────────────────────────
+```
+
+---
+
+## Known Limitations
+
+- **Cache is per-company.** Two companies that share a route (e.g. same dialysis clinic) each have their own `route_metrics_cache` row. Global sharing is deferred.
+- **Write-back is decoupled from trip lifecycle.** A `route_metrics_cache` row may be written even if the associated trip insert subsequently fails. This is intentional — the cache represents the distance for a given route, not the existence of a particular trip. A phantom cache row causes no correctness problem; it only means a future trip on the same route gets a cache hit.
+- **Return trips may have different metrics than outbound trips.** Routes are not always symmetric (one-way streets, motorway access). Outbound and return trip distances are calculated independently with their respective coordinate directions.
+- **`driving_duration_seconds` is not exposed in the UI.** Stored in the DB; UI display is deferred.
 
 ---
 
@@ -128,7 +202,8 @@ For large databases the 500 ms sleep between rows keeps you well within Google's
 
 | Piece | Path |
 |-------|------|
-| Core helpers (`getDrivingMetrics`, `resolveDrivingMetricsWithCache`) | [`src/lib/google-directions.ts`](../src/lib/google-directions.ts) |
+| Core helpers (`getDrivingMetrics`, `resolveDrivingMetricsWithCache`, `COORD_PRECISION`) | [`src/lib/google-directions.ts`](../src/lib/google-directions.ts) |
+| Cache table SQL | [`supabase/migrations/20260417100000_route-metrics-cache.sql`](../supabase/migrations/20260417100000_route-metrics-cache.sql) |
 | Route handler | [`src/app/api/trips/driving-metrics/route.ts`](../src/app/api/trips/driving-metrics/route.ts) |
 | Browser helper | [`src/features/trips/lib/fetch-driving-metrics.ts`](../src/features/trips/lib/fetch-driving-metrics.ts) |
 | Bulk-upload enrichment | [`src/features/trips/components/bulk-upload-dialog.tsx`](../src/features/trips/components/bulk-upload-dialog.tsx) |

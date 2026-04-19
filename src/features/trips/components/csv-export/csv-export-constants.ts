@@ -98,7 +98,7 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
     label: 'KTS (Krankentransportschein)',
     category: 'billing'
   },
-  { key: 'price', label: 'Preis', category: 'billing' },
+  { key: 'net_price', label: 'Preis (Netto)', category: 'billing' },
 
   // Driver & Vehicle
   { key: 'driver_id', label: 'Fahrer ID', category: 'driver' },

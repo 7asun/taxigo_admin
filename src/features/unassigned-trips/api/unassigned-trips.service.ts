@@ -25,7 +25,7 @@ export const unassignedTripsService = {
         pickup_address,
         dropoff_address,
         driving_distance_km,
-        price,
+        net_price,
         link_type,
         linked_trip_id,
         kts_document_applies,

@@ -53,7 +53,7 @@ export function getHourlyOccupancy(
 
     if (date >= targetStart && date <= targetEnd) {
       hourlyData[hour].count += 1;
-      hourlyData[hour].revenue += trip.price || 0;
+      hourlyData[hour].revenue += trip.net_price || 0;
     } else if (date >= windowStart && date < targetStart) {
       // Historical data for this hour
       hourlyData[hour].average += 1;
@@ -107,7 +107,7 @@ export function getWeeklyOccupancy(
 
     const dayIndex = getDay(date);
     weeklyData[dayIndex].count += 1;
-    weeklyData[dayIndex].revenue += trip.price || 0;
+    weeklyData[dayIndex].revenue += trip.net_price || 0;
   });
 
   // Average per day type (e.g., average of last 4 Mondays)

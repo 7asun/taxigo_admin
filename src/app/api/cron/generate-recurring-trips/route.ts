@@ -16,6 +16,7 @@ import {
 } from '@/lib/google-geocoding';
 import {
   resolveDrivingMetricsWithCache,
+  COORD_PRECISION,
   type DrivingMetrics
 } from '@/lib/google-directions';
 import {
@@ -84,10 +85,16 @@ export async function GET(request: NextRequest) {
     const todayLocal = startOfDay(new Date());
     const windowEndLocal = endOfDay(addDays(todayLocal, 14));
 
-    const { data: rules, error: rulesError } = await supabase
+    const { data: rulesRaw, error: rulesError } = await supabase
       .from('recurring_rules')
-      .select('*')
+      .select('*, billing_variants(billing_type_id)')
       .eq('is_active', true);
+
+    const rules = rulesRaw as
+      | (RecurringRuleRow & {
+          billing_variants: { billing_type_id: string } | null;
+        })[]
+      | null;
 
     if (rulesError) throw rulesError;
     if (!rules || rules.length === 0) {
@@ -141,6 +148,7 @@ export async function GET(request: NextRequest) {
       scheduledAtIso: string | null;
       linkedTripId: string | null;
       outboundLinkType: 'outbound' | null;
+      billing_type_id: string | null;
     }): Promise<TripInsert | null> {
       const {
         rule,
@@ -152,7 +160,8 @@ export async function GET(request: NextRequest) {
         exceptionTimeKey,
         scheduledAtIso,
         linkedTripId,
-        outboundLinkType
+        outboundLinkType,
+        billing_type_id
       } = params;
 
       const exception = exceptions?.find(
@@ -190,10 +199,18 @@ export async function GET(request: NextRequest) {
       let driving_distance_km: number | null = null;
       let driving_duration_seconds: number | null = null;
       if (pickupGeo && dropoffGeo) {
-        const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+        // Round to COORD_PRECISION before building the in-memory key so that it matches
+        // the keys used by route_metrics_cache. A mismatch would let the within-invocation
+        // Map use different keys than the DB table, negating its deduplication benefit.
+        const rPickupLat = parseFloat(pickupGeo.lat.toFixed(COORD_PRECISION));
+        const rPickupLng = parseFloat(pickupGeo.lng.toFixed(COORD_PRECISION));
+        const rDropoffLat = parseFloat(dropoffGeo.lat.toFixed(COORD_PRECISION));
+        const rDropoffLng = parseFloat(dropoffGeo.lng.toFixed(COORD_PRECISION));
+        const metricsKey = `${rPickupLat},${rPickupLng}|${rDropoffLat},${rDropoffLng}`;
         // Two-tier caching:
         // 1. In-memory (drivingMetricsCache) to avoid redundant DB queries for the same route in this cron run.
-        // 2. DB-cache (resolveDrivingMetricsWithCache) to reuse historical calculations and avoid Google API calls.
+        // 2. DB cache (route_metrics_cache via resolveDrivingMetricsWithCache) to reuse historical
+        //    calculations across runs and avoid Google API calls.
         if (!drivingMetricsCache.has(metricsKey)) {
           drivingMetricsCache.set(
             metricsKey,
@@ -202,7 +219,8 @@ export async function GET(request: NextRequest) {
               pickupGeo.lng,
               dropoffGeo.lat,
               dropoffGeo.lng,
-              supabase
+              supabase,
+              client.company_id
             )
           );
         }
@@ -268,7 +286,10 @@ export async function GET(request: NextRequest) {
         rule_id: rule.id,
         ingestion_source: 'recurring_rule',
         link_type,
-        linked_trip_id: linkedTripId
+        linked_trip_id: linkedTripId,
+        billing_type_id,
+        gross_price: null,
+        tax_rate: null
       };
     }
 
@@ -447,7 +468,8 @@ export async function GET(request: NextRequest) {
           exceptionTimeKey: outboundExceptionKey,
           scheduledAtIso: outboundScheduledIso,
           linkedTripId: null,
-          outboundLinkType: null
+          outboundLinkType: null,
+          billing_type_id: rule.billing_variants?.billing_type_id || null
         });
 
         if (!outboundPayload) continue;
@@ -494,7 +516,8 @@ export async function GET(request: NextRequest) {
           exceptionTimeKey: returnExceptionKey,
           scheduledAtIso: returnScheduledIso,
           linkedTripId: outboundId,
-          outboundLinkType: null
+          outboundLinkType: null,
+          billing_type_id: rule.billing_variants?.billing_type_id || null
         });
 
         if (!returnPayload) continue;

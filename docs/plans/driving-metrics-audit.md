@@ -1,6 +1,13 @@
 # Driving Metrics Reliability & Deduplication — Audit
 
-> Read-only audit. No code was changed.  
+> **Status: Implemented — 2026-04-17**
+> All findings below have been addressed. See the implementation plan at
+> `.cursor/plans/driving_metrics_fix_86970a22.plan.md` and the updated
+> documentation at `docs/driving-metrics-api.md`.
+>
+> **Deviations from plan:** none. All steps completed as specified.
+
+> Read-only audit. No code was changed in this file.  
 > All file paths are relative to the workspace root unless stated otherwise.  
 > Line numbers reference the files as they exist at the time of this audit.
 

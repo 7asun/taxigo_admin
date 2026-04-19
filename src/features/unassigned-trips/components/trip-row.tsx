@@ -92,7 +92,7 @@ export function TripRow({
       </div>
 
       <div className='text-right text-sm font-medium'>
-        {formatPrice(trip.price)}
+        {formatPrice(trip.net_price)}
       </div>
 
       <div>{getLinkTypeBadge()}</div>

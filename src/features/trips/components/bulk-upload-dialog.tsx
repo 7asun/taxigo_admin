@@ -180,7 +180,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       const { data } = await supabase
         .from('billing_types')
         .select(
-          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order, kts_default )`
+          `id, name, payer_id, behavior_profile, billing_variants ( id, name, code, sort_order, kts_default, billing_type_id )`
         );
       if (data) setBillingTypeTree(data as BillingTypeTreeRow[]);
     };
@@ -496,6 +496,11 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   /**
    * Builds a return trip from a confirmed outbound trip (post-insert, so outboundId
    * is available). Pickup and dropoff are swapped; geocoordinates are reused.
+   *
+   * Driving metrics are explicitly nulled out — the return trip is the reversed route
+   * (dropoff→pickup) and the outbound metrics (pickup→dropoff) may be wrong for
+   * asymmetric routes with one-way streets or direction-dependent travel times.
+   * Metrics for the return trip are recalculated separately in Pass 2 of runBulkInsert.
    */
   const buildReturnTrip = (
     outbound: InsertTrip,
@@ -529,7 +534,14 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
     dropoff_city: outbound.pickup_city ?? null,
     dropoff_station: outbound.pickup_station ?? null,
     dropoff_lat: outbound.pickup_lat ?? null,
-    dropoff_lng: outbound.pickup_lng ?? null
+    dropoff_lng: outbound.pickup_lng ?? null,
+    // Must not inherit outbound metrics: the reversed route may differ in distance/duration.
+    // Recalculated in Pass 2 of runBulkInsert after this object is built.
+    driving_distance_km: null,
+    driving_duration_seconds: null,
+    // Explicitly set to null (should be inherited as null anyway, but for Phase 0 clarity)
+    gross_price: null,
+    tax_rate: null
   });
 
   /**
@@ -964,7 +976,10 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   needs_driver_assignment: needsDriverAssignment,
                   ingestion_source: 'csv_bulk_upload',
                   kts_document_applies: ktsDocumentApplies,
-                  kts_source: ktsSource
+                  kts_source: ktsSource,
+                  billing_type_id: matchedType?.id || null,
+                  gross_price: null,
+                  tax_rate: null
                 }
               : null;
 
@@ -1190,24 +1205,54 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               // ── Pass 2: Build and insert auto-return trips ────────────────────
               // Return trips use the geocoded addresses from the now-inserted
               // outbound trips (just swapped) so no additional geocoding is needed.
+              // Driving metrics are recalculated with the reversed coordinates because
+              // the return route (dropoff→pickup) can differ from the outbound route
+              // on asymmetric roads. buildReturnTrip already nulls out the inherited
+              // outbound metrics so they cannot accidentally be used here.
               const returnTripPayloads: InsertTrip[] = [];
               const returnToOutboundMap: {
                 returnIdx: number;
                 outboundId: string;
               }[] = [];
 
-              successfulRows.forEach((row, i) => {
-                if (row.needsReturnTrip && createdOutbound[i]) {
+              await Promise.all(
+                successfulRows.map(async (row, i) => {
+                  if (!row.needsReturnTrip || !createdOutbound[i]) return;
                   const outboundId = createdOutbound[i].id as string;
-                  returnTripPayloads.push(
-                    buildReturnTrip(outboundTrips[i], outboundId)
-                  );
+                  const payload = buildReturnTrip(outboundTrips[i], outboundId);
+
+                  // Recalculate metrics for the reversed route. Null is acceptable —
+                  // the return trip is still inserted without metrics if this fails.
+                  if (
+                    typeof payload.pickup_lat === 'number' &&
+                    typeof payload.pickup_lng === 'number' &&
+                    typeof payload.dropoff_lat === 'number' &&
+                    typeof payload.dropoff_lng === 'number'
+                  ) {
+                    try {
+                      const returnMetrics = await fetchDrivingMetrics(
+                        payload.pickup_lat,
+                        payload.pickup_lng,
+                        payload.dropoff_lat,
+                        payload.dropoff_lng
+                      );
+                      if (returnMetrics) {
+                        payload.driving_distance_km = returnMetrics.distanceKm;
+                        payload.driving_duration_seconds =
+                          returnMetrics.durationSeconds;
+                      }
+                    } catch {
+                      // Non-fatal: return trip inserted with null metrics.
+                    }
+                  }
+
+                  returnTripPayloads.push(payload);
                   returnToOutboundMap.push({
                     returnIdx: returnTripPayloads.length - 1,
                     outboundId
                   });
-                }
-              });
+                })
+              );
 
               let returnTripsCreated = 0;
               if (returnTripPayloads.length > 0) {

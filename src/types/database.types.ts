@@ -868,6 +868,50 @@ export type Database = {
           }
         ];
       };
+      route_metrics_cache: {
+        Row: {
+          id: string;
+          company_id: string;
+          origin_lat: number;
+          origin_lng: number;
+          dest_lat: number;
+          dest_lng: number;
+          distance_km: number;
+          duration_seconds: number;
+          created_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          origin_lat: number;
+          origin_lng: number;
+          dest_lat: number;
+          dest_lng: number;
+          distance_km: number;
+          duration_seconds: number;
+          created_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          origin_lat?: number;
+          origin_lng?: number;
+          dest_lat?: number;
+          dest_lng?: number;
+          distance_km?: number;
+          duration_seconds?: number;
+          created_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'route_metrics_cache_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       rides: {
         Row: {
           company_id: string | null;
@@ -1169,7 +1213,10 @@ export type Database = {
           pickup_zip_code: string | null;
           pickup_location: Json | null;
           pickup_station: string | null;
-          price: number | null;
+          net_price: number | null;
+          gross_price: number | null;
+          tax_rate: number | null;
+          billing_type_id: string | null;
           requested_date: string | null;
           return_status: string | null;
           rule_id: string | null;
@@ -1234,7 +1281,10 @@ export type Database = {
           pickup_zip_code?: string | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
-          price?: number | null;
+          net_price?: number | null;
+          gross_price?: number | null;
+          tax_rate?: number | null;
+          billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;
           rule_id?: string | null;
@@ -1291,7 +1341,10 @@ export type Database = {
           pickup_lng?: number | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
-          price?: number | null;
+          net_price?: number | null;
+          gross_price?: number | null;
+          tax_rate?: number | null;
+          billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;
           rule_id?: string | null;
@@ -1307,6 +1360,13 @@ export type Database = {
             columns: ['billing_variant_id'];
             isOneToOne: false;
             referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'trips_billing_type_id_fkey';
+            columns: ['billing_type_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_types';
             referencedColumns: ['id'];
           },
           {
