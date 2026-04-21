@@ -402,4 +402,54 @@ export class PayersService {
     if (error) throw toQueryError(error);
     return count ?? 0;
   }
+
+  /**
+   * Fetches all billing types with variants globally (not tied to a specific payer)
+   * Used for dashboard analytics and distribution charts
+   */
+  static async getAllBillingTypesWithVariants(): Promise<
+    BillingFamilyWithVariants[]
+  > {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('billing_types')
+      .select(
+        `
+        id,
+        payer_id,
+        name,
+        color,
+        behavior_profile,
+        created_at,
+        rechnungsempfaenger_id,
+        billing_variants (
+          id,
+          billing_type_id,
+          name,
+          code,
+          sort_order,
+          created_at,
+          kts_default,
+          no_invoice_required_default,
+          rechnungsempfaenger_id
+        )
+      `
+      )
+      .order('name');
+
+    if (error) {
+      console.error('Error fetching all billing families:', error);
+      throw toQueryError(error);
+    }
+
+    const rows = (data || []) as BillingFamilyWithVariants[];
+    // Sort variants inside each family (DB may not guarantee nested order).
+    for (const f of rows) {
+      f.billing_variants = [...(f.billing_variants || [])].sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return rows;
+  }
 }

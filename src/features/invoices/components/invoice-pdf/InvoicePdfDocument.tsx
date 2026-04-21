@@ -16,7 +16,7 @@
  * Must not perform network I/O.
  */
 
-import { Document, Page } from '@react-pdf/renderer';
+import { Document, Page, View } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
@@ -42,10 +42,20 @@ import {
 } from './lib/invoice-pdf-format';
 import { A4_LANDSCAPE, InvoicePdfAppendix } from './invoice-pdf-appendix';
 import { InvoicePdfCoverBody } from './invoice-pdf-cover-body';
-import { InvoicePdfCoverHeader } from './invoice-pdf-cover-header';
+import {
+  InvoicePdfCoverHeader,
+  InvoicePdfRecipientBlock
+} from './invoice-pdf-cover-header';
+import { InvoicePdfCoverHeaderBrief } from './invoice-pdf-cover-header-brief';
 import { InvoicePdfReferenceBar } from './invoice-pdf-reference-bar';
 import { InvoicePdfFooter } from './invoice-pdf-footer';
-import { styles } from './pdf-styles';
+import { PDF_COLORS, styles } from './pdf-styles';
+import type { PdfRenderMode } from '@/features/invoices/lib/pdf-layout-constants';
+import {
+  PDF_DIN5008,
+  PDF_PAGE,
+  PDF_ZONES
+} from '@/features/invoices/lib/pdf-layout-constants';
 import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
@@ -62,6 +72,8 @@ export interface InvoicePdfDocumentProps {
   introText?: string | null;
   /** Optional outro text override from invoice_text_blocks */
   outroText?: string | null;
+  // 'brief' triggers DIN 5008 fold marks + fixed header zone. Not yet implemented — falls back to digital with console.warn. Split download button (Digital / Als Brief) enabled once Brief mode is ready.
+  renderMode?: PdfRenderMode;
   /**
    * Builder preview: explicit column profile (usually matches invoice.column_profile).
    * Phase 6e: drives dynamic main/appendix columns; until then unused at render time.
@@ -124,8 +136,10 @@ export function InvoicePdfDocument({
   paymentQrDataUrl = null,
   introText = null,
   outroText = null,
+  renderMode = 'digital',
   columnProfile: columnProfileProp = null
 }: InvoicePdfDocumentProps) {
+  // Two render paths: 'digital' keeps the existing flow-based header; 'brief' pins the recipient window at 127pt and adds fold marks (Path C: separate Brief header + page-level address window).
   const effectiveProfile =
     columnProfileProp ??
     invoice.column_profile ??
@@ -350,18 +364,90 @@ export function InvoicePdfDocument({
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.page} wrap>
-        <InvoicePdfCoverHeader
-          companyProfile={cp}
-          senderFit={senderFit}
-          recipient={coverRecipient}
-          secondaryLegalRecipient={secondaryLegal}
-          invoiceNumber={invoice.invoice_number}
-          invoiceCreatedAtIso={invoice.created_at}
-          periodFromIso={invoice.period_from}
-          periodToIso={invoice.period_to}
-          customerNumber={customerNumber}
-          isStorno={isStorno}
-        />
+        {renderMode === 'brief' ? (
+          <>
+            <View
+              style={{
+                position: 'absolute',
+                top: PDF_DIN5008.fold1,
+                left: PDF_DIN5008.foldMarkX,
+                width: PDF_DIN5008.foldMarkWidth,
+                borderTopWidth: PDF_DIN5008.foldMarkStroke,
+                borderTopColor: PDF_COLORS.text
+              }}
+            />{' '}
+            {/* DIN 5008 Falzmarke 1 (105mm) — rendered at page level so it never participates in flow layout */}
+            <View
+              style={{
+                position: 'absolute',
+                top: PDF_DIN5008.lochmarke,
+                left: PDF_DIN5008.foldMarkX,
+                width: PDF_DIN5008.foldMarkWidth,
+                borderTopWidth: PDF_DIN5008.foldMarkStroke,
+                borderTopColor: PDF_COLORS.text
+              }}
+            />{' '}
+            {/* DIN 5008 Lochmarke (148.5mm) — drawn on cover page only */}
+            <View
+              style={{
+                position: 'absolute',
+                top: PDF_DIN5008.fold2,
+                left: PDF_DIN5008.foldMarkX,
+                width: PDF_DIN5008.foldMarkWidth,
+                borderTopWidth: PDF_DIN5008.foldMarkStroke,
+                borderTopColor: PDF_COLORS.text
+              }}
+            />{' '}
+            {/* DIN 5008 Falzmarke 2 (210mm) — absolute so it doesn't shift with header/content */}
+            <View
+              style={{
+                position: 'absolute',
+                top: PDF_DIN5008.addressWindowTop,
+                left: PDF_PAGE.marginLeft,
+                width: '52%',
+                maxHeight: PDF_DIN5008.addressWindowHeight,
+                overflow: 'hidden'
+              }}
+            >
+              {/* Address window is page-level (top=PDF_DIN5008.addressWindowTop) because flow headers cannot guarantee a fixed 127pt start. */}
+              <InvoicePdfRecipientBlock
+                recipient={coverRecipient}
+                secondaryLegalRecipient={secondaryLegal}
+              />
+            </View>
+          </>
+        ) : null}
+
+        {/* Path C (chosen over A/B): keep digital header stable and enforce DIN geometry at the Page level via a dedicated Brief header + absolutely positioned address window. */}
+        {renderMode === 'brief' ? (
+          <InvoicePdfCoverHeaderBrief
+            companyProfile={cp}
+            senderFit={senderFit}
+            recipient={coverRecipient}
+            secondaryLegalRecipient={secondaryLegal}
+            invoiceNumber={invoice.invoice_number}
+            invoiceCreatedAtIso={invoice.created_at}
+            periodFromIso={invoice.period_from}
+            periodToIso={invoice.period_to}
+            customerNumber={customerNumber}
+            isStorno={isStorno}
+            renderMode={renderMode}
+          />
+        ) : (
+          <InvoicePdfCoverHeader
+            companyProfile={cp}
+            senderFit={senderFit}
+            recipient={coverRecipient}
+            secondaryLegalRecipient={secondaryLegal}
+            invoiceNumber={invoice.invoice_number}
+            invoiceCreatedAtIso={invoice.created_at}
+            periodFromIso={invoice.period_from}
+            periodToIso={invoice.period_to}
+            customerNumber={customerNumber}
+            isStorno={isStorno}
+            renderMode={renderMode}
+          />
+        )}
 
         {referenceFieldsForPdf.length > 0 ? (
           <InvoicePdfReferenceBar fields={referenceFieldsForPdf} />
@@ -383,7 +469,12 @@ export function InvoicePdfDocument({
           introText={resolvedIntroText}
           outroText={resolvedOutroText}
           isStorno={isStorno}
-          subjectSectionMarginTop={referenceFieldsForPdf.length > 0 ? 6 : 12}
+          subjectSectionMarginTop={
+            referenceFieldsForPdf.length > 0
+              ? PDF_ZONES.subjectMarginTopWithReferenceBar
+              : PDF_ZONES.subjectMarginTopOffer // shared 12pt spacing: invoice no-reference-bar matches offer fixed separation
+          }
+          renderMode={renderMode}
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

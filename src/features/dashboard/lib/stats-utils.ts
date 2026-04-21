@@ -20,19 +20,23 @@ export function getTripsForDay(trips: Trip[], date: Date): Trip[] {
  */
 export function calculateTotalRevenue(trips: Trip[]): number {
   return trips.reduce((total, trip) => {
-    return total + (trip.price || 0);
+    return total + (trip.net_price || 0);
   }, 0);
 }
 
 /**
  * Calculate percentage change
  */
-export function calculateTrend(current: number, previous: number) {
+export function calculateTrend(
+  current: number,
+  previous: number,
+  comparisonLabel: string = 'gegenüber gestern'
+) {
   if (previous === 0) {
     return {
       value: current > 0 ? '+100%' : '0%',
       isUp: current > 0,
-      label: current > 0 ? 'Anstieg gegenüber gestern' : 'Gleichbleibend'
+      label: current > 0 ? `Anstieg ${comparisonLabel}` : 'Gleichbleibend'
     };
   }
 
@@ -43,7 +47,7 @@ export function calculateTrend(current: number, previous: number) {
   return {
     value: formattedChange,
     isUp,
-    label: `${isUp ? 'Anstieg' : 'Rückgang'} gegenüber gestern`
+    label: `${isUp ? 'Anstieg' : 'Rückgang'} ${comparisonLabel}`
   };
 }
 

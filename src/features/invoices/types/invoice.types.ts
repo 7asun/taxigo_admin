@@ -233,7 +233,7 @@ export interface TripForInvoice {
   id: string;
   payer_id: string;
   scheduled_at: string | null; // used as line_date
-  price: number | null; // manual driver price
+  net_price: number | null; // manual driver price
   driving_distance_km: number | null; // for tax rate calculation
   billing_variant_id: string | null;
   payer?: {

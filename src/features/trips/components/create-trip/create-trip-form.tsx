@@ -54,6 +54,11 @@ import {
   type CreateTripDraftStored
 } from '@/features/trips/lib/create-trip-draft';
 import { resolveClientByName } from '@/features/trips/lib/resolve-client-by-name';
+import {
+  loadPricingContext,
+  computeTripPrice,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
 
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
@@ -1162,6 +1167,38 @@ export function CreateTripForm({
         companyId = profile?.company_id ?? null;
       }
 
+      // Load pricing contexts for price computation at creation time.
+      // One context per unique (payerId, clientId) pair, cached to avoid duplicate queries.
+      const pricingContextMap = new Map<string, PricingContext>();
+      const emptyPricingCtx: PricingContext = {
+        rules: [],
+        clientPriceTags: [],
+        clientPriceTag: null
+      };
+      if (companyId && values.payer_id) {
+        const pairs = requirePassenger
+          ? [...new Set(passengers.map((p) => p.client_id ?? 'null'))].map(
+              (cid) => ({ clientId: cid === 'null' ? null : cid })
+            )
+          : [{ clientId: null as string | null }];
+        await Promise.all(
+          pairs.map(async ({ clientId }) => {
+            const key = `${values.payer_id}:${clientId ?? 'null'}`;
+            try {
+              const ctx = await loadPricingContext({
+                supabase,
+                companyId: companyId!,
+                payerId: values.payer_id,
+                clientId
+              });
+              pricingContextMap.set(key, ctx);
+            } catch (e) {
+              console.error('[trip-price-engine] loadPricingContext failed', e);
+            }
+          })
+        );
+      }
+
       const resolvedPickupGroups = await Promise.all(
         pickupGroups.map((g) => ensureGroupHasCoords(g))
       );
@@ -1254,6 +1291,7 @@ export function CreateTripForm({
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
+        billing_type_id: ktsVariantRow?.billing_type_id || null,
         kts_document_applies: values.kts_document_applies,
         kts_source: ktsSource,
         no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
@@ -1269,6 +1307,8 @@ export function CreateTripForm({
         status: tripStatus,
         company_id: companyId,
         created_by: user?.id || null,
+        gross_price: null,
+        tax_rate: null,
         stop_updates: [] as any[]
       };
 
@@ -1306,6 +1346,19 @@ export function CreateTripForm({
 
         const outbound = await tripsService.createTrip({
           ...baseTrip,
+          ...computeTripPrice(
+            {
+              payer_id: values.payer_id,
+              billing_type_id: ktsVariantRow?.billing_type_id || null,
+              billing_variant_id: values.billing_variant_id || null,
+              client_id: null,
+              driving_distance_km: outboundDrivingDistanceKm,
+              scheduled_at: outboundScheduledAt,
+              kts_document_applies: values.kts_document_applies,
+              net_price: null
+            },
+            pricingContextMap.get(`${values.payer_id}:null`) ?? emptyPricingCtx
+          ),
           is_wheelchair: values.is_wheelchair,
           client_id: null,
           client_name: null,
@@ -1355,6 +1408,20 @@ export function CreateTripForm({
 
           await tripsService.createTrip({
             ...baseTrip,
+            ...computeTripPrice(
+              {
+                payer_id: values.payer_id,
+                billing_type_id: ktsVariantRow?.billing_type_id || null,
+                billing_variant_id: values.billing_variant_id || null,
+                client_id: null,
+                driving_distance_km: returnDrivingDistanceKm,
+                scheduled_at: returnScheduledAt,
+                kts_document_applies: values.kts_document_applies,
+                net_price: null
+              },
+              pricingContextMap.get(`${values.payer_id}:null`) ??
+                emptyPricingCtx
+            ),
             status: (getStatusWhenDriverChanges('pending', null) ??
               'pending') as 'pending' | 'assigned',
             is_wheelchair: values.is_wheelchair,
@@ -1390,9 +1457,13 @@ export function CreateTripForm({
           } as any);
         }
       } else {
-        // Passenger mode: each passenger has their own is_wheelchair flag
+        // Passenger mode: each passenger has their own is_wheelchair flag.
+        // Driving metrics are now resolved here at creation time — the cache-first
+        // resolver is fast enough that the per-passenger HTTP call is not a bottleneck,
+        // and deferring to the backfill script (the old approach) left outbound trips
+        // permanently without metrics whenever the script was not run.
         outboundTrips = await Promise.all(
-          passengers.map((p, idx) => {
+          passengers.map(async (p, idx) => {
             const pickupGroup = pickupGroupMap[p.pickup_group_uid];
             const dropoffGroup = dropoffGroupMap[p.dropoff_group_uid!];
 
@@ -1403,10 +1474,42 @@ export function CreateTripForm({
               typeof dropoffGroup?.lat === 'number' &&
               typeof dropoffGroup?.lng === 'number';
 
+            let outboundDrivingDistanceKm: number | null = null;
+            let outboundDrivingDurationSeconds: number | null = null;
+
+            if (pickupHasCoords && dropoffHasCoords) {
+              const metrics = await fetchDrivingMetrics(
+                pickupGroup!.lat as number,
+                pickupGroup!.lng as number,
+                dropoffGroup!.lat as number,
+                dropoffGroup!.lng as number
+              );
+              if (metrics) {
+                outboundDrivingDistanceKm = metrics.distanceKm;
+                outboundDrivingDurationSeconds = metrics.durationSeconds;
+              }
+            }
+
+            const passengerClientId = p.client_id || null;
             return tripsService.createTrip({
               ...baseTrip,
+              ...computeTripPrice(
+                {
+                  payer_id: values.payer_id,
+                  billing_type_id: ktsVariantRow?.billing_type_id || null,
+                  billing_variant_id: values.billing_variant_id || null,
+                  client_id: passengerClientId,
+                  driving_distance_km: outboundDrivingDistanceKm,
+                  scheduled_at: outboundScheduledAt,
+                  kts_document_applies: values.kts_document_applies,
+                  net_price: null
+                },
+                pricingContextMap.get(
+                  `${values.payer_id}:${passengerClientId ?? 'null'}`
+                ) ?? emptyPricingCtx
+              ),
               is_wheelchair: p.is_wheelchair,
-              client_id: p.client_id || null,
+              client_id: passengerClientId,
               client_name:
                 [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
               client_phone: p.phone || null,
@@ -1430,10 +1533,8 @@ export function CreateTripForm({
               dropoff_station: p.dropoff_station || null,
               group_id: groupId,
               stop_order: passengers.length > 1 ? idx + 1 : null,
-              // For passenger mode, we currently compute driving distance in the backfill script
-              // to avoid excessive synchronous API calls when creating many trips at once.
-              driving_distance_km: null,
-              driving_duration_seconds: null
+              driving_distance_km: outboundDrivingDistanceKm,
+              driving_duration_seconds: outboundDrivingDurationSeconds
             } as any);
           })
         );
@@ -1471,12 +1572,28 @@ export function CreateTripForm({
                   }
                 }
 
+                const returnClientId = p.client_id || null;
                 return tripsService.createTrip({
                   ...baseTrip,
+                  ...computeTripPrice(
+                    {
+                      payer_id: values.payer_id,
+                      billing_type_id: ktsVariantRow?.billing_type_id || null,
+                      billing_variant_id: values.billing_variant_id || null,
+                      client_id: returnClientId,
+                      driving_distance_km: drivingDistanceKm,
+                      scheduled_at: returnScheduledAt,
+                      kts_document_applies: values.kts_document_applies,
+                      net_price: null
+                    },
+                    pricingContextMap.get(
+                      `${values.payer_id}:${returnClientId ?? 'null'}`
+                    ) ?? emptyPricingCtx
+                  ),
                   status: (getStatusWhenDriverChanges('pending', null) ??
                     'pending') as 'pending' | 'assigned',
                   is_wheelchair: p.is_wheelchair,
-                  client_id: p.client_id || null,
+                  client_id: returnClientId,
                   client_name:
                     [p.first_name, p.last_name].filter(Boolean).join(' ') ||
                     null,

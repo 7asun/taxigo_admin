@@ -16,6 +16,7 @@ import {
 } from '@/lib/google-geocoding';
 import {
   resolveDrivingMetricsWithCache,
+  COORD_PRECISION,
   type DrivingMetrics
 } from '@/lib/google-directions';
 import {
@@ -23,6 +24,11 @@ import {
   recurringReturnModeFromRow,
   type RecurringRuleReturnMode
 } from '@/features/trips/lib/recurring-return-mode';
+import {
+  loadPricingContext,
+  computeTripPrice,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,10 +90,16 @@ export async function GET(request: NextRequest) {
     const todayLocal = startOfDay(new Date());
     const windowEndLocal = endOfDay(addDays(todayLocal, 14));
 
-    const { data: rules, error: rulesError } = await supabase
+    const { data: rulesRaw, error: rulesError } = await supabase
       .from('recurring_rules')
-      .select('*')
+      .select('*, billing_variants(billing_type_id)')
       .eq('is_active', true);
+
+    const rules = rulesRaw as
+      | (RecurringRuleRow & {
+          billing_variants: { billing_type_id: string } | null;
+        })[]
+      | null;
 
     if (rulesError) throw rulesError;
     if (!rules || rules.length === 0) {
@@ -136,11 +148,12 @@ export async function GET(request: NextRequest) {
       isReturnTrip: boolean;
       returnMode: RecurringRuleReturnMode;
       /** HH:mm:ss for exception matching (`original_pickup_time`) */
-      exceptionTimeKey: string;
+      exceptionTimeKey: string | null;
       /** ISO string or null when the leg has no clock time (Zeitabsprache return) */
       scheduledAtIso: string | null;
       linkedTripId: string | null;
       outboundLinkType: 'outbound' | null;
+      billing_type_id: string | null;
     }): Promise<TripInsert | null> {
       const {
         rule,
@@ -152,7 +165,8 @@ export async function GET(request: NextRequest) {
         exceptionTimeKey,
         scheduledAtIso,
         linkedTripId,
-        outboundLinkType
+        outboundLinkType,
+        billing_type_id
       } = params;
 
       const exception = exceptions?.find(
@@ -168,7 +182,9 @@ export async function GET(request: NextRequest) {
 
       if (!isReturnTrip) {
         const pt = exception?.modified_pickup_time || rule.pickup_time;
-        if (!pt) return null;
+        // Daily-agreement rules intentionally have `pickup_time = null` and are allowed
+        // to proceed when the occurrence loop already decided this leg has no clock time.
+        if (!pt && scheduledAtIso !== null) return null;
       } else if (returnMode === 'exact') {
         const pt = exception?.modified_pickup_time || rule.return_time;
         if (!pt) return null;
@@ -188,10 +204,18 @@ export async function GET(request: NextRequest) {
       let driving_distance_km: number | null = null;
       let driving_duration_seconds: number | null = null;
       if (pickupGeo && dropoffGeo) {
-        const metricsKey = `${pickupGeo.lat},${pickupGeo.lng}|${dropoffGeo.lat},${dropoffGeo.lng}`;
+        // Round to COORD_PRECISION before building the in-memory key so that it matches
+        // the keys used by route_metrics_cache. A mismatch would let the within-invocation
+        // Map use different keys than the DB table, negating its deduplication benefit.
+        const rPickupLat = parseFloat(pickupGeo.lat.toFixed(COORD_PRECISION));
+        const rPickupLng = parseFloat(pickupGeo.lng.toFixed(COORD_PRECISION));
+        const rDropoffLat = parseFloat(dropoffGeo.lat.toFixed(COORD_PRECISION));
+        const rDropoffLng = parseFloat(dropoffGeo.lng.toFixed(COORD_PRECISION));
+        const metricsKey = `${rPickupLat},${rPickupLng}|${rDropoffLat},${rDropoffLng}`;
         // Two-tier caching:
         // 1. In-memory (drivingMetricsCache) to avoid redundant DB queries for the same route in this cron run.
-        // 2. DB-cache (resolveDrivingMetricsWithCache) to reuse historical calculations and avoid Google API calls.
+        // 2. DB cache (route_metrics_cache via resolveDrivingMetricsWithCache) to reuse historical
+        //    calculations across runs and avoid Google API calls.
         if (!drivingMetricsCache.has(metricsKey)) {
           drivingMetricsCache.set(
             metricsKey,
@@ -200,7 +224,8 @@ export async function GET(request: NextRequest) {
               pickupGeo.lng,
               dropoffGeo.lat,
               dropoffGeo.lng,
-              supabase
+              supabase,
+              client.company_id
             )
           );
         }
@@ -264,8 +289,12 @@ export async function GET(request: NextRequest) {
         has_missing_geodata: !geodataOk,
         scheduled_at: scheduledAtIso,
         rule_id: rule.id,
+        ingestion_source: 'recurring_rule',
         link_type,
-        linked_trip_id: linkedTripId
+        linked_trip_id: linkedTripId,
+        billing_type_id,
+        gross_price: null,
+        tax_rate: null
       };
     }
 
@@ -328,6 +357,15 @@ export async function GET(request: NextRequest) {
       return data.id;
     }
 
+    // Pricing context cache keyed by `${companyId}:${payerId}:${clientId}` to avoid
+    // redundant DB queries when multiple rules share the same client and payer.
+    const cronContextMap = new Map<string, PricingContext>();
+    const emptyCtx: PricingContext = {
+      rules: [],
+      clientPriceTags: [],
+      clientPriceTag: null
+    };
+
     for (const rule of rules) {
       const { data: client, error: clientError } = await supabase
         .from('clients')
@@ -337,11 +375,36 @@ export async function GET(request: NextRequest) {
 
       if (clientError || !client) continue;
 
-      if (!rule.payer_id || !rule.billing_variant_id) {
+      if (!rule.payer_id) {
         console.warn(
-          `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id or billing_variant_id (edit and save the rule in Admin).`
+          `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id (edit and save the rule in Admin).`
         );
         continue;
+      }
+
+      // Load pricing context once per unique (company, payer, client) triple.
+      let pricingCtx: PricingContext = emptyCtx;
+      if (client.company_id) {
+        const ctxKey = `${client.company_id}:${rule.payer_id}:${client.id}`;
+        if (cronContextMap.has(ctxKey)) {
+          pricingCtx = cronContextMap.get(ctxKey)!;
+        } else {
+          try {
+            pricingCtx = await loadPricingContext({
+              supabase,
+              companyId: client.company_id,
+              payerId: rule.payer_id,
+              clientId: client.id
+            });
+            cronContextMap.set(ctxKey, pricingCtx);
+          } catch (e) {
+            console.error(
+              '[trip-price-engine] loadPricingContext failed',
+              ctxKey,
+              e
+            );
+          }
+        }
       }
 
       const clientName =
@@ -414,16 +477,25 @@ export async function GET(request: NextRequest) {
       for (const dateUTC of occurrencesUTC) {
         const dateStr = dateUTC.toISOString().split('T')[0];
 
-        const outboundExceptionKey = clockToHhMmSs(rule.pickup_time);
-        const outboundScheduledIso = toScheduledIso(
-          dateStr,
-          exceptions?.find(
-            (e) =>
-              e.rule_id === rule.id &&
-              e.exception_date === dateStr &&
-              e.original_pickup_time === outboundExceptionKey
-          )?.modified_pickup_time || rule.pickup_time
-        );
+        // When pickup_time is null the rule uses daily-agreement mode: the outbound trip
+        // is generated with scheduled_at = null so the dispatcher can fill the time in Phase 2.
+        const isOutboundTimeless = !rule.pickup_time;
+
+        const outboundExceptionKey = isOutboundTimeless
+          ? null
+          : clockToHhMmSs(rule.pickup_time!);
+
+        const outboundScheduledIso = isOutboundTimeless
+          ? null
+          : toScheduledIso(
+              dateStr,
+              exceptions?.find(
+                (e) =>
+                  e.rule_id === rule.id &&
+                  e.exception_date === dateStr &&
+                  e.original_pickup_time === outboundExceptionKey
+              )?.modified_pickup_time || rule.pickup_time!
+            );
 
         const outboundPayload = await buildTripPayload({
           rule,
@@ -435,12 +507,31 @@ export async function GET(request: NextRequest) {
           exceptionTimeKey: outboundExceptionKey,
           scheduledAtIso: outboundScheduledIso,
           linkedTripId: null,
-          outboundLinkType: null
+          outboundLinkType: null,
+          billing_type_id: rule.billing_variants?.billing_type_id || null
         });
 
         if (!outboundPayload) continue;
 
-        const outboundId = await insertIfAbsent(outboundPayload, {
+        const outboundWithPrice: TripInsert = {
+          ...outboundPayload,
+          ...computeTripPrice(
+            {
+              payer_id: outboundPayload.payer_id ?? null,
+              billing_type_id: outboundPayload.billing_type_id ?? null,
+              billing_variant_id: outboundPayload.billing_variant_id ?? null,
+              client_id: outboundPayload.client_id ?? null,
+              driving_distance_km: outboundPayload.driving_distance_km ?? null,
+              scheduled_at: outboundPayload.scheduled_at ?? null,
+              kts_document_applies:
+                outboundPayload.kts_document_applies ?? false,
+              net_price: null
+            },
+            pricingCtx
+          )
+        };
+
+        const outboundId = await insertIfAbsent(outboundWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
           scheduled_at: outboundScheduledIso,
@@ -482,12 +573,30 @@ export async function GET(request: NextRequest) {
           exceptionTimeKey: returnExceptionKey,
           scheduledAtIso: returnScheduledIso,
           linkedTripId: outboundId,
-          outboundLinkType: null
+          outboundLinkType: null,
+          billing_type_id: rule.billing_variants?.billing_type_id || null
         });
 
         if (!returnPayload) continue;
 
-        const returnId = await insertIfAbsent(returnPayload, {
+        const returnWithPrice: TripInsert = {
+          ...returnPayload,
+          ...computeTripPrice(
+            {
+              payer_id: returnPayload.payer_id ?? null,
+              billing_type_id: returnPayload.billing_type_id ?? null,
+              billing_variant_id: returnPayload.billing_variant_id ?? null,
+              client_id: returnPayload.client_id ?? null,
+              driving_distance_km: returnPayload.driving_distance_km ?? null,
+              scheduled_at: returnPayload.scheduled_at ?? null,
+              kts_document_applies: returnPayload.kts_document_applies ?? false,
+              net_price: null
+            },
+            pricingCtx
+          )
+        };
+
+        const returnId = await insertIfAbsent(returnWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
           scheduled_at: returnScheduledIso,

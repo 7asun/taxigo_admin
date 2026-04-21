@@ -141,112 +141,108 @@ export function calcAngebotPdfCatalogColumnWidths(
 export function calcAngebotColumnWidths(
   columns: AngebotColumnDef[]
 ): Record<string, number> {
-  const minFloor = 20;
   const available = ANGEBOT_PDF_AVAILABLE_WIDTH;
 
   if (columns.length === 0) return {};
 
-  // Step 1: Resolve layout spec for each column via resolveColumnLayout
+  // Step 1: Resolve layout spec for every column via resolveColumnLayout — never read col.preset directly
   const specs = columns.map((col) => ({ col, spec: resolveColumnLayout(col) }));
 
-  const widths: Record<string, number> = {};
+  // Step 2: Partition columns into fixed and flex groups
+  const fixed = specs.filter((x) => x.spec.width.mode === 'fixed');
+  const flex = specs.filter((x) => x.spec.width.mode === 'flex');
 
-  // Step 2: Sum all fixed-width columns → fixedTotal
-  const fixedCols = specs.filter((x) => x.spec.width.mode === 'fixed');
-  const fixedTotal = fixedCols.reduce(
+  // Step 3: fixedTotal = sum of all fixed column pt values
+  const fixedTotal = fixed.reduce(
     (sum, x) => sum + (x.spec.width.mode === 'fixed' ? x.spec.width.pt : 0),
     0
   );
 
-  // Step 3: remaining = ANGEBOT_PDF_AVAILABLE_WIDTH (515) − fixedTotal
-  let remaining = available - fixedTotal;
+  // Step 4: remaining = ANGEBOT_PDF_AVAILABLE_WIDTH (515) − fixedTotal
+  const remaining = available - fixedTotal;
 
-  // Step 4: If remaining <= 0 → warn to console, return fixed widths only (clamped to minFloor 20pt each, scaled proportionally)
+  const widths: Record<string, number> = {};
+
+  // Step 5: If remaining <= 0 → console.warn, scale all fixed widths proportionally to fit 515, return early
   if (remaining <= 0) {
     console.warn(
       '[calcAngebotColumnWidths] Fixed columns exceed available width; scaling fixed widths.'
     );
-    const rawFixed = fixedCols.map((x) => ({
+    const raw = fixed.map((x) => ({
       id: x.col.id,
-      pt: Math.max(
-        minFloor,
-        x.spec.width.mode === 'fixed' ? x.spec.width.pt : 0
-      )
+      pt: x.spec.width.mode === 'fixed' ? x.spec.width.pt : 0
     }));
-    const sumFixed = rawFixed.reduce((s, x) => s + x.pt, 0);
+    const sumFixed = raw.reduce((s, x) => s + x.pt, 0);
     const scale = sumFixed > 0 ? available / sumFixed : 1;
-    rawFixed.forEach((x) => {
-      widths[x.id] = Math.max(minFloor, x.pt * scale);
+    raw.forEach((x) => {
+      widths[x.id] = Math.max(1, Math.floor(x.pt * scale));
     });
-    // Ensure exact sum === available (floating remainder).
     const sum = Object.values(widths).reduce((s, v) => s + v, 0);
     const delta = available - sum;
-    if (Math.abs(delta) > 0.001) {
-      const widest = rawFixed.reduce(
-        (acc, x) => (widths[x.id] > widths[acc] ? x.id : acc),
-        rawFixed[0]?.id ?? ''
-      );
-      if (widest)
-        widths[widest] = Math.max(minFloor, (widths[widest] ?? 0) + delta);
+    if (raw.length > 0) {
+      const widestId = raw.reduce((acc, x) => {
+        return (widths[x.id] ?? 0) > (widths[acc] ?? 0) ? x.id : acc;
+      }, raw[0]!.id);
+      widths[widestId] = Math.max(1, (widths[widestId] ?? 0) + delta);
     }
     return widths;
   }
 
-  fixedCols.forEach((x) => {
+  fixed.forEach((x) => {
     if (x.spec.width.mode === 'fixed') widths[x.col.id] = x.spec.width.pt;
   });
 
-  const fillCols = specs.filter((x) => x.spec.width.mode === 'fill');
-  const autoCols = specs.filter((x) => x.spec.width.mode === 'auto');
+  // Step 6: flexTotal = sum of all flex values among flex columns
+  const flexTotal = flex.reduce(
+    (sum, x) => sum + (x.spec.width.mode === 'flex' ? x.spec.width.flex : 0),
+    0
+  );
+  const safeFlexTotal = flexTotal > 0 ? flexTotal : flex.length;
 
-  // Step 5: Fill columns (mode: 'fill') → split remaining equally among all fill columns
-  if (fillCols.length > 0) {
-    const share = remaining / fillCols.length;
-    fillCols.forEach((x) => {
-      widths[x.col.id] = share;
-    });
-    remaining -= share * fillCols.length;
-  }
-
-  // Step 6: Auto columns (mode: 'auto') → split remaining-after-fill proportionally by flex value
-  if (autoCols.length > 0) {
-    const flexTotal = autoCols.reduce(
-      (sum, x) => sum + (x.spec.width.mode === 'auto' ? x.spec.width.flex : 0),
-      0
-    );
-    const safeFlexTotal = flexTotal > 0 ? flexTotal : autoCols.length;
-    autoCols.forEach((x) => {
-      const flex = x.spec.width.mode === 'auto' ? x.spec.width.flex : 1;
-      widths[x.col.id] = (flex / safeFlexTotal) * remaining;
-    });
-    remaining = 0;
-  }
-
-  // Step 7: Floating point remainder → add to the widest fill column; if no fill column, add to widest auto column; if neither, add to widest fixed column
-  const sumAll = Object.values(widths).reduce((s, v) => s + v, 0);
-  const remainder = available - sumAll;
-  if (Math.abs(remainder) > 0.001) {
-    const prefer =
-      fillCols.length > 0
-        ? fillCols
-        : autoCols.length > 0
-          ? autoCols
-          : fixedCols;
-    if (prefer.length > 0) {
-      const widestId = prefer.reduce((acc, x) => {
+  // Step 7: If no flex columns → distribute remaining to widest fixed column, return
+  if (flex.length === 0) {
+    if (fixed.length > 0) {
+      const widestId = fixed.reduce((acc, x) => {
         const id = x.col.id;
         return (widths[id] ?? 0) > (widths[acc] ?? 0) ? id : acc;
-      }, prefer[0]!.col.id);
-      widths[widestId] = Math.max(
-        minFloor,
-        (widths[widestId] ?? 0) + remainder
-      );
+      }, fixed[0]!.col.id);
+      widths[widestId] = Math.max(1, (widths[widestId] ?? 0) + remaining);
     }
+    return widths;
   }
 
-  // Step 8: Return map of colId → resolved pt width; every value is a positive number; sum === 515
+  // Step 8: Each flex column width = Math.floor((col.flex / flexTotal) * remaining)
+  flex.forEach((x) => {
+    const f = x.spec.width.mode === 'flex' ? x.spec.width.flex : 0;
+    widths[x.col.id] = Math.max(1, Math.floor((f / safeFlexTotal) * remaining));
+  });
+
+  // Step 9: floatRemainder = 515 − (fixedTotal + sum of floored flex widths) → add to highest-flex column
+  const assigned = Object.values(widths).reduce((s, v) => s + v, 0);
+  const floatRemainder = available - assigned;
+  const highestFlexId = flex.reduce((accId, x) => {
+    const id = x.col.id;
+    const v = x.spec.width.mode === 'flex' ? x.spec.width.flex : 0;
+    const acc = flex.find((y) => y.col.id === accId);
+    const accV = acc?.spec.width.mode === 'flex' ? acc.spec.width.flex : 0;
+    return v > accV ? id : accId;
+  }, flex[0]!.col.id);
+  widths[highestFlexId] = Math.max(
+    1,
+    (widths[highestFlexId] ?? 0) + floatRemainder
+  );
+
+  // Step 10: Assert sum === 515 (console.error if not — never silently wrong)
+  const finalSum = Object.values(widths).reduce((s, v) => s + v, 0);
+  if (finalSum !== available) {
+    console.error(
+      `[calcAngebotColumnWidths] width sum mismatch: ${finalSum} != ${available}`
+    );
+  }
+
+  // Step 11: Return complete width map — every column id present, every value a positive integer
   for (const c of columns) {
-    widths[c.id] = Math.max(minFloor, widths[c.id] ?? minFloor);
+    widths[c.id] = Math.max(1, Math.trunc(widths[c.id] ?? 1));
   }
   return widths;
 }

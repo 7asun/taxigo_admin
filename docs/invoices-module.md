@@ -55,6 +55,24 @@ The **Fahrten** list ([`trips-listing.tsx`](../src/features/trips/components/tri
 
 ---
 
+## PDF Layout System
+
+Single source of truth (shared with Angebote): `src/features/invoices/lib/pdf-layout-constants.ts`.
+
+- **`PDF_PAGE`**: Page dimensions + shared margins (pt) for A4 portrait and appendix landscape.
+- **`PDF_ZONES`**: Named spacing tokens for header/body/table/footer zones (subject spacing variants, table padding, footer reserve, etc.).
+- **`PDF_DIN5008`**: DIN 5008 Form B values used by Brief mode (cover-page address window + fold marks).
+- **`PDF_RENDER_MODES`**: Supported render modes (`'digital'` / `'brief'`) with a typed `PdfRenderMode` union.
+
+Rule: **All PDF spacing values must come from `pdf-layout-constants.ts`. No magic numbers in any PDF component.**
+
+Cross-reference: **Shared with Angebote module — both import from `src/features/invoices/lib/pdf-layout-constants.ts`.**
+
+Brief mode implementation note (Path C):
+
+- Brief mode uses `InvoicePdfCoverHeaderBrief` (separate component) plus a **page-level absolute address window** pinned to `PDF_DIN5008.addressWindowTop` (127pt) and fold marks as direct `<Page>` children.
+- This avoids branching inside the digital header and guarantees DIN geometry even when flow content height varies.
+
 ## 2. The Invoice Builder Wizard (State Machine)
 
 The creation of new invoices is handled entirely by a client-side **5-step** wizard (`InvoiceBuilder`). Transacting intermediate data on the client ensures the database is only touched once the user fully confirms the final layout.

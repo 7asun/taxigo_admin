@@ -19,10 +19,15 @@ import {
   RecurringRuleFormBody,
   RuleFormValues,
   ruleFormSchema,
-  getRuleFormDefaults
+  getRuleFormDefaults,
+  NO_BILLING_VARIANT_SENTINEL,
+  handleRuleFormInvalid
 } from './recurring-rule-form-body';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
+import { formatClientAddress } from '@/features/clients/lib/format-client-address';
+import type { ClientOption } from '@/features/trips/types/trip-form-reference.types';
+import { DeleteRecurringRuleDialog } from '@/features/recurring-rules/components/delete-recurring-rule-dialog';
 
 /**
  * RecurringRuleSheet
@@ -59,22 +64,96 @@ export function RecurringRuleSheet({
   initialData,
   onSuccess
 }: RecurringRuleSheetProps) {
+  const [client, setClient] = React.useState<ClientOption | null>(null);
+  const [homeRole, setHomeRole] = React.useState<'pickup' | 'dropoff'>(
+    'pickup'
+  );
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
 
   const form = useForm<RuleFormValues>({
     resolver: zodResolver(ruleFormSchema),
     defaultValues: getRuleFormDefaults(initialData)
   });
+  const { reset, setValue, getValues, watch } = form;
 
-  const payerWatch = form.watch('payer_id');
-  const { payers, billingTypes } = useTripFormData(payerWatch);
+  const payerWatch = watch('payer_id');
+  const { payers, billingTypes, searchClientsById } =
+    useTripFormData(payerWatch);
+
+  const formattedHomeAddress = React.useMemo(
+    () => formatClientAddress(client),
+    [client]
+  );
+
+  const payerHasNoVariants = !!payerWatch && billingTypes.length === 0;
+
+  React.useEffect(() => {
+    // If the selected payer has no variants (Unterart), keep a sentinel in the
+    // form state so the shared schema does not block submit.
+    if (!isOpen) return;
+    const current = getValues('billing_variant_id');
+    if (payerHasNoVariants) {
+      if (current !== NO_BILLING_VARIANT_SENTINEL) {
+        setValue('billing_variant_id', NO_BILLING_VARIANT_SENTINEL, {
+          shouldValidate: false,
+          shouldDirty: false
+        });
+      }
+      return;
+    }
+
+    // If we move back to a payer that *does* have variants, clear the sentinel
+    // so the user must pick a real Unterart.
+    if (current === NO_BILLING_VARIANT_SENTINEL) {
+      setValue('billing_variant_id', '', {
+        shouldValidate: false,
+        shouldDirty: false
+      });
+    }
+  }, [isOpen, payerHasNoVariants, getValues, setValue]);
 
   // Reset form whenever the sheet opens or the target rule changes
   React.useEffect(() => {
     if (isOpen) {
-      form.reset(getRuleFormDefaults(initialData));
+      // 1. Fetch Client info (for address selection)
+      searchClientsById(clientId).then((data) => {
+        setClient(data);
+      });
+
+      // 2. Fetch Rule info
+      setHomeRole('pickup');
+
+      if (!initialData) {
+        // Initialize with home address as pickup by default for new rules
+        searchClientsById(clientId).then((clientData) => {
+          const defaults = getRuleFormDefaults(null);
+          reset({
+            ...defaults,
+            pickup_address:
+              formatClientAddress(clientData) || defaults.pickup_address
+          });
+        });
+      } else {
+        reset(getRuleFormDefaults(initialData));
+      }
     }
-  }, [isOpen, initialData, form]);
+  }, [isOpen, initialData, reset, clientId, searchClientsById]);
+
+  const handleHomeRoleChange = (role: 'pickup' | 'dropoff') => {
+    setHomeRole(role);
+    if (role === 'pickup') {
+      form.setValue('pickup_address', formattedHomeAddress, {
+        shouldValidate: true
+      });
+      form.setValue('dropoff_address', '', { shouldValidate: true });
+    } else {
+      form.setValue('dropoff_address', formattedHomeAddress, {
+        shouldValidate: true
+      });
+      form.setValue('pickup_address', '', { shouldValidate: true });
+    }
+  };
 
   const handleSubmit = async (values: RuleFormValues) => {
     try {
@@ -87,10 +166,18 @@ export function RecurringRuleSheet({
       });
 
       if (initialData) {
-        await recurringRulesService.updateRule(initialData.id, ruleData);
+        const payload = { ...ruleData };
+        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+          payload.billing_variant_id = null;
+        }
+        await recurringRulesService.updateRule(initialData.id, payload);
         toast.success('Regel erfolgreich aktualisiert');
       } else {
-        await recurringRulesService.createRule(ruleData);
+        const payload = { ...ruleData };
+        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+          payload.billing_variant_id = null;
+        }
+        await recurringRulesService.createRule(payload);
         toast.success('Regel erfolgreich erstellt');
       }
 
@@ -119,9 +206,17 @@ export function RecurringRuleSheet({
         <div className='min-h-0 flex-1 overflow-y-auto px-6'>
           <form
             id='recurring-rule-sheet-form'
-            onSubmit={form.handleSubmit(handleSubmit)}
+            onSubmit={form.handleSubmit(handleSubmit, handleRuleFormInvalid)}
           >
-            <RecurringRuleFormBody form={form} showIsActive={!!initialData} />
+            <RecurringRuleFormBody
+              form={form}
+              showIsActive={!!initialData}
+              addressRoleSelection={{
+                homeRole,
+                formattedHomeAddress,
+                onRoleChange: handleHomeRoleChange
+              }}
+            />
           </form>
         </div>
 
@@ -143,7 +238,29 @@ export function RecurringRuleSheet({
             {isSubmitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {initialData ? 'Speichern' : 'Hinzufügen'}
           </Button>
+
+          {initialData && (
+            <Button
+              type='button'
+              variant='ghost'
+              onClick={() => setShowDeleteDialog(true)}
+              className='text-destructive hover:bg-destructive/10 hover:text-destructive ml-auto'
+              disabled={isSubmitting}
+            >
+              Löschen
+            </Button>
+          )}
         </div>
+
+        <DeleteRecurringRuleDialog
+          ruleId={initialData?.id || ''}
+          isOpen={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          onSuccess={() => {
+            onSuccess();
+            onOpenChange(false);
+          }}
+        />
       </SheetContent>
     </Sheet>
   );

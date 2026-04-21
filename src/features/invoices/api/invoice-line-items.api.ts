@@ -143,7 +143,7 @@ export async function fetchTripsForBuilder(
       id,
       payer_id,
       scheduled_at,
-      price,
+      net_price,
       driving_distance_km,
       billing_variant_id,
       pickup_address,
@@ -259,7 +259,7 @@ export function buildLineItemsFromTrips(
     const priceResolution = resolveTripPricePure(
       {
         kts_document_applies: trip.kts_document_applies === true,
-        price: trip.price ?? null,
+        net_price: trip.net_price ?? null,
         driving_distance_km: trip.driving_distance_km ?? null,
         scheduled_at: trip.scheduled_at,
         client: trip.client

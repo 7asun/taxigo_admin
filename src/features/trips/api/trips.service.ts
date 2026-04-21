@@ -1,4 +1,10 @@
 import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
+import {
+  computeTripPrice,
+  loadPricingContext,
+  resolveTripForPricing,
+  shouldRecalculatePrice
+} from '@/features/trips/lib/trip-price-engine';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import type { Database } from '@/types/database.types';
@@ -55,6 +61,34 @@ export const tripsService = {
 
   async updateTrip(id: string, trip: UpdateTrip) {
     const supabase = createClient();
+
+    // Only recalculate when a pricing-relevant field is being changed.
+    // Skipping for non-pricing updates (driver assignment, status, notes, etc.)
+    // avoids unnecessary DB reads and context loads on high-frequency operations.
+    if (shouldRecalculatePrice(trip)) {
+      const tripInput = await resolveTripForPricing(supabase, id, trip);
+      if (tripInput) {
+        const context = await loadPricingContext({
+          supabase,
+          companyId: tripInput.company_id,
+          payerId: tripInput.payer_id,
+          clientId: tripInput.client_id
+        }).catch((e) => {
+          // A failed context load must never block a trip save.
+          // Price fields are derived data; the trip record is the source of truth.
+          console.error(
+            '[trip-price-engine] loadPricingContext failed on edit',
+            id,
+            e
+          );
+          return null;
+        });
+        if (context) {
+          Object.assign(trip, computeTripPrice(tripInput, context));
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from('trips')
       .update(trip)
@@ -134,6 +168,33 @@ export const tripsService = {
       .gte('scheduled_at', startDate)
       .lte('scheduled_at', endDate)
       .order('scheduled_at', { ascending: true });
+
+    if (error) throw toQueryError(error);
+    return data;
+  },
+
+  /**
+   * Get trips with billing_variant data for analytics (pie chart distribution)
+   * Includes date range filtering support
+   */
+  async getTripsForAnalytics(dateRange?: { from: Date; to: Date }) {
+    const supabase = createClient();
+    let query = supabase
+      .from('trips')
+      .select(
+        '*, billing_variant:billing_variants!trips_billing_variant_id_fkey(name, code, billing_types!billing_variants_billing_type_id_fkey(name, color))'
+      )
+      .order('scheduled_at', { ascending: false })
+      .limit(1000000);
+
+    if (dateRange?.from) {
+      query = query.gte('scheduled_at', dateRange.from.toISOString());
+    }
+    if (dateRange?.to) {
+      query = query.lte('scheduled_at', dateRange.to.toISOString());
+    }
+
+    const { data, error } = await query;
 
     if (error) throw toQueryError(error);
     return data;

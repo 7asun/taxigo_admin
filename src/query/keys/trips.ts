@@ -20,5 +20,15 @@ export const tripKeys = {
 
   /** One cache entry per dashboard filter tab (`useUnplannedTrips`). */
   unplanned: (filter: UnplannedTripsFilter) =>
-    ['trips', 'unplanned', filter] as const
+    ['trips', 'unplanned', filter] as const,
+
+  /**
+   * Prefix for all timeless recurring-rule trips queries — used to refresh the widget
+   * after any trip write that could assign a time to a rule-generated leg.
+   */
+  timelessRuleTripsRoot: ['trips', 'timeless-rules'] as const,
+
+  /** One cache entry per requested_date (`useTimelessRuleTrips`). */
+  timelessRuleTrips: (requestedDate: string) =>
+    ['trips', 'timeless-rules', requestedDate] as const
 };

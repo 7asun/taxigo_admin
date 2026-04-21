@@ -38,7 +38,6 @@ import { Icons } from '../icons';
 import { UserNav } from './user-nav';
 import { ThemeModeToggle } from '../themes/theme-mode-toggle';
 import { ThemeSelector } from '../themes/theme-selector';
-import { SidebarExpandNavItem } from './sidebar-expand-nav-item';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -57,16 +56,13 @@ export default function AppSidebar() {
           <SidebarGroupLabel>Overview</SidebarGroupLabel>
           <SidebarMenu>
             {/*
-             * Item render variants — three cases:
+             * Item render variants — two cases:
              * 1) LEAF: Link + SidebarMenuButton.
-             * 2) COLLAPSE-ONLY (url === '#'): CollapsibleTrigger on whole row (Account, Einstellungen).
-             * 3) EXPAND-AND-NAVIGATE: label Link + chevron SidebarMenuAction as CollapsibleTrigger (Abrechnung).
+             * 2) COLLAPSE-ONLY (url === '#'): CollapsibleTrigger on whole row.
              */}
             {itemsToShow.map((item) => {
               const Icon = item.icon ? Icons[item.icon] : Icons.logo;
               const hasChildren = (item.items?.length ?? 0) > 0;
-              const isExpandAndNavigate =
-                !!item.url && item.url !== '#' && hasChildren;
 
               if (!hasChildren) {
                 return (
@@ -83,16 +79,6 @@ export default function AppSidebar() {
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                );
-              }
-
-              if (isExpandAndNavigate) {
-                return (
-                  <SidebarExpandNavItem
-                    key={item.title}
-                    item={item}
-                    Icon={Icon}
-                  />
                 );
               }
 

@@ -135,6 +135,22 @@ Unchanged: `draft → sent → accepted | declined` (see detail page actions).
 
 ---
 
+## PDF Layout System
+
+Single source of truth: `src/features/invoices/lib/pdf-layout-constants.ts`.
+
+- **`PDF_PAGE`**: Page dimensions + shared margins (pt) for A4 portrait and appendix landscape.
+- **`PDF_ZONES`**: Named spacing tokens for header/body/table/footer zones (subject spacing variants, table padding, footer reserve, etc.).
+- **`PDF_DIN5008`**: DIN 5008 Form B values used by Brief mode (cover-page address window + fold marks).
+- **`PDF_RENDER_MODES`**: Supported render modes (`'digital'` / `'brief'`) with a typed `PdfRenderMode` union.
+
+Rule: **All PDF spacing values must come from `pdf-layout-constants.ts`. No magic numbers in any PDF component.**
+
+Brief mode implementation note (Path C):
+
+- Brief mode uses `InvoicePdfCoverHeaderBrief` (separate component) plus a **page-level absolute address window** pinned to `PDF_DIN5008.addressWindowTop` (127pt) and fold marks as direct `<Page>` children.
+- This avoids branching inside the digital header and guarantees DIN geometry even when flow content height varies.
+
 ## Salutation logic
 
 Implemented in `buildSalutation()` using `recipient_anrede`, `recipient_first_name`, `recipient_last_name`, and legacy `recipient_name`:
@@ -152,6 +168,8 @@ Implemented in `buildSalutation()` using `recipient_anrede`, `recipient_first_na
 - **Legacy:** `ANGEBOT_STANDARD_COLUMN_PROFILE` + `ANGEBOT_COLUMN_CATALOG` in `angebot-pdf-columns.ts` remain as **fallback** when snapshot and `pdf_column_override` are absent.
 - **Well-known ids:** `angebot-legacy-column-ids.ts` + SQL migration comments keep backfill strings aligned.
 - **Presets:** `AngebotColumnDef` stores `preset` (not `type/weight/minWidth`). Layout and formatting are derived via `resolveColumnLayout(col)` in `angebot-column-presets.ts`. Do not switch on `col.preset` outside that module for layout/formatting decisions.
+
+Tech note: @react-pdf/renderer handles current Angebot table complexity well. If requirements grow (many columns, complex multi-page pagination, server-side generation without React), evaluate migration to pdfmake — its native widths array ([28, '*', 65, 65, 65, '*']) and JSON document definition model map directly to AngebotColumnDef[]. See docs/plans/angebote-column-width-audit.md for current width constraints and calibration history.
 
 ---
 

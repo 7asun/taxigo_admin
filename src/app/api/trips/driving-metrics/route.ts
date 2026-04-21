@@ -61,7 +61,8 @@ export async function POST(request: Request) {
       originLng,
       destLat,
       destLng,
-      supabaseUser
+      supabaseUser,
+      auth.companyId
     );
 
     return NextResponse.json({ metrics });

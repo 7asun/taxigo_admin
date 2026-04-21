@@ -12,7 +12,7 @@ export interface UnassignedTrip {
   pickup_address: string | null;
   dropoff_address: string | null;
   driving_distance_km: number | null;
-  price: number | null;
+  net_price: number | null;
   link_type: string | null;
   linked_trip_id: string | null;
   kts_document_applies: boolean;

@@ -4,9 +4,12 @@
  * Exports two functions:
  *   - `getDrivingMetrics`            — raw Google Directions call, use only when you explicitly
  *                                       want to bypass the cache (e.g. forced refresh).
- *   - `resolveDrivingMetricsWithCache` — preferred entry point for all callers. Checks the
- *                                       `trips` table for an existing row with identical
- *                                       lat/lng before hitting Google.
+ *   - `resolveDrivingMetricsWithCache` — preferred entry point for all callers. Checks
+ *                                       `route_metrics_cache` for a row with matching
+ *                                       coordinates (rounded to COORD_PRECISION decimal places)
+ *                                       before hitting Google, then writes the result back
+ *                                       immediately so concurrent callers on the same route
+ *                                       find it in the DB.
  *
  * `GOOGLE_MAPS_API_KEY` is not exposed to the browser. Do **not** import this module from
  * `'use client'` components — use `@/features/trips/lib/fetch-driving-metrics` (POST
@@ -20,6 +23,25 @@ import type { Database } from '@/types/database.types';
 
 const DIRECTIONS_ENDPOINT =
   'https://maps.googleapis.com/maps/api/directions/json';
+
+/**
+ * Coordinates are rounded to this many decimal places before cache lookup and write-back.
+ * 5 dp ≈ 1 m precision — tight enough to be accurate, loose enough to survive geocoder
+ * non-determinism across code paths (e.g. cron vs form vs bulk upload) that can produce
+ * the same address with slightly different trailing digits.
+ *
+ * Every caller that builds cache keys must import and use this constant — never hardcode 5.
+ */
+export const COORD_PRECISION = 5;
+
+/**
+ * Round a coordinate to COORD_PRECISION decimal places.
+ * Using parseFloat(toFixed()) avoids storing trailing-zero strings as numbers
+ * (e.g. 53.10000 → 53.1) while keeping numeric identity stable.
+ */
+function roundCoord(value: number): number {
+  return parseFloat(value.toFixed(COORD_PRECISION));
+}
 
 interface DirectionsLegDistance {
   value: number;
@@ -132,71 +154,74 @@ export interface ResolvingMetrics extends DrivingMetrics {
 }
 
 /**
- * Resolves driving distance and duration for a route, using a two-tier lookup:
+ * Resolves driving distance and duration for a route using a two-tier lookup:
  *
- *   1. **DB cache** — queries `trips` for any existing row with identical
- *      pickup/dropoff coordinates that already has `driving_distance_km` populated.
- *      Returns those values immediately without touching Google.
+ *   1. **`route_metrics_cache` (DB cache)** — queries a dedicated cache table keyed
+ *      on coordinates rounded to COORD_PRECISION decimal places. If a matching row
+ *      exists, returns those values immediately without touching Google.
  *
- *   2. **Google Directions API** — only called when no cached row is found.
- *      Falls back gracefully to `null` if the key is missing or the API errors.
+ *   2. **Google Directions API** — called only when no cached row is found. After a
+ *      successful response the result is written back to `route_metrics_cache`
+ *      immediately — before returning to the caller — so any concurrent request for
+ *      the same route (e.g. N rows in a bulk upload all missing the cache) will find
+ *      the result on their own DB lookup within the same upload batch. The upsert
+ *      uses `ignoreDuplicates: true` so a second concurrent write on the same unique
+ *      key is silently dropped by the DB constraint rather than erroring.
  *
- * ### Why this matters
- * Repeating patients (e.g. dialysis 3×/week, school transport daily) travel the
- * same route many times per month. The cache ensures only the **first** occurrence
- * ever costs a Google API call; all subsequent trips on that route are resolved
- * from the database.
+ * ### Why coordinates are rounded before lookup
+ * The same address geocoded through different code paths (cron vs. form vs. bulk
+ * upload) or on different dates can produce coordinates that differ at the last
+ * decimal place. Exact float equality on raw geocoder output would cause a cache
+ * miss for every such variation even though the route is identical in practice.
+ * Rounding to 5 dp (~1 m) absorbs this noise while remaining accurate enough for
+ * driving-distance purposes.
+ *
+ * ### Why `companyId` is required
+ * The cache is scoped per company so that one company's routes never pollute
+ * another company's cache. Global sharing across companies is deferred.
  *
  * ### Duplication note
  * When duplicating a trip that already has metrics, `duplicate-trips.ts` copies
  * `driving_distance_km` and `driving_duration_seconds` directly from the source row
  * via `copyRouteAndPassengerFields` — this function is **not called at all** in that
  * happy path. It only runs as a fallback via `enrichInsertWithMetrics` when the
- * source trip has coordinates but null metrics (legacy data).
- *
- * ### Bulk-upload note
- * During CSV import, geocoding and metrics resolution run in `Promise.all` (parallel).
- * For a brand-new route with no prior trips, concurrent requests for the same coordinates
- * will all miss the DB cache and hit Google simultaneously. After the first batch is
- * inserted, all future imports of that route are served from the cache.
+ * source trip has null metrics (legacy data).
  */
 export async function resolveDrivingMetricsWithCache(
   originLat: number,
   originLng: number,
   destLat: number,
   destLng: number,
-  supabase: SupabaseClient<Database>
+  supabase: SupabaseClient<Database>,
+  companyId: string
 ): Promise<ResolvingMetrics | null> {
-  // ── Tier 1: DB cache ────────────────────────────────────────────────────
-  // Look for any existing trip with matching endpoints and populated metrics.
-  // Using exact float equality is intentional: coordinates are always stored
-  // as-returned by the geocoder so the same address always yields the same value.
+  // Round before any lookup so the cache key is stable across geocoder variations.
+  const rOriginLat = roundCoord(originLat);
+  const rOriginLng = roundCoord(originLng);
+  const rDestLat = roundCoord(destLat);
+  const rDestLng = roundCoord(destLng);
+
+  // ── Tier 1: route_metrics_cache ──────────────────────────────────────────
   const { data, error } = await supabase
-    .from('trips')
-    .select('driving_distance_km, driving_duration_seconds')
-    .eq('pickup_lat', originLat)
-    .eq('pickup_lng', originLng)
-    .eq('dropoff_lat', destLat)
-    .eq('dropoff_lng', destLng)
-    .not('driving_distance_km', 'is', null)
-    .not('driving_duration_seconds', 'is', null)
-    .limit(1)
+    .from('route_metrics_cache')
+    .select('distance_km, duration_seconds')
+    .eq('company_id', companyId)
+    .eq('origin_lat', rOriginLat)
+    .eq('origin_lng', rOriginLng)
+    .eq('dest_lat', rDestLat)
+    .eq('dest_lng', rDestLng)
     .maybeSingle();
 
-  if (
-    !error &&
-    data &&
-    data.driving_distance_km !== null &&
-    data.driving_duration_seconds !== null
-  ) {
+  if (!error && data) {
     return {
-      distanceKm: data.driving_distance_km,
-      durationSeconds: data.driving_duration_seconds,
+      distanceKm: data.distance_km,
+      durationSeconds: data.duration_seconds,
       source: 'cache'
     };
   }
 
   // ── Tier 2: Google Directions ────────────────────────────────────────────
+  // Call with original (un-rounded) coordinates for maximum precision in the result.
   const metrics = await getDrivingMetrics(
     originLat,
     originLng,
@@ -204,6 +229,36 @@ export async function resolveDrivingMetricsWithCache(
     destLng
   );
   if (!metrics) return null;
+
+  // Write back to cache immediately so concurrent requests on the same route
+  // (e.g. multiple CSV rows for the same dialysis clinic) find this result on
+  // their own DB lookup. ignoreDuplicates means a racing second write is silently
+  // dropped by the unique constraint rather than returning an error.
+  const { error: upsertError } = await supabase
+    .from('route_metrics_cache')
+    .upsert(
+      {
+        company_id: companyId,
+        origin_lat: rOriginLat,
+        origin_lng: rOriginLng,
+        dest_lat: rDestLat,
+        dest_lng: rDestLng,
+        distance_km: metrics.distanceKm,
+        duration_seconds: metrics.durationSeconds
+      },
+      {
+        onConflict: 'company_id,origin_lat,origin_lng,dest_lat,dest_lng',
+        ignoreDuplicates: true
+      }
+    );
+
+  if (upsertError) {
+    // Log but never throw — the caller still gets the metrics even if persistence fails.
+    console.error(
+      '[resolveDrivingMetricsWithCache] cache write-back failed',
+      upsertError
+    );
+  }
 
   return {
     ...metrics,

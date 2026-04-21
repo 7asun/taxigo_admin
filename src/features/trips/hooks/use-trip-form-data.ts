@@ -12,6 +12,7 @@ import {
   useDriversQuery,
   usePayersQuery
 } from '@/features/trips/hooks/use-trip-reference-queries';
+import { useCallback } from 'react';
 
 export type {
   PayerOption,
@@ -53,71 +54,77 @@ export function useTripFormData(payerId?: string | null) {
     driversQuery.isPending ||
     (payerIsConcrete && billingVariantsQuery.isPending);
 
-  const searchClients = async (query: string): Promise<ClientOption[]> => {
-    if (!query || query.length < 2) return [];
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('clients')
-      .select(
-        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
-      )
-      .or(
-        `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
-      )
-      .limit(8);
-    return data || [];
-  };
+  const searchClients = useCallback(
+    async (query: string): Promise<ClientOption[]> => {
+      if (!query || query.length < 2) return [];
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('clients')
+        .select(
+          'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
+        )
+        .or(
+          `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+        )
+        .limit(8);
+      return data || [];
+    },
+    []
+  );
 
-  const searchClientsByFirstName = async (
-    query: string
-  ): Promise<ClientOption[]> => {
-    if (!query || query.length < 2) return [];
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('clients')
-      .select(
-        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
-      )
-      .or(
-        `first_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
-      )
-      .order('first_name')
-      .limit(8);
-    return data || [];
-  };
+  const searchClientsByFirstName = useCallback(
+    async (query: string): Promise<ClientOption[]> => {
+      if (!query || query.length < 2) return [];
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('clients')
+        .select(
+          'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
+        )
+        .or(
+          `first_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+        )
+        .order('first_name')
+        .limit(8);
+      return data || [];
+    },
+    []
+  );
 
-  const searchClientsByLastName = async (
-    query: string
-  ): Promise<ClientOption[]> => {
-    if (!query || query.length < 2) return [];
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('clients')
-      .select(
-        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
-      )
-      .or(
-        `last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
-      )
-      .order('last_name')
-      .limit(8);
-    return data || [];
-  };
+  const searchClientsByLastName = useCallback(
+    async (query: string): Promise<ClientOption[]> => {
+      if (!query || query.length < 2) return [];
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('clients')
+        .select(
+          'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
+        )
+        .or(
+          `last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`
+        )
+        .order('last_name')
+        .limit(8);
+      return data || [];
+    },
+    []
+  );
 
-  const searchClientsById = async (
-    id: string
-  ): Promise<ClientOption | null> => {
-    if (!id) return null;
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('clients')
-      .select(
-        'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
-      )
-      .eq('id', id)
-      .single();
-    return (data as ClientOption) || null;
-  };
+  const searchClientsById = useCallback(
+    async (id: string): Promise<ClientOption | null> => {
+      if (!id) return null;
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('clients')
+        .select(
+          'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
+        )
+        .eq('id', id)
+        .maybeSingle(); // Better safety for deleted clients
+      return (data as ClientOption) || null;
+    },
+    []
+  );
 
   return {
     payers,

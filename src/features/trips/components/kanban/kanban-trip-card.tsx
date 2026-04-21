@@ -298,14 +298,28 @@ export function TripCard({
 
         {/* Route — one row each */}
         <div className='text-muted-foreground mt-0.5 flex flex-col gap-0.5 text-[11px]'>
-          <p className='line-clamp-2 break-words'>
-            <span className='text-foreground font-medium'>Ab: </span>
-            {pickupDisplay}
-          </p>
-          <p className='line-clamp-2 break-words'>
-            <span className='text-foreground font-medium'>Nach: </span>
-            {dropoffDisplay}
-          </p>
+          <div className='flex min-w-0 flex-wrap items-baseline gap-x-1'>
+            <p className='break-words'>
+              <span className='text-foreground font-medium'>Ab: </span>
+              {pickupDisplay}
+            </p>
+            {trip.pickup_station && (
+              <span className='bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1 py-0 text-[10px] leading-4'>
+                {trip.pickup_station}
+              </span>
+            )}
+          </div>
+          <div className='flex min-w-0 flex-wrap items-baseline gap-x-1'>
+            <p className='break-words'>
+              <span className='text-foreground font-medium'>Nach: </span>
+              {dropoffDisplay}
+            </p>
+            {trip.dropoff_station && (
+              <span className='bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1 py-0 text-[10px] leading-4'>
+                {trip.dropoff_station}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Bottom badges */}

@@ -1,6 +1,12 @@
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { findPairedTrip } from '@/features/trips/api/recurring-exceptions.actions';
+import {
+  computeTripPrice,
+  loadPricingContext,
+  resolveTripForPricing,
+  shouldRecalculatePrice
+} from '@/features/trips/lib/trip-price-engine';
 import { canRescheduleTrip, isRecurringTrip } from '../lib/reschedule-trip';
 
 export type RescheduleResult = {
@@ -69,9 +75,39 @@ export async function rescheduleTripWithOptionalPair(
     };
   }
 
+  const primaryPatch = rowFromLeg(primaryLeg);
+  // Only recalculate when a pricing-relevant field is being changed.
+  // Skipping for non-pricing updates avoids unnecessary context loads.
+  if (shouldRecalculatePrice(primaryPatch)) {
+    const tripInput = await resolveTripForPricing(
+      supabase,
+      primary.id,
+      primaryPatch
+    );
+    if (tripInput) {
+      const context = await loadPricingContext({
+        supabase,
+        companyId: tripInput.company_id,
+        payerId: tripInput.payer_id,
+        clientId: tripInput.client_id
+      }).catch((e) => {
+        // A failed context load must never block a trip save.
+        console.error(
+          '[trip-price-engine] loadPricingContext failed on reschedule',
+          primary.id,
+          e
+        );
+        return null;
+      });
+      if (context) {
+        Object.assign(primaryPatch, computeTripPrice(tripInput, context));
+      }
+    }
+  }
+
   const { data: primaryRows, error: primaryError } = await supabase
     .from('trips')
-    .update(rowFromLeg(primaryLeg))
+    .update(primaryPatch)
     .eq('id', primary.id)
     .select('id');
 
@@ -87,9 +123,36 @@ export async function rescheduleTripWithOptionalPair(
   }
 
   if (paired && partnerLeg) {
+    const partnerPatch = rowFromLeg(partnerLeg);
+    if (shouldRecalculatePrice(partnerPatch)) {
+      const tripInput = await resolveTripForPricing(
+        supabase,
+        paired.id,
+        partnerPatch
+      );
+      if (tripInput) {
+        const context = await loadPricingContext({
+          supabase,
+          companyId: tripInput.company_id,
+          payerId: tripInput.payer_id,
+          clientId: tripInput.client_id
+        }).catch((e) => {
+          console.error(
+            '[trip-price-engine] loadPricingContext failed on reschedule (partner)',
+            paired.id,
+            e
+          );
+          return null;
+        });
+        if (context) {
+          Object.assign(partnerPatch, computeTripPrice(tripInput, context));
+        }
+      }
+    }
+
     const { data: partnerRows, error: partnerError } = await supabase
       .from('trips')
-      .update(rowFromLeg(partnerLeg))
+      .update(partnerPatch)
       .eq('id', paired.id)
       .select('id');
 

@@ -7,8 +7,7 @@ import type { AngebotColumnDef } from '../types/angebot.types';
  */
 export const ANGEBOT_POSITION_COLUMN_ID = 'col_position' as const;
 
-// Pos. column — injected at render time only, never stored. Uses anzahl preset: fixed 48pt.
-// Note: previous minWidth was 32pt — +16pt visual delta on existing offers is accepted per product decision 2026-04-14.
+// Pos. column — fixed 28pt (calibrated 2026-04-15, was 48pt). Fits 2-digit integers with right alignment. Injected at render time only, never stored.
 export const ANGEBOT_POSITION_COLUMN: AngebotColumnDef = {
   id: ANGEBOT_POSITION_COLUMN_ID,
   header: 'Pos.',

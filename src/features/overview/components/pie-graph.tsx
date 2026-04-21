@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { IconTrendingUp } from '@tabler/icons-react';
 import { Label, Pie, PieChart } from 'recharts';
+import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 import {
   Card,
@@ -18,17 +19,96 @@ import {
   ChartTooltip,
   ChartTooltipContent
 } from '@/components/ui/chart';
-import { useTrips } from '@/features/trips/hooks/use-trips';
 import { usePayers } from '@/features/payers/hooks/use-payers';
 import { getPayerDistribution } from '@/features/dashboard/lib/payer-utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { tripsService } from '@/features/trips/api/trips.service';
+import { calculateTrend } from '@/features/dashboard/lib/stats-utils';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+
+type TimePreset = 'all' | 'thisMonth' | 'lastMonth';
 
 export function PieGraph() {
-  const { trips, isLoading: tripsLoading } = useTrips();
+  const [timePreset, setTimePreset] = React.useState<TimePreset>('thisMonth');
+  const [trips, setTrips] = React.useState<any[]>([]);
+  const [previousMonthTrips, setPreviousMonthTrips] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+
   const { data: payers, isLoading: payersLoading } = usePayers();
 
+  // Fetch trips with date filter and billing_variant data
+  React.useEffect(() => {
+    const fetchTrips = async () => {
+      try {
+        setIsLoading(true);
+        // Convert preset to date range
+        let range: { from: Date; to: Date } | undefined;
+        let previousRange: { from: Date; to: Date } | undefined;
+
+        if (timePreset === 'thisMonth') {
+          const now = new Date();
+          range = {
+            from: startOfMonth(now),
+            to: endOfMonth(now)
+          };
+          const lastMonth = subMonths(now, 1);
+          previousRange = {
+            from: startOfMonth(lastMonth),
+            to: endOfMonth(lastMonth)
+          };
+        } else if (timePreset === 'lastMonth') {
+          const lastMonth = subMonths(new Date(), 1);
+          range = {
+            from: startOfMonth(lastMonth),
+            to: endOfMonth(lastMonth)
+          };
+          const twoMonthsAgo = subMonths(new Date(), 2);
+          previousRange = {
+            from: startOfMonth(twoMonthsAgo),
+            to: endOfMonth(twoMonthsAgo)
+          };
+        }
+        // 'all' keeps both range and previousRange as undefined (no date filter)
+
+        // Fetch current and previous data
+        const [currentData, previousData] = await Promise.all([
+          tripsService.getTripsForAnalytics(range),
+          previousRange
+            ? tripsService.getTripsForAnalytics(previousRange)
+            : Promise.resolve([])
+        ]);
+        setTrips(currentData || []);
+        setPreviousMonthTrips(previousData || []);
+      } catch (error) {
+        console.error('Error fetching trips:', error);
+        setTrips([]);
+        setPreviousMonthTrips([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchTrips();
+  }, [timePreset]);
+
+  // Calculate month-over-month trend
+  const trend = React.useMemo(() => {
+    if (timePreset === 'all') return null;
+    const currentCount = trips.length;
+    const previousCount = previousMonthTrips.length;
+    return calculateTrend(currentCount, previousCount, 'gegenüber Vormonat');
+  }, [trips.length, previousMonthTrips.length, timePreset]);
+
   const chartData = React.useMemo(() => {
-    if (!trips || !payers) return [];
+    if (!trips.length) return [];
+
+    // Always use payer grouping
+    if (!payers) return [];
     return getPayerDistribution(trips, payers);
   }, [trips, payers]);
 
@@ -51,9 +131,9 @@ export function PieGraph() {
     return config;
   }, [chartData]);
 
-  const topPayer = chartData[0];
+  const topItem = chartData[0];
 
-  if (tripsLoading || payersLoading) {
+  if (isLoading || payersLoading) {
     return (
       <Card className='@container/card'>
         <CardHeader className='pb-2'>
@@ -71,15 +151,33 @@ export function PieGraph() {
 
   return (
     <Card className='@container/card'>
-      <CardHeader>
-        <CardTitle>Kostenträger-Verteilung</CardTitle>
-        <CardDescription>
-          <span className='hidden @[540px]/card:block'>
-            Übersicht der Fahrten nach Versicherung/Kostenträger
-            (Gesamtzeitraum)
-          </span>
-          <span className='@[540px]/card:hidden'>Kostenträger-Verteilung</span>
-        </CardDescription>
+      <CardHeader className='space-y-3'>
+        <div>
+          <CardTitle>Kostenträger-Verteilung</CardTitle>
+          <CardDescription>
+            <span className='hidden @[540px]/card:block'>
+              Übersicht der Fahrten nach Kostenträger
+            </span>
+            <span className='@[540px]/card:hidden'>
+              Kostenträger-Verteilung
+            </span>
+          </CardDescription>
+        </div>
+        <div className='flex flex-wrap gap-2'>
+          <Select
+            value={timePreset}
+            onValueChange={(v) => setTimePreset(v as TimePreset)}
+          >
+            <SelectTrigger className='h-8 w-[140px] text-xs'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>Insgesamt</SelectItem>
+              <SelectItem value='thisMonth'>Diesen Monat</SelectItem>
+              <SelectItem value='lastMonth'>Letzten Monat</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent className='px-2 pt-4 sm:px-6 sm:pt-6'>
         <ChartContainer
@@ -133,15 +231,32 @@ export function PieGraph() {
         </ChartContainer>
       </CardContent>
       <CardFooter className='flex-col gap-2 text-sm'>
-        {topPayer && (
+        {topItem && (
           <div className='flex items-center gap-2 leading-none font-medium'>
-            {topPayer.name} ist Spitzenreiter mit{' '}
-            {((topPayer.count / totalTrips) * 100).toFixed(1)}%{' '}
+            {topItem.name} ist Spitzenreiter mit{' '}
+            {((topItem.count / totalTrips) * 100).toFixed(1)}%{' '}
             <IconTrendingUp className='text-primary h-4 w-4' />
           </div>
         )}
+        {trend && (
+          <div className='flex items-center gap-2 leading-none font-medium'>
+            <span className={trend.isUp ? 'text-emerald-600' : 'text-red-600'}>
+              {trend.value}
+            </span>
+            <span className='text-muted-foreground'>{trend.label}</span>
+            {trend.isUp ? (
+              <IconTrendingUp className='h-4 w-4 text-emerald-600' />
+            ) : (
+              <IconTrendingUp className='h-4 w-4 rotate-180 text-red-600' />
+            )}
+          </div>
+        )}
         <div className='text-muted-foreground leading-none'>
-          Basierend auf allen im System erfassten Fahrten
+          {timePreset === 'all'
+            ? 'Basierend auf allen im System erfassten Fahrten'
+            : timePreset === 'thisMonth'
+              ? 'Basierend auf Fahrten in diesem Monat'
+              : 'Basierend auf Fahrten im letzten Monat'}
         </div>
       </CardFooter>
     </Card>

@@ -79,7 +79,7 @@ const BERLIN_TZ = 'Europe/Berlin';
 
 export interface TripPriceInput {
   kts_document_applies: boolean;
-  price: number | null;
+  net_price: number | null;
   driving_distance_km: number | null;
   scheduled_at: string | null;
   client?: { price_tag: number | null } | null;
@@ -241,14 +241,14 @@ function executeStrategy(
 
   switch (strategy) {
     case 'client_price_tag': {
-      // Misnamed strategy: if we got here, price_tag was absent — use trip.price as net if present.
-      if (trip.price != null) {
+      // Misnamed strategy: if we got here, price_tag was absent — use trip.net_price if present.
+      if (trip.net_price != null) {
         return resolution(
           {
-            net: trip.price,
+            net: trip.net_price,
             strategy_used: 'trip_price_fallback',
             source: 'trip_price',
-            unit_price_net: trip.price,
+            unit_price_net: trip.net_price,
             quantity: 1
           },
           taxRate
@@ -258,8 +258,8 @@ function executeStrategy(
     }
     case 'manual_trip_price': {
       // Explicit rule to invoice stored driver net price only.
-      if (trip.price == null) return null;
-      const n = trip.price;
+      if (trip.net_price == null) return null;
+      const n = trip.net_price;
       return resolution(
         {
           net: n,
@@ -440,8 +440,8 @@ export function resolveTripPrice(
   }
 
   // Priority 3 — stored trip net when no rule produced an amount (or rule returned null).
-  if (trip.price !== null && trip.price !== undefined) {
-    const n = trip.price;
+  if (trip.net_price !== null && trip.net_price !== undefined) {
+    const n = trip.net_price;
     return withApproachFeeFromRule(
       resolution(
         {

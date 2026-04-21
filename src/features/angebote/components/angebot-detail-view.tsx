@@ -512,31 +512,55 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
           {companyProfileForPdf ? (
             <div className='border-border rounded-xl border p-4'>
               <h2 className='mb-3 text-sm font-semibold'>PDF</h2>
-              <PDFDownloadLink
-                document={
-                  <AngebotPdfDocument
-                    angebot={angebot}
-                    companyProfile={companyProfileForPdf}
-                  />
-                }
-                fileName={`${angebot.angebot_number}.pdf`}
-              >
-                {({ loading }) => (
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    className='w-full'
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    ) : (
+              <div className='flex w-full gap-2'>
+                <PDFDownloadLink
+                  className='flex-1'
+                  document={
+                    <AngebotPdfDocument
+                      angebot={angebot}
+                      companyProfile={companyProfileForPdf}
+                      renderMode='digital'
+                    />
+                  }
+                  fileName={`${angebot.angebot_number ?? 'angebot'}-digital.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='w-full'
+                      disabled={loading}
+                    >
                       <FileDown className='mr-2 h-4 w-4' />
-                    )}
-                    PDF herunterladen
-                  </Button>
-                )}
-              </PDFDownloadLink>
+                      {loading ? 'Wird erstellt…' : 'Digital'}
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+                <PDFDownloadLink
+                  className='flex-1'
+                  document={
+                    <AngebotPdfDocument
+                      angebot={angebot}
+                      companyProfile={companyProfileForPdf}
+                      renderMode='brief'
+                    />
+                  }
+                  fileName={`${angebot.angebot_number ?? 'angebot'}-brief.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      className='w-full'
+                      disabled={loading}
+                    >
+                      <FileDown className='mr-2 h-4 w-4' />
+                      {loading ? 'Wird erstellt…' : 'Als Brief'}
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+              </div>
+              {/* TODO: 'Als Brief' falls back to digital until Brief mode (DIN 5008 header redesign) is implemented — see docs/plans/pdf-architecture-audit.md */}
             </div>
           ) : null}
         </div>

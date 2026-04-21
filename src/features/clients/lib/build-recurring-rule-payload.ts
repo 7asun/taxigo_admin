@@ -91,7 +91,9 @@ export function buildRecurringRulePayload(
     fremdfirma_id,
     fremdfirma_payment_mode,
     fremdfirma_cost,
-    pickup_time: `${values.pickup_time}:00`,
+    // The form uses '' to represent daily-agreement mode; persist NULL so cron
+    // can generate an outbound leg with `scheduled_at = null` (dispatcher sets time later).
+    pickup_time: values.pickup_time ? `${values.pickup_time}:00` : null,
     pickup_address: values.pickup_address,
     dropoff_address: values.dropoff_address,
     return_mode: values.return_mode,

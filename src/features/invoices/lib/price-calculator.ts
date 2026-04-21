@@ -28,7 +28,7 @@ function mapSource(src: string): 'client_price_tag' | 'trip_price' | null {
 export function resolveTripPrice(
   trip: Pick<
     TripForInvoice,
-    | 'price'
+    | 'net_price'
     | 'driving_distance_km'
     | 'client'
     | 'kts_document_applies'
@@ -40,7 +40,7 @@ export function resolveTripPrice(
   const pr = resolveTripPricePure(
     {
       kts_document_applies: trip.kts_document_applies === true,
-      price: trip.price ?? null,
+      net_price: trip.net_price ?? null,
       driving_distance_km: trip.driving_distance_km ?? null,
       scheduled_at: trip.scheduled_at,
       client: trip.client

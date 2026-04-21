@@ -46,6 +46,7 @@ import * as z from 'zod';
 import {
   FormControl,
   FormField,
+  FormDescription,
   FormItem,
   FormLabel,
   FormMessage
@@ -60,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
   AddressAutocomplete,
@@ -73,6 +75,33 @@ import {
 } from '@/features/trips/lib/recurring-return-mode';
 import { RecurringRuleBillingFields } from './recurring-rule-billing-fields';
 import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
+import { toast } from 'sonner';
+
+/**
+ * `RecurringRuleFormBody` requires `billing_variant_id` via its shared Zod schema.
+ * Some tenants/payers have **no variants at all** (Unterart does not exist).
+ *
+ * We use this internal sentinel to satisfy the schema, then coerce the payload
+ * to `billing_variant_id: null` before inserting into `recurring_rules` (the DB
+ * column is nullable for this legacy/transition case).
+ */
+export const NO_BILLING_VARIANT_SENTINEL = '__no_billing_variant__';
+
+/**
+ * Shared error handler for react-hook-form to show why a submit was blocked.
+ */
+export const handleRuleFormInvalid = (errors: Record<string, any>) => {
+  const firstMessage = (() => {
+    for (const v of Object.values(errors)) {
+      if (v && typeof v === 'object' && 'message' in v) {
+        const m = (v as { message?: unknown }).message;
+        if (typeof m === 'string' && m.trim().length > 0) return m;
+      }
+    }
+    return null;
+  })();
+  toast.error(firstMessage ?? 'Bitte alle Pflichtfelder ausfüllen.');
+};
 
 // ─── Schema (shared between Sheet and Panel) ─────────────────────────────────
 
@@ -111,12 +140,17 @@ export const ruleFormSchema = z
       .nullable()
       .optional(),
     fremdfirma_cost: z.string().optional(),
-    pickup_time: z
-      .string()
-      .regex(
-        /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
-        'Bitte ein gültiges Zeitformat verwenden (HH:MM)'
-      ),
+    // Mirrors the Neue Fahrt empty-time pattern: the form uses '' for “no clock time”,
+    // which is later persisted as NULL so the dispatcher can confirm time day-before.
+    pickup_time: z.union([
+      z.literal(''),
+      z
+        .string()
+        .regex(
+          /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
+          'Bitte ein gültiges Zeitformat verwenden (HH:MM)'
+        )
+    ]),
     pickup_address: z.string().min(1, 'Abholadresse ist erforderlich'),
     dropoff_address: z.string().min(1, 'Zieladresse ist erforderlich'),
     return_mode: z.enum(['none', 'time_tbd', 'exact']),
@@ -162,7 +196,7 @@ export type RuleFormValues = z.infer<typeof ruleFormSchema>;
 export function getRuleFormDefaults(
   initialData?: {
     rrule_string: string;
-    pickup_time: string;
+    pickup_time: string | null;
     pickup_address: string;
     dropoff_address: string;
     return_mode?: string | null;
@@ -195,7 +229,7 @@ export function getRuleFormDefaults(
       fremdfirma_id: '',
       fremdfirma_payment_mode: null,
       fremdfirma_cost: '',
-      pickup_time: '08:00',
+      pickup_time: '',
       pickup_address: '',
       dropoff_address: '',
       return_mode: 'exact',
@@ -227,7 +261,9 @@ export function getRuleFormDefaults(
       initialData.fremdfirma_cost != null
         ? String(initialData.fremdfirma_cost)
         : '',
-    pickup_time: initialData.pickup_time.substring(0, 5),
+    pickup_time: initialData.pickup_time
+      ? initialData.pickup_time.substring(0, 5)
+      : '',
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,
     return_mode: returnMode,
@@ -247,11 +283,18 @@ interface RecurringRuleFormBodyProps {
   form: UseFormReturn<RuleFormValues>;
   /** Show the "Regel Aktiv" toggle — only relevant when editing an existing rule */
   showIsActive?: boolean;
+  /** Optional address pre-fill selector (Home as Pickup/Dropoff) */
+  addressRoleSelection?: {
+    homeRole: 'pickup' | 'dropoff';
+    formattedHomeAddress: string;
+    onRoleChange: (role: 'pickup' | 'dropoff') => void;
+  };
 }
 
 export function RecurringRuleFormBody({
   form,
-  showIsActive = false
+  showIsActive = false,
+  addressRoleSelection
 }: RecurringRuleFormBodyProps) {
   const watchedPayerId = form.watch('payer_id');
   const watchedBillingVariantId = form.watch('billing_variant_id');
@@ -374,6 +417,32 @@ export function RecurringRuleFormBody({
 
         <RecurringRuleBillingFields form={form} />
 
+        {addressRoleSelection && (
+          <div className='bg-muted/20 rounded-lg border p-4'>
+            <div className='mb-3 flex items-center justify-between'>
+              <span className='text-sm font-medium'>
+                Home-Adresse verwenden als:
+              </span>
+            </div>
+            <Tabs
+              value={addressRoleSelection.homeRole}
+              onValueChange={(v) =>
+                addressRoleSelection.onRoleChange(v as 'pickup' | 'dropoff')
+              }
+              className='w-full'
+            >
+              <TabsList className='grid w-full grid-cols-2'>
+                <TabsTrigger value='pickup'>Abholung</TabsTrigger>
+                <TabsTrigger value='dropoff'>Ziel</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <p className='text-muted-foreground mt-2 text-[10px]'>
+              {addressRoleSelection.formattedHomeAddress ||
+                'Keine Adresse hinterlegt'}
+            </p>
+          </div>
+        )}
+
         {/* ── Hinfahrt Details ────────────────────────────────── */}
         <div className='bg-muted/20 space-y-4 rounded-lg border p-4'>
           <h4 className='text-sm font-medium'>Hinfahrt Details</h4>
@@ -386,6 +455,9 @@ export function RecurringRuleFormBody({
                 <FormControl>
                   <Input type='time' {...field} />
                 </FormControl>
+                <FormDescription>
+                  Leer lassen für tägliche Zeitabsprache
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -404,8 +476,22 @@ export function RecurringRuleFormBody({
                         field.onChange(result);
                         return;
                       }
-                      // Single-line rule fields: use formatted line after Place Details (or typed query).
-                      field.onChange(result.address ?? '');
+                      // If only address is present (typing), use it directly
+                      if (!result.street && !result.zip_code) {
+                        field.onChange(result.address ?? '');
+                        return;
+                      }
+                      // After place details: construct full address with zip and city
+                      const street = [result.street, result.street_number]
+                        .filter(Boolean)
+                        .join(' ');
+                      const cityLine = [result.zip_code, result.city]
+                        .filter(Boolean)
+                        .join(' ');
+                      const fullAddress = [street, cityLine]
+                        .filter(Boolean)
+                        .join(', ');
+                      field.onChange(fullAddress);
                     }}
                     placeholder='Adresse suchen…'
                     className={cn(fieldState.error && 'border-destructive')}
@@ -429,7 +515,22 @@ export function RecurringRuleFormBody({
                         field.onChange(result);
                         return;
                       }
-                      field.onChange(result.address ?? '');
+                      // If only address is present (typing), use it directly
+                      if (!result.street && !result.zip_code) {
+                        field.onChange(result.address ?? '');
+                        return;
+                      }
+                      // After place details: construct full address with zip and city
+                      const street = [result.street, result.street_number]
+                        .filter(Boolean)
+                        .join(' ');
+                      const cityLine = [result.zip_code, result.city]
+                        .filter(Boolean)
+                        .join(' ');
+                      const fullAddress = [street, cityLine]
+                        .filter(Boolean)
+                        .join(', ');
+                      field.onChange(fullAddress);
                     }}
                     placeholder='Adresse suchen…'
                     className={cn(fieldState.error && 'border-destructive')}
