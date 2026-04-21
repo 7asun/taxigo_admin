@@ -24,6 +24,11 @@ import {
   recurringReturnModeFromRow,
   type RecurringRuleReturnMode
 } from '@/features/trips/lib/recurring-return-mode';
+import {
+  loadPricingContext,
+  computeTripPrice,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
 
 export const dynamic = 'force-dynamic';
 
@@ -352,6 +357,15 @@ export async function GET(request: NextRequest) {
       return data.id;
     }
 
+    // Pricing context cache keyed by `${companyId}:${payerId}:${clientId}` to avoid
+    // redundant DB queries when multiple rules share the same client and payer.
+    const cronContextMap = new Map<string, PricingContext>();
+    const emptyCtx: PricingContext = {
+      rules: [],
+      clientPriceTags: [],
+      clientPriceTag: null
+    };
+
     for (const rule of rules) {
       const { data: client, error: clientError } = await supabase
         .from('clients')
@@ -366,6 +380,31 @@ export async function GET(request: NextRequest) {
           `[generate-recurring-trips] Skipping rule ${rule.id}: missing payer_id (edit and save the rule in Admin).`
         );
         continue;
+      }
+
+      // Load pricing context once per unique (company, payer, client) triple.
+      let pricingCtx: PricingContext = emptyCtx;
+      if (client.company_id) {
+        const ctxKey = `${client.company_id}:${rule.payer_id}:${client.id}`;
+        if (cronContextMap.has(ctxKey)) {
+          pricingCtx = cronContextMap.get(ctxKey)!;
+        } else {
+          try {
+            pricingCtx = await loadPricingContext({
+              supabase,
+              companyId: client.company_id,
+              payerId: rule.payer_id,
+              clientId: client.id
+            });
+            cronContextMap.set(ctxKey, pricingCtx);
+          } catch (e) {
+            console.error(
+              '[trip-price-engine] loadPricingContext failed',
+              ctxKey,
+              e
+            );
+          }
+        }
       }
 
       const clientName =
@@ -474,7 +513,25 @@ export async function GET(request: NextRequest) {
 
         if (!outboundPayload) continue;
 
-        const outboundId = await insertIfAbsent(outboundPayload, {
+        const outboundWithPrice: TripInsert = {
+          ...outboundPayload,
+          ...computeTripPrice(
+            {
+              payer_id: outboundPayload.payer_id ?? null,
+              billing_type_id: outboundPayload.billing_type_id ?? null,
+              billing_variant_id: outboundPayload.billing_variant_id ?? null,
+              client_id: outboundPayload.client_id ?? null,
+              driving_distance_km: outboundPayload.driving_distance_km ?? null,
+              scheduled_at: outboundPayload.scheduled_at ?? null,
+              kts_document_applies:
+                outboundPayload.kts_document_applies ?? false,
+              net_price: null
+            },
+            pricingCtx
+          )
+        };
+
+        const outboundId = await insertIfAbsent(outboundWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
           scheduled_at: outboundScheduledIso,
@@ -522,7 +579,24 @@ export async function GET(request: NextRequest) {
 
         if (!returnPayload) continue;
 
-        const returnId = await insertIfAbsent(returnPayload, {
+        const returnWithPrice: TripInsert = {
+          ...returnPayload,
+          ...computeTripPrice(
+            {
+              payer_id: returnPayload.payer_id ?? null,
+              billing_type_id: returnPayload.billing_type_id ?? null,
+              billing_variant_id: returnPayload.billing_variant_id ?? null,
+              client_id: returnPayload.client_id ?? null,
+              driving_distance_km: returnPayload.driving_distance_km ?? null,
+              scheduled_at: returnPayload.scheduled_at ?? null,
+              kts_document_applies: returnPayload.kts_document_applies ?? false,
+              net_price: null
+            },
+            pricingCtx
+          )
+        };
+
+        const returnId = await insertIfAbsent(returnWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
           scheduled_at: returnScheduledIso,

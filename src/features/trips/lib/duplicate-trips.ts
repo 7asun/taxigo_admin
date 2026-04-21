@@ -15,6 +15,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
+  computeTripPrice,
+  type ComputeTripPriceInput,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
+import {
   computePreserveScheduleForLeg,
   computeReturnScheduleForDuplicate,
   computeTimeOpenSchedule,
@@ -296,7 +301,9 @@ function copyRouteAndPassengerFields(
     vehicle_id: source.vehicle_id,
     notes: source.notes,
     note: source.note,
-    net_price: source.net_price,
+    // net_price is intentionally null — the source's value is a historical snapshot
+    // and must not bleed into the P3 fallback of the new trip.
+    net_price: null,
     gross_price: null,
     tax_rate: null,
     billing_type_id: source.billing_type_id,
@@ -304,6 +311,20 @@ function copyRouteAndPassengerFields(
     driving_duration_seconds: source.driving_duration_seconds,
     has_missing_geodata: source.has_missing_geodata,
     stop_order: source.stop_order
+  };
+}
+
+/** Maps an InsertTrip (optional fields) to the shape computeTripPrice requires (null, not undefined). */
+function toComputeInput(insert: InsertTrip): ComputeTripPriceInput {
+  return {
+    payer_id: insert.payer_id ?? null,
+    billing_type_id: insert.billing_type_id ?? null,
+    billing_variant_id: insert.billing_variant_id ?? null,
+    client_id: insert.client_id ?? null,
+    driving_distance_km: insert.driving_distance_km ?? null,
+    scheduled_at: insert.scheduled_at ?? null,
+    kts_document_applies: !!insert.kts_document_applies,
+    net_price: null
   };
 }
 
@@ -394,7 +415,8 @@ export async function executeDuplicateTrips(
   supabase: SupabaseClient<Database>,
   payload: DuplicateTripsPayload,
   companyId: string,
-  createdBy: string | null
+  createdBy: string | null,
+  getContext: (trip: Trip) => PricingContext
 ): Promise<DuplicateTripsResult> {
   // Omitted or true: match legacy bulk behaviour (expand partner). False: strict id list only.
   const includeLinkedLeg = payload.includeLinkedLeg !== false;
@@ -459,6 +481,14 @@ export async function executeDuplicateTrips(
       );
 
       await enrichInsertWithMetrics(insert, supabase, companyId);
+
+      // Price is recalculated rather than copied: this is a new trip on a new date
+      // and billing rules may have changed since the source was created.
+      // Computed after metric enrichment so driving_distance_km is final.
+      Object.assign(
+        insert,
+        computeTripPrice(toComputeInput(insert), getContext(unit.trip))
+      );
 
       const { data: row, error } = await supabase
         .from('trips')
@@ -528,6 +558,14 @@ export async function executeDuplicateTrips(
 
     await enrichInsertWithMetrics(outInsert, supabase, companyId);
 
+    // Price is recalculated rather than copied: this is a new trip on a new date
+    // and billing rules may have changed since the source was created.
+    // Computed after metric enrichment so driving_distance_km is final.
+    Object.assign(
+      outInsert,
+      computeTripPrice(toComputeInput(outInsert), getContext(unit.outbound))
+    );
+
     const { data: outRow, error: outErr } = await supabase
       .from('trips')
       .insert(outInsert)
@@ -544,6 +582,14 @@ export async function executeDuplicateTrips(
     );
 
     await enrichInsertWithMetrics(retInsert, supabase, companyId);
+
+    // Price is recalculated rather than copied: this is a new trip on a new date
+    // and billing rules may have changed since the source was created.
+    // Computed after metric enrichment so driving_distance_km is final.
+    Object.assign(
+      retInsert,
+      computeTripPrice(toComputeInput(retInsert), getContext(unit.ret))
+    );
 
     const { data: retRow, error: retErr } = await supabase
       .from('trips')

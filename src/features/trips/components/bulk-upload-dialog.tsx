@@ -53,6 +53,11 @@ import {
   resolveKtsDefault
 } from '@/features/trips/lib/resolve-kts-default';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
+import {
+  loadPricingContext,
+  computeTripPrice,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
@@ -1192,15 +1197,78 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
             (row) => row.trip!
           ) as InsertTrip[];
 
+          // ── Pass 0b: Load pricing contexts (deduped by payerId + clientId) ──
+          const pricingContextMap = new Map<string, PricingContext>();
+          const emptyPricingCtx: PricingContext = {
+            rules: [],
+            clientPriceTags: [],
+            clientPriceTag: null
+          };
+          if (companyId) {
+            const contextKeys = new Map<
+              string,
+              { payerId: string | null; clientId: string | null }
+            >();
+            for (const trip of outboundTrips) {
+              const key = `${trip.payer_id ?? 'null'}:${trip.client_id ?? 'null'}`;
+              if (!contextKeys.has(key)) {
+                contextKeys.set(key, {
+                  payerId: trip.payer_id ?? null,
+                  clientId: trip.client_id ?? null
+                });
+              }
+            }
+            await Promise.all(
+              Array.from(contextKeys.entries()).map(async ([key, params]) => {
+                try {
+                  const ctx = await loadPricingContext({
+                    supabase,
+                    companyId: companyId!,
+                    ...params
+                  });
+                  pricingContextMap.set(key, ctx);
+                } catch (e) {
+                  console.error(
+                    '[trip-price-engine] loadPricingContext failed',
+                    key,
+                    e
+                  );
+                }
+              })
+            );
+          }
+
+          // Apply computed price fields to each outbound trip before insert
+          const pricedOutboundTrips = outboundTrips.map((trip) => {
+            const key = `${trip.payer_id ?? 'null'}:${trip.client_id ?? 'null'}`;
+            const ctx = pricingContextMap.get(key) ?? emptyPricingCtx;
+            return {
+              ...trip,
+              ...computeTripPrice(
+                {
+                  payer_id: trip.payer_id ?? null,
+                  billing_type_id: trip.billing_type_id ?? null,
+                  billing_variant_id: trip.billing_variant_id ?? null,
+                  client_id: trip.client_id ?? null,
+                  driving_distance_km: trip.driving_distance_km ?? null,
+                  scheduled_at: trip.scheduled_at ?? null,
+                  kts_document_applies: trip.kts_document_applies ?? false,
+                  net_price: null
+                },
+                ctx
+              )
+            };
+          });
+
           const addressOverrides = successfulRows.filter(
             (r) => r.addressOverrideApplied
           ).length;
 
-          if (outboundTrips.length > 0 && errors.length === 0) {
+          if (pricedOutboundTrips.length > 0 && errors.length === 0) {
             try {
               // ── Pass 1: Insert all outbound trips ─────────────────────────────
               const createdOutbound =
-                await tripsService.bulkCreateTrips(outboundTrips);
+                await tripsService.bulkCreateTrips(pricedOutboundTrips);
 
               // ── Pass 2: Build and insert auto-return trips ────────────────────
               // Return trips use the geocoded addresses from the now-inserted
@@ -1246,7 +1314,29 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                     }
                   }
 
-                  returnTripPayloads.push(payload);
+                  // Apply price fields to return trip using the same context as outbound
+                  const returnCtxKey = `${payload.payer_id ?? 'null'}:${payload.client_id ?? 'null'}`;
+                  const returnCtx =
+                    pricingContextMap.get(returnCtxKey) ?? emptyPricingCtx;
+                  const pricedPayload = {
+                    ...payload,
+                    ...computeTripPrice(
+                      {
+                        payer_id: payload.payer_id ?? null,
+                        billing_type_id: payload.billing_type_id ?? null,
+                        billing_variant_id: payload.billing_variant_id ?? null,
+                        client_id: payload.client_id ?? null,
+                        driving_distance_km:
+                          payload.driving_distance_km ?? null,
+                        scheduled_at: payload.scheduled_at ?? null,
+                        kts_document_applies:
+                          payload.kts_document_applies ?? false,
+                        net_price: null
+                      },
+                      returnCtx
+                    )
+                  };
+                  returnTripPayloads.push(pricedPayload);
                   returnToOutboundMap.push({
                     returnIdx: returnTripPayloads.length - 1,
                     outboundId

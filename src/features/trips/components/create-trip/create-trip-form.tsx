@@ -54,6 +54,11 @@ import {
   type CreateTripDraftStored
 } from '@/features/trips/lib/create-trip-draft';
 import { resolveClientByName } from '@/features/trips/lib/resolve-client-by-name';
+import {
+  loadPricingContext,
+  computeTripPrice,
+  type PricingContext
+} from '@/features/trips/lib/trip-price-engine';
 
 const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   payer_id: 'payer',
@@ -1162,6 +1167,38 @@ export function CreateTripForm({
         companyId = profile?.company_id ?? null;
       }
 
+      // Load pricing contexts for price computation at creation time.
+      // One context per unique (payerId, clientId) pair, cached to avoid duplicate queries.
+      const pricingContextMap = new Map<string, PricingContext>();
+      const emptyPricingCtx: PricingContext = {
+        rules: [],
+        clientPriceTags: [],
+        clientPriceTag: null
+      };
+      if (companyId && values.payer_id) {
+        const pairs = requirePassenger
+          ? [...new Set(passengers.map((p) => p.client_id ?? 'null'))].map(
+              (cid) => ({ clientId: cid === 'null' ? null : cid })
+            )
+          : [{ clientId: null as string | null }];
+        await Promise.all(
+          pairs.map(async ({ clientId }) => {
+            const key = `${values.payer_id}:${clientId ?? 'null'}`;
+            try {
+              const ctx = await loadPricingContext({
+                supabase,
+                companyId: companyId!,
+                payerId: values.payer_id,
+                clientId
+              });
+              pricingContextMap.set(key, ctx);
+            } catch (e) {
+              console.error('[trip-price-engine] loadPricingContext failed', e);
+            }
+          })
+        );
+      }
+
       const resolvedPickupGroups = await Promise.all(
         pickupGroups.map((g) => ensureGroupHasCoords(g))
       );
@@ -1309,6 +1346,19 @@ export function CreateTripForm({
 
         const outbound = await tripsService.createTrip({
           ...baseTrip,
+          ...computeTripPrice(
+            {
+              payer_id: values.payer_id,
+              billing_type_id: ktsVariantRow?.billing_type_id || null,
+              billing_variant_id: values.billing_variant_id || null,
+              client_id: null,
+              driving_distance_km: outboundDrivingDistanceKm,
+              scheduled_at: outboundScheduledAt,
+              kts_document_applies: values.kts_document_applies,
+              net_price: null
+            },
+            pricingContextMap.get(`${values.payer_id}:null`) ?? emptyPricingCtx
+          ),
           is_wheelchair: values.is_wheelchair,
           client_id: null,
           client_name: null,
@@ -1358,6 +1408,20 @@ export function CreateTripForm({
 
           await tripsService.createTrip({
             ...baseTrip,
+            ...computeTripPrice(
+              {
+                payer_id: values.payer_id,
+                billing_type_id: ktsVariantRow?.billing_type_id || null,
+                billing_variant_id: values.billing_variant_id || null,
+                client_id: null,
+                driving_distance_km: returnDrivingDistanceKm,
+                scheduled_at: returnScheduledAt,
+                kts_document_applies: values.kts_document_applies,
+                net_price: null
+              },
+              pricingContextMap.get(`${values.payer_id}:null`) ??
+                emptyPricingCtx
+            ),
             status: (getStatusWhenDriverChanges('pending', null) ??
               'pending') as 'pending' | 'assigned',
             is_wheelchair: values.is_wheelchair,
@@ -1426,10 +1490,26 @@ export function CreateTripForm({
               }
             }
 
+            const passengerClientId = p.client_id || null;
             return tripsService.createTrip({
               ...baseTrip,
+              ...computeTripPrice(
+                {
+                  payer_id: values.payer_id,
+                  billing_type_id: ktsVariantRow?.billing_type_id || null,
+                  billing_variant_id: values.billing_variant_id || null,
+                  client_id: passengerClientId,
+                  driving_distance_km: outboundDrivingDistanceKm,
+                  scheduled_at: outboundScheduledAt,
+                  kts_document_applies: values.kts_document_applies,
+                  net_price: null
+                },
+                pricingContextMap.get(
+                  `${values.payer_id}:${passengerClientId ?? 'null'}`
+                ) ?? emptyPricingCtx
+              ),
               is_wheelchair: p.is_wheelchair,
-              client_id: p.client_id || null,
+              client_id: passengerClientId,
               client_name:
                 [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
               client_phone: p.phone || null,
@@ -1492,12 +1572,28 @@ export function CreateTripForm({
                   }
                 }
 
+                const returnClientId = p.client_id || null;
                 return tripsService.createTrip({
                   ...baseTrip,
+                  ...computeTripPrice(
+                    {
+                      payer_id: values.payer_id,
+                      billing_type_id: ktsVariantRow?.billing_type_id || null,
+                      billing_variant_id: values.billing_variant_id || null,
+                      client_id: returnClientId,
+                      driving_distance_km: drivingDistanceKm,
+                      scheduled_at: returnScheduledAt,
+                      kts_document_applies: values.kts_document_applies,
+                      net_price: null
+                    },
+                    pricingContextMap.get(
+                      `${values.payer_id}:${returnClientId ?? 'null'}`
+                    ) ?? emptyPricingCtx
+                  ),
                   status: (getStatusWhenDriverChanges('pending', null) ??
                     'pending') as 'pending' | 'assigned',
                   is_wheelchair: p.is_wheelchair,
-                  client_id: p.client_id || null,
+                  client_id: returnClientId,
                   client_name:
                     [p.first_name, p.last_name].filter(Boolean).join(' ') ||
                     null,

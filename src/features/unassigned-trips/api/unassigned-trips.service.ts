@@ -1,5 +1,12 @@
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
+import type { UpdateTrip } from '@/features/trips/api/trips.service';
+import {
+  computeTripPrice,
+  loadPricingContext,
+  resolveTripForPricing,
+  shouldRecalculatePrice
+} from '@/features/trips/lib/trip-price-engine';
 import type {
   UnassignedTrip,
   BillingVariantWithType,
@@ -94,21 +101,55 @@ export const unassignedTripsService = {
   },
 
   /**
-   * Bulk assign billing variant to trips
+   * Bulk assign billing variant to trips.
+   *
+   * Converted from a single batch update to a per-trip loop so that price
+   * recalculation can run per-trip. The new billing_variant_id affects rule
+   * resolution, and each trip may have a different payer/client context that
+   * produces a different price. A batch update cannot carry per-row price fields.
    */
   async assignBillingVariant(
     tripIds: string[],
     billingVariantId: string
   ): Promise<void> {
     const supabase = createClient();
-    const { error } = await supabase
-      .from('trips')
-      .update({ billing_variant_id: billingVariantId })
-      .in('id', tripIds);
+    for (const tripId of tripIds) {
+      const patch: UpdateTrip = { billing_variant_id: billingVariantId };
 
-    if (error) {
-      console.error('Error assigning billing variant:', error);
-      throw toQueryError(error);
+      // Only recalculate when a pricing-relevant field is being changed.
+      // billing_variant_id IS pricing-relevant, so this always fires here.
+      if (shouldRecalculatePrice(patch)) {
+        const tripInput = await resolveTripForPricing(supabase, tripId, patch);
+        if (tripInput) {
+          const context = await loadPricingContext({
+            supabase,
+            companyId: tripInput.company_id,
+            payerId: tripInput.payer_id,
+            clientId: tripInput.client_id
+          }).catch((e) => {
+            // A failed context load must never block a trip save.
+            console.error(
+              '[trip-price-engine] loadPricingContext failed on assignBillingVariant',
+              tripId,
+              e
+            );
+            return null;
+          });
+          if (context) {
+            Object.assign(patch, computeTripPrice(tripInput, context));
+          }
+        }
+      }
+
+      const { error } = await supabase
+        .from('trips')
+        .update(patch)
+        .eq('id', tripId);
+
+      if (error) {
+        console.error('Error assigning billing variant:', error);
+        throw toQueryError(error);
+      }
     }
   },
 

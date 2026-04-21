@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { clientsService } from '@/features/clients/api/clients.service';
+import {
+  computeTripPrice,
+  loadPricingContext,
+  resolveTripForPricing,
+  shouldRecalculatePrice
+} from '@/features/trips/lib/trip-price-engine';
+import type { UpdateTrip } from '@/features/trips/api/trips.service';
 import type { RehydratedTripRow } from './bulk-upload-types';
 
 interface ResolveClientsStepProps {
@@ -139,24 +146,53 @@ export function ResolveClientsStep({
         greeting_style: current.greetingStyle || null
       });
 
-      await supabase
-        .from('trips')
-        .update({
-          client_id: client.id,
-          client_name:
-            `${client.first_name || ''} ${client.last_name || ''}`.trim() ||
-            null,
-          ...(lat !== null && lng !== null
-            ? usePickup
-              ? { pickup_lat: lat, pickup_lng: lng, has_missing_geodata: false }
-              : {
-                  dropoff_lat: lat,
-                  dropoff_lng: lng,
-                  has_missing_geodata: false
-                }
-            : {})
-        })
-        .eq('id', current.tripId);
+      // Extract to a named variable so Object.assign can mutate it after
+      // price recalculation — inline literals cannot be mutated in place.
+      const tripPatch: UpdateTrip = {
+        client_id: client.id,
+        client_name:
+          `${client.first_name || ''} ${client.last_name || ''}`.trim() || null,
+        ...(lat !== null && lng !== null
+          ? usePickup
+            ? { pickup_lat: lat, pickup_lng: lng, has_missing_geodata: false }
+            : {
+                dropoff_lat: lat,
+                dropoff_lng: lng,
+                has_missing_geodata: false
+              }
+          : {})
+      };
+
+      // Only recalculate when a pricing-relevant field is being changed.
+      // Skipping for non-pricing updates avoids unnecessary context loads.
+      if (shouldRecalculatePrice(tripPatch)) {
+        const tripInput = await resolveTripForPricing(
+          supabase,
+          current.tripId,
+          tripPatch
+        );
+        if (tripInput) {
+          const context = await loadPricingContext({
+            supabase,
+            companyId: tripInput.company_id,
+            payerId: tripInput.payer_id,
+            clientId: tripInput.client_id
+          }).catch((e) => {
+            // A failed context load must never block a trip save.
+            console.error(
+              '[trip-price-engine] loadPricingContext failed on resolve-clients',
+              current.tripId,
+              e
+            );
+            return null;
+          });
+          if (context) {
+            Object.assign(tripPatch, computeTripPrice(tripInput, context));
+          }
+        }
+      }
+
+      await supabase.from('trips').update(tripPatch).eq('id', current.tripId);
 
       toast.success('Fahrgast wurde erstellt und mit der Fahrt verknüpft.');
 

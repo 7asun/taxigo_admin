@@ -35,7 +35,7 @@ describe('tieredNetTotal', () => {
 describe('resolveTripPrice', () => {
   const baseTrip = {
     kts_document_applies: false,
-    price: null as number | null,
+    net_price: null as number | null,
     driving_distance_km: 10 as number | null,
     scheduled_at: '2026-06-15T12:00:00.000Z',
     client: undefined as { price_tag: number | null } | undefined
@@ -195,8 +195,8 @@ describe('resolveTripPrice', () => {
     expect(r.approach_fee_net).toBe(5);
   });
 
-  test('no rule uses trip.price', () => {
-    const r = resolveTripPrice({ ...baseTrip, price: 42.5 }, 0.07, null);
+  test('no rule uses trip.net_price', () => {
+    const r = resolveTripPrice({ ...baseTrip, net_price: 42.5 }, 0.07, null);
     expect(r.source).toBe('trip_price');
     expect(r.net).toBe(42.5);
   });

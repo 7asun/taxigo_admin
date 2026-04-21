@@ -210,6 +210,12 @@ At the end the script prints a summary:
 | Duplicate-trip enrichment | [`src/features/trips/lib/duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts) |
 | Backfill script | [`scripts/backfill-driving-distance.ts`](../scripts/backfill-driving-distance.ts) |
 
+## Relationship to price calculation
+
+As of Phase 1 (2026-04-19), `driving_distance_km` is consumed at creation time by `computeTripPrice` in [`src/features/trips/lib/trip-price-engine.ts`](../src/features/trips/lib/trip-price-engine.ts) to determine the applicable VAT rate (7% for < 50 km, 19% for ≥ 50 km per §12 Abs. 2 Nr. 10 UStG). `net_price`, `gross_price`, and `tax_rate` are therefore also populated at creation time across all three wired creation paths. When `driving_distance_km` is null at creation time, the VAT engine falls back to 7% (reduced rate) and `tax_rate` remains stored on the trip row.
+
+See [price-calculation-engine.md](./price-calculation-engine.md) for the full engine documentation.
+
 ## Related docs
 
 - [address-autocomplete.md](./address-autocomplete.md) — Places, Place Details, Geocoding, env table.

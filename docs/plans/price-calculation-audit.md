@@ -5,6 +5,18 @@
 
 ---
 
+Phase 0a (applied 2026-04-19): Fixed broken P3 fallback test in resolve-trip-price.test.ts — renamed `price` to `net_price` in baseTrip fixture and all override sites. bun test confirmed green.
+
+Phase 1 (applied 2026-04-19): Price calculation engine implemented. See [docs/price-calculation-engine.md](../price-calculation-engine.md) for full documentation. Every new trip row written via `create-trip-form.tsx`, `bulk-upload-dialog.tsx`, and `generate-recurring-trips/route.ts` now has `net_price`, `gross_price`, and `tax_rate` populated at creation time. `duplicate-trips.ts` deferred to Phase 2.
+
+Phase 2 (applied 2026-04-19): Trip duplication path wired. `executeDuplicateTrips` now accepts a `getContext` function supplied by the route. For every duplicated trip — single, outbound leg, and return leg — prices are recomputed via `computeTripPrice` after `enrichInsertWithMetrics` so `driving_distance_km` is final before tiered-km rules evaluate. The source trip's `net_price` is explicitly set to `null` before computation so the P3 fallback cannot inherit a stale historical value.
+
+Phase 3 (applied 2026-04-19): Trip edit path wired. Two new helpers added to `trip-price-engine.ts`: `shouldRecalculatePrice` (pure — checks if a patch touches any pricing-relevant field) and `resolveTripForPricing` (async — fetches current row, merges patch, nulls `net_price`). Wired into five update paths: `tripsService.updateTrip` (central service covering all UI callers), `rescheduleTripWithOptionalPair`, `handleCreateAndLinkClient`, `assignBillingVariant` (converted from batch to per-trip loop), and `backfill-driving-distance.ts` main loop.
+
+Phase 4 (applied 2026-04-19): Backfill script updated to process all trips needing a price backfill, not just trips missing distance. Pass A (existing behaviour, now with ORDER BY) handles trips with null `driving_distance_km` and coordinates. Pass B (new) handles trips that already have distance but are missing one or more price fields — skips distance resolution entirely, writes only `net_price`, `gross_price`, `tax_rate`. A fix-window sub-pass within Pass B overwrites prices on trips created 2026-04-19 (the Phase 1 go-live day) when approach_fee_net was absent from the engine. Two new CLI flags: `--pass-a` (Pass A only) and `--pass-b` (Pass B only); default runs both. See `scripts/backfill-driving-distance.ts`.
+
+---
+
 ## Q1 — Schema: `billing_pricing_rules`
 
 ### Exact column list
