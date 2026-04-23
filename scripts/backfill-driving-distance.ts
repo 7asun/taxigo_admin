@@ -42,7 +42,7 @@ function sleep(ms: number) {
 // billing_type_id. Processing only the corrected IDs — rather than re-running
 // Pass B in full — ensures we touch exactly the trips that changed and avoids
 // re-evaluating company-wide trips that are already correctly priced.
-// Overwrites net_price / gross_price / tax_rate unconditionally (no null-price
+// Overwrites base_net_price, approach_fee_net, gross_price, tax_rate (not `net_price` — Phase 2 generated) unconditionally (no null-price
 // guard): these trips already have prices, but those prices were computed with a
 // missing billing_type_id and may have fallen through to the wrong STEP 3 rule.
 async function runPriceForTripIds(
@@ -81,7 +81,8 @@ async function runPriceForTripIds(
         driving_distance_km: trip.driving_distance_km ?? null,
         scheduled_at: trip.scheduled_at ?? null,
         kts_document_applies: trip.kts_document_applies ?? false,
-        net_price: null, // never inherit stored value
+        net_price: null, // in-memory: never inherit combined snapshot for P3
+        base_net_price: null, // in-memory: never inherit stored base for P4
         manual_gross_price: trip.manual_gross_price ?? null
       };
 
@@ -101,15 +102,18 @@ async function runPriceForTripIds(
 
       const priceFields = computeTripPrice(priceInput, context ?? emptyCtx);
 
-      if (priceFields.net_price === null) {
+      if (priceFields.gross_price === null) {
         unresolved++;
         continue;
       }
 
       if (DRY_RUN) {
+        const combined =
+          (priceFields.base_net_price ?? 0) +
+          (priceFields.approach_fee_net ?? 0);
         console.log(
           `[dry-run / Pass C re-run] Would set trip ${trip.id} ` +
-            `net_price=${priceFields.net_price} ` +
+            `net(combined)=${combined} ` +
             `gross_price=${priceFields.gross_price} ` +
             `tax_rate=${priceFields.tax_rate}`
         );
@@ -117,12 +121,14 @@ async function runPriceForTripIds(
         continue;
       }
 
+      // Phase 2: `net_price` is generated — write base + approach only.
       const { error: updateError } = await supabase
         .from('trips')
         .update({
-          net_price: priceFields.net_price,
           gross_price: priceFields.gross_price,
-          tax_rate: priceFields.tax_rate
+          tax_rate: priceFields.tax_rate,
+          base_net_price: priceFields.base_net_price,
+          approach_fee_net: priceFields.approach_fee_net
         })
         .eq('id', trip.id);
 
@@ -133,9 +139,12 @@ async function runPriceForTripIds(
         );
         errors++;
       } else {
+        const combined =
+          (priceFields.base_net_price ?? 0) +
+          (priceFields.approach_fee_net ?? 0);
         console.log(
           `[Pass C / re-run] Repriced trip ${trip.id} ` +
-            `net=${priceFields.net_price} gross=${priceFields.gross_price} ` +
+            `net(combined)=${combined} gross=${priceFields.gross_price} ` +
             `tax_rate=${priceFields.tax_rate}`
         );
         written++;
@@ -187,7 +196,7 @@ async function main() {
   let googleCallsInWindow = 0;
 
   // ── Pass B counters ──────────────────────────────────────────────────────────
-  let totalPriceWritten = 0; // trips where net_price was written (Pass A + B)
+  let totalPriceWritten = 0; // trips where a gross price was written (Pass A + B)
   let totalPriceUnresolved = 0; // computeTripPrice returned null — skip write (null-priced trips)
   let totalZeroPriceUnresolved = 0; // engine still returned null for a zero-priced non-KTS trip
   let totalZeroPriceEvaluated = 0; // total zero-priced non-KTS trips pulled into Pass B
@@ -335,7 +344,7 @@ async function main() {
               if (context) {
                 const priceResult = computeTripPrice(tripInput, context);
                 Object.assign(updatePayload, priceResult);
-                if (priceResult.net_price !== null) {
+                if (priceResult.gross_price !== null) {
                   totalPriceWritten++;
                 }
               }
@@ -370,8 +379,8 @@ async function main() {
 
   // ── Pass B — Price-only backfill (main) ─────────────────────────────────────
   // Selects trips that already have a driving distance but are missing one or more
-  // price fields. Skips distance resolution entirely — writes only the three price
-  // fields (net_price, gross_price, tax_rate).
+  // price fields. Skips distance resolution entirely — writes base_net_price, approach_fee_net, gross, tax
+  // (`net_price` is generated in Phase 2 — never sent on UPDATE).
 
   if (RUN_PASS_B) {
     console.log('\n[Pass B] Starting price-only backfill...');
@@ -416,8 +425,10 @@ async function main() {
         .not('payer_id', 'is', null)
         .not('company_id', 'is', null)
         .eq('company_id', COMPANY_ID)
+        // "Unpriced" = no engine split; zero-fare (base+approach = 0) is not the same. Generated `net_price`
+        // is never null after Phase 2, so do not use net_price.is.null.
         .or(
-          'net_price.is.null,gross_price.is.null,tax_rate.is.null,net_price.eq.0,gross_price.eq.0'
+          'and(base_net_price.is.null,approach_fee_net.is.null),gross_price.is.null,tax_rate.is.null,net_price.eq.0,gross_price.eq.0'
         )
         // KTS trips (kts_document_applies = true) intentionally produce net_price = 0
         // and gross_price = 0 via the Priority 0 hard override in resolve-trip-price.ts.
@@ -454,7 +465,8 @@ async function main() {
           driving_distance_km: trip.driving_distance_km ?? null,
           scheduled_at: trip.scheduled_at ?? null,
           kts_document_applies: trip.kts_document_applies ?? false,
-          net_price: null, // never inherit stored value
+          net_price: null,
+          base_net_price: null,
           manual_gross_price: trip.manual_gross_price ?? null
         };
 
@@ -477,7 +489,7 @@ async function main() {
         // Skip write when price cannot be resolved — do not overwrite with null.
         // Distinguish first-time unresolved trips from zero-priced trips where the
         // engine still cannot produce a valid price (two separate investigation paths).
-        if (priceFields.net_price === null) {
+        if (priceFields.gross_price === null) {
           if (zeroPriceTripIds.has(trip.id)) {
             totalZeroPriceUnresolved++;
           } else {
@@ -488,9 +500,12 @@ async function main() {
 
         if (DRY_RUN) {
           // Log computed values, not stored values (stored values are not in SELECT).
+          const combined =
+            (priceFields.base_net_price ?? 0) +
+            (priceFields.approach_fee_net ?? 0);
           console.log(
             `[dry-run] Would set trip ${trip.id} ` +
-              `net_price=${priceFields.net_price} ` +
+              `net(combined)=${combined} ` +
               `gross_price=${priceFields.gross_price} ` +
               `tax_rate=${priceFields.tax_rate}`
           );
@@ -501,9 +516,10 @@ async function main() {
         const { error: updateError } = await supabase
           .from('trips')
           .update({
-            net_price: priceFields.net_price,
             gross_price: priceFields.gross_price,
-            tax_rate: priceFields.tax_rate
+            tax_rate: priceFields.tax_rate,
+            base_net_price: priceFields.base_net_price,
+            approach_fee_net: priceFields.approach_fee_net
           })
           .eq('id', trip.id);
 
@@ -514,9 +530,12 @@ async function main() {
           );
           totalPriceBErrors++;
         } else {
+          const combined =
+            (priceFields.base_net_price ?? 0) +
+            (priceFields.approach_fee_net ?? 0);
           console.log(
             `[Pass B] Set prices on trip ${trip.id} ` +
-              `net=${priceFields.net_price} gross=${priceFields.gross_price} ` +
+              `net(combined)=${combined} gross=${priceFields.gross_price} ` +
               `tax_rate=${priceFields.tax_rate}`
           );
           totalPriceWritten++;
@@ -580,7 +599,8 @@ async function main() {
           driving_distance_km: trip.driving_distance_km ?? null,
           scheduled_at: trip.scheduled_at ?? null,
           kts_document_applies: trip.kts_document_applies ?? false,
-          net_price: null, // never inherit stored value
+          net_price: null,
+          base_net_price: null,
           manual_gross_price: trip.manual_gross_price ?? null
         };
 
@@ -600,15 +620,18 @@ async function main() {
 
         const priceFields = computeTripPrice(priceInput, context ?? emptyCtx);
 
-        if (priceFields.net_price === null) {
+        if (priceFields.gross_price === null) {
           totalPriceUnresolved++;
           continue;
         }
 
         if (DRY_RUN) {
+          const combined =
+            (priceFields.base_net_price ?? 0) +
+            (priceFields.approach_fee_net ?? 0);
           console.log(
             `[dry-run / fix-window] Would set trip ${trip.id} ` +
-              `net_price=${priceFields.net_price} ` +
+              `net(combined)=${combined} ` +
               `gross_price=${priceFields.gross_price} ` +
               `tax_rate=${priceFields.tax_rate}`
           );
@@ -619,9 +642,10 @@ async function main() {
         const { error: updateError } = await supabase
           .from('trips')
           .update({
-            net_price: priceFields.net_price,
             gross_price: priceFields.gross_price,
-            tax_rate: priceFields.tax_rate
+            tax_rate: priceFields.tax_rate,
+            base_net_price: priceFields.base_net_price,
+            approach_fee_net: priceFields.approach_fee_net
           })
           .eq('id', trip.id);
 
@@ -632,9 +656,12 @@ async function main() {
           );
           totalPriceBErrors++;
         } else {
+          const combined =
+            (priceFields.base_net_price ?? 0) +
+            (priceFields.approach_fee_net ?? 0);
           console.log(
             `[Pass B / fix-window] Corrected trip ${trip.id} ` +
-              `net=${priceFields.net_price} gross=${priceFields.gross_price} ` +
+              `net(combined)=${combined} gross=${priceFields.gross_price} ` +
               `tax_rate=${priceFields.tax_rate}`
           );
           totalFixWindowCorrected++;

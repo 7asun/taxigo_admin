@@ -98,9 +98,9 @@ Defined in `src/features/invoices/api/invoice-line-items.api.ts`.
 
 ### 3.2 After invoice create (`use-invoice-builder.ts`)
 
-On successful `createInvoice` + `insertLineItems`, the hook **fire-and-forget** `updateTrip` for each line with a `trip_id`, setting `net_price`, `gross_price`, `tax_rate` from the line resolution (and `manual_gross_price` when the user overrode gross). So trips that have been **invoiced through this path** get their columns aligned with the **last** created invoice line math for that run.
+On successful `createInvoice` + `insertLineItems`, the hook **fire-and-forget** `updateTrip` for each line with a `trip_id`, setting `gross_price`, `tax_rate` (and `manual_gross_price` when the user overrode gross), plus `base_net_price` and `approach_fee_net` from the line resolution, and **`net_price` = transport net + `approach_fee_net`** (aligned with `computeTripPrice` / the engine invariant). So trips that have been **invoiced through this path** get their columns aligned with the **last** created invoice line math for that run.
 
-**Comment in code** states intent that `net_price` reflects the line’s transport net and gross includes Anfahrt where applicable; align with `trip-price-engine` when reasoning about snapshots.
+**Update (2026-04-24, Phase 1):** this corrects a prior skew where `net_price` on writeback was **transport only**; stored `net_price` is now the **combined** net for new writes. Historical rows may still reflect the old behaviour until backfilled.
 
 ### 3.3 `resolveTripPrice` priority order (Spec C)
 
@@ -139,7 +139,7 @@ See §2.1 — in the audited environment **~6.7%** of rows had null `net_price`.
    A trips-first read would need a defined rule for when **manual** gross on the row overrides engine output (comment in migration: deferred).
 
 5. **Alignment with line-item structure**  
-   `computeTripPrice` stores a **combined** net in `trips.net_price` (base + `approach_fee_net` in the engine), while the builder exposes transport vs Anfahrt **separately** on the line. Skipping the resolver **without** a spec for splitting **transport vs approach** risks inconsistent PDF/totals vs the stored triplet.
+   The builder exposes transport vs Anfahrt **separately** on the line. **Phase 1 (2026-04-24)** also persists `base_net_price` and `approach_fee_net` on `trips` (plus combined `net_price`) for **new** `computeTripPrice` and post-invoice writeback paths. **Historically** many rows have only `net_price` (mixed semantics) or nulls. A trips-first flow that **skips** the resolver still risks stale catalog vs line math unless split columns are **backfilled** and kept current.
 
 6. **Trips that never got `computeTripPrice` on insert** (e.g. some return legs) may still be **invoiced** if the full cascade can price them — but a naive “if `net_price` then use only” would **fail** or diverge for those with nulls.
 
@@ -193,5 +193,8 @@ Even then, you need: **versioning** or **recompute** triggers when billing rules
 - **Invoice builder:** `fetchTripsForBuilder` selects `manual_gross_price`; `buildLineItemsFromTrips` passes it to `resolveTripPrice`.
 - **Step 3 UI:** “Taxameter” when `source === 'manual_gross_price'` or `isManualOverride`; catalog `manual_trip_price` still “Manuell”.
 - **Backfill:** `scripts/backfill-null-trip-net-prices.ts` for `net_price IS NULL AND payer_id IS NOT NULL` (run with service role; staging first).
+- **Phase 1 (2026-04-24) — trip price split on `trips`:** nullable `base_net_price` and `approach_fee_net` added; `computeTripPrice` and invoice writeback keep **`net_price` = base + approach** for existing readers. Historical split: `scripts/backfill-trip-price-split.ts`. See `docs/plans/option-a-schema-split-audit.md` (Phase 1 status).
 
 *End of audit.*
+
+**Last updated:** 2026-04-24

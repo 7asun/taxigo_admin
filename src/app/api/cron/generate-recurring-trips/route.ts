@@ -526,6 +526,7 @@ export async function GET(request: NextRequest) {
               kts_document_applies:
                 outboundPayload.kts_document_applies ?? false,
               net_price: null,
+              base_net_price: null,
               manual_gross_price: null
             },
             pricingCtx
@@ -592,6 +593,7 @@ export async function GET(request: NextRequest) {
               scheduled_at: returnPayload.scheduled_at ?? null,
               kts_document_applies: returnPayload.kts_document_applies ?? false,
               net_price: null,
+              base_net_price: null,
               manual_gross_price: null
             },
             pricingCtx

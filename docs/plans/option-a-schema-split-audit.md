@@ -2,6 +2,10 @@
 
 **Scope:** Read-only review of the repository as of **2026-04-23** (all searches below are against this tree). **No code changes** in this document.
 
+**Last updated:** 2026-04-25 — **Phase 2:** `net_price` is read-only in the database (`20260425120000_net_price_generated.sql`); applications persist `base_net_price` + `approach_fee_net` only. Earlier “combined vs base” **write** drift to `net_price` is **resolved** for new writes; generated `net_price` is always `COALESCE(base_net_price,0)+COALESCE(approach_fee_net,0)`.
+
+**Prior:** 2026-04-24 (Phase 1 status section — implementation on `main`).
+
 **Goal:** Map every read/write of `trips.net_price`, the role of `approach_fee_net`, `computeTripPrice`’s output, invoice line items, PDF, SQL/migrations, and risks for splitting stored net into **base transport net** vs **Anfahrt net** on the `trips` table.
 
 ---
@@ -211,6 +215,21 @@ In `src/features/invoices/api/invoice-line-items.api.ts` (lines 260–327):
 6. **Deprecate/remove** `net_price` last.
 
 **What must be done first:** **reconcile the engine vs invoice writeback semantics** for `trips.net_price` (or you risk encoding the same confusion into new columns). Option A is **worth doing** for schema clarity, but it is a **milestone in a larger consistency pass**, not a one-column rename.
+
+---
+
+## Phase 1 status (implemented 2026-04-24)
+
+The following **supersedes parts of the audit above** for current `main` after this release:
+
+- **Schema:** `supabase/migrations/20260424100000_add_trip_price_split.sql` adds nullable `trips.base_net_price` and `trips.approach_fee_net` (`numeric(10,4)`). `src/types/database.types.ts` includes both on `trips` Row / Insert / Update.
+- **Engine:** `TripPriceFields` in `trip-price-engine.ts` now includes `base_net_price` and `approach_fee_net`. **Invariant when set:** `net_price` = `base_net_price` + `approach_fee_net` (taxameter P0: `approach_fee_net` = 0; `base_net_price` is the full lump net).
+- **Invoice writeback:** `use-invoice-builder.ts` now writes the **combined** `net_price` (base + Anfahrt, cent-rounded) together with `base_net_price` and `approach_fee_net`, aligning the post-invoice trip row with the engine. This **resolves** the executive-finding mismatch for trips updated **after** this change.
+- **Readers:** unchanged this phase — dashboard, CSV, stats, occupancy still read **`net_price` only** (Phase 2 cutover deferred).
+- **Backfill:** `scripts/backfill-trip-price-split.ts` — taxameter branch, then latest `invoice_line_items` snapshot by `created_at`, then `loadPricingContext` + `resolveTripPrice` replay with mismatch guard; `--dry-run` supported.
+- **Other writers:** `scripts/backfill-null-trip-net-prices.ts` and `scripts/backfill-driving-distance.ts` persist the five price fields from `computeTripPrice`.
+
+**Still open (unchanged by Phase 1):** P4 double-counting edge in `resolveTripPrice` when `trips.net_price` semantics and resolver paths interact; reader migration off `net_price`; optional builder read-through of `trips.base_net_price` / `approach_fee_net`.
 
 ---
 

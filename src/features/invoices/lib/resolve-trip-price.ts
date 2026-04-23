@@ -5,7 +5,7 @@
  * Priority 2: client gross — `rule._price_gross` (client_price_tags via resolvePricingRule STEP 0)
  *   else legacy `clients.price_tag` (gross → net)
  * Priority 3: billing_pricing_rules strategy
- * Priority 4: trips.net_price (net) fallback
+ * Priority 4: trips.base_net_price (transport net) fallback
  * Priority 5: null / unresolved
  *
  * Tiered km: sum raw (km × rate) then round once to cents.
@@ -81,7 +81,13 @@ const BERLIN_TZ = 'Europe/Berlin';
 
 export interface TripPriceInput {
   kts_document_applies: boolean;
+  /** @deprecated for P3/P4 — prefer `base_net_price`. */
   net_price: number | null;
+  /**
+   * Transport net only (excludes Anfahrt). P3 strategies and P4 use this; do not pass combined `net_price` here
+   * or `withApproachFeeFromRule` can double-count approach on top of a combined stored total.
+   */
+  base_net_price: number | null;
   /** Taxameter gross (Admin) on the trip — absolute P0; all-in, includes Anfahrt. */
   manual_gross_price: number | null;
   driving_distance_km: number | null;
@@ -245,14 +251,14 @@ function executeStrategy(
 
   switch (strategy) {
     case 'client_price_tag': {
-      // Misnamed strategy: if we got here, price_tag was absent — use trip.net_price if present.
-      if (trip.net_price != null) {
+      // Misnamed strategy: if we got here, price_tag was absent — use stored transport net if present.
+      if (trip.base_net_price != null) {
         return resolution(
           {
-            net: trip.net_price,
+            net: trip.base_net_price,
             strategy_used: 'trip_price_fallback',
             source: 'trip_price',
-            unit_price_net: trip.net_price,
+            unit_price_net: trip.base_net_price,
             quantity: 1
           },
           taxRate
@@ -262,8 +268,8 @@ function executeStrategy(
     }
     case 'manual_trip_price': {
       // Explicit rule to invoice stored driver net price only.
-      if (trip.net_price == null) return null;
-      const n = trip.net_price;
+      if (trip.base_net_price == null) return null;
+      const n = trip.base_net_price;
       return resolution(
         {
           net: n,
@@ -464,9 +470,11 @@ export function resolveTripPrice(
     if (r) return withApproachFeeFromRule(r, rule);
   }
 
-  // P4 — stored trip net when no rule produced an amount (or rule returned null).
-  if (trip.net_price !== null && trip.net_price !== undefined) {
-    const n = trip.net_price;
+  // P4 — stored **transport** net when no rule produced an amount (or rule returned null).
+  // `base_net_price` only: previously P4 read combined `net_price` and the rule’s approach
+  // could be applied on top again (double-count). Phase 2 generated `trips.net_price` is combined only for readers.
+  if (trip.base_net_price !== null && trip.base_net_price !== undefined) {
+    const n = trip.base_net_price;
     return withApproachFeeFromRule(
       resolution(
         {

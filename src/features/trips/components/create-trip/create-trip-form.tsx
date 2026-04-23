@@ -1356,6 +1356,7 @@ export function CreateTripForm({
               scheduled_at: outboundScheduledAt,
               kts_document_applies: values.kts_document_applies,
               net_price: null,
+              base_net_price: null,
               manual_gross_price: null
             },
             pricingContextMap.get(`${values.payer_id}:null`) ?? emptyPricingCtx
@@ -1419,6 +1420,7 @@ export function CreateTripForm({
                 scheduled_at: returnScheduledAt,
                 kts_document_applies: values.kts_document_applies,
                 net_price: null,
+                base_net_price: null,
                 manual_gross_price: null
               },
               pricingContextMap.get(`${values.payer_id}:null`) ??
@@ -1505,6 +1507,7 @@ export function CreateTripForm({
                   scheduled_at: outboundScheduledAt,
                   kts_document_applies: values.kts_document_applies,
                   net_price: null,
+                  base_net_price: null,
                   manual_gross_price: null
                 },
                 pricingContextMap.get(
@@ -1588,6 +1591,7 @@ export function CreateTripForm({
                       scheduled_at: returnScheduledAt,
                       kts_document_applies: values.kts_document_applies,
                       net_price: null,
+                      base_net_price: null,
                       manual_gross_price: null
                     },
                     pricingContextMap.get(

@@ -144,6 +144,8 @@ export async function fetchTripsForBuilder(
       payer_id,
       scheduled_at,
       net_price,
+      base_net_price,
+      approach_fee_net,
       manual_gross_price,
       driving_distance_km,
       billing_variant_id,
@@ -262,6 +264,7 @@ export function buildLineItemsFromTrips(
       {
         kts_document_applies: trip.kts_document_applies === true,
         net_price: trip.net_price ?? null,
+        base_net_price: trip.base_net_price ?? null,
         manual_gross_price: trip.manual_gross_price ?? null,
         driving_distance_km: trip.driving_distance_km ?? null,
         scheduled_at: trip.scheduled_at,

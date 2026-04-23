@@ -256,7 +256,6 @@ function copyRouteAndPassengerFields(
   | 'vehicle_id'
   | 'notes'
   | 'note'
-  | 'net_price'
   | 'gross_price'
   | 'tax_rate'
   | 'billing_type_id'
@@ -301,9 +300,7 @@ function copyRouteAndPassengerFields(
     vehicle_id: source.vehicle_id,
     notes: source.notes,
     note: source.note,
-    // net_price is intentionally null — the source's value is a historical snapshot
-    // and must not bleed into the P3 fallback of the new trip.
-    net_price: null,
+    // Price columns come from `computeTripPrice` Object.assign; `net_price` is generated (Phase 2) — not set here.
     gross_price: null,
     tax_rate: null,
     billing_type_id: source.billing_type_id,
@@ -325,6 +322,7 @@ function toComputeInput(insert: InsertTrip): ComputeTripPriceInput {
     scheduled_at: insert.scheduled_at ?? null,
     kts_document_applies: !!insert.kts_document_applies,
     net_price: null,
+    base_net_price: null,
     manual_gross_price: insert.manual_gross_price ?? null
   };
 }

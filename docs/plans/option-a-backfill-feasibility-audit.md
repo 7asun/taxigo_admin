@@ -1,8 +1,10 @@
 # Audit: Option A Phase 1 — backfill feasibility (deterministic recovery of `approach_fee_net` from billing rules)
 
-**Scope:** Read-only review of the repository as of **2026-04-23**. **No code changes.**
+**Scope:** Read-only review of the repository as of **2026-04-23**. Phase 1 implementation notes were appended **2026-04-24**; the historical analysis below is unchanged. **2026-04-25 (Phase 2):** `trips.net_price` is **generated**; maintenance scripts that filtered `.is('net_price', null)` use **`base_net_price` / `approach_fee_net` nulls** for “unpriced” instead — see `scripts/backfill-null-trip-net-prices.ts` and `scripts/backfill-driving-distance.ts`.
 
-**Context:** `trips.net_price` may be **base + Anfahrt** (engine) or **base only** (invoice writeback); see `docs/plans/option-a-schema-split-audit.md` § “Executive finding”. This document asks whether `approach_fee_net` for **every** historical trip can be recovered **exactly** from **billing rules** alone, without re-running the full `resolveTripPrice` cascade.
+**Last updated:** 2026-04-25
+
+**Context:** `trips.net_price` was historically **inconsistent** between paths: **base + Anfahrt** (engine) vs **base only** (older invoice writeback) — see `docs/plans/option-a-schema-split-audit.md` executive finding. **As of Phase 1 (2026-04-24),** new post-invoice writeback stores `base_net_price`, `approach_fee_net`, and a **combined** `net_price` matching the engine. Rows created before that may still have legacy semantics until `scripts/backfill-trip-price-split.ts` (or a full re-save) is applied. This document asks whether `approach_fee_net` for **every** historical trip can be recovered **exactly** from **billing rules** alone, without re-running the full `resolveTripPrice` cascade.
 
 **Note on requested path:** `src/features/billing-rules/` **does not exist** in this workspace (0 files). Pricing rules are implemented under **`public.billing_pricing_rules`** (migrations + `resolve-pricing-rule.ts`, `pricing-rule-config.schema.ts`, payers UI). Findings below reference those.
 
@@ -77,7 +79,7 @@
 
 | Item | Evidence |
 |------|----------|
-| **Stored at trip-creation time** | There is **no** `trips.approach_fee_net` column today (`option-a-schema-split-audit.md` §3). The engine folds approach into `trips.net_price` only for **engine**-written combined snapshots (`trip-price-engine.ts` 252–256). **Invoice writeback** writes **base** to `net_price` (`use-invoice-builder` in prior audit, line 277). |
+| **Stored at trip-creation time** | *Audit snapshot (pre–Phase 1):* there was **no** `trips.approach_fee_net`; the engine folded approach into `trips.net_price` for engine-written rows, while **older** invoice writeback could store **base-only** in `net_price` (`option-a-schema-split-audit` executive finding). **Phase 1 (2026-04-24):** `base_net_price` + `approach_fee_net` + **combined** `net_price` on `computeTripPrice` and post-invoice writeback — see § “Phase 1 implementation” below. **Backfill** still must classify **historical** rows. |
 | **Record other than combined `net_price`?** | For **never-invoiced** trips: no `invoice_line_items` row — **no** `invoice_line_items.approach_fee_net` snapshot. |
 | **From current rule only?** | You can read **`approach_fee_net` from the rule that `resolvePricingRule` would pick _today_** (same as `loadPricingContext` + `resolvePricingRule`), but that is **not guaranteed** to match the rule at original pricing time if the trip’s `billing_variant_id` / `billing_type_id` / `payer_id` / client tag state or the rule `config` changed. |
 | **Approximate?** | **Yes, only approximate** if you read rules without full re-resolution — and **wrong** for rows where `net_price` is **already base-only** (post–invoice writeback) if you **subtract** a rule fee. |
@@ -95,7 +97,7 @@
 
 | Blocker | Evidence |
 |--------|----------|
-| **Ambiguous `net_price` semantics** | `docs/plans/option-a-schema-split-audit.md` — engine **adds** approach into `net_price`; invoice writeback stores **base** in `net_price`. **Subtracting** a positive rule fee from **base-only** `net_price` **underestimates** base and is **incorrect**. There is **no** flag on the trip that distinguishes the two. |
+| **Ambiguous `net_price` semantics** | *Legacy / historical rows:* same-path mismatch as in `option-a-schema-split-audit` (engine **combined** vs old writeback **base-only**). **Subtracting** a positive rule fee from a **base-only** `net_price` **underestimates** base. **New writes (Phase 1+)** align combined `net_price` and split columns; backfill and analytics must still handle **old** rows until migrated. |
 | **Rule identity not stored** | §2 — cannot know **which** `billing_pricing_rules` row (or which `config` revision) was used without re-resolving with **point-in-facts**; **current** `config` may differ. |
 | **Cascade paths where rule Anfahrt does not apply** | P0 taxameter: approach **0** in resolution but lump-sum semantics (`resolve-trip-price.ts` 412–414, `trip-price-engine.ts` 251–252). KTS, client price tag: **no** `approach_fee_net` on resolution object (lines 416–456). A **single SQL** that only reads `config->approach_fee_net` and `trips.net_price` **cannot** branch like `resolveTripPrice` without the same **inputs** (e.g. `kts_document_applies`, `manual_gross_price`, client tag fields, `driving_distance_km`, `scheduled_at` for time_based, and `resolvePricingRule` STEPs 0–3). |
 | **P4 / combined `net_price` + `withApproachFeeFromRule` risk** | If `trips.net_price` were **combined** and P4 + rule fee applied again in resolution, the design double-counts in the resolver (`option-a-schema-split-audit.md` §9) — a naive subtraction does not “invert” that without knowing the path. |
@@ -106,7 +108,7 @@
 
 **What is valid:**
 
-- **Full re-resolution in TypeScript** (same as `scripts/backfill-null-trip-net-prices.ts`): for each trip, build `ComputeTripPriceInput` from the **current** row fields, `loadPricingContext` + `computeTripPrice` — yields **`TripPriceFields.net_price` as combined** and you would still need to **read `resolution` internals**; today `computeTripPrice` only returns the three fields, so you must **either** call `resolveTripPrice` with the same inputs as `computeTripPrice` to obtain **`resolution.net` and `resolution.approach_fee_net` separately** or **extend** the engine to return them. That is the **logically correct** “recalculate and split” path for **current** rules.
+- **Full re-resolution in TypeScript** (same as `scripts/backfill-null-trip-net-prices.ts`): for each trip, build `ComputeTripPriceInput` from the **current** row fields, `loadPricingContext` + `computeTripPrice` — yields **`TripPriceFields.net_price` as combined** plus, **since Phase 1**, `base_net_price` and `approach_fee_net` on the return object. For **historical** backfill where you cannot trust stored split columns, you still **`resolveTripPrice` + `resolvePricingRule` + `loadPricingContext`** (as in `backfill-trip-price-split.ts` Case 3) when invoice snapshots are absent. That remains the **logically correct** “recalculate and split” path for **replaying** current catalog against a row.
 - **Segmented heuristics** (not fully deterministic for all history): e.g. use **`invoice_line_items.approach_fee_net`** where a line exists (join by `trip_id`) as **charged** Anfahrt; for uninvoiced, full resolution or “unknown + manual review” bucket.
 
 ### 7.2 Percentage of trips with non-zero Anfahrt
@@ -124,9 +126,19 @@
 
 1. **Invoiced trips:** use **`invoice_line_items.approach_fee_net` + `price_resolution_snapshot` / `unit_price` / `quantity`** (and tax) as the **legal snapshot** of what was charged, not today’s `billing_pricing_rules.config`, when the goal is “what we actually billed.”
 2. **Uninvoiced or missing lines:** run **`resolveTripPrice` + `resolvePricingRule` + `loadPricingContext`with `trips` row state** (and client tags) — same inputs as the app — to obtain **`resolution.net` and `resolution.approach_fee_net`**, then split into new columns, accepting that this reflects **current** catalog, not a time-machine.
-3. **If** you add **`trips.base_net_price` / `trips.approach_fee_net` going forward**, write them in **one place** (engine + invoice writeback) so a future backfill is not ambiguous.
+3. **Columns exist since Phase 1** — `trips.base_net_price` / `trips.approach_fee_net` must stay in sync from **one** pair of paths (engine + invoice writeback) so new data is not ambiguous; **history** may still need the backfill script.
 
 **If a formula is required for a **subset** only:** the **only** rule-sourced `approach_fee_net` in DB is **`billing_pricing_rules.config->approach_fee_net` (net)**, and it applies **only** when the same cascade that `resolveTripPrice` uses would attach it — not from SQL subtraction alone on `net_price` without the cascade and without knowing whether `net_price` is combined or base.
+
+---
+
+## Phase 1 implementation (2026-04-24)
+
+- **Backfill script:** `scripts/backfill-trip-price-split.ts` — processes trips with `base_net_price IS NULL` in batches of 100; supports `--dry-run`.
+- **Tiering:** (1) `manual_gross_price` set — taxameter P0: `base_net_price = net_price`, `approach_fee_net = 0`. (2) If any `invoice_line_items` exist for the trip, use the row with the latest `created_at` for `approach_fee_net`, then `base_net_price = net_price - coalesce(approach,0)`; skip if base would be negative. (3) Otherwise replay **`loadPricingContext` + `resolvePricingRule` + `resolveTripPrice`** with the same trip inputs as production; if `|net_price - (resolution.net + (approach??0))| > epsilon`, increment mismatch skip (stale `net_price` vs current catalog).
+- **Going forward:** `computeTripPrice` and invoice writeback both persist `base_net_price` and `approach_fee_net` on `trips` (see `docs/plans/option-a-schema-split-audit.md` Phase 1 status).
+
+**Last updated:** 2026-04-24
 
 ---
 

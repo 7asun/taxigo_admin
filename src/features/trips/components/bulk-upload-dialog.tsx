@@ -1254,6 +1254,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   scheduled_at: trip.scheduled_at ?? null,
                   kts_document_applies: trip.kts_document_applies ?? false,
                   net_price: null,
+                  base_net_price: null,
                   manual_gross_price: null
                 },
                 ctx
@@ -1333,6 +1334,7 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                         kts_document_applies:
                           payload.kts_document_applies ?? false,
                         net_price: null,
+                        base_net_price: null,
                         manual_gross_price: null
                       },
                       returnCtx

@@ -266,20 +266,24 @@ export function useInvoiceBuilder(
       await insertLineItems(invoice.id, lineItems);
 
       // Fire-and-forget: failed writeback must never block the invoice.
-      // net_price = total transport net (not per-km unit); gross_price = total gross incl. Anfahrt.
+      // price_resolution.net is transport-only; Anfahrt on approach_fee_net.
+      // Phase 2: `trips.net_price` is a generated column — never write it here; DB combines base + approach.
       void Promise.allSettled(
         lineItems
           .filter((item) => item.trip_id !== null)
-          .map((item) =>
-            tripsService.updateTrip(item.trip_id!, {
-              net_price: item.price_resolution.net,
+          .map((item) => {
+            const baseNet = item.price_resolution.net;
+            const approachNet = item.approach_fee_net ?? 0;
+            return tripsService.updateTrip(item.trip_id!, {
               gross_price: item.manualGrossTotal ?? item.price_resolution.gross,
               tax_rate: item.tax_rate,
+              base_net_price: baseNet,
+              approach_fee_net: approachNet,
               ...(item.isManualOverride && item.manualGrossTotal !== null
                 ? { manual_gross_price: item.manualGrossTotal }
                 : {})
-            })
-          )
+            });
+          })
       );
 
       return invoice;

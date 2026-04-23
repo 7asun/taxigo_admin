@@ -1,6 +1,7 @@
 /**
- * One-off data repair: set net_price / gross_price / tax_rate for trips where
- * net_price IS NULL AND payer_id IS NOT NULL (unpriced-with-payer rows).
+ * One-off data repair: set base_net_price, approach_fee_net, gross_price, tax_rate for trips
+ * with no price split yet (`base_net_price` and `approach_fee_net` both NULL) and payer set.
+ * After Phase 2, `net_price` is generated — not written here.
  *
  * Run with: `bun run scripts/backfill-null-trip-net-prices.ts` (requires .env with
  * NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).
@@ -41,9 +42,11 @@ async function main(): Promise<void> {
     const { data: rows, error: qErr } = await supabase
       .from('trips')
       .select(
-        'id, company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, manual_gross_price, net_price'
+        'id, company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, manual_gross_price'
       )
-      .is('net_price', null)
+      // Phase 2: `net_price` is generated — "unpriced" = no engine split stored (not zero-fare KTS).
+      .is('base_net_price', null)
+      .is('approach_fee_net', null)
       .not('payer_id', 'is', null)
       .order('id')
       .range(offset, offset + BATCH - 1);
@@ -70,6 +73,7 @@ async function main(): Promise<void> {
         scheduled_at: trip.scheduled_at ?? null,
         kts_document_applies: trip.kts_document_applies ?? false,
         net_price: null,
+        base_net_price: null,
         manual_gross_price: trip.manual_gross_price ?? null
       };
 
@@ -81,11 +85,7 @@ async function main(): Promise<void> {
           clientId: trip.client_id ?? null
         });
         const priceFields = computeTripPrice(priceInput, context);
-        if (
-          priceFields.net_price == null &&
-          priceFields.gross_price == null &&
-          priceFields.tax_rate == null
-        ) {
+        if (priceFields.gross_price == null) {
           unresolved += 1;
           continue;
         }
@@ -93,12 +93,14 @@ async function main(): Promise<void> {
           updated += 1;
           continue;
         }
+        // Phase 2: `net_price` is generated from base + approach — do not write it.
         const { error: uErr } = await supabase
           .from('trips')
           .update({
-            net_price: priceFields.net_price,
             gross_price: priceFields.gross_price,
-            tax_rate: priceFields.tax_rate
+            tax_rate: priceFields.tax_rate,
+            base_net_price: priceFields.base_net_price,
+            approach_fee_net: priceFields.approach_fee_net
           })
           .eq('id', trip.id);
         if (uErr) {

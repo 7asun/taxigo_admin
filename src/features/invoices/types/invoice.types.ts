@@ -233,7 +233,11 @@ export interface TripForInvoice {
   id: string;
   payer_id: string;
   scheduled_at: string | null; // used as line_date
-  net_price: number | null; // manual driver price
+  /** On `trips` rows after Phase 2, DB `net_price` is generated; readers still use this for display math. */
+  net_price: number | null;
+  /** Transport net only — P3/P4 in resolveTripPrice. */
+  base_net_price: number | null;
+  approach_fee_net: number | null;
   /** Taxameter gross on trip — resolveTripPrice P0 when set. */
   manual_gross_price: number | null;
   driving_distance_km: number | null; // for tax rate calculation

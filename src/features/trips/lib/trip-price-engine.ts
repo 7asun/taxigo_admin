@@ -1,8 +1,9 @@
 /**
  * trip-price-engine.ts
  *
- * Phase 1: Load pricing context from Supabase and compute the three price
- * fields (net_price, gross_price, tax_rate) for a trip at creation time.
+ * Phase 1: Load pricing context from Supabase and compute the price
+ * fields (gross_price, tax_rate, base_net_price, approach_fee_net) for a trip.
+ * `trips.net_price` is a DB generated column in Phase 2+ — not written from here.
  *
  * `loadPricingContext` — async, accepts any SupabaseClient (browser, server action,
  *   or cron service-role). Uses direct queries to avoid session-bound helpers.
@@ -46,11 +47,16 @@ export interface PricingContext {
   clientPriceTag: number | null;
 }
 
-/** The three price fields written to the `trips` row at creation time. */
+/**
+ * Price fields written to the `trips` row. Phase 1 split: `base_net_price` + `approach_fee_net`.
+ * Phase 2: `net_price` is a **generated column** in Postgres (`<timestamp>_net_price_generated.sql`) —
+ * do not add it here; combined total is read from `Row.net_price` for dashboard/CSV.
+ */
 export interface TripPriceFields {
-  net_price: number | null;
   gross_price: number | null;
   tax_rate: number | null;
+  base_net_price: number | null;
+  approach_fee_net: number | null;
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
@@ -193,26 +199,29 @@ export interface ComputeTripPriceInput {
   scheduled_at: string | null;
   kts_document_applies: boolean;
   net_price: number | null;
+  /** Read from `trips.base_net_price` when replaying; null on new/edit recalc (see `resolveTripForPricing`). */
+  base_net_price: number | null;
   /** Persisted taxameter gross on the trip — passed through to resolveTripPrice P0. */
   manual_gross_price: number | null;
 }
 
 /**
- * Pure synchronous computation of the three price fields for a trip.
+ * Pure synchronous computation of the price fields (including base vs Anfahrt) for a trip.
  * Calls the existing pure resolvers; never performs I/O.
  *
  * Returns all-null when `payer_id` is absent (unresolved trips).
  * Returns all-null when the resolved strategy produces no price.
- * `tax_rate` is stored as `null` whenever `net_price` is `null`.
+ * `tax_rate` / `gross_price` are `null` when the resolver does not return a price.
  */
 export function computeTripPrice(
   trip: ComputeTripPriceInput,
   context: PricingContext
 ): TripPriceFields {
   const nullFields: TripPriceFields = {
-    net_price: null,
     gross_price: null,
-    tax_rate: null
+    tax_rate: null,
+    base_net_price: null,
+    approach_fee_net: null
   };
 
   if (!trip.payer_id) return nullFields;
@@ -222,6 +231,7 @@ export function computeTripPrice(
   const tripInput = {
     kts_document_applies: trip.kts_document_applies,
     net_price: trip.net_price,
+    base_net_price: trip.base_net_price,
     manual_gross_price: trip.manual_gross_price ?? null,
     driving_distance_km: trip.driving_distance_km,
     scheduled_at: trip.scheduled_at,
@@ -248,17 +258,20 @@ export function computeTripPrice(
   // the invoice builder adds it as a separate line item for per-line rendering.
   // The trip snapshot must include the full cost so reporting and the P4
   // fallback see the total, not just the base transport charge.
-  // P0 taxameter (manual_gross_price) is all-in; approach_fee_net is always 0 there.
+  // P0 taxameter: resolution.net is the full transport lump in net; approach_fee_net is 0
+  // (see resolveTripPrice). Combined `trips.net_price` is generated in the DB (Phase 2).
+  const baseNetPrice = resolution.net;
   const approachFeeNet = resolution.approach_fee_net ?? 0;
-  const totalNet =
-    resolution.net !== null ? resolution.net + approachFeeNet : null;
   const totalGross =
-    totalNet !== null ? Math.round(totalNet * (1 + taxRate) * 100) / 100 : null;
+    baseNetPrice !== null
+      ? Math.round((baseNetPrice + approachFeeNet) * (1 + taxRate) * 100) / 100
+      : null;
 
   return {
-    net_price: totalNet,
     gross_price: totalGross,
-    tax_rate: totalNet !== null ? taxRate : null
+    tax_rate: baseNetPrice !== null ? taxRate : null,
+    base_net_price: baseNetPrice,
+    approach_fee_net: approachFeeNet
   };
 }
 
@@ -320,9 +333,8 @@ export function shouldRecalculatePrice(
  * has the row in scope. This guarantees the merge uses the latest committed
  * state and eliminates race conditions from stale in-memory rows.
  *
- * `net_price` is always `null` in the returned input. The stored value is a
- * historical snapshot and must not bleed into the P3 fallback of the
- * recalculated price.
+ * `net_price` and `base_net_price` are always `null` in the returned input. Stored
+ * trip prices must not bleed into the recalculated resolution (P3/P4).
  *
  * Returns `null` on fetch error. Callers must proceed with the update
  * unmodified — a failed fetch must never block a trip save.
@@ -335,7 +347,7 @@ export async function resolveTripForPricing(
   const { data: current, error } = await supabase
     .from('trips')
     .select(
-      'company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, net_price, manual_gross_price'
+      'company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, net_price, base_net_price, manual_gross_price'
     )
     .eq('id', tripId)
     .single();
@@ -361,9 +373,9 @@ export async function resolveTripForPricing(
     scheduled_at: patch.scheduled_at ?? current.scheduled_at ?? null,
     kts_document_applies:
       patch.kts_document_applies ?? current.kts_document_applies ?? false,
-    // net_price is intentionally null — the stored value is a historical snapshot
-    // and must not bleed into the P4 fallback of the recalculated price.
+    // Stored combined / base snapshots must not anchor recalculation.
     net_price: null,
+    base_net_price: null,
     manual_gross_price:
       patch.manual_gross_price ?? current.manual_gross_price ?? null
   };

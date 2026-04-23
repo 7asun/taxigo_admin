@@ -1213,9 +1213,12 @@ export type Database = {
           pickup_zip_code: string | null;
           pickup_location: Json | null;
           pickup_station: string | null;
-          net_price: number | null;
+          /** Generated STORED: COALESCE(base_net_price,0)+COALESCE(approach_fee_net,0). Read-only; omit from writes. */
+          net_price: number;
           gross_price: number | null;
           tax_rate: number | null;
+          base_net_price: number | null;
+          approach_fee_net: number | null;
           manual_gross_price: number | null;
           billing_type_id: string | null;
           requested_date: string | null;
@@ -1282,9 +1285,10 @@ export type Database = {
           pickup_zip_code?: string | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
-          net_price?: number | null;
           gross_price?: number | null;
           tax_rate?: number | null;
+          base_net_price?: number | null;
+          approach_fee_net?: number | null;
           manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
@@ -1343,9 +1347,10 @@ export type Database = {
           pickup_lng?: number | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
-          net_price?: number | null;
           gross_price?: number | null;
           tax_rate?: number | null;
+          base_net_price?: number | null;
+          approach_fee_net?: number | null;
           manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
