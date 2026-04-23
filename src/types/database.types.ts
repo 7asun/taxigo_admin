@@ -1216,6 +1216,7 @@ export type Database = {
           net_price: number | null;
           gross_price: number | null;
           tax_rate: number | null;
+          manual_gross_price: number | null;
           billing_type_id: string | null;
           requested_date: string | null;
           return_status: string | null;
@@ -1284,6 +1285,7 @@ export type Database = {
           net_price?: number | null;
           gross_price?: number | null;
           tax_rate?: number | null;
+          manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;
@@ -1344,6 +1346,7 @@ export type Database = {
           net_price?: number | null;
           gross_price?: number | null;
           tax_rate?: number | null;
+          manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;

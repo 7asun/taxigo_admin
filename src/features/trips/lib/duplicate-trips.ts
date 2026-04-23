@@ -324,7 +324,8 @@ function toComputeInput(insert: InsertTrip): ComputeTripPriceInput {
     driving_distance_km: insert.driving_distance_km ?? null,
     scheduled_at: insert.scheduled_at ?? null,
     kts_document_applies: !!insert.kts_document_applies,
-    net_price: null
+    net_price: null,
+    manual_gross_price: insert.manual_gross_price ?? null
   };
 }
 

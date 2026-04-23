@@ -193,6 +193,8 @@ export interface ComputeTripPriceInput {
   scheduled_at: string | null;
   kts_document_applies: boolean;
   net_price: number | null;
+  /** Persisted taxameter gross on the trip — passed through to resolveTripPrice P0. */
+  manual_gross_price: number | null;
 }
 
 /**
@@ -220,6 +222,7 @@ export function computeTripPrice(
   const tripInput = {
     kts_document_applies: trip.kts_document_applies,
     net_price: trip.net_price,
+    manual_gross_price: trip.manual_gross_price ?? null,
     driving_distance_km: trip.driving_distance_km,
     scheduled_at: trip.scheduled_at,
     client:
@@ -243,8 +246,9 @@ export function computeTripPrice(
 
   // approach_fee_net is intentionally excluded from resolution.net/gross:
   // the invoice builder adds it as a separate line item for per-line rendering.
-  // The trip snapshot must include the full cost so reporting and the P3
+  // The trip snapshot must include the full cost so reporting and the P4
   // fallback see the total, not just the base transport charge.
+  // P0 taxameter (manual_gross_price) is all-in; approach_fee_net is always 0 there.
   const approachFeeNet = resolution.approach_fee_net ?? 0;
   const totalNet =
     resolution.net !== null ? resolution.net + approachFeeNet : null;
@@ -331,7 +335,7 @@ export async function resolveTripForPricing(
   const { data: current, error } = await supabase
     .from('trips')
     .select(
-      'company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, net_price'
+      'company_id, payer_id, billing_type_id, billing_variant_id, client_id, driving_distance_km, scheduled_at, kts_document_applies, net_price, manual_gross_price'
     )
     .eq('id', tripId)
     .single();
@@ -358,7 +362,9 @@ export async function resolveTripForPricing(
     kts_document_applies:
       patch.kts_document_applies ?? current.kts_document_applies ?? false,
     // net_price is intentionally null — the stored value is a historical snapshot
-    // and must not bleed into the P3 fallback of the recalculated price.
-    net_price: null
+    // and must not bleed into the P4 fallback of the recalculated price.
+    net_price: null,
+    manual_gross_price:
+      patch.manual_gross_price ?? current.manual_gross_price ?? null
   };
 }

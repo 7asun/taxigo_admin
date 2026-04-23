@@ -60,7 +60,7 @@ async function runPriceForTripIds(
     const { data: trips, error } = await supabase
       .from('trips')
       .select(
-        'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies'
+        'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies, manual_gross_price'
       )
       .in('id', batchSlice);
 
@@ -81,7 +81,8 @@ async function runPriceForTripIds(
         driving_distance_km: trip.driving_distance_km ?? null,
         scheduled_at: trip.scheduled_at ?? null,
         kts_document_applies: trip.kts_document_applies ?? false,
-        net_price: null // never inherit stored value
+        net_price: null, // never inherit stored value
+        manual_gross_price: trip.manual_gross_price ?? null
       };
 
       const context = await loadPricingContext({
@@ -187,7 +188,9 @@ async function main() {
 
   // ── Pass B counters ──────────────────────────────────────────────────────────
   let totalPriceWritten = 0; // trips where net_price was written (Pass A + B)
-  let totalPriceUnresolved = 0; // computeTripPrice returned null — skip write
+  let totalPriceUnresolved = 0; // computeTripPrice returned null — skip write (null-priced trips)
+  let totalZeroPriceUnresolved = 0; // engine still returned null for a zero-priced non-KTS trip
+  let totalZeroPriceEvaluated = 0; // total zero-priced non-KTS trips pulled into Pass B
   let totalFixWindowCorrected = 0; // fix-window sub-pass corrections
   let totalPriceBErrors = 0; // Pass B write errors
 
@@ -373,19 +376,53 @@ async function main() {
   if (RUN_PASS_B) {
     console.log('\n[Pass B] Starting price-only backfill...');
 
+    // Pre-loop: snapshot IDs of zero-priced non-KTS trips so the null-price guard
+    // inside the loop can distinguish two failure modes:
+    //   • first-time unresolved → engine never produced a price (totalPriceUnresolved)
+    //   • zero-price unresolved → engine previously wrote 0 and still cannot resolve (totalZeroPriceUnresolved)
+    // Without this distinction the summary cannot tell whether remaining zeros are
+    // KTS trips (correct) or broken non-KTS trips still needing investigation.
+    const { data: zeroPriceRows, error: zeroPriceError } = await supabase
+      .from('trips')
+      .select('id')
+      .not('driving_distance_km', 'is', null)
+      .not('payer_id', 'is', null)
+      .not('company_id', 'is', null)
+      .eq('company_id', COMPANY_ID)
+      .not('kts_document_applies', 'is', true)
+      .or('net_price.eq.0,gross_price.eq.0');
+
+    if (zeroPriceError) {
+      console.error(
+        '[Pass B] Error fetching zero-price trip IDs',
+        zeroPriceError
+      );
+    }
+    const zeroPriceTripIds = new Set((zeroPriceRows ?? []).map((r) => r.id));
+    totalZeroPriceEvaluated = zeroPriceTripIds.size;
+    console.log(
+      `[Pass B] Zero-priced non-KTS trips found: ${zeroPriceTripIds.size}`
+    );
+
     const processedIdsB: string[] = [];
     // eslint-disable-next-line no-constant-condition
     while (true) {
       let queryB = supabase
         .from('trips')
         .select(
-          'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies'
+          'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies, manual_gross_price'
         )
         .not('driving_distance_km', 'is', null)
         .not('payer_id', 'is', null)
         .not('company_id', 'is', null)
         .eq('company_id', COMPANY_ID)
-        .or('net_price.is.null,gross_price.is.null,tax_rate.is.null');
+        .or(
+          'net_price.is.null,gross_price.is.null,tax_rate.is.null,net_price.eq.0,gross_price.eq.0'
+        )
+        // KTS trips (kts_document_applies = true) intentionally produce net_price = 0
+        // and gross_price = 0 via the Priority 0 hard override in resolve-trip-price.ts.
+        // This is a legally valid €0 invoice line and must not be re-evaluated here.
+        .not('kts_document_applies', 'is', true);
       if (processedIdsB.length > 0) {
         queryB = queryB.not('id', 'in', `(${processedIdsB.join(',')})`);
       }
@@ -417,7 +454,8 @@ async function main() {
           driving_distance_km: trip.driving_distance_km ?? null,
           scheduled_at: trip.scheduled_at ?? null,
           kts_document_applies: trip.kts_document_applies ?? false,
-          net_price: null // never inherit stored value
+          net_price: null, // never inherit stored value
+          manual_gross_price: trip.manual_gross_price ?? null
         };
 
         const context = await loadPricingContext({
@@ -437,8 +475,14 @@ async function main() {
         const priceFields = computeTripPrice(priceInput, context ?? emptyCtx);
 
         // Skip write when price cannot be resolved — do not overwrite with null.
+        // Distinguish first-time unresolved trips from zero-priced trips where the
+        // engine still cannot produce a valid price (two separate investigation paths).
         if (priceFields.net_price === null) {
-          totalPriceUnresolved++;
+          if (zeroPriceTripIds.has(trip.id)) {
+            totalZeroPriceUnresolved++;
+          } else {
+            totalPriceUnresolved++;
+          }
           continue;
         }
 
@@ -495,7 +539,7 @@ async function main() {
       let queryFW = supabase
         .from('trips')
         .select(
-          'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies'
+          'id, company_id, payer_id, client_id, billing_type_id, billing_variant_id, driving_distance_km, scheduled_at, kts_document_applies, manual_gross_price'
         )
         .not('driving_distance_km', 'is', null)
         .not('payer_id', 'is', null)
@@ -536,7 +580,8 @@ async function main() {
           driving_distance_km: trip.driving_distance_km ?? null,
           scheduled_at: trip.scheduled_at ?? null,
           kts_document_applies: trip.kts_document_applies ?? false,
-          net_price: null // never inherit stored value
+          net_price: null, // never inherit stored value
+          manual_gross_price: trip.manual_gross_price ?? null
         };
 
         const context = await loadPricingContext({
@@ -749,10 +794,12 @@ async function main() {
   }
   if (RUN_PASS_B) {
     console.log('  Pass B — price backfill');
-    console.log(`    Prices written  : ${totalPriceWritten}`);
-    console.log(`    Unresolved      : ${totalPriceUnresolved}`);
-    console.log(`    Fix-window fixes: ${totalFixWindowCorrected}`);
-    console.log(`    Errors          : ${totalPriceBErrors}`);
+    console.log(`    Prices written          : ${totalPriceWritten}`);
+    console.log(`    Unresolved              : ${totalPriceUnresolved}`);
+    console.log(`    Zero-price re-evaluated : ${totalZeroPriceEvaluated}`);
+    console.log(`    Zero-price unresolved   : ${totalZeroPriceUnresolved}`);
+    console.log(`    Fix-window fixes        : ${totalFixWindowCorrected}`);
+    console.log(`    Errors                  : ${totalPriceBErrors}`);
   }
   if (RUN_PASS_C) {
     console.log('  Pass C — billing_type_id backfill');

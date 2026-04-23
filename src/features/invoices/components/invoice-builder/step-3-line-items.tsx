@@ -3,19 +3,15 @@
 /**
  * step-3-line-items.tsx
  *
- * Invoice builder — Step 3: Line item preview and inline editing.
+ * Invoice builder — Step 3: Line item preview and gross-first inline editing.
  *
- * Shows the trips that will be invoiced in an editable table.
- * Key features:
- *   - Warning badges (⚠️) for missing prices or distances
- *   - Inline price editor: click the price cell to edit it
- *   - Running total shown in the table footer
- *   - Items with 'missing_price' are highlighted in amber
+ * Badges: “Taxameter” for persisted `manual_gross_price` (source) or in-session
+ * gross override — “Manuell” only for catalog `manual_trip_price` without those.
  *
- * The user can:
- *   1. Edit unit prices inline before confirming
- *   2. See which items still need attention via warning badges
- *   3. Confirm all items and proceed to step 4
+ * Collapsible card rows (no horizontal table scroll) inside the fixed-width
+ * builder column. Bruttopreis is always an `<Input>` in the collapsed row; the
+ * detail panel (Anfahrt, breakdown, badges) opens only via the chevron — not on
+ * price focus — so quick price edits stay compact.
  *
  * ─── Warning color policy ──────────────────────────────────────────────────
  * Uses theme tokens: text-destructive for errors, text-amber-500 for warnings.
@@ -23,22 +19,19 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Info, X } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger
+} from '@/components/ui/collapsible';
 import {
   Tooltip,
   TooltipContent,
@@ -46,17 +39,32 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import { getWarningLabel } from '../../lib/invoice-validators';
-import {
-  lineItemNetAmountForDisplay,
-  unitNetFromEditedLineNet
-} from '../../lib/line-item-net-display';
+import { lineItemGrossTotalForDisplay } from '../../lib/line-item-net-display';
 import type { BuilderLineItem } from '../../types/invoice.types';
+
+type EditingState = {
+  position: number;
+  grossValue: string;
+  approachValue: string;
+} | null;
 
 function priceResolutionBadge(
   item: BuilderLineItem
 ): { label: string; className: string } | null {
+  // Taxameter: fare on the trip row (source) or Brutto typed this session (override) — same label.
+  const taxameterBadge =
+    item.price_resolution.source === 'manual_gross_price' ||
+    item.isManualOverride;
+  if (taxameterBadge) {
+    return {
+      label: 'Taxameter',
+      className:
+        'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+    };
+  }
   const s = item.price_resolution.strategy_used;
   if (s === 'kts_override') {
     return {
@@ -120,6 +128,14 @@ function formatEur(value: number): string {
   }).format(value);
 }
 
+// why: currency `formatEur` adds € and is for read-only amounts; inputs need plain de-DE decimals only.
+function formatEurInput(value: number): string {
+  return new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 interface Step3LineItemsProps {
   lineItems: BuilderLineItem[];
   subtotal: number;
@@ -127,12 +143,20 @@ interface Step3LineItemsProps {
   total: number;
   missingPrices: boolean;
   isLoadingTrips: boolean;
-  /** Called when the user edits a price inline. */
-  onUpdatePrice: (position: number, price: number) => void;
+  /** Advances to PDF-Vorlage after review; sets `section3Confirmed` in the builder hook. */
+  onConfirm: () => void;
+  /** Called when the admin commits a gross override for a line item. */
+  onApplyGrossOverride: (
+    position: number,
+    grossTotal: number,
+    approachFeeGross: number
+  ) => void;
+  /** Called when the admin resets a manual override back to engine-computed price. */
+  onResetOverride: (position: number) => void;
 }
 
 /**
- * Step 3: Editable line items table with warning badges and running totals.
+ * Step 3: Collapsible line items with gross-first inline price editing.
  */
 export function Step3LineItems({
   lineItems,
@@ -141,26 +165,108 @@ export function Step3LineItems({
   total,
   missingPrices,
   isLoadingTrips,
-  onUpdatePrice
+  onConfirm,
+  onApplyGrossOverride,
+  onResetOverride
 }: Step3LineItemsProps) {
-  // Track which position is being edited (only one at a time)
-  const [editingPosition, setEditingPosition] = useState<number | null>(null);
-  // Local input value during edit
-  const [editValue, setEditValue] = useState('');
+  const [editing, setEditing] = useState<EditingState>(null);
+  // Per-row `Collapsible` + `Set`: multiple rows may stay open so the admin
+  // can compare two trips side-by-side. Accordion `type="single"` would close
+  // the other row and is intentionally avoided.
+  const [openRows, setOpenRows] = useState<Set<number>>(() => new Set());
+  const [showScrollFade, setShowScrollFade] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const startEdit = (position: number, item: BuilderLineItem) => {
-    setEditingPosition(position);
-    const display = lineItemNetAmountForDisplay(item);
-    setEditValue(display !== null ? String(display) : '');
+  const editingRef = useRef<EditingState>(null);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      setShowScrollFade(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    };
+
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [lineItems, openRows]);
+
+  // Guard: prevents premature commitEdit when focus moves between the two
+  // co-edited inputs (Bruttopreis → Anfahrt or vice versa). A setTimeout(0)
+  // defers the commit; the sibling input's onFocus cancels it if focus stayed
+  // within the edit group.
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Blur reads `editingRef.current`, kept in sync synchronously with `setEditing`
+  // so the first focus→blur before paint never sees a stale null.
+  const ensureRowOpen = (position: number) => {
+    setOpenRows((prev) => {
+      if (prev.has(position)) return prev;
+      const next = new Set(prev);
+      next.add(position);
+      return next;
+    });
   };
 
-  const commitEdit = (position: number) => {
-    const item = lineItems.find((i) => i.position === position);
-    const parsed = parseFloat(editValue.replace(',', '.'));
-    if (!isNaN(parsed) && item) {
-      onUpdatePrice(position, unitNetFromEditedLineNet(item, parsed));
+  const beginEditing = (item: BuilderLineItem) => {
+    const grossDisplay = lineItemGrossTotalForDisplay(item);
+    const grossValue =
+      grossDisplay !== null ? formatEurInput(grossDisplay) : '';
+    const approachValue =
+      item.approach_fee_gross != null && item.approach_fee_gross !== undefined
+        ? formatEurInput(item.approach_fee_gross)
+        : '';
+    const newState = {
+      position: item.position,
+      grossValue,
+      approachValue
+    };
+    editingRef.current = newState;
+    setEditing(newState);
+  };
+
+  const cancelEdit = () => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    editingRef.current = null;
+    setEditing(null);
+  };
+
+  const commitEdit = (state: EditingState) => {
+    if (!state) return;
+    const { position, grossValue, approachValue } = state;
+    const gross = parseFloat(grossValue.replace(',', '.'));
+    const approach = parseFloat(approachValue.replace(',', '.'));
+    if (!isNaN(gross)) {
+      onApplyGrossOverride(position, gross, isNaN(approach) ? 0 : approach);
     }
-    setEditingPosition(null);
+    editingRef.current = null;
+    setEditing(null);
+  };
+
+  const handleBlur = (state: EditingState) => {
+    commitTimerRef.current = setTimeout(() => {
+      commitEdit(state);
+    }, 0);
+  };
+
+  const handleFocus = () => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+  };
+
+  const blurIfThisRow = (position: number) => {
+    const snap = editingRef.current;
+    if (snap?.position === position) handleBlur(snap);
+  };
+
+  const commitIfThisRow = (position: number) => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    const snap = editingRef.current;
+    if (snap?.position === position) commitEdit(snap);
   };
 
   if (isLoadingTrips) {
@@ -175,274 +281,529 @@ export function Step3LineItems({
   const noInvLineCount = lineItems.filter((i) => i.no_invoice_warning).length;
 
   return (
-    <div className='space-y-4'>
-      {lineItems.length > 0 ? (
-        <p className='text-muted-foreground text-sm'>
-          {lineItems.length} Fahrten gefunden. Preise können inline bearbeitet
-          werden.
-        </p>
-      ) : null}
+    <TooltipProvider>
+      <div className='space-y-4'>
+        {lineItems.length > 0 ? (
+          <p className='text-muted-foreground text-sm'>
+            {lineItems.length} Fahrten gefunden. Bruttopreis und Anfahrt können
+            bearbeitet werden.
+          </p>
+        ) : null}
 
-      {/* Missing price warning banner */}
-      {missingPrices && (
-        <Alert>
-          <AlertTriangle className='h-4 w-4' />
-          <AlertDescription>
-            <strong>Preise fehlen:</strong> Einige Positionen haben noch keinen
-            Preis. Bitte fehlende Preise eintragen, bevor Sie fortfahren.
-          </AlertDescription>
-        </Alert>
-      )}
+        {missingPrices && (
+          <Alert>
+            <AlertTriangle className='h-4 w-4' />
+            <AlertDescription>
+              <strong>Preise fehlen:</strong> Einige Positionen haben noch
+              keinen Preis. Bitte fehlende Preise eintragen, bevor Sie
+              fortfahren.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {ktsLineCount > 0 && (
-        <Alert className='border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30'>
-          <Info className='h-4 w-4 text-blue-600 dark:text-blue-400' />
-          <AlertDescription className='text-blue-900 dark:text-blue-100'>
-            <strong>Krankentransportschein (KTS):</strong> Diese Rechnung
-            enthält {ktsLineCount} {ktsLineCount === 1 ? 'Fahrt' : 'Fahrten'},
-            die im System als KTS-relevant markiert sind. Bitte prüfen Sie
-            Bescheinigung und Abrechnung vor dem Versand.
-          </AlertDescription>
-        </Alert>
-      )}
+        {ktsLineCount > 0 && (
+          <Alert className='border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30'>
+            <Info className='h-4 w-4 text-blue-600 dark:text-blue-400' />
+            <AlertDescription className='text-blue-900 dark:text-blue-100'>
+              <strong>Krankentransportschein (KTS):</strong> Diese Rechnung
+              enthält {ktsLineCount} {ktsLineCount === 1 ? 'Fahrt' : 'Fahrten'},
+              die im System als KTS-relevant markiert sind. Bitte prüfen Sie
+              Bescheinigung und Abrechnung vor dem Versand.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {noInvLineCount > 0 && (
-        <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
-          <AlertTriangle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
-          <AlertDescription>
-            <strong>Keine Rechnung:</strong> {noInvLineCount}{' '}
-            {noInvLineCount === 1 ? 'Fahrt ist' : 'Fahrten sind'} als „keine
-            Rechnung“ markiert. Bitte prüfen, ob diese Positionen wirklich auf
-            die Rechnung gehören.
-          </AlertDescription>
-        </Alert>
-      )}
+        {noInvLineCount > 0 && (
+          <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+            <AlertTriangle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+            <AlertDescription>
+              <strong>Keine Rechnung:</strong> {noInvLineCount}{' '}
+              {noInvLineCount === 1 ? 'Fahrt ist' : 'Fahrten sind'} als „keine
+              Rechnung" markiert. Bitte prüfen, ob diese Positionen wirklich auf
+              die Rechnung gehören.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {/* Line items table */}
-      <div className='max-h-[320px] overflow-x-auto overflow-y-auto rounded-md border'>
-        <Table>
-          <TableHeader className='bg-muted'>
-            <TableRow>
-              <TableHead className='w-8'>#</TableHead>
-              <TableHead>Beschreibung</TableHead>
-              <TableHead>Strecke</TableHead>
-              <TableHead>MwSt</TableHead>
-              <TableHead className='text-right'>Preis</TableHead>
-              <TableHead className='w-16'></TableHead>
-            </TableRow>
-          </TableHeader>
+        <div className='flex flex-col overflow-hidden rounded-md border'>
+          <div className='relative'>
+            <div
+              ref={scrollContainerRef}
+              className='divide-border max-h-[calc(100vh-20rem)] divide-y overflow-x-hidden overflow-y-auto'
+            >
+              {lineItems.map((item) => {
+                const isEditingThisRow = editing?.position === item.position;
+                const grossDisplay = lineItemGrossTotalForDisplay(item);
+                const badge = priceResolutionBadge(item);
+                // Chevron only: editing Bruttopreis in the collapsed row does not
+                // open the panel — expand first when Anfahrt or full detail is needed.
+                const expanded = openRows.has(item.position);
 
-          <TableBody>
-            {lineItems.map((item) => {
-              const displayNet = lineItemNetAmountForDisplay(item);
-              return (
-                <TableRow
-                  key={item.position}
-                  // Amber highlight for items still missing a price
-                  className={
-                    item.warnings.includes('missing_price')
-                      ? 'bg-amber-500/5'
-                      : undefined
+                // Radix passes the desired open state; we only drop from `openRows`
+                // on close when not editing — otherwise deleting while the admin
+                // still has draft values in the detail inputs would desync state.
+                const handleCollapsibleOpenChange = (next: boolean) => {
+                  if (next) {
+                    ensureRowOpen(item.position);
+                  } else if (!isEditingThisRow) {
+                    setOpenRows((prev) => {
+                      const n = new Set(prev);
+                      n.delete(item.position);
+                      return n;
+                    });
                   }
-                >
-                  {/* Position number */}
-                  <TableCell className='text-muted-foreground text-xs'>
-                    {item.position}
-                  </TableCell>
+                };
 
-                  {/* Description + date + addresses */}
-                  <TableCell>
-                    <div className='text-sm font-medium'>
-                      {item.description}
-                    </div>
-                    {item.line_date && (
-                      <div className='text-muted-foreground text-xs'>
-                        {format(new Date(item.line_date), 'EEE, dd.MM.yyyy', {
-                          locale: de
-                        })}
-                      </div>
-                    )}
-                    {item.pickup_address && item.dropoff_address && (
-                      <div className='text-muted-foreground bg-muted/40 mt-1 inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs'>
-                        <span className='max-w-[150px] truncate'>
-                          {item.pickup_address}
-                        </span>
-                        <span className='opacity-50'>→</span>
-                        <span className='max-w-[150px] truncate'>
-                          {item.dropoff_address}
-                        </span>
-                      </div>
-                    )}
-                    {(item.billing_variant_name ||
-                      item.kts_document_applies ||
-                      item.no_invoice_warning) && (
-                      <div className='mt-1 flex flex-wrap gap-1'>
-                        {item.billing_variant_name && (
-                          <Badge
-                            variant='outline'
-                            className='px-1.5 py-0 text-[10px] font-normal'
-                          >
-                            {item.billing_variant_name}
-                          </Badge>
+                const grossInputValue =
+                  isEditingThisRow && editing
+                    ? editing.grossValue
+                    : grossDisplay !== null
+                      ? formatEurInput(grossDisplay)
+                      : '';
+                const approachInputValue =
+                  isEditingThisRow && editing
+                    ? editing.approachValue
+                    : item.approach_fee_gross != null &&
+                        item.approach_fee_gross !== undefined
+                      ? formatEurInput(item.approach_fee_gross)
+                      : '';
+
+                // why: three border states so missing price (destructive) wins over manual amber, not just override vs default.
+                const leftBorderClass =
+                  grossDisplay === null || grossDisplay === undefined
+                    ? 'border-destructive'
+                    : item.isManualOverride
+                      ? 'border-amber-400'
+                      : 'border-transparent';
+
+                return (
+                  <Collapsible
+                    key={item.position}
+                    open={expanded}
+                    onOpenChange={handleCollapsibleOpenChange}
+                  >
+                    <div
+                      className={cn(
+                        'relative',
+                        item.warnings.includes('missing_price') &&
+                          'bg-amber-500/5',
+                        // Always reserve border width so toggling override does not shift layout.
+                        'border-l-2',
+                        leftBorderClass
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'grid grid-cols-[1fr_1fr_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
                         )}
-                        {item.kts_document_applies && (
-                          <Badge
-                            variant='secondary'
-                            className='px-1.5 py-0 text-[10px] font-normal'
-                            title='Krankentransportschein (KTS) — laut Fahrt markiert'
-                          >
-                            KTS
-                          </Badge>
-                        )}
-                        {item.no_invoice_warning && (
-                          <Badge
-                            variant='outline'
-                            className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
-                            title='Fahrt: keine Rechnung erforderlich'
-                          >
-                            Keine Rechn.
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-
-                  {/* Distance */}
-                  <TableCell className='text-sm'>
-                    {item.distance_km !== null
-                      ? `${item.distance_km.toFixed(1)} km`
-                      : '—'}
-                  </TableCell>
-
-                  {/* Tax rate */}
-                  <TableCell className='text-sm'>
-                    {formatTaxRate(item.tax_rate)}
-                  </TableCell>
-
-                  {/* Price — shows source badge when resolved automatically */}
-                  <TableCell className='text-right'>
-                    {editingPosition === item.position ? (
-                      <Input
-                        autoFocus
-                        type='number'
-                        step='0.01'
-                        min='0'
-                        value={editValue}
-                        className='h-7 w-24 text-right text-sm'
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => commitEdit(item.position)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitEdit(item.position);
-                          if (e.key === 'Escape') setEditingPosition(null);
-                        }}
-                      />
-                    ) : (
-                      <button
-                        type='button'
-                        className='hover:bg-muted rounded px-2 py-0.5 text-right text-sm'
-                        onClick={() => startEdit(item.position, item)}
                       >
-                        {displayNet !== null ? (
-                          <div className='flex flex-col items-end gap-0.5'>
-                            <span>{formatEur(displayNet)}</span>
-                            {(() => {
-                              const b = priceResolutionBadge(item);
-                              return b ? (
+                        <div className='flex min-w-0 flex-col'>
+                          <span className='text-foreground text-sm font-medium tabular-nums'>
+                            #{item.position}
+                          </span>
+                          <span className='text-muted-foreground truncate text-xs'>
+                            {item.client_name ?? '—'}
+                          </span>
+                          <span className='text-muted-foreground text-xs'>
+                            {item.line_date
+                              ? format(
+                                  new Date(item.line_date),
+                                  'EEE, dd.MM.yyyy',
+                                  { locale: de }
+                                )
+                              : '—'}
+                          </span>
+                        </div>
+
+                        {/* pt = one text-sm line-height so pickup aligns with client name */}
+                        <div className='flex min-w-0 flex-col pt-[1.25rem]'>
+                          <span className='text-foreground truncate text-xs'>
+                            {item.pickup_address ?? '—'}
+                          </span>
+                          <span className='text-muted-foreground truncate text-xs'>
+                            {item.dropoff_address ?? '—'}
+                          </span>
+                        </div>
+
+                        <div className='flex shrink-0 flex-col items-end gap-0.5'>
+                          <div className='flex items-center gap-1'>
+                            {(item.isManualOverride ||
+                              item.price_resolution.source ===
+                                'manual_gross_price') && (
+                              <>
                                 <Badge
                                   variant='outline'
-                                  className={`px-1.5 py-0 text-[10px] font-normal ${b.className}`}
-                                  title={
-                                    item.price_resolution.note
-                                      ? item.price_resolution.note
-                                      : undefined
-                                  }
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
                                 >
-                                  {b.label}
+                                  Taxameter
                                 </Badge>
-                              ) : null;
-                            })()}
-                            {item.approach_fee_net != null &&
-                              item.approach_fee_net > 0 && (
-                                <span
-                                  className='text-muted-foreground text-xs'
-                                  title='Anfahrtspreis gemäß Abrechnungsregel'
+                                {item.isManualOverride && (
+                                  <button
+                                    type='button'
+                                    aria-label='Taxameter-Preis zurücksetzen'
+                                    className='text-muted-foreground hover:text-foreground'
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onResetOverride(item.position);
+                                    }}
+                                  >
+                                    <X className='h-3 w-3' />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {item.warnings.length > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type='button'
+                                    className='text-amber-500'
+                                    aria-label='Hinweise zu dieser Position'
+                                  >
+                                    <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className='text-xs'>
+                                    {item.warnings
+                                      .map((w) => getWarningLabel(w))
+                                      .join(' · ')}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+
+                          {/* why: `type="number"` rejects comma decimals in HTML; text + inputMode keeps de-DE typing and we parse in commitEdit. */}
+                          <Input
+                            type='text'
+                            inputMode='decimal'
+                            aria-label='Bruttopreis'
+                            className='h-7 w-24 text-right text-sm tabular-nums'
+                            value={grossInputValue}
+                            placeholder='Betrag'
+                            onFocus={() => {
+                              handleFocus();
+                              if (!isEditingThisRow) beginEditing(item);
+                            }}
+                            onChange={(e) => {
+                              if (isEditingThisRow) {
+                                setEditing((prev) => {
+                                  const next = prev
+                                    ? { ...prev, grossValue: e.target.value }
+                                    : prev;
+                                  editingRef.current = next;
+                                  return next;
+                                });
+                              } else {
+                                const next = {
+                                  position: item.position,
+                                  grossValue: e.target.value,
+                                  approachValue:
+                                    item.approach_fee_gross != null &&
+                                    item.approach_fee_gross !== undefined
+                                      ? formatEurInput(item.approach_fee_gross)
+                                      : ''
+                                };
+                                editingRef.current = next;
+                                setEditing(next);
+                              }
+                            }}
+                            onBlur={() => blurIfThisRow(item.position)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitIfThisRow(item.position);
+                              }
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
+                            }}
+                          />
+
+                          <span className='text-muted-foreground text-[10px] tabular-nums'>
+                            {item.distance_km != null
+                              ? `${item.distance_km.toFixed(1)} km`
+                              : '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type='button'
+                          aria-label={
+                            expanded ? 'Weniger anzeigen' : 'Mehr anzeigen'
+                          }
+                          aria-expanded={expanded}
+                          className='text-muted-foreground hover:text-foreground absolute top-2 right-2 rounded p-0.5'
+                        >
+                          <ChevronDown
+                            className={cn(
+                              'h-3.5 w-3.5 transition-transform duration-200',
+                              expanded && 'rotate-180'
+                            )}
+                          />
+                        </button>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent>
+                        <div className='bg-muted/30 border-border space-y-2 border-t px-4 pt-2 pb-3'>
+                          <div className='flex flex-wrap items-center gap-2'>
+                            {item.line_date && (
+                              <span className='text-muted-foreground text-xs'>
+                                {format(new Date(item.line_date), 'HH:mm')} Uhr
+                              </span>
+                            )}
+                            {badge && (
+                              <Badge
+                                variant='outline'
+                                className={cn(
+                                  'h-4 px-1 text-[10px]',
+                                  badge.className
+                                )}
+                                title={
+                                  item.price_resolution.note
+                                    ? item.price_resolution.note
+                                    : undefined
+                                }
+                              >
+                                {badge.label}
+                              </Badge>
+                            )}
+                            <span className='text-muted-foreground text-xs'>
+                              MwSt {formatTaxRate(item.tax_rate)}
+                            </span>
+                          </div>
+
+                          {(item.billing_variant_name ||
+                            item.kts_document_applies ||
+                            item.no_invoice_warning) && (
+                            <div className='flex flex-wrap gap-1'>
+                              {item.billing_variant_name && (
+                                <Badge
+                                  variant='outline'
+                                  className='px-1.5 py-0 text-[10px] font-normal'
                                 >
-                                  + {formatEur(item.approach_fee_net)} Anfahrt
+                                  {item.billing_variant_name}
+                                </Badge>
+                              )}
+                              {item.kts_document_applies && (
+                                <Badge
+                                  variant='secondary'
+                                  className='px-1.5 py-0 text-[10px] font-normal'
+                                  title='Krankentransportschein (KTS) — laut Fahrt markiert'
+                                >
+                                  KTS
+                                </Badge>
+                              )}
+                              {item.no_invoice_warning && (
+                                <Badge
+                                  variant='outline'
+                                  className='border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] font-normal text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+                                  title='Fahrt: keine Rechnung erforderlich'
+                                >
+                                  Keine Rechn.
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
+                          <div className='flex flex-wrap items-center gap-2'>
+                            <span className='text-muted-foreground w-36 shrink-0 text-xs'>
+                              Anfahrtskosten (brutto)
+                            </span>
+                            <Input
+                              type='text'
+                              inputMode='decimal'
+                              aria-label='Anfahrtskosten brutto'
+                              className='h-7 w-24 text-right text-sm tabular-nums'
+                              value={approachInputValue}
+                              placeholder='0,00'
+                              onFocus={() => {
+                                handleFocus();
+                                if (!isEditingThisRow) beginEditing(item);
+                              }}
+                              onChange={(e) => {
+                                if (isEditingThisRow) {
+                                  setEditing((prev) => {
+                                    const next = prev
+                                      ? {
+                                          ...prev,
+                                          approachValue: e.target.value
+                                        }
+                                      : prev;
+                                    editingRef.current = next;
+                                    return next;
+                                  });
+                                } else {
+                                  const next = {
+                                    position: item.position,
+                                    grossValue:
+                                      grossDisplay !== null
+                                        ? formatEurInput(grossDisplay)
+                                        : '',
+                                    approachValue: e.target.value
+                                  };
+                                  editingRef.current = next;
+                                  setEditing(next);
+                                }
+                              }}
+                              onBlur={() => blurIfThisRow(item.position)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  commitIfThisRow(item.position);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  cancelEdit();
+                                }
+                              }}
+                            />
+                            {item.isManualOverride &&
+                              item.originalPriceResolution?.gross != null && (
+                                <span className='text-muted-foreground text-[10px]'>
+                                  War:{' '}
+                                  {formatEur(
+                                    item.originalPriceResolution.gross
+                                  )}
                                 </span>
                               )}
                           </div>
-                        ) : (
-                          <span className='font-medium text-amber-500'>
-                            Fehlt
-                          </span>
-                        )}
-                      </button>
-                    )}
-                  </TableCell>
 
-                  {/* Warning badges */}
-                  <TableCell>
-                    {item.warnings.length > 0 && (
-                      <TooltipProvider>
-                        <div className='flex gap-1'>
-                          {item.warnings.map((w) => (
-                            <Tooltip key={w}>
-                              <TooltipTrigger asChild>
-                                <div className='cursor-help text-amber-500'>
-                                  {w === 'missing_price' ||
-                                  w === 'no_invoice_trip' ? (
-                                    <AlertTriangle className='h-4 w-4' />
-                                  ) : (
-                                    <Info className='h-4 w-4' />
+                          {expanded &&
+                            (() => {
+                              // why: show net/VAT receipt whenever the row is open for review, not only while the user is typing.
+                              const g =
+                                isEditingThisRow && editing
+                                  ? parseFloat(
+                                      editing.grossValue.replace(',', '.')
+                                    )
+                                  : (lineItemGrossTotalForDisplay(item) ?? 0);
+                              const a =
+                                isEditingThisRow && editing
+                                  ? parseFloat(
+                                      editing.approachValue.replace(',', '.')
+                                    )
+                                  : (item.approach_fee_gross ?? 0);
+
+                              if (isNaN(g) || g === 0) return null;
+
+                              const rate = item.tax_rate;
+                              const approachGross = isNaN(a) ? 0 : a;
+                              const transportNet =
+                                (g - approachGross) / (1 + rate);
+                              const approachNet = approachGross / (1 + rate);
+                              const totalNet = transportNet + approachNet;
+                              const vat = g - totalNet;
+
+                              return (
+                                <div className='bg-muted/40 mt-2 space-y-0.5 rounded-md px-3 py-2 text-xs'>
+                                  <div className='flex justify-between'>
+                                    <span className='text-muted-foreground'>
+                                      Netto (Fahrt)
+                                    </span>
+                                    <span>{formatEur(transportNet)}</span>
+                                  </div>
+                                  {approachGross > 0 && (
+                                    <div className='flex justify-between'>
+                                      <span className='text-muted-foreground'>
+                                        Netto (Anfahrt)
+                                      </span>
+                                      <span>{formatEur(approachNet)}</span>
+                                    </div>
                                   )}
+                                  <div className='flex justify-between'>
+                                    <span className='text-muted-foreground'>
+                                      MwSt ({formatTaxRate(item.tax_rate)})
+                                    </span>
+                                    <span>{formatEur(vat)}</span>
+                                  </div>
+                                  <div className='border-border flex justify-between border-t pt-1 font-medium'>
+                                    <span>Gesamt brutto</span>
+                                    <span>{formatEur(g)}</span>
+                                  </div>
                                 </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className='text-xs'>{getWarningLabel(w)}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
-                        </div>
-                      </TooltipProvider>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
+                              );
+                            })()}
 
-          {/* Running totals */}
-          <TableFooter className='bg-muted'>
-            <TableRow>
-              <TableCell colSpan={4} className='text-sm font-medium'>
-                Netto
-              </TableCell>
-              <TableCell className='text-right text-sm font-medium'>
+                          {item.warnings.length > 0 && (
+                            <div className='flex flex-wrap gap-1'>
+                              {item.warnings.map((w) => (
+                                <span
+                                  key={w}
+                                  className='inline-flex items-center gap-1 text-[10px] text-amber-600'
+                                >
+                                  <AlertTriangle className='h-3 w-3 shrink-0' />
+                                  {getWarningLabel(w)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+                );
+              })}
+            </div>
+            {showScrollFade && (
+              <div
+                className='from-background pointer-events-none absolute right-0 bottom-0 left-0 h-8 bg-gradient-to-t to-transparent'
+                aria-hidden
+              />
+            )}
+          </div>
+
+          <div className='bg-background/95 border-border flex shrink-0 justify-end gap-6 border-t px-4 py-2 text-sm tabular-nums backdrop-blur-sm'>
+            <span className='text-muted-foreground'>
+              Netto{' '}
+              <span className='text-foreground font-medium'>
                 {formatEur(subtotal)}
-              </TableCell>
-              <TableCell />
-            </TableRow>
-            <TableRow>
-              <TableCell colSpan={4} className='text-muted-foreground text-sm'>
-                MwSt
-              </TableCell>
-              <TableCell className='text-muted-foreground text-right text-sm'>
+              </span>
+            </span>
+            <span className='text-muted-foreground'>
+              MwSt{' '}
+              <span className='text-foreground font-medium'>
                 {formatEur(taxAmount)}
-              </TableCell>
-              <TableCell />
-            </TableRow>
-            <TableRow>
-              <TableCell colSpan={4} className='text-base font-bold'>
-                Brutto
-              </TableCell>
-              <TableCell className='text-right text-base font-bold'>
+              </span>
+            </span>
+            <span className='text-muted-foreground'>
+              Brutto{' '}
+              <span className='text-foreground font-semibold'>
                 {formatEur(total)}
-              </TableCell>
-              <TableCell />
-            </TableRow>
-          </TableFooter>
-        </Table>
+              </span>
+            </span>
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* why: disabled buttons don't fire mouse events, so the trigger must wrap a non-disabled element. */}
+              <span
+                className={cn(
+                  'mt-3 block w-full',
+                  missingPrices && 'cursor-not-allowed'
+                )}
+              >
+                <Button
+                  type='button'
+                  onClick={onConfirm}
+                  className='w-full'
+                  disabled={missingPrices || lineItems.length === 0}
+                >
+                  Weiter zu PDF-Vorlage
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {missingPrices && (
+              <TooltipContent>
+                Bitte alle fehlenden Preise eintragen, bevor Sie fortfahren.
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

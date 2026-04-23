@@ -40,7 +40,8 @@ const baseTrip = {
   driving_distance_km: 15 as number | null,
   scheduled_at: '2026-06-15T10:00:00.000Z',
   kts_document_applies: false,
-  net_price: null as number | null
+  net_price: null as number | null,
+  manual_gross_price: null as number | null
 };
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────
@@ -301,7 +302,8 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 10, // from current row
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null // always null — P3 must not inherit old value
+      net_price: null, // always null — P4 must not inherit old value
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, ctxPayerB);
@@ -320,7 +322,7 @@ describe('computeTripPrice — edit context (merged input)', () => {
       clientPriceTag: null
     };
 
-    // If net_price were inherited, P3 would fire and return 99.99.
+    // If net_price were inherited, P4 would fire and return 99.99.
     // With net_price: null the result must be all-null.
     const mergedInput: ComputeTripPriceInput = {
       payer_id: 'payer1',
@@ -330,7 +332,8 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 15,
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null // always null from resolveTripForPricing
+      net_price: null, // always null from resolveTripForPricing
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, emptyCtx);
@@ -366,7 +369,8 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 5.0, // from current DB row (patch had none)
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null
+      net_price: null,
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, ctx);

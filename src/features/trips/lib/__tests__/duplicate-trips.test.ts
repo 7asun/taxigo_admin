@@ -4,6 +4,7 @@
  * Verifies the duplication price invariant introduced in Phase 2:
  *   - Every duplicated trip's price is computed fresh via computeTripPrice.
  *   - The source trip's net_price is never inherited (it is nulled before computation).
+ *   - `manual_gross_price` from the insert is passed through for P0 when present.
  *   - A failed or empty context produces null prices without throwing.
  *
  * These tests exercise `computeTripPrice` with `net_price: null` — exactly as
@@ -61,6 +62,7 @@ function duplicateInput(
     scheduled_at: '2026-06-15T10:00:00.000Z',
     kts_document_applies: false,
     net_price: null, // always null — toComputeInput hard-codes this
+    manual_gross_price: null,
     ...overrides
   };
 }

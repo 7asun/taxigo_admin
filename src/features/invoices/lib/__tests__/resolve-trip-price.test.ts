@@ -36,10 +36,27 @@ describe('resolveTripPrice', () => {
   const baseTrip = {
     kts_document_applies: false,
     net_price: null as number | null,
+    manual_gross_price: null as number | null,
     driving_distance_km: 10 as number | null,
     scheduled_at: '2026-06-15T12:00:00.000Z',
     client: undefined as { price_tag: number | null } | undefined
   };
+
+  test('taxameter P0 beats KTS and client tag', () => {
+    const r = resolveTripPrice(
+      {
+        ...baseTrip,
+        kts_document_applies: true,
+        client: { price_tag: 50 },
+        manual_gross_price: 42.8
+      },
+      0.07,
+      null
+    );
+    expect(r.source).toBe('manual_gross_price');
+    expect(r.gross).toBe(42.8);
+    expect(r.approach_fee_net).toBe(0);
+  });
 
   test('KTS override', () => {
     const r = resolveTripPrice(

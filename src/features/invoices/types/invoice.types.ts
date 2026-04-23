@@ -234,6 +234,8 @@ export interface TripForInvoice {
   payer_id: string;
   scheduled_at: string | null; // used as line_date
   net_price: number | null; // manual driver price
+  /** Taxameter gross on trip — resolveTripPrice P0 when set. */
+  manual_gross_price: number | null;
   driving_distance_km: number | null; // for tax rate calculation
   billing_variant_id: string | null;
   payer?: {
@@ -412,6 +414,40 @@ export interface BuilderLineItem {
    * Advisory codes from `validateLineItem` (missing price, distance, no-invoice trip, …).
    */
   warnings: LineItemWarning[];
+
+  // ── Gross override fields (set by admin in Step 3) ──────────────────────────
+
+  /**
+   * Gross representation of `approach_fee_net × (1 + tax_rate)`; pre-computed at
+   * build time in `buildLineItemsFromTrips`. Used to pre-fill the Anfahrt input
+   * in edit mode without requiring a runtime multiplication.
+   */
+  approach_fee_gross?: number | null;
+
+  /**
+   * Snapshot of the engine-computed `PriceResolution` before any admin override.
+   * Used by `resetLineItemOverride` to restore the original pricing.
+   * Always set by `buildLineItemsFromTrips`; optional here only to avoid breaking
+   * existing code paths before initialization.
+   */
+  originalPriceResolution?: PriceResolution;
+
+  /**
+   * Admin-entered gross total (transport + Anfahrt combined). `null` = not overridden;
+   * engine-priced value is used instead.
+   */
+  manualGrossTotal?: number | null;
+
+  /**
+   * Admin-entered Anfahrtskosten gross. `null` = not overridden.
+   */
+  manualApproachFeeGross?: number | null;
+
+  /**
+   * `true` when the admin has committed a gross override via `applyGrossOverride`.
+   * Drives the amber "Manuell" badge and the × reset button in Step 3.
+   */
+  isManualOverride?: boolean;
 }
 
 /**

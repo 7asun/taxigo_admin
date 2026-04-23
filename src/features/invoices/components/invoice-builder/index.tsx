@@ -10,7 +10,7 @@
  *   ① Abrechnungsmodus  — always unlocked
  *   ② Parameter         — unlocks when billingMode is selected
  *   ③ Positionen        — unlocks when payer_id + date_range are set
- *   ④ PDF-Vorlage       — unlocks when Section 3 is complete (line items loaded, no blocking errors)
+ *   ④ PDF-Vorlage       — unlocks when Section 3 is complete (line items loaded, admin confirmed)
  *   ⑤ Bestätigung       — unlocks after the user clicks “Weiter zur Bestätigung” on Section 4
  *
  * Auto-scroll: 300ms after each section’s unlock condition becomes true for the first time,
@@ -188,13 +188,16 @@ export function InvoiceBuilder({
   const {
     step2Values,
     lineItems,
+    section3Confirmed,
     totals,
     missingPrices,
     isLoadingTrips,
     isTripsError,
     handleStep1Complete,
     handleStep2Complete,
-    updateLineItemPrice,
+    confirmSection3,
+    applyGrossOverride,
+    resetLineItemOverride,
     createInvoice,
     isCreating,
     catalogRecipientId
@@ -250,7 +253,8 @@ export function InvoiceBuilder({
     section2Complete,
     lineItems,
     isLoadingTrips,
-    isTripsError
+    isTripsError,
+    section3Confirmed
   );
   const section4Unlocked = isInvoiceBuilderSection4Unlocked(section3Complete);
   const section5Unlocked =
@@ -586,7 +590,9 @@ export function InvoiceBuilder({
               total={totals.total}
               missingPrices={missingPrices}
               isLoadingTrips={isLoadingTrips}
-              onUpdatePrice={updateLineItemPrice}
+              onConfirm={confirmSection3}
+              onApplyGrossOverride={applyGrossOverride}
+              onResetOverride={resetLineItemOverride}
             />
           </BuilderSectionCard>
 

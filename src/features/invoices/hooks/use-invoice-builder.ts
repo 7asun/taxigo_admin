@@ -22,10 +22,11 @@ import {
   mapBillingPricingRuleRowsToLike,
   buildLineItemsFromTrips,
   calculateInvoiceTotals,
-  insertLineItems,
-  applyManualUnitNetToResolution
+  insertLineItems
 } from '../api/invoice-line-items.api';
+import { applyGrossOverrideToResolution } from '../lib/resolve-trip-price';
 import { createInvoice } from '../api/invoices.api';
+import { tripsService } from '@/features/trips/api/trips.service';
 import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
 import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
@@ -67,15 +68,19 @@ export function useInvoiceBuilder(
 
   const [step2Values, setStep2Values] = useState<Step2Values | null>(null);
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>([]);
+  const [section3Confirmed, setSection3Confirmed] = useState(false);
   /** Catalog cascade (variant → type → payer) from the first fetched trip. */
   const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
     null
   );
 
+  const confirmSection3 = useCallback(() => setSection3Confirmed(true), []);
+
   useEffect(() => {
     if (!step2ValuesReadyForTripsFetch(step2Values)) {
       setLineItems([]);
       setCatalogRecipientId(null);
+      setSection3Confirmed(false);
     }
   }, [step2Values]);
 
@@ -127,18 +132,28 @@ export function useInvoiceBuilder(
     staleTime: 5 * 60 * 1000
   });
 
-  const updateLineItemPrice = useCallback(
-    (position: number, newPrice: number) => {
+  const applyGrossOverride = useCallback(
+    (position: number, grossTotal: number, approachFeeGross: number) => {
       setLineItems((prev) =>
         prev.map((item) => {
           if (item.position !== position) return item;
-          const nextRes = applyManualUnitNetToResolution(item, newPrice);
+          const nextRes = applyGrossOverrideToResolution(
+            item.price_resolution,
+            grossTotal,
+            approachFeeGross,
+            item.tax_rate
+          );
           const patched: BuilderLineItem = {
             ...item,
-            unit_price: newPrice,
+            unit_price: nextRes.unit_price_net,
+            approach_fee_net: nextRes.approach_fee_net ?? null,
+            approach_fee_gross: approachFeeGross,
             price_resolution: nextRes,
-            kts_override: nextRes.strategy_used === 'kts_override',
-            price_source: legacyPriceSourceFromResolution(nextRes.source)
+            kts_override: false,
+            price_source: null,
+            manualGrossTotal: grossTotal,
+            manualApproachFeeGross: approachFeeGross,
+            isManualOverride: true
           };
           return { ...patched, warnings: validateLineItem(patched) };
         })
@@ -146,6 +161,32 @@ export function useInvoiceBuilder(
     },
     []
   );
+
+  const resetLineItemOverride = useCallback((position: number) => {
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.position !== position) return item;
+        const orig = item.originalPriceResolution ?? item.price_resolution;
+        const patched: BuilderLineItem = {
+          ...item,
+          unit_price: orig.unit_price_net,
+          approach_fee_net: orig.approach_fee_net ?? null,
+          approach_fee_gross:
+            orig.approach_fee_net != null
+              ? Math.round(orig.approach_fee_net * (1 + item.tax_rate) * 100) /
+                100
+              : null,
+          price_resolution: orig,
+          kts_override: orig.strategy_used === 'kts_override',
+          price_source: legacyPriceSourceFromResolution(orig.source),
+          manualGrossTotal: null,
+          manualApproachFeeGross: null,
+          isManualOverride: false
+        };
+        return { ...patched, warnings: validateLineItem(patched) };
+      })
+    );
+  }, []);
 
   const handleStep1Complete = useCallback(
     (mode: InvoiceBuilderFormValues['mode']) => {
@@ -160,6 +201,7 @@ export function useInvoiceBuilder(
   );
 
   const handleStep2Complete = useCallback((values: Step2Values) => {
+    setSection3Confirmed(false);
     setStep2Values(values);
   }, []);
 
@@ -223,6 +265,23 @@ export function useInvoiceBuilder(
 
       await insertLineItems(invoice.id, lineItems);
 
+      // Fire-and-forget: failed writeback must never block the invoice.
+      // net_price = total transport net (not per-km unit); gross_price = total gross incl. Anfahrt.
+      void Promise.allSettled(
+        lineItems
+          .filter((item) => item.trip_id !== null)
+          .map((item) =>
+            tripsService.updateTrip(item.trip_id!, {
+              net_price: item.price_resolution.net,
+              gross_price: item.manualGrossTotal ?? item.price_resolution.gross,
+              tax_rate: item.tax_rate,
+              ...(item.isManualOverride && item.manualGrossTotal !== null
+                ? { manual_gross_price: item.manualGrossTotal }
+                : {})
+            })
+          )
+      );
+
       return invoice;
     },
 
@@ -241,6 +300,7 @@ export function useInvoiceBuilder(
   return {
     step2Values,
     lineItems,
+    section3Confirmed,
     catalogRecipientId,
     totals,
     missingPrices,
@@ -251,7 +311,9 @@ export function useInvoiceBuilder(
 
     handleStep1Complete,
     handleStep2Complete,
-    updateLineItemPrice,
+    confirmSection3,
+    applyGrossOverride,
+    resetLineItemOverride,
 
     createInvoice: (
       step4Values: Pick<
