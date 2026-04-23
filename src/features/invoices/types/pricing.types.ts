@@ -17,6 +17,7 @@ export type PricingStrategy = (typeof PRICING_STRATEGIES)[number];
 export type PriceResolutionSource =
   | 'kts_override'
   | 'client_price_tag'
+  | 'manual_gross_price'
   | 'variant'
   | 'billing_type'
   | 'payer'

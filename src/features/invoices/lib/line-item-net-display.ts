@@ -23,6 +23,20 @@ export function lineItemNetAmountForDisplay(
 }
 
 /**
+ * Total gross for display in the Bruttopreis column.
+ * For admin overrides: returns exactly what the admin typed (manualGrossTotal).
+ * For engine-priced items: returns pr.gross directly — the engine already
+ * includes approach_fee_net in the gross total, so no addition is needed.
+ */
+export function lineItemGrossTotalForDisplay(
+  item: BuilderLineItem
+): number | null {
+  if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined)
+    return item.manualGrossTotal;
+  return item.price_resolution.gross ?? null;
+}
+
+/**
  * Converts the value the user entered in the price cell (always **line net** when
  * `quantity > 1`) back to `unit_price_net` for `updateLineItemPrice`.
  */

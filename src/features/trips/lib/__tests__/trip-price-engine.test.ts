@@ -40,17 +40,20 @@ const baseTrip = {
   driving_distance_km: 15 as number | null,
   scheduled_at: '2026-06-15T10:00:00.000Z',
   kts_document_applies: false,
-  net_price: null as number | null
+  net_price: null as number | null,
+  base_net_price: null as number | null,
+  manual_gross_price: null as number | null
 };
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('computeTripPrice', () => {
-  test('no payer_id → all three fields are null', () => {
+  test('no payer_id → all price fields are null', () => {
     const result = computeTripPrice({ ...baseTrip, payer_id: null }, emptyCtx);
-    expect(result.net_price).toBeNull();
     expect(result.gross_price).toBeNull();
     expect(result.tax_rate).toBeNull();
+    expect(result.base_net_price).toBeNull();
+    expect(result.approach_fee_net).toBeNull();
   });
 
   test('KTS override → net=0, gross=0, tax_rate is set (not null)', () => {
@@ -68,9 +71,10 @@ describe('computeTripPrice', () => {
       { ...baseTrip, kts_document_applies: true },
       ctx
     );
-    expect(result.net_price).toBe(0);
     expect(result.gross_price).toBe(0);
     expect(result.tax_rate).not.toBeNull();
+    expect(result.base_net_price).toBe(0);
+    expect(result.approach_fee_net).toBe(0);
   });
 
   test('tiered_km 15 km → net=11.00, gross=11.77, tax_rate=0.07', () => {
@@ -95,9 +99,10 @@ describe('computeTripPrice', () => {
       { ...baseTrip, driving_distance_km: 15 },
       ctx
     );
-    expect(result.net_price).toBe(11.0);
     expect(result.gross_price).toBe(11.77);
     expect(result.tax_rate).toBe(0.07);
+    expect(result.base_net_price).toBe(11.0);
+    expect(result.approach_fee_net).toBe(0);
   });
 
   test('tiered_km with null distance → all three null (distance required)', () => {
@@ -117,9 +122,10 @@ describe('computeTripPrice', () => {
       { ...baseTrip, driving_distance_km: null, net_price: null },
       ctx
     );
-    expect(result.net_price).toBeNull();
     expect(result.gross_price).toBeNull();
     expect(result.tax_rate).toBeNull();
+    expect(result.base_net_price).toBeNull();
+    expect(result.approach_fee_net).toBeNull();
   });
 
   test('client price tag (P1) beats tiered_km rule (P2)', () => {
@@ -155,8 +161,9 @@ describe('computeTripPrice', () => {
     );
     // P1 client_price_tag gross = 32.60; net = 32.6/1.07 ≈ 30.47
     expect(result.gross_price).toBe(32.6);
-    expect(result.net_price).toBeCloseTo(32.6 / 1.07, 5);
     expect(result.tax_rate).toBe(0.07);
+    expect(result.base_net_price).toBeCloseTo(32.6 / 1.07, 5);
+    expect(result.approach_fee_net).toBe(0);
   });
 
   test('no_price strategy → all three null', () => {
@@ -171,19 +178,22 @@ describe('computeTripPrice', () => {
       clientPriceTag: null
     };
     const result = computeTripPrice({ ...baseTrip, net_price: null }, ctx);
-    expect(result.net_price).toBeNull();
     expect(result.gross_price).toBeNull();
     expect(result.tax_rate).toBeNull();
+    expect(result.base_net_price).toBeNull();
+    expect(result.approach_fee_net).toBeNull();
   });
 
-  test('tax_rate is null whenever net_price resolves to null', () => {
+  test('tax_rate is null whenever resolution is unresolved', () => {
     // No rule, no net_price → unresolved → all null
     const result = computeTripPrice({ ...baseTrip, net_price: null }, emptyCtx);
-    expect(result.net_price).toBeNull();
     expect(result.tax_rate).toBeNull();
+    expect(result.gross_price).toBeNull();
+    expect(result.base_net_price).toBeNull();
+    expect(result.approach_fee_net).toBeNull();
   });
 
-  test('tiered_km with approach_fee_net=3.80 — snapshot includes total (base + Anfahrtspreis)', () => {
+  test('tiered_km with approach_fee_net=3.80 — gross from base + Anfahrtspreis', () => {
     // Tiers: 0–5 km @€2.00, 5+ km @€1.99
     // Distance: 5.469 km
     // Base net: 5×2.00 + 0.469×1.99 = 10.00 + 0.93331 → roundOnce = 10.93
@@ -209,9 +219,11 @@ describe('computeTripPrice', () => {
       { ...baseTrip, driving_distance_km: 5.469 },
       ctx
     );
-    expect(result.net_price).toBe(14.73);
+    // Combined net on trip row is DB-generated in Phase 2; here: 10.93 + 3.80 = 14.73
     expect(result.gross_price).toBe(15.76);
     expect(result.tax_rate).toBe(0.07);
+    expect(result.base_net_price).toBe(10.93);
+    expect(result.approach_fee_net).toBe(3.8);
   });
 });
 
@@ -301,27 +313,29 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 10, // from current row
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null // always null — P3 must not inherit old value
+      net_price: null, // always null — P4 must not inherit old value
+      base_net_price: null,
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, ctxPayerB);
     // 10 km × €2.00 = 20.00 net
-    expect(result.net_price).toBe(20.0);
     expect(result.gross_price).toBe(21.4); // 20.00 × 1.07
     expect(result.tax_rate).toBe(0.07);
+    expect(result.base_net_price).toBe(20.0);
+    expect(result.approach_fee_net).toBe(0);
   });
 
-  test('net_price from current row never used as P3 — merged input yields null, not 99.99', () => {
-    // Simulates: current row had net_price = 99.99 (historical snapshot).
-    // resolveTripForPricing always sets net_price: null, so P3 cannot fire on 99.99.
+  test('stored trip base never used in recalc — merged input yields null, not 99.99', () => {
+    // Simulates: current row had base_net_price = 99.99 (historical).
+    // resolveTripForPricing nulls both net fields so P3/P4 cannot fire on 99.99.
     const emptyCtx: PricingContext = {
       rules: [],
       clientPriceTags: [],
       clientPriceTag: null
     };
 
-    // If net_price were inherited, P3 would fire and return 99.99.
-    // With net_price: null the result must be all-null.
+    // If base_net_price were inherited, P4 would fire and return 99.99.
     const mergedInput: ComputeTripPriceInput = {
       payer_id: 'payer1',
       billing_type_id: null,
@@ -330,13 +344,16 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 15,
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null // always null from resolveTripForPricing
+      net_price: null, // always null from resolveTripForPricing
+      base_net_price: null,
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, emptyCtx);
-    expect(result.net_price).toBeNull();
     expect(result.gross_price).toBeNull();
     expect(result.tax_rate).toBeNull();
+    expect(result.base_net_price).toBeNull();
+    expect(result.approach_fee_net).toBeNull();
   });
 
   test('coordinate-only patch triggers recalculation using current row distance', () => {
@@ -366,13 +383,16 @@ describe('computeTripPrice — edit context (merged input)', () => {
       driving_distance_km: 5.0, // from current DB row (patch had none)
       scheduled_at: '2026-06-15T10:00:00.000Z',
       kts_document_applies: false,
-      net_price: null
+      net_price: null,
+      base_net_price: null,
+      manual_gross_price: null
     };
 
     const result = computeTripPrice(mergedInput, ctx);
     // 5 km × €2.00 = 10.00 net; 10.00 × 1.07 = 10.70 gross
-    expect(result.net_price).toBe(10.0);
     expect(result.gross_price).toBe(10.7);
     expect(result.tax_rate).toBe(0.07);
+    expect(result.base_net_price).toBe(10.0);
+    expect(result.approach_fee_net).toBe(0);
   });
 });

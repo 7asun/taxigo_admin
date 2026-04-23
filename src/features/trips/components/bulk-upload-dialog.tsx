@@ -1253,7 +1253,9 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   driving_distance_km: trip.driving_distance_km ?? null,
                   scheduled_at: trip.scheduled_at ?? null,
                   kts_document_applies: trip.kts_document_applies ?? false,
-                  net_price: null
+                  net_price: null,
+                  base_net_price: null,
+                  manual_gross_price: null
                 },
                 ctx
               )
@@ -1331,7 +1333,9 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                         scheduled_at: payload.scheduled_at ?? null,
                         kts_document_applies:
                           payload.kts_document_applies ?? false,
-                        net_price: null
+                        net_price: null,
+                        base_net_price: null,
+                        manual_gross_price: null
                       },
                       returnCtx
                     )

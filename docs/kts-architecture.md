@@ -1,5 +1,7 @@
 # KTS (Krankentransportschein) — architecture
 
+**Last updated:** 2026-04-25
+
 > See [access-control.md](access-control.md) for the full role-based access control architecture.
 
 
@@ -67,6 +69,10 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 | ------ | ---- | ------- |
 | `kts_document_applies` | `boolean NOT NULL` | Operational flag: this trip is a KTS case for clearing / reporting. |
 | `kts_source` | `varchar` (nullable) | How the flag was set: `variant`, `familie`, `payer`, `manual`, `system_default`. |
+| `base_net_price` | `numeric` (nullable) | **Phase 1 (2026-04):** transport net only; backfilled. For KTS, resolver net is €0; aligned with `net_price` / `gross` via `resolveTripPrice`. |
+| `approach_fee_net` | `numeric` (nullable) | **Phase 1:** Anfahrt net; KTS and taxameter paths use 0 where the resolver omits Anfahrt. |
+
+*General pricing:* **Phase 2:** `trips.net_price` is a **read-only generated column** — always `COALESCE(base_net_price,0) + COALESCE(approach_fee_net,0)` for dashboards, CSV, and stats. Inserts/updates set **`base_net_price` and `approach_fee_net` only** (see `option-a-schema-split-audit`, migration `20260425120000_net_price_generated.sql`).
 
 - On **save** after catalog-driven prefill: set `kts_source` to the resolver’s `source`.
 - If the **user changes** the switch away from the last resolved default, persist `kts_source = 'manual'`.
@@ -167,4 +173,4 @@ Add **short** comments at resolver entry points and where `kts_source` is assign
 
 ---
 
-*Last updated: 2026-04-04 — Fahrten-Tabelle: Verweis auf Fremdfirma-Spalten und `driver-select-cell` ergänzt (siehe `fremdfirma.md`).*
+*Last updated: 2026-04-24 — §3: `base_net_price` / `approach_fee_net` + `net_price` combined invariant (Option A Phase 1); 2026-04-04 — Fahrten-Tabelle: Verweis auf Fremdfirma-Spalten und `driver-select-cell` ergänzt (siehe `fremdfirma.md`).*

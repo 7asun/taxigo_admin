@@ -1355,7 +1355,9 @@ export function CreateTripForm({
               driving_distance_km: outboundDrivingDistanceKm,
               scheduled_at: outboundScheduledAt,
               kts_document_applies: values.kts_document_applies,
-              net_price: null
+              net_price: null,
+              base_net_price: null,
+              manual_gross_price: null
             },
             pricingContextMap.get(`${values.payer_id}:null`) ?? emptyPricingCtx
           ),
@@ -1417,7 +1419,9 @@ export function CreateTripForm({
                 driving_distance_km: returnDrivingDistanceKm,
                 scheduled_at: returnScheduledAt,
                 kts_document_applies: values.kts_document_applies,
-                net_price: null
+                net_price: null,
+                base_net_price: null,
+                manual_gross_price: null
               },
               pricingContextMap.get(`${values.payer_id}:null`) ??
                 emptyPricingCtx
@@ -1502,7 +1506,9 @@ export function CreateTripForm({
                   driving_distance_km: outboundDrivingDistanceKm,
                   scheduled_at: outboundScheduledAt,
                   kts_document_applies: values.kts_document_applies,
-                  net_price: null
+                  net_price: null,
+                  base_net_price: null,
+                  manual_gross_price: null
                 },
                 pricingContextMap.get(
                   `${values.payer_id}:${passengerClientId ?? 'null'}`
@@ -1584,7 +1590,9 @@ export function CreateTripForm({
                       driving_distance_km: drivingDistanceKm,
                       scheduled_at: returnScheduledAt,
                       kts_document_applies: values.kts_document_applies,
-                      net_price: null
+                      net_price: null,
+                      base_net_price: null,
+                      manual_gross_price: null
                     },
                     pricingContextMap.get(
                       `${values.payer_id}:${returnClientId ?? 'null'}`

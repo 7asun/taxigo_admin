@@ -144,6 +144,9 @@ export async function fetchTripsForBuilder(
       payer_id,
       scheduled_at,
       net_price,
+      base_net_price,
+      approach_fee_net,
+      manual_gross_price,
       driving_distance_km,
       billing_variant_id,
       pickup_address,
@@ -256,10 +259,13 @@ export function buildLineItemsFromTrips(
       clientPriceTags
     });
 
+    // manual_gross_price: persisted taxameter — P0 in resolveTripPrice (trips are SSOT).
     const priceResolution = resolveTripPricePure(
       {
         kts_document_applies: trip.kts_document_applies === true,
         net_price: trip.net_price ?? null,
+        base_net_price: trip.base_net_price ?? null,
+        manual_gross_price: trip.manual_gross_price ?? null,
         driving_distance_km: trip.driving_distance_km ?? null,
         scheduled_at: trip.scheduled_at,
         client: trip.client
@@ -317,6 +323,15 @@ export function buildLineItemsFromTrips(
       price_resolution: priceResolution,
       kts_override,
       approach_fee_net: priceResolution.approach_fee_net ?? null,
+      approach_fee_gross:
+        priceResolution.approach_fee_net != null
+          ? Math.round(priceResolution.approach_fee_net * (1 + taxRate) * 100) /
+            100
+          : null,
+      originalPriceResolution: priceResolution,
+      manualGrossTotal: null,
+      manualApproachFeeGross: null,
+      isManualOverride: false,
       trip_meta: buildTripMetaFromTrip(trip),
       price_source: legacyPriceSource(priceResolution.source),
       _totalPrice:

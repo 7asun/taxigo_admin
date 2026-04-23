@@ -23,6 +23,7 @@ export const PRICE_RESOLUTION_SOURCE_LABELS_DE: Record<
 > = {
   kts_override: 'KTS',
   client_price_tag: 'Kunde Preis-Tag',
+  manual_gross_price: 'Taxameter',
   variant: 'Unterart',
   billing_type: 'Abrechnungsfamilie',
   payer: 'Kostenträger',

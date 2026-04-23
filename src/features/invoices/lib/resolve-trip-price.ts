@@ -1,16 +1,18 @@
 /**
  * Pure trip price resolution — Spec C cascade (locked priorities).
- * Priority 0: KTS → €0
- * Priority 1: client gross — `rule._price_gross` (client_price_tags via resolvePricingRule STEP 0)
+ * Priority 0: Taxameter — `trips.manual_gross_price` (admin recorded gross; all-in, incl. Anfahrt)
+ * Priority 1: KTS → €0
+ * Priority 2: client gross — `rule._price_gross` (client_price_tags via resolvePricingRule STEP 0)
  *   else legacy `clients.price_tag` (gross → net)
- * Priority 2: billing_pricing_rules strategy
- * Priority 3: trips.price (net)
- * Priority 4: null / unresolved
+ * Priority 3: billing_pricing_rules strategy
+ * Priority 4: trips.base_net_price (transport net) fallback
+ * Priority 5: null / unresolved
  *
  * Tiered km: sum raw (km × rate) then round once to cents.
  * time_based: Europe/Berlin wall clock + calendar date for holidays.
  *
  * Anfahrtspreis (`approach_fee_net` on the returned resolution):
+ * - P0 taxameter: meter reading is all-in — do not add rule approach (avoids double-counting Anfahrt).
  * - client_price_tag is an all-in negotiated gross — approach fee does NOT apply.
  * - KTS lines are legally €0 — approach fee must be omitted.
  * - All other strategies: attach `approach_fee_net` from active rule config if present.
@@ -37,7 +39,7 @@ import { getTripsBusinessTimeZone } from '@/features/trips/lib/trip-business-dat
 /**
  * # Pricing engine — rounding contract
  *
- * ## Gross-anchor strategies (P1 — `client_price_tag`)
+ * ## Gross-anchor strategies (P2 — `client_price_tag` after P0–P1)
  *
  * The client contract specifies a **gross** price (incl. VAT). The gross value
  * is the single source of truth and must never be recomputed from a rounded net.
@@ -52,7 +54,7 @@ import { getTripsBusinessTimeZone } from '@/features/trips/lib/trip-business-dat
  *   - `calculateInvoiceTotals` must detect pricetag lines and sum
  *     `gross × quantity` directly — never re-derive gross from the stored net.
  *
- * ## Net-anchor strategies (P2–P4 and all billing rules)
+ * ## Net-anchor strategies (P3–P5 and all billing rules)
  *
  * The billing rule, trip price, or km rate defines a **net** amount. Tax is
  * applied on top and must only be rounded **once, at the total level**.
@@ -79,7 +81,15 @@ const BERLIN_TZ = 'Europe/Berlin';
 
 export interface TripPriceInput {
   kts_document_applies: boolean;
+  /** @deprecated for P3/P4 — prefer `base_net_price`. */
   net_price: number | null;
+  /**
+   * Transport net only (excludes Anfahrt). P3 strategies and P4 use this; do not pass combined `net_price` here
+   * or `withApproachFeeFromRule` can double-count approach on top of a combined stored total.
+   */
+  base_net_price: number | null;
+  /** Taxameter gross (Admin) on the trip — absolute P0; all-in, includes Anfahrt. */
+  manual_gross_price: number | null;
   driving_distance_km: number | null;
   scheduled_at: string | null;
   client?: { price_tag: number | null } | null;
@@ -241,14 +251,14 @@ function executeStrategy(
 
   switch (strategy) {
     case 'client_price_tag': {
-      // Misnamed strategy: if we got here, price_tag was absent — use trip.net_price if present.
-      if (trip.net_price != null) {
+      // Misnamed strategy: if we got here, price_tag was absent — use stored transport net if present.
+      if (trip.base_net_price != null) {
         return resolution(
           {
-            net: trip.net_price,
+            net: trip.base_net_price,
             strategy_used: 'trip_price_fallback',
             source: 'trip_price',
-            unit_price_net: trip.net_price,
+            unit_price_net: trip.base_net_price,
             quantity: 1
           },
           taxRate
@@ -258,8 +268,8 @@ function executeStrategy(
     }
     case 'manual_trip_price': {
       // Explicit rule to invoice stored driver net price only.
-      if (trip.net_price == null) return null;
-      const n = trip.net_price;
+      if (trip.base_net_price == null) return null;
+      const n = trip.base_net_price;
       return resolution(
         {
           net: n,
@@ -387,11 +397,32 @@ export function resolveTripPrice(
   taxRate: number,
   rule: BillingPricingRuleLike | null
 ): PriceResolution {
-  // client_price_tag is an all-in negotiated gross — approach fee does NOT apply.
-  // KTS lines are legally €0 — approach fee must be omitted.
-  // All other strategies: attach approach_fee_net from rule config if present.
+  // P0: Taxameter wins over KTS, client tags, and engine — real metered fare, not a correction.
+  // Gross is all-in (Anfahrt included). Do not wrap in withApproachFeeFromRule (no double Anfahrt).
+  if (
+    trip.manual_gross_price != null &&
+    trip.manual_gross_price !== undefined
+  ) {
+    const gross = trip.manual_gross_price;
+    const net = gross / (1 + taxRate);
+    return {
+      ...resolution(
+        {
+          net,
+          gross,
+          strategy_used: 'manual_trip_price',
+          source: 'manual_gross_price',
+          unit_price_net: net,
+          quantity: 1,
+          note: 'Taxameter-Preis (Admin erfasst)'
+        },
+        taxRate
+      ),
+      approach_fee_net: 0
+    };
+  }
 
-  // Priority 0 — KTS hard override (no Anfahrtspreis)
+  // P1 — KTS hard override (no Anfahrtspreis on resolution)
   if (trip.kts_document_applies === true) {
     return {
       gross: 0,
@@ -405,7 +436,7 @@ export function resolveTripPrice(
     };
   }
 
-  // Priority 1 — client price tag (gross → net), beats all catalog strategies (no Anfahrtspreis).
+  // P2 — client price tag (gross → net), beats all catalog strategies (no Anfahrtspreis).
   // Prefer `_price_gross` from resolvePricingRule STEP 0 (client_price_tags); else legacy clients.price_tag.
   const syntheticGross =
     rule?.strategy === 'client_price_tag' &&
@@ -433,15 +464,17 @@ export function resolveTripPrice(
     };
   }
 
-  // Priority 2 — catalog rule strategies (skipped entirely when price_tag already won at P1).
+  // P3 — catalog rule strategies (skipped when price_tag already won at P2).
   if (rule && rule.is_active) {
     const r = executeStrategy(rule, rule.strategy, trip, taxRate);
     if (r) return withApproachFeeFromRule(r, rule);
   }
 
-  // Priority 3 — stored trip net when no rule produced an amount (or rule returned null).
-  if (trip.net_price !== null && trip.net_price !== undefined) {
-    const n = trip.net_price;
+  // P4 — stored **transport** net when no rule produced an amount (or rule returned null).
+  // `base_net_price` only: previously P4 read combined `net_price` and the rule’s approach
+  // could be applied on top again (double-count). Phase 2 generated `trips.net_price` is combined only for readers.
+  if (trip.base_net_price !== null && trip.base_net_price !== undefined) {
+    const n = trip.base_net_price;
     return withApproachFeeFromRule(
       resolution(
         {
@@ -457,7 +490,7 @@ export function resolveTripPrice(
     );
   }
 
-  // Priority 4 — nothing left to price; builder shows missing_price until manual entry.
+  // P5 — nothing left to price; builder shows missing_price until manual entry.
   return withApproachFeeFromRule(
     {
       gross: null,
@@ -470,4 +503,40 @@ export function resolveTripPrice(
     },
     rule
   );
+}
+
+/**
+ * Back-calculates unit_price_net and approach_fee_net from admin-entered gross values.
+ * approach_fee_gross is INCLUDED in grossTotal (not additive).
+ *
+ * For per-km strategies (quantity > 1), unit_price_net is per-km so that the
+ * existing insertLineItems formula (unit_price × quantity + approach_fee_net) × (1+r)
+ * yields exactly grossTotal — no rounding drift.
+ */
+export function applyGrossOverrideToResolution(
+  base: PriceResolution,
+  grossTotal: number,
+  approachFeeGross: number,
+  taxRate: number
+): PriceResolution {
+  const qty = base.quantity;
+  const approachFeeNet = approachFeeGross / (1 + taxRate);
+  const transportNet = (grossTotal - approachFeeGross) / (1 + taxRate);
+  const unitPriceNet = qty > 1 ? transportNet / qty : transportNet;
+  const prevNote = base.note;
+  const overrideNote = 'Manuell überschrieben (Bruttoeingabe)';
+  const note =
+    prevNote && !prevNote.includes(overrideNote)
+      ? `${prevNote} · ${overrideNote}`
+      : overrideNote;
+  return {
+    ...base,
+    unit_price_net: unitPriceNet,
+    net: transportNet,
+    gross: grossTotal,
+    tax_rate: taxRate,
+    approach_fee_net: approachFeeNet,
+    strategy_used: 'manual_trip_price',
+    note
+  };
 }

@@ -54,10 +54,12 @@ export function isInvoiceBuilderSection3Complete(
   section2Complete: boolean,
   lineItems: BuilderLineItem[],
   isLoadingTrips: boolean,
-  isTripsError: boolean
+  isTripsError: boolean,
+  section3Confirmed: boolean // why: Prevents auto-advance before admin has reviewed prices — data load alone is not sufficient confirmation.
 ): boolean {
   if (!section2Complete || isLoadingTrips || isTripsError) return false;
-  return lineItems.length > 0;
+  if (lineItems.length === 0) return false;
+  return section3Confirmed;
 }
 
 export function isInvoiceBuilderSection4Unlocked(

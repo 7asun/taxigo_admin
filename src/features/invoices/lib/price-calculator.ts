@@ -29,6 +29,8 @@ export function resolveTripPrice(
   trip: Pick<
     TripForInvoice,
     | 'net_price'
+    | 'base_net_price'
+    | 'manual_gross_price'
     | 'driving_distance_km'
     | 'client'
     | 'kts_document_applies'
@@ -41,6 +43,8 @@ export function resolveTripPrice(
     {
       kts_document_applies: trip.kts_document_applies === true,
       net_price: trip.net_price ?? null,
+      base_net_price: trip.base_net_price ?? null,
+      manual_gross_price: trip.manual_gross_price ?? null,
       driving_distance_km: trip.driving_distance_km ?? null,
       scheduled_at: trip.scheduled_at,
       client: trip.client
