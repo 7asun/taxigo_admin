@@ -1,36 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsService, type Trip } from '../api/trips.service';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { tripKeys } from '@/query/keys';
-import { createDebouncedTripDetailInvalidation } from '@/query/realtime-bridge';
+import {
+  createDebouncedInvalidateByQueryKey,
+  createDebouncedTripDetailInvalidation
+} from '@/query/realtime-bridge';
 
+/**
+ * Fetches all trips for the dashboard stats ("Fahrten heute", "Umsatz heute").
+ *
+ * Uses TanStack Query with key `tripKeys.all` so that trip mutations (create, update, delete)
+ * can invalidate this cache and trigger automatic stat refreshes.
+ *
+ * The Supabase realtime subscription invalidates the query key instead of refetching
+ * directly — this ensures consistency with React Query's caching layer and allows
+ * mutations to trigger the same refresh mechanism.
+ */
 export function useTrips() {
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchTrips = async () => {
-    try {
-      setIsLoading(true);
-      const data = await tripsService.getTrips();
-      setTrips(data);
-      setError(null);
-    } catch (err) {
-      const error = err as Error;
-      setError(error);
-      toast.error(`Failed to fetch trips: ${error.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const query = useQuery({
+    queryKey: tripKeys.all,
+    queryFn: () => tripsService.getTrips(),
+    staleTime: 60_000 // Consistent with global default
+  });
 
+  // Set up Supabase realtime subscription to invalidate the query on any trips table change
   useEffect(() => {
-    fetchTrips();
-  }, []);
+    const { schedule, cancel } = createDebouncedInvalidateByQueryKey(
+      queryClient,
+      tripKeys.all,
+      400
+    );
 
-  useEffect(() => {
     const supabase = createClient();
     const channel = supabase
       .channel('trips-all-changes')
@@ -43,21 +48,35 @@ export function useTrips() {
         },
         (payload) => {
           console.log('Real-time update for all trips received:', payload);
-          fetchTrips();
+          // Invalidate the query key instead of fetching directly — this leverages
+          // React Query's caching and ensures mutations use the same refresh mechanism
+          schedule();
         }
       )
       .subscribe();
 
     return () => {
+      cancel();
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [queryClient]);
+
+  // Show error toast when query fails
+  useEffect(() => {
+    if (!query.error || query.data) return;
+    toast.error(`Failed to fetch trips: ${(query.error as Error).message}`);
+  }, [query.error, query.data]);
+
+  // Stable refresh function for backward compatibility
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+  }, [queryClient]);
 
   return {
-    trips,
-    isLoading,
-    error,
-    refresh: fetchTrips
+    trips: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error as Error | null,
+    refresh
   };
 }
 

@@ -196,4 +196,44 @@ describe('resolvePricingRule', () => {
     });
     expect(out?.id).toBe('rv');
   });
+
+  test('trip with undefined type/variant still matches payer-wide rule (null/undefined normalisation)', () => {
+    const payerRule = {
+      id: 'rp',
+      company_id: 'c1',
+      payer_id: payerId,
+      billing_type_id: undefined,
+      billing_variant_id: undefined,
+      strategy: 'tiered_km' as const,
+      config: { tiers: [] },
+      is_active: true
+    } as unknown as BillingPricingRuleLike;
+
+    // Simulates spread / API payloads where nullable FK keys are omitted → `undefined`.
+    const out = resolvePricingRule({
+      rules: [payerRule],
+      payerId,
+      clientId: null
+    } as any);
+    expect(out?.id).toBe('rp');
+  });
+
+  test('variant id on trip with no variant rule falls through to payer-wide rule', () => {
+    const payerRule = rule({
+      id: 'rp',
+      payer_id: payerId,
+      billing_type_id: null,
+      billing_variant_id: null,
+      strategy: 'tiered_km',
+      config: { tiers: [] }
+    });
+    const out = resolvePricingRule({
+      rules: [payerRule],
+      payerId,
+      billingTypeId: null,
+      billingVariantId: variantId,
+      clientId: null
+    });
+    expect(out?.id).toBe('rp');
+  });
 });
