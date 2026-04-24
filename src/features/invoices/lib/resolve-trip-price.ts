@@ -466,8 +466,10 @@ export function resolveTripPrice(
 
   // P3 — catalog rule strategies (skipped when price_tag already won at P2).
   if (rule && rule.is_active) {
-    const r = executeStrategy(rule, rule.strategy, trip, taxRate);
-    if (r) return withApproachFeeFromRule(r, rule);
+    const strategyResult = executeStrategy(rule, rule.strategy, trip, taxRate);
+    if (strategyResult) {
+      return withApproachFeeFromRule(strategyResult, rule);
+    }
   }
 
   // P4 — stored **transport** net when no rule produced an amount (or rule returned null).

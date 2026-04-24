@@ -21,14 +21,14 @@ export interface ResolvePricingRuleInput {
 export function resolvePricingRule(
   input: ResolvePricingRuleInput
 ): BillingPricingRuleLike | null {
-  const {
-    rules,
-    payerId,
-    billingTypeId,
-    billingVariantId,
-    clientId,
-    clientPriceTags
-  } = input;
+  const { rules, payerId, clientId, clientPriceTags } = input;
+
+  // Trip rows and spread objects often omit nullable FKs → `undefined` at runtime.
+  // `=== null` on the rule side and `if (billingVariantId)` on the trip side then
+  // disagree with SQL nulls and with each other; normalising here keeps STEP 1–3
+  // aligned with how Postgres stores “no type / no variant”.
+  const billingTypeId = input.billingTypeId ?? null;
+  const billingVariantId = input.billingVariantId ?? null;
 
   const companyId = rules[0]?.company_id ?? '';
 
@@ -42,20 +42,20 @@ export function resolvePricingRule(
     let tag: ClientPriceTagLike | undefined;
 
     if (billingVariantId) {
-      tag = tags.find((t) => t.billing_variant_id === billingVariantId);
+      tag = tags.find(
+        (t) => (t.billing_variant_id ?? null) === billingVariantId
+      );
     }
     if (!tag && payerId) {
       tag = tags.find(
-        (t) =>
-          t.payer_id === payerId &&
-          (t.billing_variant_id === null || t.billing_variant_id === undefined)
+        (t) => t.payer_id === payerId && (t.billing_variant_id ?? null) === null
       );
     }
     if (!tag) {
       tag = tags.find(
         (t) =>
-          (t.payer_id === null || t.payer_id === undefined) &&
-          (t.billing_variant_id === null || t.billing_variant_id === undefined)
+          (t.payer_id ?? null) === null &&
+          (t.billing_variant_id ?? null) === null
       );
     }
 
@@ -77,32 +77,37 @@ export function resolvePricingRule(
     }
   }
 
-  // STEP 1 — Unterart wins: most specific catalog level for mixed families on one payer.
+  // STEP 1 — Unterart: use a variant-level rule only when the trip has a variant.
+  // If there is no rule for that variant, fall through — STEP 3 still supplies a
+  // payer-wide default so an unknown variant id does not blank out pricing.
   if (billingVariantId) {
     const v = rules.find(
-      (r) => r.billing_variant_id === billingVariantId && r.is_active
+      (r) => (r.billing_variant_id ?? null) === billingVariantId && r.is_active
     );
     if (v) return v;
   }
 
-  // STEP 2 — Abrechnungsfamilie when no variant rule applies (shared default for all variants of that type).
+  // STEP 2 — Abrechnungsfamilie: type-level catalog row (payer_id null) when the
+  // trip has a billing type. No match simply means we try STEP 3 next.
   if (billingTypeId) {
     const t = rules.find(
       (r) =>
-        r.billing_type_id === billingTypeId &&
-        r.billing_variant_id === null &&
-        r.payer_id === null &&
+        (r.billing_type_id ?? null) === billingTypeId &&
+        (r.billing_variant_id ?? null) === null &&
+        (r.payer_id ?? null) === null &&
         r.is_active
     );
     if (t) return t;
   }
 
-  // STEP 3 — Kostenträger-wide fallback when neither variant nor type set a rule.
+  // STEP 3 — Kostenträger-wide fallback. Catalogue rows may surface `undefined`
+  // for nullable columns after serialisation; without `?? null`, `=== null` would
+  // skip the only payer-wide rule even when the trip has no type/variant set.
   const p = rules.find(
     (r) =>
-      r.payer_id === payerId &&
-      r.billing_type_id === null &&
-      r.billing_variant_id === null &&
+      (r.payer_id ?? null) === payerId &&
+      (r.billing_type_id ?? null) === null &&
+      (r.billing_variant_id ?? null) === null &&
       r.is_active
   );
   return p ?? null;
