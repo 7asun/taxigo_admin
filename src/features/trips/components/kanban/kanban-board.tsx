@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { TripsRscRefreshChrome } from '@/features/trips/components/trips-rsc-refresh-chrome';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import {
@@ -43,6 +44,7 @@ import {
   buildItemsByColumn
 } from '@/features/trips/lib/kanban-columns';
 import { deriveStatusForPending } from '@/features/trips/lib/kanban-grouping';
+import { tripKeys } from '@/query/keys';
 import type {
   KanbanTrip,
   GroupByMode,
@@ -76,6 +78,7 @@ interface TripsKanbanBoardProps {
  * - Status is staged at drag-end so the badge is immediately correct.
  */
 export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
+  const queryClient = useQueryClient();
   const { refreshTripsPage } = useTripsRscRefresh();
   const { drivers, isLoading: isFormDataLoading } = useTripFormData();
   const { pendingChanges, setPendingChanges, clearPendingChanges, pruneToIds } =
@@ -489,12 +492,22 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
           return tripsService.updateTrip(id, payload);
         })
       );
+      // Invalidate React Query cache to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
+      // This operates at the client-side cache layer, separate from the RSC refresh below
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+      // RSC refresh handles the server component layer
       await refreshTripsPage();
       clearPendingChanges();
     } finally {
       setIsSaving(false);
     }
-  }, [pendingChanges, refreshTripsPage, trips, clearPendingChanges]);
+  }, [
+    pendingChanges,
+    refreshTripsPage,
+    trips,
+    clearPendingChanges,
+    queryClient
+  ]);
 
   const hasPendingChanges = Object.keys(pendingChanges).length > 0;
 

@@ -164,6 +164,7 @@ Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver,
 | Trip create | `src/features/trips/components/create-trip/*` |
 | Trip detail | `src/features/trips/trip-detail-sheet/*` |
 | Fahrten-Liste (Tabelle + Mobil) | `src/features/trips/components/trips-tables/columns.tsx` (u. a. **KTS**, **Fremdfirma**, **Abrechnung Fremdfirma**), `driver-select-cell.tsx`, `trips-mobile-card-list.tsx` — Fremdfirma-Spalten nur Desktop; Details [fremdfirma.md](fremdfirma.md) |
+| Fahrten list `?sort=` | `src/features/trips/trips-sort-map.ts` |
 | Bulk import | `src/features/trips/components/bulk-upload-dialog.tsx`, `bulk-upload/resolve-billing-variants-step.tsx` |
 | Recurring cron | `src/app/api/cron/generate-recurring-trips/route.ts` |
 | Fahrten-CSV-Export (optional Spalte) | `src/features/trips/components/csv-export/csv-export-constants.ts`, `src/app/api/trips/export/route.ts` — Spalte `kts_document_applies` |

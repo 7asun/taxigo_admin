@@ -30,6 +30,20 @@ import {
 } from '@/components/ui/tooltip';
 import { TripInvoiceStatusBadge } from '@/features/trips/components/trip-invoice-status-badge';
 
+/** de-DE currency for list prices (Fahrten table). */
+const EUR_DE = new Intl.NumberFormat('de-DE', {
+  style: 'currency',
+  currency: 'EUR'
+});
+/**
+ * `tax_rate` in DB is a decimal fraction (0.07, 0.19) — see trip price engine tests.
+ * `style: 'percent'` expects that form; do not divide by 100.
+ */
+const TAX_DE_PERCENT = new Intl.NumberFormat('de-DE', {
+  style: 'percent',
+  maximumFractionDigits: 0
+});
+
 const statusFilterOptions: { label: string; value: string }[] = [
   { label: 'Offen', value: 'pending' },
   { label: 'Zugewiesen', value: 'assigned' },
@@ -156,6 +170,7 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'pickup_address',
     accessorKey: 'pickup_address',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Abholung' />
@@ -190,6 +205,7 @@ export const columns: ColumnDef<any>[] = [
     meta: { label: 'Abholung' }
   },
   {
+    id: 'dropoff_address',
     accessorKey: 'dropoff_address',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Ziel' />
@@ -262,6 +278,21 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'gross_price',
+    accessorKey: 'gross_price',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Brutto' />
+    ),
+    cell: ({ row }) => {
+      const value = row.original.gross_price as number | null | undefined;
+      if (value == null) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return <span className='tabular-nums'>{EUR_DE.format(value)}</span>;
+    },
+    enableColumnFilter: false
+  },
+  {
     id: 'invoice_status',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Rechnungsstatus' />
@@ -276,7 +307,9 @@ export const columns: ColumnDef<any>[] = [
       );
     },
     meta: { label: 'Rechnungsstatus', variant: 'text' },
-    enableColumnFilter: false
+    enableColumnFilter: false,
+    // No scalar `trips` column; sort would need RPC/view — deferred.
+    enableSorting: false
   },
   {
     id: 'payer_name',
@@ -316,7 +349,8 @@ export const columns: ColumnDef<any>[] = [
       );
     },
     meta: { label: 'Fremdfirma', variant: 'text' },
-    enableColumnFilter: false
+    enableColumnFilter: false,
+    enableSorting: false
   },
   {
     id: 'fremdfirma_abrechnung',
@@ -356,7 +390,8 @@ export const columns: ColumnDef<any>[] = [
       );
     },
     meta: { label: 'Abrechnung Fremdfirma', variant: 'text' },
-    enableColumnFilter: false
+    enableColumnFilter: false,
+    enableSorting: false
   },
   // Abrechnung: use formatBillingDisplayLabel (hides Unterart „Standard“); do not concatenate names here.
   {
@@ -458,7 +493,41 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'net_price',
+    accessorKey: 'net_price',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Netto' />
+    ),
+    cell: ({ row }) => {
+      const value = row.original.net_price as number | null | undefined;
+      if (value == null) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return <span className='tabular-nums'>{EUR_DE.format(value)}</span>;
+    },
+    enableColumnFilter: false
+  },
+  {
+    id: 'tax_rate',
+    accessorKey: 'tax_rate',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='MwSt.' />
+    ),
+    cell: ({ row }) => {
+      const value = row.original.tax_rate as number | null | undefined;
+      if (value == null) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return (
+        <span className='tabular-nums'>{TAX_DE_PERCENT.format(value)}</span>
+      );
+    },
+    enableColumnFilter: false
+  },
+  {
     id: 'actions',
-    cell: ({ row }) => <CellAction data={row.original} />
+    cell: ({ row }) => <CellAction data={row.original} />,
+    enableSorting: false,
+    enableHiding: false
   }
 ];

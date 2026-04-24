@@ -5,9 +5,23 @@
 | Layer | What it powers | How it updates |
 |--------|----------------|----------------|
 | **RSC** | [`trips-listing.tsx`](../src/features/trips/components/trips-listing.tsx) — Liste + Kanban grid (filters, pagination, date rules) | `router.refresh()` re-runs the server component tree. |
-| **TanStack Query** | Trip detail sheet, unplanned widget, etc. | `invalidateQueries({ queryKey: tripKeys… })` |
+| **TanStack Query** | Trip detail sheet, unplanned widget, dashboard stats ("Fahrten heute", "Umsatz heute") | `invalidateQueries({ queryKey: tripKeys… })` |
 
 Those are **different caches**. A change that only invalidates Query does **not** reload the main Fahrten table; a change that only calls `router.refresh()` does **not** update Query-backed hooks unless you invalidate too.
+
+## Dashboard stats integration
+
+The dashboard overview (`/dashboard/overview`) uses `useTrips()` to fetch all trips for the "Fahrten heute" and "Umsatz heute" stat cards. This hook now uses TanStack Query with key `tripKeys.all`:
+
+- **`useTrips()`**: Uses `useQuery` with `tripKeys.all` and a 60-second `staleTime`. The Supabase realtime subscription invalidates this key instead of directly refetching, ensuring consistency with React Query's caching layer.
+- **Trip mutations**: All trip mutations (create, update, delete) invalidate `tripKeys.all` to automatically refresh the dashboard stats. This includes:
+  - `useUpdateTripMutation` — invalidates on `onSuccess`
+  - `create-trip-form.tsx` — invalidates after successful creation
+  - `kanban-board.tsx` — invalidates after bulk save (alongside RSC refresh)
+  - `trip-detail-sheet.tsx` — invalidates after driver assignment changes
+  - `trips-pagination-bulk-actions.tsx` — invalidates after permanent deletion
+
+This ensures that any change to the trips dataset immediately reflects in the dashboard stat cards without requiring manual refresh.
 
 ## Single entry point: `refreshTripsPage()`
 

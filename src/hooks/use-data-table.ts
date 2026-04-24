@@ -62,6 +62,13 @@ interface UseDataTableProps<TData>
   scroll?: boolean;
   shallow?: boolean;
   startTransition?: React.TransitionStartFunction;
+  /**
+   * When set, only these column ids are accepted in the `sort` URL param. Use on
+   * Fahrten (`TripsTable`) so the whitelist matches `TRIPS_SORT_MAP` and does not
+   * include every table column id (e.g. `invoice_status`). Omitted: derive from
+   * column `id`s (default).
+   */
+  sortParserValidKeys?: Set<string> | string[];
 }
 
 export function useDataTable<TData>(props: UseDataTableProps<TData>) {
@@ -77,6 +84,7 @@ export function useDataTable<TData>(props: UseDataTableProps<TData>) {
     scroll = false,
     shallow = true,
     startTransition,
+    sortParserValidKeys,
     ...tableProps
   } = props;
 
@@ -151,9 +159,16 @@ export function useDataTable<TData>(props: UseDataTableProps<TData>) {
     );
   }, [columns]);
 
+  const sortParserKeys =
+    sortParserValidKeys != null
+      ? sortParserValidKeys instanceof Set
+        ? sortParserValidKeys
+        : new Set(sortParserValidKeys)
+      : columnIds;
+
   const [sorting, setSorting] = useQueryState(
     SORT_KEY,
-    getSortingStateParser<TData>(columnIds)
+    getSortingStateParser<TData>(sortParserKeys)
       .withOptions(queryStateOptions)
       .withDefault(initialState?.sorting ?? [])
   );

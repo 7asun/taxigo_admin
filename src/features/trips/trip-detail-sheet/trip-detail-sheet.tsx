@@ -541,9 +541,12 @@ export function TripDetailSheet({
         if (derivedStatus) payload.status = derivedStatus;
         await tripsService.updateTrip(trip.id, payload);
         toast.success('Fahrer aktualisiert');
+        // Invalidate detail query for the trip sheet
         void queryClient.invalidateQueries({
           queryKey: tripKeys.detail(trip.id)
         });
+        // Invalidate all trips to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
+        void queryClient.invalidateQueries({ queryKey: tripKeys.all });
         await refreshAfterTripSave();
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -1158,14 +1161,25 @@ export function TripDetailSheet({
                     <h3 className='text-muted-foreground text-xs font-bold tracking-widest uppercase'>
                       Route & Verlauf
                     </h3>
-                    <Badge
-                      variant='outline'
-                      className='h-5 px-2 py-0 text-[10px] font-semibold'
-                    >
-                      {trip.driving_distance_km
-                        ? `${trip.driving_distance_km} km`
-                        : 'Geplant'}
-                    </Badge>
+                    <div className='flex gap-2'>
+                      <Badge
+                        variant='outline'
+                        className='h-5 px-2 py-0 text-[10px] font-semibold'
+                      >
+                        {trip.driving_distance_km
+                          ? `${trip.driving_distance_km.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`
+                          : 'Geplant'}
+                      </Badge>
+                      <Badge
+                        variant='outline'
+                        className='h-5 px-2 py-0 text-[10px] font-semibold'
+                      >
+                        {trip.gross_price !== null &&
+                        trip.gross_price !== undefined
+                          ? `${trip.gross_price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+                          : '-'}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className='relative ml-3 space-y-0'>

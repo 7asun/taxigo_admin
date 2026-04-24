@@ -141,6 +141,11 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
 
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
+      // Invalidate revenue total to refresh "Rechnungsumsatz" stat on dashboard
+      // since status changes (draft → sent → paid) affect the revenue calculation
+      void queryClient.invalidateQueries({
+        queryKey: invoiceKeys.revenueTotal
+      });
     }
   });
 }

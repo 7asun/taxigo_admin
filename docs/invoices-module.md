@@ -284,6 +284,15 @@ netto = brutto / (1 + tax_rate)
 Due to strict foreign key relationships, complex objects like the `company_profile` cannot be recursively joined in a single PostgREST pass from the `invoices` table.
 - `getInvoiceDetail` sequentially fetches the invoice (with payer, client, and **`line_items:invoice_line_items(*)`** — wildcard avoids errors when new line-item columns are added before every environment has run migrations), then fetches `company_profile` using the invoice's `company_id`.
 
+### Query Invalidation for Dashboard Stats
+
+Invoice mutations automatically refresh the "Rechnungsumsatz" stat on the dashboard overview through React Query invalidation:
+
+- **`useUpdateInvoiceStatus`**: Invalidates `invoiceKeys.revenueTotal` on `onSettled` when invoice status changes (draft → sent → paid). This ensures the revenue total reflects only invoices with status 'sent' or 'paid'.
+- **`useInvoiceBuilder`**: Invalidates `invoiceKeys.revenueTotal` on `onSuccess` after invoice creation. New invoices start as 'draft' but may immediately be sent, so the cache is refreshed to include the new invoice if it qualifies for revenue calculation.
+
+The revenue total query (`useInvoiceRevenueTotal`) has a 5-minute `staleTime` since invoice revenue does not need real-time precision, but explicit invalidation ensures the stat updates immediately after user actions.
+
 ### Invoice PDF (`@react-pdf/renderer`)
 
 PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx)):

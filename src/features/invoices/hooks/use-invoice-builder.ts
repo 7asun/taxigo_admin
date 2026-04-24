@@ -291,6 +291,11 @@ export function useInvoiceBuilder(
 
     onSuccess: (invoice) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
+      // Invalidate revenue total to refresh "Rechnungsumsatz" stat on dashboard
+      // since invoice creation (and subsequent status changes) affect the revenue calculation
+      void queryClient.invalidateQueries({
+        queryKey: invoiceKeys.revenueTotal
+      });
       toast.success(`Rechnung ${invoice.invoice_number} wurde erstellt.`);
       onCreated(invoice.id);
     },

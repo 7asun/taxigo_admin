@@ -10,6 +10,10 @@ import { toQueryError } from '@/lib/supabase/to-query-error';
 import { TripsTable, columns } from './trips-tables/index';
 import { Trip } from '../api/trips.service';
 import { getSortingStateParser } from '@/lib/parsers';
+import {
+  TRIPS_SORT_MAP,
+  TRIPS_SORTABLE_IDS
+} from '@/features/trips/trips-sort-map';
 import { TripsViewToggle } from './trips-view-toggle';
 import { TripsKanbanBoard } from './trips-kanban-board';
 import { TripsFiltersBar } from './trips-filters-bar';
@@ -220,41 +224,25 @@ export default async function TripsListingPage({
       }
     }
 
-    // Parse sorting params
+    // Parse sorting — whitelist matches client (`TripsTable` + `TRIPS_SORTABLE_IDS`).
     const sorting =
-      getSortingStateParser().parseServerSide(
+      getSortingStateParser(TRIPS_SORTABLE_IDS).parseServerSide(
         searchParamsCache.get('sort') ?? undefined
       ) || [];
 
     if (sorting.length > 0) {
-      sorting.forEach((sortRule: any) => {
-        const isDesc = sortRule.desc;
-        if (sortRule.id === 'name') {
-          query = query.order('client_name', { ascending: !isDesc });
-        } else if (sortRule.id === 'date' || sortRule.id === 'time') {
-          query = query.order('scheduled_at', { ascending: !isDesc });
-        } else if (sortRule.id === 'payer_name') {
-          query = query.order('name', {
-            foreignTable: 'payer',
-            ascending: !isDesc
-          });
-        } else if (
-          sortRule.id === 'driver_id' ||
-          sortRule.id === 'driver_name'
-        ) {
-          query = query.order('name', {
-            foreignTable: 'driver',
-            ascending: !isDesc
-          });
-        } else if (sortRule.id === 'billing_type') {
-          query = query.order('name', {
-            foreignTable: 'billing_variant',
-            ascending: !isDesc
-          });
-        } else {
-          query = query.order(sortRule.id, { ascending: !isDesc });
+      for (const sortRule of sorting) {
+        // Never forward unmapped ids to PostgREST (stale or crafted URLs) — skip quietly.
+        const mapping = TRIPS_SORT_MAP[sortRule.id as string];
+        if (!mapping) continue;
+        const opts: { ascending: boolean; foreignTable?: string } = {
+          ascending: !sortRule.desc
+        };
+        if (mapping.foreignTable) {
+          opts.foreignTable = mapping.foreignTable;
         }
-      });
+        query = query.order(mapping.column, opts);
+      }
     } else {
       // Default sorting: earliest trips first (chronological)
       query = query.order('scheduled_at', { ascending: true });

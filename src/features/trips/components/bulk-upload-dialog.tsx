@@ -173,6 +173,8 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
       code: string;
       sort_order: number;
       kts_default: boolean | null;
+      /** FK parent type — NOT NULL on `billing_variants`; matches the Supabase nested select. */
+      billing_type_id: string;
     }[];
   };
   const [billingTypeTree, setBillingTypeTree] = React.useState<
@@ -559,6 +561,15 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
    */
   const processCsv = async (files: File[]) => {
     if (files.length === 0) return;
+
+    // Abort instead of parsing while the tree is still empty: otherwise every row would get
+    // null billing_type_id with no error — the same failure mode as the pre-effect race.
+    if (billingTypeTree.length === 0) {
+      toast.error(
+        'Abrechnungsdaten werden noch geladen. Bitte einen Moment warten.'
+      );
+      return;
+    }
 
     setIsProcessing(true);
     setResults(null);
@@ -982,7 +993,21 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   ingestion_source: 'csv_bulk_upload',
                   kts_document_applies: ktsDocumentApplies,
                   kts_source: ktsSource,
-                  billing_type_id: matchedType?.id || null,
+                  // Parent type must follow the variant FK (create-trip-form + cron), not the CSV
+                  // type-name match — otherwise Abrechnungsart typos leave billing_type_id null while
+                  // billing_variant_id is set and STEP 2 rules never run. The matched variant’s
+                  // billing_type_id is the canonical NOT NULL parent in the DB, so this lookup is definitive.
+                  billing_type_id: (() => {
+                    if (billingVariantId) {
+                      for (const typeRow of billingTypeTree) {
+                        const variant = typeRow.billing_variants.find(
+                          (v) => v.id === billingVariantId
+                        );
+                        if (variant) return variant.billing_type_id;
+                      }
+                    }
+                    return matchedType?.id ?? null;
+                  })(),
                   gross_price: null,
                   tax_rate: null
                 }
