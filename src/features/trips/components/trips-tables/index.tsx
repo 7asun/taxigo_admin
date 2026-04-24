@@ -17,6 +17,7 @@ import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { getTripListScrollAnchorId } from '@/features/trips/lib/trip-list-scroll-anchor';
 import { TripsRscRefreshChrome } from '@/features/trips/components/trips-rsc-refresh-chrome';
+import { TRIPS_SORTABLE_IDS } from '@/features/trips/trips-sort-map';
 
 export { columns };
 
@@ -41,7 +42,15 @@ export function TripsTable<TData, TValue>({
     pageCount: pageCount,
     shallow: false,
     debounceMs: 500,
-    getRowId: (row) => (row as Trip).id
+    getRowId: (row) => (row as Trip).id,
+    // Must match RSC `getSortingStateParser` + `TRIPS_SORT_MAP` — not every column `id`.
+    sortParserValidKeys: TRIPS_SORTABLE_IDS,
+    initialState: {
+      columnVisibility: {
+        net_price: false,
+        tax_rate: false
+      }
+    }
   });
 
   const setTable = useTripsTableStore((s) => s.setTable);

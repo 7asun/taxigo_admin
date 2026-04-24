@@ -2,9 +2,11 @@
 
 import * as React from 'react';
 import type { Table as TanstackTable } from '@tanstack/react-table';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import { toast } from 'sonner';
 import { Copy, Trash2, X } from 'lucide-react';
+import { tripKeys } from '@/query/keys';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +28,7 @@ interface TripsPaginationBulkActionsProps<TData> {
 export function TripsPaginationBulkActions<TData>({
   table
 }: TripsPaginationBulkActionsProps<TData>) {
+  const queryClient = useQueryClient();
   const { refreshTripsPage } = useTripsRscRefresh();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [duplicateOpen, setDuplicateOpen] = React.useState(false);
@@ -55,6 +58,9 @@ export function TripsPaginationBulkActions<TData>({
     try {
       setIsDeleting(true);
       await tripsService.deleteTripsPermanently(ids);
+      // Invalidate the trips list to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
+      // since deleted trips must drop out of the count and revenue calculations
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
       toast.success(
         ids.length === 1
           ? 'Fahrt wurde aus der Datenbank gelöscht.'

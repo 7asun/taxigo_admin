@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useForm, useFormState, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { Form } from '@/components/ui/form';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,7 @@ import { tripsService } from '@/features/trips/api/trips.service';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
+import { tripKeys } from '@/query/keys';
 import type { PassengerEntry, AddressGroupEntry } from '@/features/trips/types';
 import type { AddressResult } from '../trip-address-passenger';
 import type {
@@ -109,6 +111,7 @@ export function CreateTripForm({
   preselectedClientId,
   onBillingTypeChange
 }: CreateTripFormProps) {
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [billingFamilyId, setBillingFamilyId] = React.useState('');
   const hasInitializedReturnDateRef = React.useRef(false);
@@ -1638,6 +1641,10 @@ export function CreateTripForm({
           );
         }
       }
+
+      // Invalidate the trips list to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
+      // since new trips affect the count and revenue calculations
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
 
       toast.success(
         shouldCreateReturn

@@ -3,7 +3,8 @@
 This document explains how the **Fahrten** page decides which trips to load when a date (or range) is selected, and **why** the query was changed.
 
 **Implementation:** `src/features/trips/components/trips-listing.tsx`  
-**Related:** [Kanban view](./kanban-view.md) (uses the same query when `view=kanban`)
+**Related:** [Kanban view](./kanban-view.md) (uses the same query when `view=kanban`)  
+**List sort (`?sort=`):** [`src/features/trips/trips-sort-map.ts`](../src/features/trips/trips-sort-map.ts) — maps sort column ids to PostgREST `order()`; orthogonal to the date filter.
 
 ---
 
