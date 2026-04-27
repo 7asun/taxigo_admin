@@ -43,7 +43,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
       )
       .order('name');
 
@@ -85,6 +85,7 @@ export class PayersService {
     number: string;
     kts_default: boolean | null;
     no_invoice_required_default?: boolean | null;
+    accepts_self_payment?: boolean | null;
     rechnungsempfaenger_id?: string | null;
     pdf_vorlage_id?: string | null;
   }): Promise<void> {
@@ -97,6 +98,9 @@ export class PayersService {
         kts_default: args.kts_default,
         ...(args.no_invoice_required_default !== undefined
           ? { no_invoice_required_default: args.no_invoice_required_default }
+          : {}),
+        ...(args.accepts_self_payment !== undefined
+          ? { accepts_self_payment: args.accepts_self_payment }
           : {}),
         ...(args.rechnungsempfaenger_id !== undefined
           ? { rechnungsempfaenger_id: args.rechnungsempfaenger_id }
@@ -133,6 +137,7 @@ export class PayersService {
         behavior_profile,
         created_at,
         rechnungsempfaenger_id,
+        accepts_self_payment,
         billing_variants (
           id,
           billing_type_id,
@@ -232,7 +237,8 @@ export class PayersService {
     familyId: string,
     name: string,
     color: string,
-    rechnungsempfaengerId?: string | null
+    rechnungsempfaengerId: string | null | undefined,
+    acceptsSelfPayment: boolean | null
   ): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
@@ -242,7 +248,8 @@ export class PayersService {
         color,
         ...(rechnungsempfaengerId !== undefined
           ? { rechnungsempfaenger_id: rechnungsempfaengerId }
-          : {})
+          : {}),
+        accepts_self_payment: acceptsSelfPayment
       })
       .eq('id', familyId);
 
@@ -422,6 +429,7 @@ export class PayersService {
         behavior_profile,
         created_at,
         rechnungsempfaenger_id,
+        accepts_self_payment,
         billing_variants (
           id,
           billing_type_id,

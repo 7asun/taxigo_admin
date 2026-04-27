@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Printer, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +37,8 @@ export function PrintTripsButton() {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [date, setDate] = React.useState<Date | undefined>(new Date());
   const [isOpen, setIsOpen] = React.useState(false);
+  // Default matches full-day: keep startOfDay branch — never use wall-clock "now" as default
+  const [abTime, setAbTime] = React.useState<string>('00:00');
 
   const generatePrintouts = async () => {
     if (!date) {
@@ -47,7 +51,17 @@ export function PrintTripsButton() {
       setIsOpen(false);
       const supabase = createClient();
 
-      const start = startOfDay(date).toISOString();
+      // Ab Uhrzeit: default "00:00" must use startOfDay only (bit-identical to legacy).
+      // Other times: local setHours on the selected day — do not parse as UTC (…Z) strings.
+      const start =
+        abTime === '00:00'
+          ? startOfDay(date).toISOString()
+          : (() => {
+              const [hours, minutes] = abTime.split(':').map(Number);
+              const d = new Date(date);
+              d.setHours(hours, minutes, 0, 0);
+              return d.toISOString();
+            })();
       const end = endOfDay(date).toISOString();
 
       toast.info(`Lade Fahrten für den ${format(date, 'dd.MM.yyyy')}...`);
@@ -63,6 +77,8 @@ export function PrintTripsButton() {
         )
         .gte('scheduled_at', start)
         .lte('scheduled_at', end)
+        // Cancelled trips must not appear in the Fahrtenplan export
+        .neq('status', 'cancelled')
         .order('scheduled_at', { ascending: true });
 
       const driversQuery = supabase
@@ -84,16 +100,25 @@ export function PrintTripsButton() {
         return;
       }
 
+      // Defense-in-depth: ensure cancelled trips are excluded even if the query changes
+      const printableTrips = trips.filter((t) => t.status !== 'cancelled');
+
+      if (printableTrips.length === 0) {
+        toast.error('Keine Fahrten für diesen Tag gefunden.');
+        setIsGenerating(false);
+        return;
+      }
+
       const dateStr = format(date, 'dd.MM.yy');
       const zip = new JSZip();
 
       const columnsAll = buildColumns(
-        trips as KanbanTrip[],
+        printableTrips as KanbanTrip[],
         'driver',
         drivers ?? []
       );
       const itemsByColumn = buildItemsByColumn(
-        trips as KanbanTrip[],
+        printableTrips as KanbanTrip[],
         columnsAll,
         'driver'
       );
@@ -122,7 +147,7 @@ export function PrintTripsButton() {
 
       // 3. Group trips by driver
       const groups: Record<string, any[]> = {};
-      trips.forEach((trip) => {
+      printableTrips.forEach((trip) => {
         const driverName = trip.driver?.name || 'Nicht zugewiesen';
         if (!groups[driverName]) groups[driverName] = [];
         groups[driverName].push(trip);
@@ -363,10 +388,31 @@ export function PrintTripsButton() {
         <Calendar
           mode='single'
           selected={date}
-          onSelect={setDate}
+          onSelect={(d) => {
+            setDate(d);
+            // Partial-day bound is per-day; avoid carrying over across Calendar picks
+            setAbTime('00:00');
+          }}
           initialFocus
           disabled={(date) => isGenerating}
         />
+        {/* Ab Uhrzeit: optional lower time bound for partial-day reprint — placed after day pick, before generate */}
+        <div className='px-3 pb-2'>
+          <Label
+            htmlFor='ab-uhrzeit'
+            className='text-muted-foreground mb-1 block text-xs'
+          >
+            Ab Uhrzeit
+          </Label>
+          <Input
+            id='ab-uhrzeit'
+            type='time'
+            value={abTime}
+            onChange={(e) => setAbTime(e.target.value)}
+            disabled={isGenerating || !date}
+            className='w-full'
+          />
+        </div>
         <div className='bg-muted flex justify-center border-t p-3'>
           <Button
             size='sm'

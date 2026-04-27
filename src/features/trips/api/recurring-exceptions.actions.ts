@@ -112,6 +112,8 @@ export async function cancelNonRecurringTrip(
     .from('trips')
     .update({
       status: 'cancelled',
+      // Clear driver assignment on cancel — trip must show as "Nicht zugewiesen"
+      driver_id: null,
       canceled_reason_notes: reason ?? trip.canceled_reason_notes ?? null
     })
     .eq('id', trip.id);
@@ -183,6 +185,8 @@ export async function skipRecurringOccurrence(
     .from('trips')
     .update({
       status: 'cancelled',
+      // Clear driver assignment on cancel — trip must show as "Nicht zugewiesen"
+      driver_id: null,
       canceled_reason_notes: reason ?? trip.canceled_reason_notes ?? null
     })
     .eq('id', trip.id);
@@ -239,6 +243,8 @@ export async function skipRecurringOccurrenceAndPaired(
     .from('trips')
     .update({
       status: 'cancelled',
+      // Clear driver assignment on cancel — trip must show as "Nicht zugewiesen"
+      driver_id: null,
       canceled_reason_notes: reason ?? pairedTrip.canceled_reason_notes ?? null
     })
     .eq('id', pairedTrip.id);
@@ -277,6 +283,8 @@ export async function cancelRecurringSeries(
     .from('trips')
     .update({
       status: 'cancelled',
+      // Clear driver assignment on cancel — trip must show as "Nicht zugewiesen"
+      driver_id: null,
       canceled_reason_notes: reason ?? null
     })
     .eq('rule_id', trip.rule_id)
@@ -292,6 +300,8 @@ export async function cancelRecurringSeries(
     .from('trips')
     .update({
       status: 'cancelled',
+      // Clear driver assignment on cancel — trip must show as "Nicht zugewiesen"
+      driver_id: null,
       canceled_reason_notes: reason ?? null
     })
     .eq('rule_id', trip.rule_id)

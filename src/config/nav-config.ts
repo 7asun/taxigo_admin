@@ -105,6 +105,12 @@ export const navItems: NavItem[] = [
         shortcut: ['f', 'a']
       },
       {
+        title: 'Schichtzettel-Abgleich',
+        url: '/dashboard/shift-reconciliations',
+        icon: 'shiftReconciliation',
+        shortcut: ['s', 'z']
+      },
+      {
         title: 'Kostenträger',
         url: '/dashboard/payers',
         icon: 'billing',

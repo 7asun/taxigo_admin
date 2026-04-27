@@ -48,10 +48,30 @@ import type { BillingPricingRuleRow } from '../api/billing-pricing-rules.api';
 const formSchema = z.object({
   familyName: z.string().min(2, { message: 'Name der Familie ist zu kurz' }),
   color: z.string(),
-  rechnungsempfaenger_id: z.string().optional()
+  rechnungsempfaenger_id: z.string().optional(),
+  /**
+   * inherit = billing_types.accepts_self_payment null (Kostenträger);
+   * self = true; invoice = false.
+   */
+  selbstzahler_familie: z.enum(['inherit', 'self', 'invoice'])
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+function acceptsSelfPaymentToForm(
+  v: boolean | null | undefined
+): 'inherit' | 'self' | 'invoice' {
+  if (v === true) return 'self';
+  if (v === false) return 'invoice';
+  return 'inherit';
+}
+
+function formToAcceptsSelfPayment(
+  v: 'inherit' | 'self' | 'invoice'
+): boolean | null {
+  if (v === 'inherit') return null;
+  return v === 'self';
+}
 
 interface EditBillingFamilyDialogProps {
   payerId: string;
@@ -91,7 +111,8 @@ export function EditBillingFamilyDialog({
     defaultValues: {
       familyName: '',
       color: BILLING_FAMILY_PRESET_COLORS[0],
-      rechnungsempfaenger_id: ''
+      rechnungsempfaenger_id: '',
+      selbstzahler_familie: 'inherit'
     }
   });
 
@@ -100,7 +121,10 @@ export function EditBillingFamilyDialog({
       form.reset({
         familyName: family.name,
         color: family.color,
-        rechnungsempfaenger_id: family.rechnungsempfaenger_id ?? ''
+        rechnungsempfaenger_id: family.rechnungsempfaenger_id ?? '',
+        selbstzahler_familie: acceptsSelfPaymentToForm(
+          family.accepts_self_payment
+        )
       });
     }
   }, [open, family, form]);
@@ -119,7 +143,10 @@ export function EditBillingFamilyDialog({
         rechnungsempfaenger_id:
           data.rechnungsempfaenger_id && data.rechnungsempfaenger_id.length > 0
             ? data.rechnungsempfaenger_id
-            : null
+            : null,
+        accepts_self_payment: formToAcceptsSelfPayment(
+          data.selbstzahler_familie
+        )
       });
       toast.success('Familie aktualisiert');
       handleOpenChange(false);
@@ -160,6 +187,34 @@ export function EditBillingFamilyDialog({
                     <FormControl>
                       <Input {...field} autoFocus />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='selbstzahler_familie'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Selbstzahler (Abrechnungsfamilie)</FormLabel>
+                    <p className='text-muted-foreground text-xs leading-snug'>
+                      Überschreibt die Einstellung des Kostenträgers für diese
+                      Familie.
+                    </p>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value='inherit'>
+                          Vererben (Kostenträger)
+                        </SelectItem>
+                        <SelectItem value='self'>Selbstzahler</SelectItem>
+                        <SelectItem value='invoice'>Rechnung</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
