@@ -229,7 +229,16 @@ The `hasPairedLeg(trip)` check runs asynchronously when the dialog opens.
 | --------------------- | ------------------------------------------------------------ |
 | Trips table row       | `src/features/trips/components/trips-tables/cell-action.tsx` |
 | Client detail sidebar | `src/features/trips/components/client-trips-panel.tsx`       |
-| Trip detail sheet     | `src/features/overview/components/trip-detail-sheet.tsx`     |
+| Trip detail sheet     | `src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx` |
+
+### Clearing `driver_id` and driver portal cancel
+
+All cancellation **writes** set **`driver_id = NULL`** along with `status = 'cancelled'` so admin UIs show the trip as **“Nicht zugewiesen”** (assignment comes only from `driver_id`).
+
+- **Dispatcher / admin** ([`recurring-exceptions.actions.ts`](../src/features/trips/api/recurring-exceptions.actions.ts)): every `.update` that sets `status = 'cancelled'` also sets `driver_id` to null (non-recurring, recurrence skip, paired leg, recurring-series bulk).
+- **Driver app** ([`driver-trips.service.ts`](../src/features/driver-portal/api/driver-trips.service.ts)): cancel calls the **`cancel_trip_as_driver`** Postgres RPC (migration defines it). A direct `UPDATE` from the driver session would fail RLS: `trips_update_own_driver` uses `WITH CHECK (driver_id = auth.uid())`, which rejects a row where `driver_id` has been cleared.
+
+**Product note:** After cancel, **`driver_id` is null**, so **`trips_select_own_driver`** no longer matches and the driver **cannot see** that trip in the portal. This is intentional; cancelled history is handled on the admin side only.
 
 ---
 

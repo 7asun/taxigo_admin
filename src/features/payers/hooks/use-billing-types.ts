@@ -100,12 +100,14 @@ export function useBillingTypes(payerId: string | undefined | null) {
       name: string;
       color: string;
       rechnungsempfaenger_id?: string | null;
+      accepts_self_payment: boolean | null;
     }) =>
       PayersService.updateBillingFamily(
         args.familyId,
         args.name,
         args.color,
-        args.rechnungsempfaenger_id
+        args.rechnungsempfaenger_id,
+        args.accepts_self_payment
       ),
     onSuccess: invalidateAll
   });

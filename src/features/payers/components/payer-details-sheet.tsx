@@ -191,6 +191,7 @@ export function PayerDetailsSheet({
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
+        accepts_self_payment: displayPayer.accepts_self_payment ?? null,
         rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
         pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
@@ -211,6 +212,7 @@ export function PayerDetailsSheet({
         kts_default: v === 'unset' ? null : v === 'yes',
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
+        accepts_self_payment: displayPayer.accepts_self_payment ?? null,
         rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
         pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
@@ -229,6 +231,7 @@ export function PayerDetailsSheet({
         number: displayPayer.number ?? '',
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default: v === 'unset' ? null : v === 'yes',
+        accepts_self_payment: displayPayer.accepts_self_payment ?? null,
         rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
         pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
@@ -273,6 +276,13 @@ export function PayerDetailsSheet({
         ? 'no'
         : 'unset';
 
+  const acceptsSelfPaymentSelectValue =
+    displayPayer.accepts_self_payment === true
+      ? 'yes'
+      : displayPayer.accepts_self_payment === false
+        ? 'no'
+        : 'unset';
+
   const payerLevelRules = pricingRules.filter(
     (r) =>
       r.payer_id === displayPayer.id &&
@@ -288,6 +298,26 @@ export function PayerDetailsSheet({
   const ruleForVariant = (variantId: string) =>
     pricingRules.find((r) => r.billing_variant_id === variantId) ?? null;
 
+  const handleAcceptsSelfPaymentChange = async (v: 'unset' | 'yes' | 'no') => {
+    if (!displayPayer) return;
+    try {
+      await updatePayer({
+        id: displayPayer.id,
+        name: displayPayer.name,
+        number: displayPayer.number ?? '',
+        kts_default: displayPayer.kts_default ?? null,
+        no_invoice_required_default:
+          displayPayer.no_invoice_required_default ?? null,
+        accepts_self_payment: v === 'unset' ? null : v === 'yes',
+        rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
+        pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
+      });
+      toast.success('Selbstzahler-Standard gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    }
+  };
+
   const handleRechnungsempfaengerPayer = async (value: string) => {
     try {
       await updatePayer({
@@ -297,6 +327,7 @@ export function PayerDetailsSheet({
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
+        accepts_self_payment: displayPayer.accepts_self_payment ?? null,
         rechnungsempfaenger_id: value === '__none__' ? null : value,
         pdf_vorlage_id: displayPayer.pdf_vorlage_id ?? null
       });
@@ -316,6 +347,7 @@ export function PayerDetailsSheet({
         kts_default: displayPayer.kts_default ?? null,
         no_invoice_required_default:
           displayPayer.no_invoice_required_default ?? null,
+        accepts_self_payment: displayPayer.accepts_self_payment ?? null,
         rechnungsempfaenger_id: displayPayer.rechnungsempfaenger_id ?? null,
         pdf_vorlage_id: value === '__none__' ? null : value
       });
@@ -459,6 +491,38 @@ export function PayerDetailsSheet({
               <p className='text-muted-foreground mt-2 text-xs'>
                 Kaskade wie KTS: Unterart und Familie können überschreiben. Wird
                 sofort gespeichert.
+              </p>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <label className='text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase'>
+                Fahrgast zahlt direkt (Schichtzettel)
+              </label>
+              <Select
+                value={acceptsSelfPaymentSelectValue}
+                onValueChange={(v) =>
+                  void handleAcceptsSelfPaymentChange(
+                    v as 'unset' | 'yes' | 'no'
+                  )
+                }
+                disabled={isUpdating}
+              >
+                <SelectTrigger className='h-9 w-full max-w-sm'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='unset'>Nicht festlegen</SelectItem>
+                  <SelectItem value='yes'>
+                    Ja (Selbstzahler / bar vor Ort)
+                  </SelectItem>
+                  <SelectItem value='no'>
+                    Nein (Rechnung / Kostenträger)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className='text-muted-foreground mt-2 text-xs'>
+                Steuert den Schichtzettel-Abgleich: bei „Nicht festlegen“
+                erscheint eine Hinweiszeile. Wird sofort gespeichert.
               </p>
             </div>
 

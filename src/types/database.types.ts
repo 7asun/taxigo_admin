@@ -84,6 +84,8 @@ export type Database = {
       };
       billing_types: {
         Row: {
+          /** NULL = inherit payers.accepts_self_payment; non-null wins over payer. */
+          accepts_self_payment: boolean | null;
           behavior_profile: Json;
           color: string;
           created_at: string;
@@ -93,6 +95,7 @@ export type Database = {
           rechnungsempfaenger_id: string | null;
         };
         Insert: {
+          accepts_self_payment?: boolean | null;
           behavior_profile?: Json;
           color?: string;
           created_at?: string;
@@ -102,6 +105,7 @@ export type Database = {
           rechnungsempfaenger_id?: string | null;
         };
         Update: {
+          accepts_self_payment?: boolean | null;
           behavior_profile?: Json;
           color?: string;
           created_at?: string;
@@ -599,7 +603,9 @@ export type Database = {
         ];
       };
       payers: {
+        // TODO: regenerate with `supabase gen types` after migration (accepts_self_payment)
         Row: {
+          accepts_self_payment: boolean | null;
           company_id: string;
           created_at: string;
           id: string;
@@ -610,6 +616,7 @@ export type Database = {
           rechnungsempfaenger_id: string | null;
         };
         Insert: {
+          accepts_self_payment?: boolean | null;
           company_id: string;
           created_at?: string;
           id?: string;
@@ -620,6 +627,7 @@ export type Database = {
           rechnungsempfaenger_id?: string | null;
         };
         Update: {
+          accepts_self_payment?: boolean | null;
           company_id?: string;
           created_at?: string;
           id?: string;
@@ -1041,6 +1049,69 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: 'shift_events_shift_id_fkey';
+            columns: ['shift_id'];
+            isOneToOne: false;
+            referencedRelation: 'shifts';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      // TODO: regenerate with `supabase gen types` after migration (entire table)
+      shift_reconciliations: {
+        Row: {
+          id: string;
+          company_id: string;
+          driver_id: string;
+          date: string;
+          confirmed_by: string;
+          confirmed_at: string;
+          notes: string | null;
+          shift_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          driver_id: string;
+          date: string;
+          confirmed_by: string;
+          confirmed_at?: string;
+          notes?: string | null;
+          shift_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          driver_id?: string;
+          date?: string;
+          confirmed_by?: string;
+          confirmed_at?: string;
+          notes?: string | null;
+          shift_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'shift_reconciliations_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'shift_reconciliations_driver_id_fkey';
+            columns: ['driver_id'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'shift_reconciliations_confirmed_by_fkey';
+            columns: ['confirmed_by'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'shift_reconciliations_shift_id_fkey';
             columns: ['shift_id'];
             isOneToOne: false;
             referencedRelation: 'shifts';
@@ -1528,6 +1599,14 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      // TODO: regenerate with `supabase gen types` after migration
+      cancel_trip_as_driver: {
+        Args: {
+          p_trip_id: string;
+          p_notes: string;
+        };
+        Returns: undefined;
+      };
       create_storno_invoice: {
         Args: {
           p_billing_type_id: string | null;
@@ -1565,6 +1644,24 @@ export type Database = {
       resolve_client_id_by_name: {
         Args: { p_company_id: string; p_full_name: string };
         Returns: string | null;
+      };
+      // TODO: regenerate with `supabase gen types` after migration
+      get_shift_day_summaries: {
+        Args: {
+          p_driver_id: string;
+          p_company_id: string;
+        };
+        Returns: {
+          shift_date: string;
+          total_trips: number;
+          self_pay_count: number;
+          self_pay_total: number;
+          invoice_count: number;
+          unconfigured_count: number;
+          is_reconciled: boolean;
+          reconciled_by_name: string | null;
+          reconciled_at: string | null;
+        }[];
       };
     };
     Enums: {

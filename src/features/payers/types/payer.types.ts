@@ -44,6 +44,12 @@ export interface BillingFamily {
   behavior_profile: BillingTypeBehavior;
   created_at: string;
   rechnungsempfaenger_id?: string | null;
+  /**
+   * NULL = inherit from payers.accepts_self_payment; when non-null, overrides payer
+   * for Schichtzettel / Selbstzahler (per trip that uses this family via
+   * `trips.billing_type_id`).
+   */
+  accepts_self_payment?: boolean | null;
 }
 
 /** Unterart row under `billing_types`; `code` is stable for CSV / future invoicing. */
@@ -76,6 +82,11 @@ export interface Payer {
   kts_default?: boolean | null;
   /** NULL = inherit for default „keine Rechnung“. */
   no_invoice_required_default?: boolean | null;
+  /**
+   * true = Fahrgast zahlt bar/vor Ort; false = per Rechnung; null = nicht festgelegt
+   * (Schichtzettel-Abgleich warnt, falls NULL).
+   */
+  accepts_self_payment?: boolean | null;
   rechnungsempfaenger_id?: string | null;
   /** PDF column Vorlage; null = company default / system fallback */
   pdf_vorlage_id?: string | null;

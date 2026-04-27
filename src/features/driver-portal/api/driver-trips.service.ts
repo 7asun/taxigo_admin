@@ -8,7 +8,7 @@
  * ### Write (driver-scoped — only touches fields the driver is allowed to change)
  *   - `startTrip(tripId, shiftId?)`       — status → in_progress; links trip to active shift
  *   - `completeTrip(tripId)`              — status → completed
- *   - `cancelTrip(tripId, reason, notes)` — status → cancelled; appends reason to notes
+ *   - `cancelTrip(tripId, reason, notes)` — status → cancelled via `cancel_trip_as_driver` RPC; appends reason to notes
  *
  * Full trip editing (price, billing_type, driver assignment, etc.) remains admin-only.
  *
@@ -189,10 +189,11 @@ export async function cancelTrip(
     ? `${existingNotes}\n${cancelNote}`
     : cancelNote;
 
-  const { error } = await supabase
-    .from('trips')
-    .update({ status: 'cancelled', notes: updatedNotes })
-    .eq('id', tripId);
+  // RPC required: trips_update_own_driver WITH CHECK blocks driver from setting driver_id = null directly
+  const { error } = await supabase.rpc('cancel_trip_as_driver', {
+    p_trip_id: tripId,
+    p_notes: updatedNotes
+  });
 
   if (error) throw error;
 }
