@@ -21,6 +21,7 @@ import {
   billingFamilyFromEmbed,
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 import { fremdfirmaPaymentModeLabel } from '@/features/fremdfirmen/lib/fremdfirma-payment-mode-labels';
 import {
   Tooltip,
@@ -147,7 +148,9 @@ export const columns: ColumnDef<any>[] = [
     ),
     cell: ({ row }) => (
       <div className='flex flex-wrap items-center gap-2'>
-        <span className='font-medium'>{row.original.client_name || '-'}</span>
+        <span className='font-medium'>
+          {resolvePassengerLabel(row.original)}
+        </span>
         {row.original.is_wheelchair && (
           <Badge
             variant='outline'

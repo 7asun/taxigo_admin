@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Trip } from '@/features/trips/api/trips.service';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 import {
   tripStatusBadge,
   tripStatusLabels,
@@ -144,7 +145,7 @@ export function TripsMobileCardList<TData>({
                       </span>
                     ) : null}
                     <p className='min-w-0 flex-1 truncate pt-0.5 text-sm font-medium'>
-                      {trip.client_name || '—'}
+                      {resolvePassengerLabel(trip)}
                     </p>
                   </div>
                   <div className='flex shrink-0 items-center gap-1'>

@@ -107,6 +107,7 @@ import {
   copyTripToClipboard,
   stripAddressForShare
 } from '@/features/trips/lib/share-utils';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 import {
   getCancelledPartnerLabel,
   getTripDirection
@@ -1000,9 +1001,7 @@ export function TripDetailSheet({
                     {clientDisplayNameFromParts(
                       clientFirstDraft,
                       clientLastDraft
-                    ) ||
-                      trip.client_name ||
-                      'Unbekannter Kunde'}
+                    ) || resolvePassengerLabel(trip)}
                   </SheetTitle>
                   <div className='flex shrink-0 items-center gap-2'>
                     <span className='text-muted-foreground text-sm font-medium'>

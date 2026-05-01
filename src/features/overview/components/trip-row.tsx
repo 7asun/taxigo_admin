@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Accessibility, AlertTriangle, Share2, Users } from 'lucide-react';
 import { copyTripToClipboard } from '@/features/trips/lib/share-utils';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 import { getCancelledPartnerLabel } from '@/features/trips/lib/trip-direction';
 import { toast } from 'sonner';
 import {
@@ -144,7 +145,7 @@ export function TripRow({
               compact ? 'text-xs' : 'text-sm'
             )}
           >
-            {trip.client_name || 'Unbekannter Kunde'}
+            {resolvePassengerLabel(trip)}
           </p>
           {trip.is_wheelchair && (
             <Badge
