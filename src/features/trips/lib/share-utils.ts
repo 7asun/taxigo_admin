@@ -1,6 +1,12 @@
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import type { Trip } from '@/features/trips/api/trips.service';
+import {
+  resolvePassengerLabel,
+  type TripWithBillingContext
+} from './resolve-passenger-label';
+
+type TripForShare = Trip & TripWithBillingContext;
 
 /**
  * Normalizes a single-line address for sharing/copy: drops trailing PLZ+Oldenburg,
@@ -18,14 +24,14 @@ export function stripAddressForShare(address: string): string {
  * Formats trip details for easy sharing (e.g., via WhatsApp).
  * Format: "HH:mm - Passenger - von pickup_address (pickup_station) - nach dropoff_address (dropoff_station)"
  */
-export function formatTripForSharing(trip: Trip): string {
+export function formatTripForSharing(trip: TripForShare): string {
   const time = trip.scheduled_at
     ? format(new Date(trip.scheduled_at), 'HH:mm', { locale: de })
     : '--:--';
 
   const wheelchairIndicator = trip.is_wheelchair ? ' **Rollstuhl**' : '';
 
-  const passenger = trip.client_name || 'Anonym';
+  const passenger = resolvePassengerLabel(trip);
 
   const formatAddress = (address: string | null | undefined) => {
     if (!address) return '-';
@@ -59,7 +65,9 @@ export function formatTripForSharing(trip: Trip): string {
 /**
  * Copies the formatted trip string to the clipboard.
  */
-export async function copyTripToClipboard(trip: Trip): Promise<boolean> {
+export async function copyTripToClipboard(
+  trip: TripForShare
+): Promise<boolean> {
   try {
     const text = formatTripForSharing(trip);
     await navigator.clipboard.writeText(text);

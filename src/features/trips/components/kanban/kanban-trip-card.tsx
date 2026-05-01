@@ -44,6 +44,7 @@ import {
   billingFamilyFromEmbed,
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 
 export interface TripCardProps {
   trip: KanbanTrip;
@@ -279,7 +280,7 @@ export function TripCard({
               </Tooltip>
             )}
             <div className='min-w-0 flex-1 truncate text-[11px] font-medium'>
-              {trip.client_name || 'Unbekannter Fahrgast'}
+              {resolvePassengerLabel(trip)}
             </div>
           </div>
 

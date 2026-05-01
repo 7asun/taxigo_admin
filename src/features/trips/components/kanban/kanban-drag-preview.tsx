@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
+import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
 import { formatKanbanTripAddressLine } from '@/features/trips/lib/format-trip-address-display-line';
 
 interface KanbanDragPreviewProps {
@@ -48,7 +49,7 @@ export function KanbanDragPreview({
                 : '--:--'}
             </div>
             <div className='line-clamp-1 text-[11px]'>
-              {trip.client_name || 'Unbekannter Fahrgast'}
+              {resolvePassengerLabel(trip)}
             </div>
           </div>
         ))}
@@ -89,7 +90,7 @@ export function KanbanDragPreview({
             : '--:--'}
         </span>
         <span className='min-w-0 flex-1 truncate text-[11px] font-medium'>
-          {trip.client_name || 'Unbekannter Fahrgast'}
+          {resolvePassengerLabel(trip)}
         </span>
       </div>
       <div className='text-muted-foreground flex flex-col gap-0.5 text-[11px]'>
