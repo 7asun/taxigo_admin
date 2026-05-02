@@ -20,12 +20,17 @@ import {
 } from '@/components/ui/select';
 import { DateTimePicker } from '@/components/ui/date-time-picker';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { findPairedTrip } from '@/features/trips/api/recurring-exceptions.actions';
 import { canCreateLinkedReturn } from '@/features/trips/lib/can-create-linked-return';
 import { createLinkedReturnForOutbound } from '@/features/trips/lib/create-linked-return';
+import {
+  buildScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 
 export interface CreateReturnTripDialogProps {
   open: boolean;
@@ -109,6 +114,22 @@ export function CreateReturnTripDialog({
 
     const resolvedDriverId = driverId === '__none__' ? null : driverId;
 
+    // WHY civil ymd + `format(..., 'HH:mm')` from the picker `Date`: matches how
+    // `DateTimePicker` composes day+time in the UI; `buildScheduledAt` then pins that
+    // wall clock to the trips business TZ (same contract as Neue Fahrt outbound).
+    const ymd = `${scheduledAt.getFullYear()}-${String(scheduledAt.getMonth() + 1).padStart(2, '0')}-${String(scheduledAt.getDate()).padStart(2, '0')}`;
+    const hm = format(scheduledAt, 'HH:mm');
+    let scheduledAtIso: string;
+    try {
+      scheduledAtIso = buildScheduledAt(ymd, hm);
+    } catch (e) {
+      if (e instanceof TripTimeError) {
+        toast.error(e.message);
+        return;
+      }
+      throw e;
+    }
+
     setIsSubmitting(true);
     try {
       const withPairs = await Promise.all(
@@ -137,7 +158,7 @@ export function CreateReturnTripDialog({
 
       for (const row of eligible) {
         await createLinkedReturnForOutbound(row.outbound as Trip, {
-          scheduledAt,
+          scheduledAtIso,
           driverId: resolvedDriverId,
           companyId,
           createdBy: user?.id ?? null

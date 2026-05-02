@@ -1,29 +1,37 @@
+import {
+  buildScheduledAt,
+  parseScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
+
 /** Keeps calendar day from `scheduledIso`, replaces clock time with `HH:mm`. */
 export function applyTimeToScheduledDate(
   scheduledIso: string,
   timeHHmm: string
 ): Date {
-  const d = new Date(scheduledIso);
-  const [hStr, mStr] = timeHHmm.split(':');
-  const h = parseInt(hStr ?? '0', 10);
-  const m = parseInt(mStr ?? '0', 10);
-  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
-  return d;
+  // WHY single `TripTimeError` catch: `trip-detail-sheet` calls this from `detailsDirty`
+  // during render — failures from `parseScheduledAt` or `buildScheduledAt` must not
+  // crash the sheet; we fall back to the stored instant for dirty detection while typing.
+  try {
+    const { ymd } = parseScheduledAt(scheduledIso);
+    return new Date(buildScheduledAt(ymd, timeHHmm));
+  } catch (e) {
+    if (e instanceof TripTimeError) {
+      return new Date(scheduledIso);
+    }
+    throw e;
+  }
 }
 
-/** Local calendar `yyyy-MM-dd` + `HH:mm` → `Date` (same basis as details PATCH). */
+/**
+ * Local calendar `yyyy-MM-dd` + `HH:mm` → `Date` at that wall time in the trips business TZ.
+ *
+ * WHY `buildScheduledAt` (not `new Date(y,m,d,h,m)`): browser-local `Date` + runtime TZ
+ * mis-encodes dispatcher intent for non-Berlin clients vs Fahrten/cron.
+ */
 export function buildScheduledAtFromYmdAndHm(
   dateYmd: string,
   timeHHmm: string
 ): Date {
-  const [y, mo, d] = dateYmd.split('-').map((x) => parseInt(x, 10));
-  const next = new Date(y, mo - 1, d);
-  const [hh, mm] = timeHHmm.split(':').map((x) => parseInt(x, 10));
-  next.setHours(
-    Number.isFinite(hh) ? hh : 0,
-    Number.isFinite(mm) ? mm : 0,
-    0,
-    0
-  );
-  return next;
+  return new Date(buildScheduledAt(dateYmd, timeHHmm));
 }

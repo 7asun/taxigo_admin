@@ -188,6 +188,7 @@ export function InvoiceBuilder({
   const {
     step2Values,
     lineItems,
+    cancelledTrips,
     section3Confirmed,
     totals,
     missingPrices,
@@ -354,6 +355,7 @@ export function InvoiceBuilder({
     companyProfile,
     step2Values: step2Snapshot,
     lineItems,
+    cancelledTrips,
     payers,
     clients,
     defaultPaymentDays,
@@ -622,6 +624,7 @@ export function InvoiceBuilder({
             }
           >
             <Step4Vorlage
+              key={step2Values?.payer_id ?? '__no-payer__'}
               companyId={companyId}
               payerPdfVorlageId={selectedPayer?.pdf_vorlage_id}
               unlocked={section4Unlocked}
@@ -683,7 +686,9 @@ export function InvoiceBuilder({
                   appendix_columns:
                     pdfOverrideRef.current?.appendix_columns ??
                     builderColumnProfile.appendix_columns,
-                  main_layout: builderColumnProfile.main_layout
+                  main_layout: builderColumnProfile.main_layout,
+                  show_cancelled_trips:
+                    builderColumnProfile.show_cancelled_trips ?? false
                 };
                 createInvoice(step4Values, snapshotOverride);
               }}

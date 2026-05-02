@@ -23,6 +23,7 @@ import type { PriceResolution } from '@/features/invoices/types/pricing.types';
 import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 import type { ClientReferenceField } from '@/features/clients/lib/client-reference-fields.schema';
+import type { TripStatus } from '@/lib/trip-status';
 
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
@@ -232,6 +233,8 @@ export interface InvoiceDetail extends InvoiceRow {
 export interface TripForInvoice {
   id: string;
   payer_id: string;
+  /** Canonical trip lifecycle (`trips.status`); excluded from billing when `cancelled`. */
+  status: TripStatus;
   scheduled_at: string | null; // used as line_date
   /** On `trips` rows after Phase 2, DB `net_price` is generated; readers still use this for display math. */
   net_price: number | null;
@@ -276,6 +279,25 @@ export interface TripForInvoice {
   no_invoice_required: boolean;
   link_type: string | null;
   linked_trip_id: string | null;
+  driver?: { name: string | null } | null;
+}
+
+/**
+ * Narrow trip shape for cancelled rows loaded only for optional PDF appendix on the Hauptrechnung.
+ * Never pass to pricing or `invoice_line_items` — intentionally incompatible with TripForInvoice.
+ */
+export interface CancelledTripRow {
+  id: string;
+  scheduled_at: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  /** DB `trips.canceled_reason_notes`; appendix sub-line only, never billing. */
+  canceled_reason_notes: string | null;
+  client?: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
   driver?: { name: string | null } | null;
 }
 

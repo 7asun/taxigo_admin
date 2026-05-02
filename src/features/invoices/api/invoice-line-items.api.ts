@@ -35,10 +35,17 @@ import { listClientPriceTagsForClientIds } from '@/features/payers/api/client-pr
 import type { PriceResolution } from '../types/pricing.types';
 import type {
   TripForInvoice,
+  CancelledTripRow,
   BuilderLineItem,
   InvoiceLineItemRow,
   TaxBreakdown
 } from '../types/invoice.types';
+
+/**
+ * Canonical `trips.status` literal for cancellations — filters must use this (not scattered strings)
+ * so PostgREST and admin-facing logic stay aligned with driver-RPC / dispatcher updates.
+ */
+export const CANCELLED_STATUS = 'cancelled' as const;
 
 /** True when line gross must use `price_resolution.gross × qty` (not derived net × VAT). */
 export function isGrossAnchorClientPriceTag(pr: PriceResolution): boolean {
@@ -55,6 +62,37 @@ export interface FetchTripsForBuilderParams {
   period_from: string; // ISO date string
   period_to: string; // ISO date string
   client_id?: string | null; // only for per_client mode
+}
+
+/** Shared payer/period/variant shaping for billing vs cancelled-trip fetches — keeps filters identical. */
+async function resolveBillingVariantFilters(
+  params: FetchTripsForBuilderParams
+): Promise<{
+  variantId: string | null;
+  variantIdsForType: string[] | null;
+  /** billing_type scoped but zero variants resolve — callers return empty arrays */
+  abortEmpty: boolean;
+}> {
+  const supabase = createClient();
+  const variantId =
+    params.billing_variant_id && params.billing_variant_id.length > 0
+      ? params.billing_variant_id
+      : null;
+
+  let variantIdsForType: string[] | null = null;
+  if (!variantId && params.billing_type_id) {
+    const { data: variants, error: vErr } = await supabase
+      .from('billing_variants')
+      .select('id')
+      .eq('billing_type_id', params.billing_type_id);
+    if (vErr) throw toQueryError(vErr);
+    variantIdsForType = (variants ?? []).map((v) => v.id);
+    if (variantIdsForType.length === 0) {
+      return { variantId: null, variantIdsForType: null, abortEmpty: true };
+    }
+  }
+
+  return { variantId, variantIdsForType, abortEmpty: false };
 }
 
 function legacyPriceSource(
@@ -114,26 +152,10 @@ export async function fetchTripsForBuilder(
 }> {
   const supabase = createClient();
 
-  // Filter priority:
-  // 1) billing_variant_id (exact Unterart) → trips.billing_variant_id = X
-  // 2) billing_type_id (family) → trips.billing_variant_id IN (variants under family)
-  // 3) neither → no variant filter
-  const variantId =
-    params.billing_variant_id && params.billing_variant_id.length > 0
-      ? params.billing_variant_id
-      : null;
-
-  let variantIdsForType: string[] | null = null;
-  if (!variantId && params.billing_type_id) {
-    const { data: variants, error: vErr } = await supabase
-      .from('billing_variants')
-      .select('id')
-      .eq('billing_type_id', params.billing_type_id);
-    if (vErr) throw toQueryError(vErr);
-    variantIdsForType = (variants ?? []).map((v) => v.id);
-    if (variantIdsForType.length === 0) {
-      return { trips: [], clientPriceTags: [] };
-    }
+  const { variantId, variantIdsForType, abortEmpty } =
+    await resolveBillingVariantFilters(params);
+  if (abortEmpty) {
+    return { trips: [], clientPriceTags: [] };
   }
 
   let query = supabase
@@ -142,6 +164,7 @@ export async function fetchTripsForBuilder(
       `
       id,
       payer_id,
+      status,
       scheduled_at,
       net_price,
       base_net_price,
@@ -167,6 +190,8 @@ export async function fetchTripsForBuilder(
     .eq('payer_id', params.payer_id)
     .gte('scheduled_at', params.period_from)
     .lte('scheduled_at', params.period_to + 'T23:59:59.999Z')
+    // Defence in depth: billing must never see cancelled rows even if other layers regress.
+    .neq('status', CANCELLED_STATUS)
     .order('scheduled_at', { ascending: true });
 
   if (variantId) {
@@ -195,6 +220,56 @@ export async function fetchTripsForBuilder(
   ];
   const clientPriceTags = await listClientPriceTagsForClientIds(clientIds);
   return { trips, clientPriceTags };
+}
+
+/**
+ * Cancelled trips for the same scope as {@link fetchTripsForBuilder} — display-only (PDF), no pricing fields.
+ * Parallel fetch with the billing query keeps intent explicit and avoids mixing rows into line items.
+ */
+export async function fetchCancelledTripsForBuilder(
+  params: FetchTripsForBuilderParams
+): Promise<CancelledTripRow[]> {
+  const supabase = createClient();
+
+  const { variantId, variantIdsForType, abortEmpty } =
+    await resolveBillingVariantFilters(params);
+  if (abortEmpty) {
+    return [];
+  }
+
+  // Always fetched for cancelled appendix page — displayed as informational note per row, not used in billing.
+  let query = supabase
+    .from('trips')
+    .select(
+      `
+      id,
+      scheduled_at,
+      pickup_address,
+      dropoff_address,
+      canceled_reason_notes,
+      driver:accounts!trips_driver_id_fkey(name),
+      client:clients(id, first_name, last_name)
+    `
+    )
+    .eq('payer_id', params.payer_id)
+    .eq('status', CANCELLED_STATUS)
+    .gte('scheduled_at', params.period_from)
+    .lte('scheduled_at', params.period_to + 'T23:59:59.999Z')
+    .order('scheduled_at', { ascending: true });
+
+  if (variantId) {
+    query = query.eq('billing_variant_id', variantId);
+  } else if (variantIdsForType) {
+    query = query.in('billing_variant_id', variantIdsForType);
+  }
+
+  if (params.client_id) {
+    query = query.eq('client_id', params.client_id);
+  }
+
+  const { data, error } = await query;
+  if (error) throw toQueryError(error);
+  return (data ?? []) as unknown as CancelledTripRow[];
 }
 
 /** Maps DB pricing rule rows to the shape expected by pure resolvers. */

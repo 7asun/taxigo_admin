@@ -9,7 +9,14 @@ import {
   isAfter,
   isBefore
 } from 'date-fns';
+import { tz } from '@date-fns/tz';
 import type { Database } from '@/types/database.types';
+import {
+  getTripsBusinessTimeZone,
+  getZonedDayBoundsIso,
+  instantToYmdInBusinessTz
+} from '@/features/trips/lib/trip-business-date';
+import { buildScheduledAt } from '@/features/trips/lib/trip-time';
 import {
   geocodeAddressLineToStructured,
   type GeocodedAddressLineResult
@@ -48,9 +55,14 @@ function clockToHhMmSs(clock: string): string {
   return s;
 }
 
-function toScheduledIso(dateStr: string, timeHhMmSs: string): string {
+function scheduledIsoFromBerlinCalendarAndClock(
+  dateStr: string,
+  timeHhMmSs: string
+): string {
   const t = clockToHhMmSs(timeHhMmSs);
-  return new Date(`${dateStr}T${t}`).toISOString();
+  // WHY buildScheduledAt: Vercel Node uses UTC — Naive `${dateStr}T${t}` parses as UTC and
+  // shifted summer/winter rules (e.g. 10:00 Berlin stored as 10:00Z).
+  return buildScheduledAt(dateStr, t);
 }
 
 export async function GET(request: NextRequest) {
@@ -87,8 +99,13 @@ export async function GET(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    const todayLocal = startOfDay(new Date());
-    const windowEndLocal = endOfDay(addDays(todayLocal, 14));
+    // WHY Berlin startOfDay/endOfDay (not Date in UTC): "today + 14d" windows and exception queries
+    // must track dispatcher calendar days in getTripsBusinessTimeZone — same semantics as Fahrten.
+    const inTz = tz(getTripsBusinessTimeZone());
+    const todayLocal = startOfDay(inTz(Date.now()), { in: inTz });
+    const windowEndLocal = endOfDay(addDays(todayLocal, 14, { in: inTz }), {
+      in: inTz
+    });
 
     const { data: rulesRaw, error: rulesError } = await supabase
       .from('recurring_rules')
@@ -117,8 +134,11 @@ export async function GET(request: NextRequest) {
         'rule_id',
         rules.map((r) => r.id)
       )
-      .gte('exception_date', format(todayLocal, 'yyyy-MM-dd'))
-      .lte('exception_date', format(windowEndLocal, 'yyyy-MM-dd'));
+      .gte('exception_date', format(todayLocal, 'yyyy-MM-dd', { in: inTz }))
+      .lte(
+        'exception_date',
+        format(windowEndLocal, 'yyyy-MM-dd', { in: inTz })
+      );
 
     if (exceptionsError) throw exceptionsError;
 
@@ -301,22 +321,17 @@ export async function GET(request: NextRequest) {
     async function findExistingRecurringLegId(q: {
       client_id: string;
       rule_id: string;
-      scheduled_at: string | null;
       requested_date: string;
       leg: 'outbound' | 'return';
     }): Promise<string | null> {
+      // WHY no scheduled_at in dedup: after fixing UTC encoding, legacy wrong instants would not
+      // `.eq` new rows — cron would duplicate. One outbound + one return per rule per requested_date is the invariant.
       let query = supabase
         .from('trips')
         .select('id')
         .eq('client_id', q.client_id)
         .eq('rule_id', q.rule_id)
         .eq('requested_date', q.requested_date);
-
-      if (q.scheduled_at === null) {
-        query = query.is('scheduled_at', null);
-      } else {
-        query = query.eq('scheduled_at', q.scheduled_at);
-      }
 
       if (q.leg === 'outbound') {
         query = query.or('link_type.is.null,link_type.eq.outbound');
@@ -334,7 +349,6 @@ export async function GET(request: NextRequest) {
       dedupKey: {
         client_id: string;
         rule_id: string;
-        scheduled_at: string | null;
         requested_date: string;
         leg: 'outbound' | 'return';
       }
@@ -413,25 +427,24 @@ export async function GET(request: NextRequest) {
           : `${client.first_name || ''} ${client.last_name || ''}`.trim()) ||
         '';
 
-      const ruleStartDateLocal = startOfDay(new Date(rule.start_date));
+      // WHY startOfDay in business TZ: rule.start_date is a calendar day string — interpreting it
+      // via `new Date` on UTC servers mis-aligns recurrence with dispatcher expectations.
+      const ruleStartDateLocal = startOfDay(inTz(rule.start_date), {
+        in: inTz
+      });
       const ruleEndDateLocal = rule.end_date
-        ? endOfDay(new Date(rule.end_date))
+        ? endOfDay(inTz(rule.end_date), { in: inTz })
         : windowEndLocal;
 
-      const dtStartUTC = new Date(
-        Date.UTC(
-          ruleStartDateLocal.getFullYear(),
-          ruleStartDateLocal.getMonth(),
-          ruleStartDateLocal.getDate(),
-          0,
-          0,
-          0
-        )
-      );
+      const ruleDayStartUtc = getZonedDayBoundsIso(rule.start_date).startISO;
+      const dtStartAnchor = new Date(ruleDayStartUtc);
+      const utcTz = tz('UTC');
+      const dtStartStr = format(dtStartAnchor, "yyyyMMdd'T'HHmmss'Z'", {
+        in: utcTz
+      });
 
       let rruleObj: RRule;
       try {
-        const dtStartStr = format(dtStartUTC, "yyyyMMdd'T'HHmmss'Z'");
         const rruleStr = `DTSTART:${dtStartStr}\n${rule.rrule_string}`;
         rruleObj = rrulestr(rruleStr) as RRule;
       } catch (e) {
@@ -448,37 +461,33 @@ export async function GET(request: NextRequest) {
 
       if (isAfter(searchStartLocal, searchEndLocal)) continue;
 
-      const searchStartUTC = new Date(
-        Date.UTC(
-          searchStartLocal.getFullYear(),
-          searchStartLocal.getMonth(),
-          searchStartLocal.getDate()
-        )
-      );
-      const searchEndUTC = new Date(
-        Date.UTC(
-          searchEndLocal.getFullYear(),
-          searchEndLocal.getMonth(),
-          searchEndLocal.getDate(),
-          23,
-          59,
-          59
-        )
+      // WHY zoned bounds for RRule `between`: prior UTC midnight..23:59:59 window dropped or
+      // skewed occurrences whose Berlin-local day spills across UTC dates (e.g. late evening pickups).
+      const ymdSearchStart = format(searchStartLocal, 'yyyy-MM-dd', {
+        in: inTz
+      });
+      const ymdSearchEnd = format(searchEndLocal, 'yyyy-MM-dd', { in: inTz });
+      const rangeStartUtc = getZonedDayBoundsIso(ymdSearchStart).startISO;
+      const rangeEndExclusiveUtc =
+        getZonedDayBoundsIso(ymdSearchEnd).endExclusiveISO;
+      const rangeEndInclusive = new Date(
+        new Date(rangeEndExclusiveUtc).getTime() - 1
       );
 
       const occurrencesUTC = rruleObj.between(
-        searchStartUTC,
-        searchEndUTC,
+        new Date(rangeStartUtc),
+        rangeEndInclusive,
         true
       );
 
       const returnMode = recurringReturnModeFromRow(rule);
 
       for (const dateUTC of occurrencesUTC) {
-        const dateStr = dateUTC.toISOString().split('T')[0];
+        // WHY Berlin YMD from instant: splitting UTC ISO mis-labels occurrences near midnight (CEST→UTC).
+        const dateStr = instantToYmdInBusinessTz(dateUTC.getTime());
 
         // When pickup_time is null the rule uses daily-agreement mode: the outbound trip
-        // is generated with scheduled_at = null so the dispatcher can fill the time in Phase 2.
+        // is generated with scheduled_at = null so the dispatcher can assign a time in the admin UI.
         const isOutboundTimeless = !rule.pickup_time;
 
         const outboundExceptionKey = isOutboundTimeless
@@ -487,7 +496,7 @@ export async function GET(request: NextRequest) {
 
         const outboundScheduledIso = isOutboundTimeless
           ? null
-          : toScheduledIso(
+          : scheduledIsoFromBerlinCalendarAndClock(
               dateStr,
               exceptions?.find(
                 (e) =>
@@ -536,7 +545,6 @@ export async function GET(request: NextRequest) {
         const outboundId = await insertIfAbsent(outboundWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
-          scheduled_at: outboundScheduledIso,
           requested_date: dateStr,
           leg: 'outbound'
         });
@@ -554,7 +562,7 @@ export async function GET(request: NextRequest) {
 
         const returnScheduledIso =
           returnMode === 'exact'
-            ? toScheduledIso(
+            ? scheduledIsoFromBerlinCalendarAndClock(
                 dateStr,
                 exceptions?.find(
                   (e) =>
@@ -603,7 +611,6 @@ export async function GET(request: NextRequest) {
         const returnId = await insertIfAbsent(returnWithPrice, {
           client_id: client.id,
           rule_id: rule.id,
-          scheduled_at: returnScheduledIso,
           requested_date: dateStr,
           leg: 'return'
         });

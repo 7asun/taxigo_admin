@@ -126,6 +126,8 @@ export function resolvePdfColumnProfile(
     appendix_columns: appendix,
     main_layout,
     appendix_is_landscape,
-    source
+    source,
+    // Persisted only on invoices.pdf_column_override; Vorlagen DB rows omit this — derive from parsed override JSON when present so enrich matches issued intent.
+    show_cancelled_trips: override?.show_cancelled_trips ?? false
   };
 }

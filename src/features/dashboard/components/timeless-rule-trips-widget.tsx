@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { set, format } from 'date-fns';
+import { format } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -29,6 +29,10 @@ import {
   type TimelessRulePair
 } from '@/features/dashboard/hooks/use-timeless-rule-trips';
 import { fetchPayers } from '@/features/trips/api/trip-reference-data';
+import {
+  TripTimeError,
+  buildScheduledAtOrNull
+} from '@/features/trips/lib/trip-time';
 
 function formatHm(iso: string): string {
   return format(new Date(iso), 'HH:mm');
@@ -83,16 +87,29 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
 
       for (const e of edits) {
         const [hours, minutes] = e.time.split(':');
-        const scheduledDate = set(new Date(pair.requested_date), {
-          hours: parseInt(hours, 10),
-          minutes: parseInt(minutes, 10),
-          seconds: 0,
-          milliseconds: 0
-        });
+        // WHY trip-time.ts: UTC date-only parsing + browser `set` mixed TZ on non-Berlin runtimes/clients.
+        let scheduledAtIso: string;
+        try {
+          const iso = buildScheduledAtOrNull(
+            pair.requested_date,
+            `${hours}:${minutes}`
+          );
+          if (!iso) {
+            toast.error('Ungültige Uhrzeit.');
+            continue;
+          }
+          scheduledAtIso = iso;
+        } catch (err) {
+          if (err instanceof TripTimeError) {
+            toast.error(err.message || 'Ungültige Datum/Uhrzeit.');
+            continue;
+          }
+          throw err;
+        }
 
         // No driver assignment and no status mutation here: the widget only confirms a time.
         await tripsService.updateTrip(e.trip.id, {
-          scheduled_at: scheduledDate.toISOString()
+          scheduled_at: scheduledAtIso
         });
 
         void queryClient.invalidateQueries({
@@ -242,10 +259,10 @@ export function TimelessRuleTripsWidget() {
   const description = useMemo(() => {
     if (filteredPairs.length === 0) {
       return payerFilterId !== 'all'
-        ? 'Keine Fahrten für diesen Kostenträger morgen ohne Zeit'
-        : 'Fahrten morgen ohne Zeit';
+        ? 'Keine Fahrten für diesen Kostenträger heute oder morgen ohne Zeit'
+        : 'Fahrten heute und morgen ohne Zeit';
     }
-    return `${filteredPairs.length} Fahrten morgen ohne Zeit`;
+    return `${filteredPairs.length} Fahrten heute und morgen ohne Zeit`;
   }, [filteredPairs.length, payerFilterId]);
 
   if (isLoading || pairs.length === 0) {
@@ -286,7 +303,7 @@ export function TimelessRuleTripsWidget() {
         {filteredPairs.length === 0 ? (
           <div className='border-muted flex h-32 items-center justify-center rounded-lg border-2 border-dashed'>
             <p className='text-muted-foreground text-sm italic'>
-              Keine timeless rule trips für morgen.
+              Keine wiederkehrenden Fahrten für heute oder morgen ohne Zeit.
             </p>
           </div>
         ) : (

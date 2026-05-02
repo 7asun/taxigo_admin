@@ -15,7 +15,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Users, X } from 'lucide-react';
-import { format, set } from 'date-fns';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +46,12 @@ import {
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
 import { resolvePassengerLabel } from '@/features/trips/lib/resolve-passenger-label';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import {
+  buildScheduledAt,
+  parseScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 
 export interface TripCardProps {
   trip: KanbanTrip;
@@ -176,19 +183,28 @@ export function TripCard({
   const commitTimeToStore = useCallback(
     (value: string) => {
       if (!value) return;
-      const [hh, mm] = value.split(':').map(Number);
-      const baseDate = scheduledAt
-        ? new Date(scheduledAt)
-        : trip.requested_date
-          ? new Date(trip.requested_date + 'T12:00:00')
-          : new Date();
-      const scheduledDate = set(baseDate, {
-        hours: Number.isNaN(hh) ? 8 : hh,
-        minutes: Number.isNaN(mm) ? 0 : mm,
-        seconds: 0,
-        milliseconds: 0
-      });
-      onTimeChange(trip.id, scheduledDate.toISOString());
+      // Berlin civil day for wall time: same contract as Fahrten PATCH (not browser-local `set`).
+      let ymd: string;
+      if (scheduledAt) {
+        try {
+          ymd = parseScheduledAt(scheduledAt).ymd;
+        } catch {
+          ymd = trip.requested_date ?? todayYmdInBusinessTz();
+        }
+      } else if (trip.requested_date) {
+        ymd = trip.requested_date;
+      } else {
+        ymd = todayYmdInBusinessTz();
+      }
+      try {
+        onTimeChange(trip.id, buildScheduledAt(ymd, value));
+      } catch (e) {
+        if (e instanceof TripTimeError) {
+          toast.error(e.message);
+          return;
+        }
+        throw e;
+      }
     },
     [scheduledAt, trip.id, trip.requested_date, onTimeChange]
   );

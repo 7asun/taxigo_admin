@@ -19,7 +19,11 @@
 import { Document, Page, View } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
-import type { BuilderLineItem, InvoiceDetail } from '../../types/invoice.types';
+import type {
+  BuilderLineItem,
+  CancelledTripRow,
+  InvoiceDetail
+} from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
 import type { PriceResolution } from '../../types/pricing.types';
 
@@ -79,6 +83,11 @@ export interface InvoicePdfDocumentProps {
    * Phase 6e: drives dynamic main/appendix columns; until then unused at render time.
    */
   columnProfile?: PdfColumnProfile | null;
+  /**
+   * Builder preview: stornierte Fahrten for the optional dedicated appendix page (`show_cancelled_trips`).
+   * **TODO(issued-cancelled-rows):** Re-download PDF — populate from scoped trips fetch when enriching issued invoices (today always `[]` on detail/email).
+   */
+  cancelledTrips?: CancelledTripRow[];
 }
 
 function priceResolutionFromLineItem(
@@ -137,13 +146,19 @@ export function InvoicePdfDocument({
   introText = null,
   outroText = null,
   renderMode = 'digital',
-  columnProfile: columnProfileProp = null
+  columnProfile: columnProfileProp = null,
+  cancelledTrips = []
 }: InvoicePdfDocumentProps) {
   // Two render paths: 'digital' keeps the existing flow-based header; 'brief' pins the recipient window at 127pt and adds fold marks (Path C: separate Brief header + page-level address window).
   const effectiveProfile =
     columnProfileProp ??
     invoice.column_profile ??
     resolvePdfColumnProfile(null, null, null);
+
+  const cancelledRowsForPdf: CancelledTripRow[] =
+    effectiveProfile.show_cancelled_trips && cancelledTrips.length > 0
+      ? cancelledTrips
+      : [];
 
   const cp = invoice.company_profile;
   const payer = invoice.payer;
@@ -514,6 +529,7 @@ export function InvoicePdfDocument({
                 }))}
                 columnProfile={effectiveProfile}
                 groupLabel={group.label}
+                cancelledTrips={[]}
               />
 
               <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
@@ -536,11 +552,41 @@ export function InvoicePdfDocument({
             lineItems={invoice.line_items}
             columnProfile={effectiveProfile}
             mainLayout={effectiveProfile.main_layout}
+            cancelledTrips={[]}
           />
 
           <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
         </Page>
       )}
+
+      {/*
+        Cancelled trips: dedicated final appendix page, not Haupttabelle — CancelledTripRow has no billing_variant context for per-group bucketing here.
+        `lineItems=[]` renders the same fixed header column grid as Nach-Abrechnungsart pages, then appendix-only cancelled rows beneath (see InvoicePdfAppendix).
+        Orientation matches appendix_is_landscape (never hard-coded portrait).
+        TODO(issued-cancelled-rows): pass non-empty cancelledRowsForPdf from detail download once trips are refetched.
+       */}
+      {cancelledRowsForPdf.length > 0 ? (
+        <Page
+          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
+          style={
+            effectiveProfile.appendix_is_landscape
+              ? styles.appendixPageLandscape
+              : styles.appendixPage
+          }
+          wrap
+        >
+          <InvoicePdfAppendix
+            invoiceNumber={invoice.invoice_number}
+            invoiceCreatedAtIso={invoice.created_at}
+            lineItems={[]}
+            columnProfile={effectiveProfile}
+            cancelledTrips={cancelledRowsForPdf}
+            groupLabel='Stornierte Fahrten'
+          />
+
+          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
+        </Page>
+      ) : null}
     </Document>
   );
 }

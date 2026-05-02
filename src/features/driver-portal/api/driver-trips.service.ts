@@ -15,6 +15,7 @@
  * See docs/driver-portal.md → "Trip Lifecycle" for the full state machine.
  */
 
+import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import type { DriverTrip } from '../types/trips.types';
 
@@ -87,9 +88,12 @@ export async function getDriverTrips(
 
   // Filter by specific date if provided
   if (options?.date) {
-    const dayStart = `${options.date}T00:00:00.000Z`;
-    const dayEnd = `${options.date}T23:59:59.999Z`;
-    query = query.gte('scheduled_at', dayStart).lte('scheduled_at', dayEnd);
+    // WHY Berlin half-open [start,end): tying `YYYY-MM-DD` to UTC midnight misplaces evenings in
+    // Europe/Berlin (e.g. ~22–23 UTC still “that day” locally) — same window as Fahrten.
+    const { startISO, endExclusiveISO } = getZonedDayBoundsIso(options.date);
+    query = query
+      .gte('scheduled_at', startISO)
+      .lt('scheduled_at', endExclusiveISO);
   }
 
   // Filter by status (skip when 'all')

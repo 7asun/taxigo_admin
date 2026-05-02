@@ -12,9 +12,9 @@
 import type { Trip } from '@/features/trips/api/trips.service';
 import type { AddressResult } from '@/features/trips/components/trip-address-passenger';
 import {
-  applyTimeToScheduledDate,
-  buildScheduledAtFromYmdAndHm
-} from '@/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled';
+  buildScheduledAt,
+  parseScheduledAt
+} from '@/features/trips/lib/trip-time';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 export function clientDisplayNameFromParts(
@@ -182,21 +182,20 @@ export async function buildTripDetailsPatch(
 
   if (input.dateYmdDraft !== input.currentDateYmd) {
     if (trip.scheduled_at && input.dateYmdDraft && input.timeDraft) {
-      const next = buildScheduledAtFromYmdAndHm(
+      // WHY `buildScheduledAt`: same Berlin-wall contract as Neue Fahrt / cron — not browser-local Date.
+      patch.scheduled_at = buildScheduledAt(
         input.dateYmdDraft,
         input.timeDraft
       );
-      patch.scheduled_at = next.toISOString();
     } else if (
       !trip.scheduled_at &&
       input.dateYmdDraft &&
       input.timeDraft?.trim()
     ) {
-      const next = buildScheduledAtFromYmdAndHm(
+      patch.scheduled_at = buildScheduledAt(
         input.dateYmdDraft,
         input.timeDraft
       );
-      patch.scheduled_at = next.toISOString();
       patch.requested_date = null;
     } else if (input.dateYmdDraft && !trip.scheduled_at) {
       patch.requested_date = input.dateYmdDraft;
@@ -211,11 +210,7 @@ export async function buildTripDetailsPatch(
     input.dateYmdDraft === input.currentDateYmd &&
     !('scheduled_at' in patch)
   ) {
-    const next = buildScheduledAtFromYmdAndHm(
-      input.dateYmdDraft,
-      input.timeDraft
-    );
-    patch.scheduled_at = next.toISOString();
+    patch.scheduled_at = buildScheduledAt(input.dateYmdDraft, input.timeDraft);
     patch.requested_date = null;
   }
 
@@ -226,9 +221,10 @@ export async function buildTripDetailsPatch(
     input.timeDraft?.trim() &&
     !('scheduled_at' in patch)
   ) {
-    const next = applyTimeToScheduledDate(trip.scheduled_at, input.timeDraft);
-    if (next.toISOString() !== new Date(trip.scheduled_at).toISOString()) {
-      patch.scheduled_at = next.toISOString();
+    const { ymd } = parseScheduledAt(trip.scheduled_at);
+    const nextIso = buildScheduledAt(ymd, input.timeDraft);
+    if (nextIso !== new Date(trip.scheduled_at).toISOString()) {
+      patch.scheduled_at = nextIso;
     }
   }
 

@@ -10,9 +10,8 @@
  * **Shared UI:** `ColumnPicker` and `SortablePdfColumnList` are the same components as in settings
  * (`vorlage-editor-panel`); only layout and callbacks differ.
  *
- * **`onColumnProfileChange`** emits the resolved {@link PdfColumnProfile} upward on every relevant
- * change. **`invoice-builder/index.tsx`** holds **`builderColumnProfile`** state and passes it to
- * **`useInvoiceBuilderPdfPreview`** so the sticky preview updates without persisting to the DB.
+ * **`onColumnProfileChange`** emits the resolved {@link PdfColumnProfile} upward — including UI-only
+ * **`show_cancelled_trips`** (merged after `resolvePdfColumnProfile`; live PDF preview sits in **`index.tsx`**, not in this rail).
  *
  * Related: `resolvePdfColumnProfile`, `pdf-vorlagen.api.ts`.
  */
@@ -80,7 +79,7 @@ interface Step4VorlageProps {
    * Called whenever the resolved column profile changes (Vorlage or customize).
    * Parent feeds this into the live PDF preview hook — must stay synchronous.
    *
-   * @param profile — result of {@link resolvePdfColumnProfile}
+   * @param profile — columns from {@link resolvePdfColumnProfile}, plus **`show_cancelled_trips`** from this step
    */
   onColumnProfileChange: (profile: PdfColumnProfile) => void;
   /**
@@ -133,6 +132,8 @@ export function Step4Vorlage({
     appendix_columns: PdfColumnKey[];
   } | null>(null);
   const [colsOpen, setColsOpen] = useState(true);
+  /** Haupttabelle: optional €0 “Storniert” appendix rows — does not gate customize; keyed by payer in shell. */
+  const [showCancelledTrips, setShowCancelledTrips] = useState(false);
 
   // Reacts to payer’s pdf_vorlage_id or company default Vorlage id: sync dropdown selection.
   useEffect(() => {
@@ -189,13 +190,18 @@ export function Step4Vorlage({
         ? {
             main_columns: customColumns.main_columns,
             appendix_columns: customColumns.appendix_columns,
-            main_layout: inheritedMainLayout
+            main_layout: inheritedMainLayout,
+            show_cancelled_trips: showCancelledTrips
           }
         : null,
       selectedVorlage,
       companyDefaultVorlage
     );
-    onColumnProfileChange(resolved);
+    // When customize is off, resolver has no tier-1 override JSON — overlay checkbox so preview matches submit snapshot.
+    onColumnProfileChange({
+      ...resolved,
+      show_cancelled_trips: showCancelledTrips
+    });
   }, [
     selectedVorlageId,
     customizeEnabled,
@@ -203,6 +209,7 @@ export function Step4Vorlage({
     selectedVorlage,
     companyDefaultVorlage,
     inheritedMainLayout,
+    showCancelledTrips,
     onColumnProfileChange
   ]);
 
@@ -214,7 +221,8 @@ export function Step4Vorlage({
         ? {
             main_columns: customColumns.main_columns,
             appendix_columns: customColumns.appendix_columns,
-            main_layout: inheritedMainLayout
+            main_layout: inheritedMainLayout,
+            show_cancelled_trips: showCancelledTrips
           }
         : null
     );
@@ -222,6 +230,7 @@ export function Step4Vorlage({
     customizeEnabled,
     customColumns,
     inheritedMainLayout,
+    showCancelledTrips,
     onPdfOverrideChange
   ]);
 
@@ -367,17 +376,19 @@ export function Step4Vorlage({
                   setCustomColumns((prev) =>
                     prev ? { ...prev, main_columns: nextMain } : prev
                   );
-                  onColumnProfileChange(
-                    resolvePdfColumnProfile(
+                  onColumnProfileChange({
+                    ...resolvePdfColumnProfile(
                       {
                         main_columns: nextMain,
                         appendix_columns: customColumns.appendix_columns,
-                        main_layout: inheritedMainLayout
+                        main_layout: inheritedMainLayout,
+                        show_cancelled_trips: showCancelledTrips
                       },
                       selectedVorlage,
                       companyDefaultVorlage
-                    )
-                  );
+                    ),
+                    show_cancelled_trips: showCancelledTrips
+                  });
                   onPdfColumnsReordered?.();
                 }}
                 onRemove={(key) =>
@@ -428,17 +439,19 @@ export function Step4Vorlage({
                   setCustomColumns((prev) =>
                     prev ? { ...prev, appendix_columns: nextAppendix } : prev
                   );
-                  onColumnProfileChange(
-                    resolvePdfColumnProfile(
+                  onColumnProfileChange({
+                    ...resolvePdfColumnProfile(
                       {
                         main_columns: customColumns.main_columns,
                         appendix_columns: nextAppendix,
-                        main_layout: inheritedMainLayout
+                        main_layout: inheritedMainLayout,
+                        show_cancelled_trips: showCancelledTrips
                       },
                       selectedVorlage,
                       companyDefaultVorlage
-                    )
-                  );
+                    ),
+                    show_cancelled_trips: showCancelledTrips
+                  });
                   onPdfColumnsReordered?.();
                 }}
                 onRemove={(key) =>
@@ -458,6 +471,25 @@ export function Step4Vorlage({
           </CollapsibleContent>
         </Collapsible>
       ) : null}
+
+      {/* Live PDF iframe is in invoice-builder/index — this checkbox only drives builderColumnProfile + snapshot. */}
+      <div className='space-y-2 border-t pt-4'>
+        <div className='flex items-center gap-2'>
+          <Checkbox
+            id='pdf-show-cancelled'
+            checked={showCancelledTrips}
+            disabled={!unlocked}
+            onCheckedChange={(v) => setShowCancelledTrips(v === true)}
+          />
+          <Label htmlFor='pdf-show-cancelled' className='font-normal'>
+            Stornierte Fahrten anzeigen (€ 0,00)
+          </Label>
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          Stornierte Fahrten werden mit dem Betrag € 0,00 aufgeführt und
+          beeinflussen den Rechnungsbetrag nicht.
+        </p>
+      </div>
     </div>
   );
 }

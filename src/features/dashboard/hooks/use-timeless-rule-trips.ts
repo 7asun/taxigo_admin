@@ -1,17 +1,20 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { addDays, format } from 'date-fns';
+import { addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
+import {
+  instantToYmdInBusinessTz,
+  todayYmdInBusinessTz,
+  ymdToPickerDate
+} from '@/features/trips/lib/trip-business-date';
 import {
   billingFamilyFromEmbed,
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
 import { tripKeys } from '@/query/keys';
 import { createDebouncedInvalidateByQueryKey } from '@/query/realtime-bridge';
-
-const TIMELESS_WIDGET_LOOKAHEAD_DAYS = 1;
 
 /** Trip row with Kostenträger / Abrechnung embeds from the timeless widget query. */
 export type TimelessWidgetTrip = Trip & {
@@ -88,8 +91,16 @@ function sortByClientNameAsc(a: TimelessRulePair, b: TimelessRulePair): number {
   return 0;
 }
 
+/**
+ * Rule-based legs with no clock yet, for Berlin **today and tomorrow** `requested_date`.
+ *
+ * WHY `.in('requested_date', [today, tomorrow])` + Berlin YMDs: the old hook used
+ * `format(addDays(new Date(),1), 'yyyy-MM-dd')` (device-local “tomorrow”) and `.eq`
+ * a single day — so Berlin “today” rows never loaded and “tomorrow” could be wrong TZ.
+ */
 export async function fetchTimelessRulePairs(
-  requestedDate: string
+  todayYmd: string,
+  tomorrowYmd: string
 ): Promise<TimelessRulePair[]> {
   const supabase = createClient();
 
@@ -98,7 +109,7 @@ export async function fetchTimelessRulePairs(
     .select(`*, requested_date, ${TIMELESS_TRIP_EMBEDS}`)
     .not('rule_id', 'is', null)
     .is('scheduled_at', null)
-    .eq('requested_date', requestedDate)
+    .in('requested_date', [todayYmd, tomorrowYmd])
     .not('status', 'in', '("cancelled","completed")');
 
   if (error) throw error;
@@ -212,16 +223,14 @@ export async function fetchTimelessRulePairs(
 export function useTimelessRuleTrips() {
   const queryClient = useQueryClient();
 
-  // Tomorrow filter lives in the hook so the widget stays presentational and the
-  // query key is always derived from a single source of truth.
-  const tomorrowDateStr = format(
-    addDays(new Date(), TIMELESS_WIDGET_LOOKAHEAD_DAYS),
-    'yyyy-MM-dd'
+  const todayYmd = todayYmdInBusinessTz();
+  const tomorrowYmd = instantToYmdInBusinessTz(
+    addDays(ymdToPickerDate(todayYmd), 1).getTime()
   );
 
   const query = useQuery({
-    queryKey: tripKeys.timelessRuleTrips(tomorrowDateStr),
-    queryFn: () => fetchTimelessRulePairs(tomorrowDateStr),
+    queryKey: tripKeys.timelessRuleTrips(todayYmd, tomorrowYmd),
+    queryFn: () => fetchTimelessRulePairs(todayYmd, tomorrowYmd),
     staleTime: 60_000
   });
 

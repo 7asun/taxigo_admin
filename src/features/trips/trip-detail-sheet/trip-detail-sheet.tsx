@@ -28,6 +28,7 @@ import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
 import { useTripDetailSaveRefresh } from '@/features/trips/trip-detail-sheet/hooks/use-trip-detail-save-refresh';
 import { applyTimeToScheduledDate } from '@/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled';
+import { TripTimeError } from '@/features/trips/lib/trip-time';
 import {
   buildTripDetailsPatch,
   clientDisplayNameFromParts
@@ -861,66 +862,76 @@ export function TripDetailSheet({
   const handleSaveTripDetails = () => {
     if (!trip) return;
     const exec = async () => {
-      const ktsRow = billingVariants.find((b) => b.id === billingVariantDraft);
-      const ktsPayerRow = payers.find((p) => p.id === payerDraft);
-      const ktsResolvedSave = resolveKtsDefault({
-        payerKtsDefault: ktsPayerRow?.kts_default,
-        familyBehaviorProfile: ktsRow?.behavior_profile,
-        variantKtsDefault: ktsRow?.kts_default
-      });
-      const ktsSourceForSave: TripKtsSource = ktsUserLockedRef.current
-        ? 'manual'
-        : ktsResolvedSave.source;
+      try {
+        const ktsRow = billingVariants.find(
+          (b) => b.id === billingVariantDraft
+        );
+        const ktsPayerRow = payers.find((p) => p.id === payerDraft);
+        const ktsResolvedSave = resolveKtsDefault({
+          payerKtsDefault: ktsPayerRow?.kts_default,
+          familyBehaviorProfile: ktsRow?.behavior_profile,
+          variantKtsDefault: ktsRow?.kts_default
+        });
+        const ktsSourceForSave: TripKtsSource = ktsUserLockedRef.current
+          ? 'manual'
+          : ktsResolvedSave.source;
 
-      const noInvResolvedSave = resolveNoInvoiceRequiredDefault({
-        payerNoInvoiceDefault: ktsPayerRow?.no_invoice_required_default,
-        familyBehaviorProfile: ktsRow?.behavior_profile,
-        variantNoInvoiceDefault: ktsRow?.no_invoice_required_default
-      });
-      const noInvoiceSourceForSave: TripNoInvoiceSource =
-        noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedSave.source;
+        const noInvResolvedSave = resolveNoInvoiceRequiredDefault({
+          payerNoInvoiceDefault: ktsPayerRow?.no_invoice_required_default,
+          familyBehaviorProfile: ktsRow?.behavior_profile,
+          variantNoInvoiceDefault: ktsRow?.no_invoice_required_default
+        });
+        const noInvoiceSourceForSave: TripNoInvoiceSource =
+          noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedSave.source;
 
-      const built = await buildTripDetailsPatch({
-        trip,
-        payerDraft,
-        billingVariantDraft,
-        wheelchairDraft,
-        clientIdDraft,
-        clientFirstDraft,
-        clientLastDraft,
-        clientPhoneDraft,
-        pickupAddressDraft,
-        pickupStationDraft,
-        dropoffAddressDraft,
-        dropoffStationDraft,
-        dateYmdDraft,
-        currentDateYmd,
-        timeDraft,
-        lastPickupResolved: lastPickupResolved.current,
-        lastDropoffResolved: lastDropoffResolved.current,
-        billingCallingStationDraft,
-        billingBetreuerDraft,
-        ktsDocumentAppliesDraft,
-        ktsSourceForSave,
-        noInvoiceRequiredDraft,
-        noInvoiceSourceForSave
-      });
-      if (built.isEmpty) {
-        toast.info('Keine Änderungen zum Speichern.');
-        return;
+        const built = await buildTripDetailsPatch({
+          trip,
+          payerDraft,
+          billingVariantDraft,
+          wheelchairDraft,
+          clientIdDraft,
+          clientFirstDraft,
+          clientLastDraft,
+          clientPhoneDraft,
+          pickupAddressDraft,
+          pickupStationDraft,
+          dropoffAddressDraft,
+          dropoffStationDraft,
+          dateYmdDraft,
+          currentDateYmd,
+          timeDraft,
+          lastPickupResolved: lastPickupResolved.current,
+          lastDropoffResolved: lastDropoffResolved.current,
+          billingCallingStationDraft,
+          billingBetreuerDraft,
+          ktsDocumentAppliesDraft,
+          ktsSourceForSave,
+          noInvoiceRequiredDraft,
+          noInvoiceSourceForSave
+        });
+        if (built.isEmpty) {
+          toast.info('Keine Änderungen zum Speichern.');
+          return;
+        }
+        // Paired dialog: only after recurring scope (if any). Offer when PATCH touches
+        // PAIRED_SYNC_COLUMN_KEYS or notes are dirty (see paired-trip-sync.ts).
+        if (
+          linkedPartner &&
+          shouldOfferPairedSyncForDetailsSave(built.patch, notesDirty)
+        ) {
+          pendingDetailsPatchRef.current = built.patch;
+          setPairSyncVariant('details');
+          setPairSyncOpen(true);
+          return;
+        }
+        await applyDetailsPatch(built.patch, false);
+      } catch (e: unknown) {
+        if (e instanceof TripTimeError) {
+          toast.error(e.message);
+          return;
+        }
+        throw e;
       }
-      // Paired dialog: only after recurring scope (if any). Offer when PATCH touches
-      // PAIRED_SYNC_COLUMN_KEYS or notes are dirty (see paired-trip-sync.ts).
-      if (
-        linkedPartner &&
-        shouldOfferPairedSyncForDetailsSave(built.patch, notesDirty)
-      ) {
-        pendingDetailsPatchRef.current = built.patch;
-        setPairSyncVariant('details');
-        setPairSyncOpen(true);
-        return;
-      }
-      await applyDetailsPatch(built.patch, false);
     };
     runWithRecurringScope(exec);
   };

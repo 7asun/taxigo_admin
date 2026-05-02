@@ -5,7 +5,7 @@
  *
  * Flow:
  *   Section 1 (mode) → merge into step2Values
- *   Section 2 submit → full step2Values → trips query → lineItems
+ *   Section 2 submit → full step2Values → trips queries (billing + cancelled) → lineItems + cancelledTrips
  *   Section 3        → inline edits only
  *   Section 5 submit (form in §4) → createInvoice(..., pdfColumnOverride) → insertLineItems() → navigate
  */
@@ -19,6 +19,7 @@ import { invoiceKeys, referenceKeys } from '@/query/keys';
 import { listPricingRulesForPayer } from '@/features/payers/api/billing-pricing-rules.api';
 import {
   fetchTripsForBuilder,
+  fetchCancelledTripsForBuilder,
   mapBillingPricingRuleRowsToLike,
   buildLineItemsFromTrips,
   calculateInvoiceTotals,
@@ -32,7 +33,8 @@ import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
   InvoiceBuilderFormValues,
-  BuilderLineItem
+  BuilderLineItem,
+  CancelledTripRow
 } from '../types/invoice.types';
 import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
 import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
@@ -68,6 +70,8 @@ export function useInvoiceBuilder(
 
   const [step2Values, setStep2Values] = useState<Step2Values | null>(null);
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>([]);
+  /** PDF-only cancelled rows — never folded into totals or invoice_line_items. */
+  const [cancelledTrips, setCancelledTrips] = useState<CancelledTripRow[]>([]);
   const [section3Confirmed, setSection3Confirmed] = useState(false);
   /** Catalog cascade (variant → type → payer) from the first fetched trip. */
   const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
@@ -79,6 +83,7 @@ export function useInvoiceBuilder(
   useEffect(() => {
     if (!step2ValuesReadyForTripsFetch(step2Values)) {
       setLineItems([]);
+      setCancelledTrips([]);
       setCatalogRecipientId(null);
       setSection3Confirmed(false);
     }
@@ -103,15 +108,21 @@ export function useInvoiceBuilder(
         staleTime: 30_000
       });
       const rules = mapBillingPricingRuleRowsToLike(rulesRows);
-      const { trips, clientPriceTags } = await fetchTripsForBuilder({
+      const tripsParams = {
         payer_id: payerId,
         billing_type_id: step2Values?.billing_type_id,
         billing_variant_id: step2Values?.billing_variant_id,
         period_from: step2Values!.period_from,
         period_to: step2Values!.period_to,
         client_id: step2Values?.client_id
-      });
+      };
+      const [{ trips, clientPriceTags }, cancelled] = await Promise.all([
+        fetchTripsForBuilder(tripsParams),
+        fetchCancelledTripsForBuilder(tripsParams)
+      ]);
       const items = buildLineItemsFromTrips(trips, rules, clientPriceTags);
+      setCancelledTrips(cancelled);
+      // Billing uses `trips` only; cancelled rows are display-only — never totals or INSERT.
       setLineItems(items);
 
       const t0 = trips[0];
@@ -309,6 +320,7 @@ export function useInvoiceBuilder(
   return {
     step2Values,
     lineItems,
+    cancelledTrips,
     section3Confirmed,
     catalogRecipientId,
     totals,

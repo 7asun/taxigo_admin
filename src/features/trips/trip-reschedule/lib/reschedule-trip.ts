@@ -92,6 +92,8 @@ export function computePairedReschedule(
   }
 
   const partnerMs = new Date(paired.scheduled_at).getTime();
+  // WHY keep delta on UTC ms: Hin/Rück gap stays identical in absolute time — not a
+  // wall-clock ymd+hm compose; `buildScheduledAt` belongs on the dialog’s new primary only.
   const partnerIso = new Date(partnerMs + deltaMs).toISOString();
 
   return { primaryIso, partnerIso };
