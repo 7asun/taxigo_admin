@@ -196,10 +196,9 @@ export function Step3LineItems({
     };
   }, [lineItems, openRows]);
 
-  // Guard: prevents premature commitEdit when focus moves between the two
-  // co-edited inputs (Bruttopreis → Anfahrt or vice versa). A setTimeout(0)
-  // defers the commit; the sibling input's onFocus cancels it if focus stayed
-  // within the edit group.
+  // Guard: same-row only — defer commit on blur so Bruttopreis ↔ Anfahrt tabbing
+  // does not commit mid-edit; clearing the timer on focus **must** be gated by row
+  // position, otherwise focusing another row's input cancels row A's pending commit.
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Blur reads `editingRef.current`, kept in sync synchronously with `setEditing`
@@ -254,8 +253,13 @@ export function Step3LineItems({
     }, 0);
   };
 
-  const handleFocus = () => {
-    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+  const handleFocus = (focusedPosition: number) => {
+    if (
+      commitTimerRef.current &&
+      editingRef.current?.position === focusedPosition
+    ) {
+      clearTimeout(commitTimerRef.current);
+    }
   };
 
   const blurIfThisRow = (position: number) => {
@@ -483,7 +487,7 @@ export function Step3LineItems({
                             value={grossInputValue}
                             placeholder='Betrag'
                             onFocus={() => {
-                              handleFocus();
+                              handleFocus(item.position);
                               if (!isEditingThisRow) beginEditing(item);
                             }}
                             onChange={(e) => {
@@ -622,7 +626,7 @@ export function Step3LineItems({
                               value={approachInputValue}
                               placeholder='0,00'
                               onFocus={() => {
-                                handleFocus();
+                                handleFocus(item.position);
                                 if (!isEditingThisRow) beginEditing(item);
                               }}
                               onChange={(e) => {

@@ -99,6 +99,16 @@ Further client writes (detail sheet, Kanban, pending, bulk CSV, duplicate intern
 
 Verification log: [`docs/plans/phase-3b-verification.md`](./plans/phase-3b-verification.md).
 
+### Phase 4 — bulk CSV + regression guard (shipped)
+
+| Area | Behaviour |
+|------|-----------|
+| **Bulk CSV upload** | [`bulk-upload-dialog.tsx`](../src/features/trips/components/bulk-upload-dialog.tsx): German date → canonical **`YYYY-MM-DD`** without browser-local `Date` for the civil label; `scheduled_at` via **`buildScheduledAt(ymd, hm)`** when a time column is present; **`TripTimeError`** surfaces as the same per-row **`invalid_datetime`** issue pattern as other parse failures. |
+| **ESLint** | [`.eslintrc.trips-time-guard.json`](../.eslintrc.trips-time-guard.json): standalone config (see `package.json` script **`lint:trips-scheduled-at`**) — **`no-restricted-syntax`** (warn) on `src/features/trips/**` and `src/app/api/**` for chained **`new Date(…, ≥3 args).toISOString()`** and **`new Date(…).setHours` / `setMinutes`** on a `Date` literal — allow-listed: `trip-time.ts`, `duplicate-trip-schedule.ts`, `src/features/trips/lib/__tests__/**`. The default `eslint` CLI still loads [`.eslintrc.json`](../.eslintrc.json) (`next/core-web-vitals`); the guard runs with **`eslint --no-eslintrc -c .eslintrc.trips-time-guard.json`** so it does not hit the Next 16 + ESLint 8 legacy-config validator issue. |
+| **Agent / contributor docs** | [`AGENTS.md`](../AGENTS.md) **Trips time system** invariant (verbatim): persisted `scheduled_at` only via **`buildScheduledAt` / `buildScheduledAtOrNull`**; filters via **`getZonedDayBoundsIso`**. |
+
+Verification: [`docs/plans/phase-4-verification.md`](./plans/phase-4-verification.md).
+
 ---
 
 ## URL shape (`scheduled_at` query param)

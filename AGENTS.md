@@ -537,6 +537,24 @@ See "Theming System" section above or `docs/themes.md`.
 
 ---
 
+## Trips time system
+
+**Invariant:** `trips.scheduled_at` must always be constructed with
+`buildScheduledAt(ymd, hm)` or `buildScheduledAtOrNull(ymd, hm)`
+from `src/features/trips/lib/trip-time.ts`. Never use
+`new Date(year, month, day, hours, minutes).toISOString()` or
+`date.setHours(...).toISOString()` for persisted trip times.
+These patterns encode the browser or server runtime timezone, not
+`Europe/Berlin`, and will silently produce wrong UTC values in
+production.
+
+Day boundaries for filtering must use `getZonedDayBoundsIso(ymd)`
+from `src/features/trips/lib/trip-business-date.ts`.
+
+See `docs/trips-date-filter.md` for the full write-path inventory.
+
+---
+
 ## Notes for AI Agents
 
 1. **Always use `cn()` for className merging** - never concatenate strings manually

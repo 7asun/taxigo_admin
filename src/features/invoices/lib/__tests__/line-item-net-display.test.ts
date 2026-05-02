@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  lineItemGrossTotalForDisplay,
   lineItemNetAmountForDisplay,
   unitNetFromEditedLineNet
 } from '@/features/invoices/lib/line-item-net-display';
@@ -24,6 +25,7 @@ function tieredItem(overrides: Partial<BuilderLineItem> = {}): BuilderLineItem {
     tax_rate: 0.07,
     billing_variant_code: null,
     billing_variant_name: null,
+    billing_type_name: null,
     kts_document_applies: false,
     no_invoice_warning: false,
     price_resolution: {
@@ -68,6 +70,49 @@ describe('lineItemNetAmountForDisplay', () => {
   test('null unit_price → null', () => {
     const item = tieredItem({ unit_price: null });
     expect(lineItemNetAmountForDisplay(item)).toBeNull();
+  });
+});
+
+describe('lineItemGrossTotalForDisplay', () => {
+  test('with approach_fee_net: full-line brutto, not transport-only pr.gross', () => {
+    const tax = 0.07;
+    const transportNet = 12.78;
+    const approachNet = 5.59;
+    const transportOnlyGross = Math.round(transportNet * (1 + tax) * 100) / 100;
+    const item = tieredItem({
+      quantity: 1,
+      unit_price: transportNet,
+      approach_fee_net: approachNet,
+      approach_fee_gross: Math.round(approachNet * (1 + tax) * 100) / 100,
+      price_resolution: {
+        gross: transportOnlyGross,
+        net: transportNet,
+        tax_rate: tax,
+        strategy_used: 'trip_price_fallback',
+        source: 'trip_price',
+        unit_price_net: transportNet,
+        quantity: 1,
+        approach_fee_net: approachNet
+      }
+    });
+    expect(transportOnlyGross).toBe(13.67);
+    expect(lineItemGrossTotalForDisplay(item)).toBe(19.66);
+  });
+
+  test('manualGrossTotal wins over computed brutto', () => {
+    const item = tieredItem({
+      manualGrossTotal: 99.99,
+      isManualOverride: true,
+      unit_price: 10,
+      approach_fee_net: 5
+    });
+    expect(lineItemGrossTotalForDisplay(item)).toBe(99.99);
+  });
+
+  test('null unit_price → null', () => {
+    expect(
+      lineItemGrossTotalForDisplay(tieredItem({ unit_price: null }))
+    ).toBeNull();
   });
 });
 

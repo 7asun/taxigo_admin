@@ -1,0 +1,44 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "rules": {
+    "react-hooks/rules-of-hooks": "off",
+    "react-hooks/exhaustive-deps": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/features/trips/**/*.{ts,tsx}",
+        "src/app/api/**/*.{ts,tsx}"
+      ],
+      "excludedFiles": [
+        "src/features/trips/lib/trip-time.ts",
+        "src/features/trips/lib/duplicate-trip-schedule.ts",
+        "src/features/trips/lib/__tests__/**/*"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "CallExpression[callee.type='MemberExpression'][callee.property.name='toISOString'][callee.object.type='NewExpression'][callee.object.callee.name='Date'][callee.object.arguments.length>=3]",
+            "message": "Use buildScheduledAt(ymd, hm) from trip-time.ts to construct trips.scheduled_at. Direct Date construction encodes browser timezone, not Europe/Berlin. See docs/trips-date-filter.md."
+          },
+          {
+            "selector": "CallExpression[callee.type='MemberExpression'][callee.object.type='NewExpression'][callee.object.callee.name='Date'][callee.object.arguments.length>=1][callee.property.name='setHours']",
+            "message": "Use buildScheduledAt(ymd, hm) from trip-time.ts to construct trips.scheduled_at. Direct Date construction encodes browser timezone, not Europe/Berlin. See docs/trips-date-filter.md."
+          },
+          {
+            "selector": "CallExpression[callee.type='MemberExpression'][callee.object.type='NewExpression'][callee.object.callee.name='Date'][callee.object.arguments.length>=1][callee.property.name='setMinutes']",
+            "message": "Use buildScheduledAt(ymd, hm) from trip-time.ts to construct trips.scheduled_at. Direct Date construction encodes browser timezone, not Europe/Berlin. See docs/trips-date-filter.md."
+          }
+        ]
+      }
+    }
+  ]
+}
