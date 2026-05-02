@@ -19,7 +19,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { tripKeys } from '@/query/keys';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
-import { set } from 'date-fns';
 import { toast } from 'sonner';
 import {
   PlusCircle,
@@ -44,6 +43,10 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { format } from 'date-fns';
+import {
+  TripTimeError,
+  buildScheduledAtOrNull
+} from '@/features/trips/lib/trip-time';
 import { de } from 'date-fns/locale';
 
 const FILTER_TABS: { value: UnplannedFilter; label: string }[] = [
@@ -187,16 +190,25 @@ function UnplannedTripRow({
 
     try {
       setIsSubmitting(true);
-      const [hours, minutes] = time.split(':');
-      const scheduledDate = set(new Date(dateStr), {
-        hours: parseInt(hours, 10),
-        minutes: parseInt(minutes, 10),
-        seconds: 0,
-        milliseconds: 0
-      });
+      // WHY trip-time.ts (not `new Date(dateStr)` + `set`): server/client TZ mixes mis-store `scheduled_at`.
+      let scheduledAtIso: string;
+      try {
+        const iso = buildScheduledAtOrNull(dateStr, time);
+        if (!iso) {
+          toast.error('Bitte Datum und Uhrzeit vollständig angeben.');
+          return;
+        }
+        scheduledAtIso = iso;
+      } catch (err) {
+        if (err instanceof TripTimeError) {
+          toast.error(err.message || 'Ungültige Datum/Uhrzeit.');
+          return;
+        }
+        throw err;
+      }
 
       const updatePayload: Parameters<typeof tripsService.updateTrip>[1] = {
-        scheduled_at: scheduledDate.toISOString(),
+        scheduled_at: scheduledAtIso,
         driver_id: driverId
       };
       const derivedStatus = getStatusWhenDriverChanges(trip.status, driverId, {

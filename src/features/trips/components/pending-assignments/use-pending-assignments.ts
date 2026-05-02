@@ -1,8 +1,15 @@
 'use client';
 
 import * as React from 'react';
+import { toast } from 'sonner';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import {
+  buildScheduledAt,
+  parseScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -225,26 +232,36 @@ export function useDispatchInbox(
         updates.needs_driver_assignment = false;
       }
 
-      // Pre-fill date logic matching the widget's fallback hierarchy
-      // This calculates the 'base string' date that will be morphed with the dispatcher's time input.
+      // Berlin civil day + `buildScheduledAt`: same UTC contract as Kanban / detail sheet (not UTC-slice YMD).
       const tripDate = (() => {
-        if (trip?.scheduled_at)
-          return new Date(trip.scheduled_at).toISOString().slice(0, 10);
+        if (trip?.scheduled_at) {
+          try {
+            return parseScheduledAt(trip.scheduled_at).ymd;
+          } catch {
+            /* fall through */
+          }
+        }
         if (trip?.requested_date) return trip.requested_date;
         const linkedAt = trip?.linked_trip?.scheduled_at;
-        if (linkedAt) return new Date(linkedAt).toISOString().slice(0, 10);
-        return new Date().toISOString().slice(0, 10);
+        if (linkedAt) {
+          try {
+            return parseScheduledAt(linkedAt).ymd;
+          } catch {
+            /* fall through */
+          }
+        }
+        return todayYmdInBusinessTz();
       })();
 
-      // If the dispatcher securely typed a departure time, construct the timestamp
       if (timeString) {
-        // Build "YYYY-MM-DDT14:30:00". Because JS Date initializes
-        // string-parsed dates strictly inside the user's localized browser timezone,
-        // toISOString safely wraps this directly into the DB without offset mismatch.
-        const localIso = `${tripDate}T${timeString}:00`;
-        const dateObj = new Date(localIso);
-        if (!isNaN(dateObj.getTime())) {
-          updates.scheduled_at = dateObj.toISOString();
+        try {
+          updates.scheduled_at = buildScheduledAt(tripDate, timeString);
+        } catch (e) {
+          if (e instanceof TripTimeError) {
+            toast.error(e.message);
+            return;
+          }
+          throw e;
         }
       }
 

@@ -3,6 +3,8 @@
  * aligned with bulk CSV `parseDateAndTime` → `scheduled_at` / `requested_date`.
  */
 
+import { buildScheduledAt } from '@/features/trips/lib/trip-time';
+
 export function parseYmdToLocalDate(ymd: string): Date | undefined {
   const t = ymd.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return undefined;
@@ -35,25 +37,11 @@ export function combineDepartureForTripInsert(
     return { scheduled_at: null, requested_date };
   }
 
-  const parts = timePart.split(':');
-  const hours = Number(parts[0]);
-  const minutes = Number(parts[1]);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-    return { scheduled_at: null, requested_date };
-  }
-
-  const full = new Date(
-    base.getFullYear(),
-    base.getMonth(),
-    base.getDate(),
-    hours,
-    minutes,
-    0,
-    0
-  );
-  if (Number.isNaN(full.getTime())) {
-    return { scheduled_at: null, requested_date };
-  }
-
-  return { scheduled_at: full.toISOString(), requested_date };
+  // WHY `buildScheduledAt` (not `new Date(y,m,d,h,m)` + `toISOString()`): the old path
+  // encoded the dispatcher’s wall clock in the **browser runtime** timezone. Anyone
+  // outside Europe/Berlin (or SSR in UTC) persisted the wrong UTC instant vs Fahrten /
+  // cron, which always interpret date+time in `getTripsBusinessTimeZone()`.
+  // WHY throws on bad input: `buildScheduledAt` raises `TripTimeError` so corrupt
+  // strings cannot silently become NULL timestamps that break dedup and day filters.
+  return { scheduled_at: buildScheduledAt(ymd, timePart), requested_date };
 }

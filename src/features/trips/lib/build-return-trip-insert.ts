@@ -3,7 +3,8 @@ import type { Trip } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 
 export interface BuildReturnTripInsertParams {
-  scheduledAt: Date;
+  /** UTC ISO from `buildScheduledAt` — never `Date#toISOString()` from browser-local wall time. */
+  scheduledAtIso: string;
   driverId: string | null;
   companyId: string | null;
   createdBy: string | null;
@@ -104,7 +105,9 @@ export function buildReturnTripInsert(
     rule_id: null,
     link_type: 'return',
     linked_trip_id: outbound.id,
-    scheduled_at: params.scheduledAt.toISOString(),
+    // WHY not `Date#toISOString()`: callers’ `Date` came from `DateTimePicker` in the runtime TZ;
+    // persisting that instant mis-aligned non-Berlin dispatchers vs Fahrten/cron Berlin semantics.
+    scheduled_at: params.scheduledAtIso,
     driver_id: params.driverId,
     status: derivedStatus,
     stop_updates: [],

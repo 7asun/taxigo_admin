@@ -3,7 +3,8 @@ import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics'
 import { buildReturnTripInsert } from '@/features/trips/lib/build-return-trip-insert';
 
 export interface CreateLinkedReturnOptions {
-  scheduledAt: Date;
+  /** Berlin-wall UTC ISO — built with `buildScheduledAt(ymd, hm)` before calling. */
+  scheduledAtIso: string;
   driverId: string | null;
   companyId: string | null;
   createdBy: string | null;
@@ -44,7 +45,7 @@ export async function createLinkedReturnForOutbound(
   }
 
   const insert = buildReturnTripInsert(outbound, {
-    scheduledAt: options.scheduledAt,
+    scheduledAtIso: options.scheduledAtIso,
     driverId: options.driverId,
     companyId: options.companyId,
     createdBy: options.createdBy,

@@ -14,7 +14,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
 import { tripKeys } from '@/query/keys';
 import { CalendarRange, ClockIcon } from 'lucide-react';
-import { format } from 'date-fns';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -38,6 +37,11 @@ import {
 } from '../api/reschedule.actions';
 import { canRescheduleTrip, isRecurringTrip } from '../lib/reschedule-trip';
 import { getTripDirection } from '@/features/trips/lib/trip-direction';
+import {
+  buildScheduledAt,
+  parseScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 
 function linkedLegPickerTitle(
   paired: Pick<Trip, 'link_type' | 'linked_trip_id'>
@@ -48,24 +52,6 @@ function linkedLegPickerTitle(
   return 'Verknüpfte Fahrt';
 }
 
-function parseLocalYmdHm(ymd: string, hm: string): Date | null {
-  const ymdTrim = ymd.trim();
-  const hmTrim = hm.trim();
-  if (!ymdTrim || !hmTrim) return null;
-  const [y, m, d] = ymdTrim.split('-').map((x) => parseInt(x, 10));
-  const [hh, mm] = hmTrim.split(':').map((x) => parseInt(x, 10));
-  if (
-    Number.isNaN(y) ||
-    Number.isNaN(m) ||
-    Number.isNaN(d) ||
-    Number.isNaN(hh) ||
-    Number.isNaN(mm)
-  ) {
-    return null;
-  }
-  return new Date(y, m - 1, d, hh, mm, 0, 0);
-}
-
 function buildLeg(ymd: string, hm: string): LegScheduleInput {
   const hmTrim = hm.trim();
   if (hmTrim) {
@@ -73,11 +59,9 @@ function buildLeg(ymd: string, hm: string): LegScheduleInput {
     if (!ymdTrim) {
       throw new Error('Bitte ein Datum wählen, wenn eine Uhrzeit gesetzt ist.');
     }
-    const d = parseLocalYmdHm(ymdTrim, hmTrim);
-    if (!d || Number.isNaN(d.getTime())) {
-      throw new Error('Ungültiges Datum oder Uhrzeit.');
-    }
-    return { scheduledAt: d, requestedDate: null };
+    // WHY `buildScheduledAt`: same Berlin-wall → UTC contract as Fahrten/cron; not browser-local `Date`.
+    const iso = buildScheduledAt(ymdTrim, hmTrim);
+    return { scheduledAt: new Date(iso), requestedDate: null };
   }
   return {
     scheduledAt: null,
@@ -132,11 +116,11 @@ export function TripRescheduleDialog({
     }
 
     if (trip.scheduled_at) {
-      const d = new Date(trip.scheduled_at);
-      if (!Number.isNaN(d.getTime())) {
-        setPrimaryYmd(format(d, 'yyyy-MM-dd'));
-        setPrimaryHm(format(d, 'HH:mm'));
-      } else {
+      try {
+        const { ymd, hm } = parseScheduledAt(trip.scheduled_at);
+        setPrimaryYmd(ymd);
+        setPrimaryHm(hm);
+      } catch {
         setPrimaryYmd('');
         setPrimaryHm('');
       }
@@ -163,10 +147,13 @@ export function TripRescheduleDialog({
         if (p?.scheduled_at) {
           const tMs = new Date(p.scheduled_at).getTime();
           baselinePartnerMsRef.current = Number.isNaN(tMs) ? null : tMs;
-          const pd = new Date(p.scheduled_at);
-          if (!Number.isNaN(pd.getTime())) {
-            setPartnerYmd(format(pd, 'yyyy-MM-dd'));
-            setPartnerHm(format(pd, 'HH:mm'));
+          try {
+            const { ymd, hm } = parseScheduledAt(p.scheduled_at);
+            setPartnerYmd(ymd);
+            setPartnerHm(hm);
+          } catch {
+            setPartnerYmd('');
+            setPartnerHm('');
           }
         } else if (p?.requested_date) {
           baselinePartnerMsRef.current = null;
@@ -202,15 +189,25 @@ export function TripRescheduleDialog({
     if (!nextHmTrim || !nextYmdTrim) {
       return;
     }
-    const d = parseLocalYmdHm(nextYmdTrim, nextHmTrim);
-    if (!d || Number.isNaN(d.getTime())) {
+    let dMs: number;
+    try {
+      dMs = new Date(buildScheduledAt(nextYmdTrim, nextHmTrim)).getTime();
+    } catch {
+      return;
+    }
+    if (Number.isNaN(dMs)) {
       return;
     }
     const b0 = baselinePrimaryMsRef.current;
     const bp = baselinePartnerMsRef.current;
-    const next = new Date(bp + (d.getTime() - b0));
-    setPartnerYmd(format(next, 'yyyy-MM-dd'));
-    setPartnerHm(format(next, 'HH:mm'));
+    const shifted = new Date(bp + (dMs - b0));
+    try {
+      const { ymd, hm } = parseScheduledAt(shifted.toISOString());
+      setPartnerYmd(ymd);
+      setPartnerHm(hm);
+    } catch {
+      return;
+    }
   };
 
   const handlePrimaryYmdChange = (value: string) => {
@@ -242,6 +239,10 @@ export function TripRescheduleDialog({
     try {
       primaryLeg = buildLeg(primaryYmd, primaryHm);
     } catch (e) {
+      if (e instanceof TripTimeError) {
+        toast.error(e.message);
+        return;
+      }
       toast.error(e instanceof Error ? e.message : 'Ungültige Eingabe.');
       return;
     }
@@ -251,6 +252,10 @@ export function TripRescheduleDialog({
       try {
         partnerLeg = buildLeg(partnerYmd, partnerHm);
       } catch (e) {
+        if (e instanceof TripTimeError) {
+          toast.error(e.message);
+          return;
+        }
         toast.error(e instanceof Error ? e.message : 'Ungültige Eingabe.');
         return;
       }

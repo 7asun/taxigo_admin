@@ -25,6 +25,7 @@ import {
 import { InvoicePdfDocument } from '@/features/invoices/components/invoice-pdf/InvoicePdfDocument';
 import type {
   BuilderLineItem,
+  CancelledTripRow,
   InvoiceDetail
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
@@ -40,7 +41,10 @@ export interface UseInvoiceBuilderPdfPreviewParams {
   companyId: string;
   companyProfile: InvoiceDetail['company_profile'] | null;
   step2Values: InvoiceBuilderStep2Snapshot | null;
+  /** Line items fed from `fetchTripsForBuilder`; billing-only. */
   lineItems: BuilderLineItem[];
+  /** Cancelled trips for optional €0 rows on the Haupttabelle — never summed into totals. */
+  cancelledTrips: CancelledTripRow[];
   payers: NonNullable<InvoiceDetail['payer']>[];
   clients: NonNullable<InvoiceDetail['client']>[];
   defaultPaymentDays: number;
@@ -82,6 +86,7 @@ export function useInvoiceBuilderPdfPreview(
     companyProfile,
     step2Values,
     lineItems,
+    cancelledTrips,
     payers,
     clients,
     defaultPaymentDays,
@@ -244,6 +249,7 @@ export function useInvoiceBuilderPdfPreview(
           outroText={outroText}
           paymentQrDataUrl={paymentQrDataUrl}
           columnProfile={columnProfile}
+          cancelledTrips={cancelledTrips}
         />
       );
     }, delayMs);
@@ -255,7 +261,8 @@ export function useInvoiceBuilderPdfPreview(
     columnProfile,
     columnReorderGeneration,
     updatePdf,
-    paymentQrDataUrl
+    paymentQrDataUrl,
+    cancelledTrips
   ]);
 
   return { pdf, draftInvoice, livePreviewActive };

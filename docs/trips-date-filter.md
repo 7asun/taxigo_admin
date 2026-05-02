@@ -58,6 +58,47 @@ Day boundaries and “today” use a single **IANA timezone** (default `Europe/B
 
 Optional env: `NEXT_PUBLIC_TRIPS_BUSINESS_TIMEZONE` (defaults to `Europe/Berlin`). Set on Vercel if operations use another region.
 
+### Canonical read vs write helpers
+
+**Reads (which trips belong to which calendar day in the planner):** use [`src/features/trips/lib/trip-business-date.ts`](../src/features/trips/lib/trip-business-date.ts) — especially `getZonedDayBoundsIso`, `instantToYmdInBusinessTz`, and `getTripsBusinessTimeZone()` so day windows do not rely on UTC midnight or browser-local TZ.
+
+**Writes (turning dispatcher date + clock into stored `scheduled_at`):** canonical module is [`src/features/trips/lib/trip-time.ts`](../src/features/trips/lib/trip-time.ts). Public API: `buildScheduledAt(ymd, hm, timeZone?)`, `buildScheduledAtOrNull(...)`, `parseScheduledAt(iso, timeZone?)`, `TripTimeError`.
+
+### Phase 2 server / widget paths (shipped)
+
+| Callsite | Helper |
+|----------|--------|
+| [`src/app/api/cron/generate-recurring-trips/route.ts`](../src/app/api/cron/generate-recurring-trips/route.ts) | `buildScheduledAt`; Berlin “today” + window via `tz(getTripsBusinessTimeZone())`; RRule `DTSTART` and `between()` window from `getZonedDayBoundsIso`; occurrences → `instantToYmdInBusinessTz`; dedup without `scheduled_at` so correcting UTC encoding does not double-insert |
+| [`src/features/dashboard/components/timeless-rule-trips-widget.tsx`](../src/features/dashboard/components/timeless-rule-trips-widget.tsx) | `buildScheduledAtOrNull` (+ `TripTimeError` toast) |
+| [`src/features/dashboard/components/pending-tours-widget.tsx`](../src/features/dashboard/components/pending-tours-widget.tsx) | `buildScheduledAtOrNull` (+ `TripTimeError` toast) |
+| [`src/features/driver-portal/api/driver-trips.service.ts`](../src/features/driver-portal/api/driver-trips.service.ts) `getDriverTrips` date branch | `getZonedDayBoundsIso` → half-open `gte` / `lt` on `scheduled_at` |
+
+### Phase 3A — dispatcher create flow (shipped)
+
+| Callsite | Helper |
+|----------|--------|
+| [`src/features/trips/lib/departure-schedule.ts`](../src/features/trips/lib/departure-schedule.ts) `combineDepartureForTripInsert` | `buildScheduledAt(ymd, hm)` for outbound `scheduled_at` (replaces browser-local `Date` + `toISOString()`); invalid input throws `TripTimeError` |
+| [`src/features/trips/components/create-trip/create-trip-form.tsx`](../src/features/trips/components/create-trip/create-trip-form.tsx) return leg (`return_mode === 'exact'`) | `buildScheduledAt(formatLocalYmd(return_date), return_time)`; submit handler treats `TripTimeError` with toast |
+| [`src/features/trips/lib/build-return-trip-insert.ts`](../src/features/trips/lib/build-return-trip-insert.ts) | `scheduled_at: params.scheduledAtIso` — ISO must be pre-built with `buildScheduledAt` |
+| [`src/features/trips/lib/create-linked-return.ts`](../src/features/trips/lib/create-linked-return.ts) + [`create-return-trip-dialog.tsx`](../src/features/trips/components/return-trip/create-return-trip-dialog.tsx) | Dialog derives civil `ymd` + `HH:mm` from `DateTimePicker`’s `Date`, then `buildScheduledAt` → `scheduledAtIso` into `createLinkedReturnForOutbound` |
+
+**Known gap:** [`getTodaysTrips`](../src/features/driver-portal/api/driver-trips.service.ts) in that file still uses **device-local** day boundaries; intentionally out of Phase 2 scope (potential Phase 2b).
+
+Further client writes (detail sheet, Kanban, pending, bulk CSV, duplicate internals) are **Phase 3B+** (see [`docs/plans/trip-time-utility-audit.md`](./plans/trip-time-utility-audit.md)).
+
+### Phase 3B — remaining client writes + timeless query (shipped)
+
+| Area | Files / behaviour |
+|------|-------------------|
+| **Trip detail sheet** | [`apply-time-to-scheduled.ts`](../src/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled.ts): `applyTimeToScheduledDate` uses `parseScheduledAt` + `buildScheduledAt`; **`TripTimeError` caught inside the function** so render-time `detailsDirty` in [`trip-detail-sheet.tsx`](../src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx) cannot crash the sheet. [`build-trip-details-patch.ts`](../src/features/trips/trip-detail-sheet/lib/build-trip-details-patch.ts): PATCH `scheduled_at` via **`buildScheduledAt`** (ISO string). Submit: **`TripTimeError` → toast** on patch build. |
+| **Reschedule (“Verschieben”)** | [`trip-reschedule-dialog.tsx`](../src/features/trips/trip-reschedule/components/trip-reschedule-dialog.tsx): `buildLeg` uses **`buildScheduledAt`**; primary/partner field init and paired clock sync use **`parseScheduledAt`** / Berlin instants. [`reschedule-trip.ts`](../src/features/trips/trip-reschedule/lib/reschedule-trip.ts): **comment** — partner leg keeps **UTC delta** on instants (intentionally not re-derived via `buildScheduledAt`). [`reschedule.actions.ts`](../src/features/trips/trip-reschedule/api/reschedule.actions.ts): persisted ISO follows dialog `Date` from that contract. |
+| **Kanban** | [`kanban-trip-card.tsx`](../src/features/trips/components/kanban/kanban-trip-card.tsx): `commitTimeToStore` → Berlin **`ymd`** (`parseScheduledAt` / `requested_date` / `todayYmdInBusinessTz`) + **`buildScheduledAt`**; **`TripTimeError` → toast**. |
+| **Dispatch inbox** | [`use-pending-assignments.ts`](../src/features/trips/components/pending-assignments/use-pending-assignments.ts) (`useDispatchInbox`): `handleAssign` sets `scheduled_at` with **`buildScheduledAt`** + Berlin **`tripDate`**; **`TripTimeError` → toast**. |
+| **Duplicate trips** | **Skipped** — [`duplicate-trips-dialog.tsx`](../src/features/trips/components/trips-tables/duplicate-trips-dialog.tsx) delegates to Berlin-zoned [`duplicate-trip-schedule.ts`](../src/features/trips/lib/duplicate-trip-schedule.ts); do not migrate that engine in this phase. |
+| **Timeless rule trips (dashboard)** | [`use-timeless-rule-trips.ts`](../src/features/dashboard/hooks/use-timeless-rule-trips.ts): **`requested_date` in (Berlin today, Berlin tomorrow)** via `todayYmdInBusinessTz` + `instantToYmdInBusinessTz(addDays(ymdToPickerDate(today),1))`; fixes device-local “tomorrow” and missing-today scope. [`timeless-rule-trips-widget.tsx`](../src/features/dashboard/components/timeless-rule-trips-widget.tsx): user-visible copy updated to **heute und morgen** / **heute oder morgen**. |
+
+Verification log: [`docs/plans/phase-3b-verification.md`](./plans/phase-3b-verification.md).
+
 ---
 
 ## URL shape (`scheduled_at` query param)

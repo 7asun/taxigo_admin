@@ -30,6 +30,7 @@ function rowFromLeg(leg: LegScheduleInput): {
   requested_date: string | null;
 } {
   if (leg.scheduledAt) {
+    // ISO comes from dialog legs built with `buildScheduledAt` → `Date` (Berlin wall → UTC).
     return {
       scheduled_at: leg.scheduledAt.toISOString(),
       requested_date: null

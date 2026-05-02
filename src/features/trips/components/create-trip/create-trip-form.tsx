@@ -26,6 +26,10 @@ import {
   combineDepartureForTripInsert,
   formatLocalYmd
 } from '@/features/trips/lib/departure-schedule';
+import {
+  buildScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 import { resolveBillingBehaviorSourceVariant } from '@/features/trips/lib/resolve-billing-behavior-source';
 import {
   TripFormSectionsProvider,
@@ -1234,22 +1238,15 @@ export function CreateTripForm({
       const shouldCreateReturn =
         values.return_mode === 'time_tbd' || values.return_mode === 'exact';
 
+      // WHY `buildScheduledAt` (not `new Date(...).toISOString()`): return leg used the
+      // browser runtime TZ for wall time — wrong UTC for non-Berlin dispatchers vs Fahrten/cron.
       const returnScheduledAt =
         values.return_mode !== 'exact'
           ? null
-          : (() => {
-              const date = values.return_date!;
-              const [hh, mm] = (values.return_time || '').split(':');
-              return new Date(
-                date.getFullYear(),
-                date.getMonth(),
-                date.getDate(),
-                parseInt(hh || '0', 10),
-                parseInt(mm || '0', 10),
-                0,
-                0
-              ).toISOString();
-            })();
+          : buildScheduledAt(
+              formatLocalYmd(values.return_date!),
+              values.return_time!
+            );
 
       /**
        * Billing metadata columns (`trips.billing_*`): create-flow only in v1.
@@ -1653,8 +1650,13 @@ export function CreateTripForm({
       );
       clearDraftStorage();
       onSuccess?.();
-    } catch (error: any) {
-      toast.error(`Fehler beim Erstellen: ${error.message}`);
+    } catch (error: unknown) {
+      if (error instanceof TripTimeError) {
+        toast.error(error.message);
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Fehler beim Erstellen: ${message}`);
     } finally {
       setIsSubmitting(false);
     }

@@ -28,7 +28,7 @@ export const tripKeys = {
    */
   timelessRuleTripsRoot: ['trips', 'timeless-rules'] as const,
 
-  /** One cache entry per requested_date (`useTimelessRuleTrips`). */
-  timelessRuleTrips: (requestedDate: string) =>
-    ['trips', 'timeless-rules', requestedDate] as const
+  /** Berlin `requested_date` window: today + tomorrow (`useTimelessRuleTrips`). */
+  timelessRuleTrips: (todayYmd: string, tomorrowYmd: string) =>
+    ['trips', 'timeless-rules', todayYmd, tomorrowYmd] as const
 };

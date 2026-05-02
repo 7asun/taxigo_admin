@@ -14,7 +14,10 @@
 
 import { View, Text } from '@react-pdf/renderer';
 
-import type { InvoiceDetail } from '../../types/invoice.types';
+import type {
+  InvoiceDetail,
+  CancelledTripRow
+} from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
 import { PDF_COLUMN_MAP } from '../../lib/pdf-column-catalog';
 import {
@@ -22,6 +25,7 @@ import {
   coerceLineItemJsonbSnapshots,
   renderCellValue
 } from './pdf-column-layout';
+import { formatInvoicePdfDate } from '@/features/invoices/components/invoice-pdf/lib/invoice-pdf-format';
 import { styles, PDF_FONT_SIZES, PDF_COLORS } from './pdf-styles';
 export interface InvoicePdfAppendixProps {
   invoiceNumber: string;
@@ -32,9 +36,14 @@ export interface InvoicePdfAppendixProps {
   mainLayout?: string;
   /** When set, shown in fixed header: "Anhang: Fahrtendetails — {groupLabel}" */
   groupLabel?: string;
+  /** Display-only canceled trips; empty on billed appendix pages — see InvoicePdfDocument. */
+  cancelledTrips?: CancelledTripRow[];
 }
 
 const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
+
+const CANCELLED_SECTION_HELPER =
+  'Diese Fahrten wurden storniert und sind nicht im Rechnungsbetrag enthalten.';
 
 export function InvoicePdfAppendix({
   invoiceNumber,
@@ -42,7 +51,8 @@ export function InvoicePdfAppendix({
   lineItems,
   columnProfile,
   mainLayout,
-  groupLabel
+  groupLabel,
+  cancelledTrips = []
 }: InvoicePdfAppendixProps) {
   void mainLayout;
   // Drives calcColumnWidths only. Page dimensions live on InvoicePdfDocument (A4 vs A4_LANDSCAPE).
@@ -166,6 +176,154 @@ export function InvoicePdfAppendix({
     );
   }
 
+  /** Flowing block only — not `fixed` (unlike billed header). Caller passes non-empty trips only where needed. */
+  function renderCancelledSection() {
+    if (cancelledTrips.length === 0) {
+      return null;
+    }
+
+    const EM_DASH = '—';
+    const CANCELLED_COLUMNS = [
+      { key: 'datum', label: 'Datum', widthPt: 52 },
+      { key: 'fahrgast', label: 'Fahrgast', widthPt: 100 },
+      { key: 'von', label: 'Von', widthPt: 130 },
+      { key: 'nach', label: 'Nach', widthPt: 130 },
+      { key: 'stornierungsgrund', label: 'Stornierungsgrund', widthPt: null }
+    ] as const;
+
+    function cellValue(
+      key: (typeof CANCELLED_COLUMNS)[number]['key'],
+      row: CancelledTripRow
+    ): string {
+      switch (key) {
+        case 'datum':
+          return row.scheduled_at
+            ? formatInvoicePdfDate(row.scheduled_at)
+            : EM_DASH;
+        case 'fahrgast': {
+          const c = row.client;
+          const name = c
+            ? [c.first_name, c.last_name].filter(Boolean).join(' ').trim()
+            : '';
+          return name || EM_DASH;
+        }
+        case 'von':
+          return row.pickup_address?.trim() || EM_DASH;
+        case 'nach':
+          return row.dropoff_address?.trim() || EM_DASH;
+        case 'stornierungsgrund':
+          return row.canceled_reason_notes?.trim() || EM_DASH;
+      }
+    }
+
+    const globalRowOffset = coercedLineItems.length;
+
+    return (
+      <View
+        style={{ marginTop: coercedLineItems.length > 0 ? 14 : 0 }}
+        wrap={false}
+      >
+        <Text
+          style={{
+            fontSize: PDF_FONT_SIZES.sm,
+            color: PDF_COLORS.text,
+            marginBottom: 8,
+            lineHeight: 1.45
+          }}
+        >
+          {CANCELLED_SECTION_HELPER}
+        </Text>
+
+        <View style={styles.tableHeader}>
+          {CANCELLED_COLUMNS.map((colDef, idx) => (
+            <View
+              key={`cx-h-${colDef.key}-${idx}`}
+              style={{
+                width: colDef.widthPt ?? undefined,
+                flexGrow: colDef.widthPt == null ? 1 : 0,
+                minWidth: 0,
+                overflow: 'hidden',
+                flexWrap: 'nowrap',
+                paddingRight: 4,
+                justifyContent: 'center'
+              }}
+            >
+              <Text
+                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                numberOfLines={1}
+                style={[
+                  styles.tableHeaderText,
+                  {
+                    textAlign: 'left',
+                    fontSize: PDF_FONT_SIZES.xs
+                  }
+                ]}
+              >
+                {colDef.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {cancelledTrips.map((cxRow, idx) => {
+          const zebraIdx = globalRowOffset + idx;
+          return (
+            <View
+              key={`cx-${cxRow.id}`}
+              style={[
+                { width: '100%' },
+                zebraIdx % 2 === 1 ? styles.tableRowAlt : {}
+              ]}
+              wrap={false}
+            >
+              <View style={styles.tableRow}>
+                {CANCELLED_COLUMNS.map((colDef, colIdx) => {
+                  const raw = cellValue(colDef.key, cxRow);
+                  const hasNl = raw.includes('\n');
+                  const isReasonCol = colDef.key === 'stornierungsgrund';
+                  const reasonEmpty = isReasonCol && raw === EM_DASH;
+                  const baseText = {
+                    fontSize: PDF_FONT_SIZES.xs,
+                    textAlign: 'left' as const,
+                    color: PDF_COLORS.text,
+                    ...(reasonEmpty ? styles.appendixMoneyMuted : {})
+                  };
+
+                  return (
+                    <View
+                      key={`cx-${cxRow.id}-${colDef.key}-${colIdx}`}
+                      style={{
+                        width: colDef.widthPt ?? undefined,
+                        flexGrow: colDef.widthPt == null ? 1 : 0,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        flexWrap: 'nowrap',
+                        paddingRight: 4,
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {hasNl ? (
+                        <View style={{ minWidth: 0, width: '100%' }}>
+                          {raw.split('\n').map((line, li) => (
+                            <Text key={li} style={baseText}>
+                              {line}
+                            </Text>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={baseText}>{raw}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   return (
     <>
       <View style={styles.appendixHeaderFixed} fixed>
@@ -176,10 +334,13 @@ export function InvoicePdfAppendix({
         </Text>
         <Text style={styles.notesLabel}>Zu Rechnung {invoiceNumber}</Text>
 
-        {renderTableHeader()}
+        {coercedLineItems.length > 0 ? renderTableHeader() : null}
       </View>
 
       {coercedLineItems.map((item, idx) => renderLineItemRow(item, idx))}
+
+      {/* Cancelled block: length-only here; document parent enforces show_cancelled_trips + passes [] on billed appendix pages. */}
+      {renderCancelledSection()}
     </>
   );
 }

@@ -72,7 +72,9 @@ const mainLayoutSchema = z.enum([
 export const pdfColumnOverrideSchema = z.object({
   main_columns: pdfColumnKeyArraySchema,
   appendix_columns: pdfColumnKeyArraySchema,
-  main_layout: mainLayoutSchema.optional()
+  main_layout: mainLayoutSchema.optional(),
+  /** Haupttabelle: optional €0 listing of cancelled trips at PDF time — legacy payloads omit ⇒ false */
+  show_cancelled_trips: z.boolean().optional().default(false)
 });
 
 export type PdfColumnOverridePayload = z.infer<typeof pdfColumnOverrideSchema>;
@@ -87,6 +89,8 @@ export interface PdfColumnProfile {
   appendix_is_landscape: boolean;
   /** Which step in the 4-level chain supplied the columns */
   source: 'invoice_override' | 'payer_vorlage' | 'company_default' | 'system';
+  /** When true, render cancelled trips as informational €0 Haupttabelle rows (builder / future detail fetch only). */
+  show_cancelled_trips: boolean;
 }
 
 export interface PdfVorlageCreatePayload {
