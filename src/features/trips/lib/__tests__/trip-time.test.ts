@@ -10,7 +10,8 @@ import {
   TripTimeError,
   buildScheduledAt,
   buildScheduledAtOrNull,
-  parseScheduledAt
+  parseScheduledAt,
+  parseScheduledAtOrFallback
 } from '../trip-time';
 
 describe('buildScheduledAt — CEST (summer UTC+2)', () => {
@@ -163,5 +164,22 @@ describe('round-trip buildScheduledAt → parseScheduledAt', () => {
       ymd: '2026-06-15',
       hm: '23:30'
     });
+  });
+});
+
+describe('parseScheduledAtOrFallback', () => {
+  test('null, undefined, empty → null', () => {
+    expect(parseScheduledAtOrFallback(null)).toBeNull();
+    expect(parseScheduledAtOrFallback(undefined)).toBeNull();
+    expect(parseScheduledAtOrFallback('')).toBeNull();
+  });
+
+  test('invalid ISO → null (never throws)', () => {
+    expect(parseScheduledAtOrFallback('not-a-date')).toBeNull();
+  });
+
+  test('valid ISO → same ymd/hm as parseScheduledAt', () => {
+    const iso = '2026-06-15T08:00:00.000Z';
+    expect(parseScheduledAtOrFallback(iso)).toEqual(parseScheduledAt(iso));
   });
 });

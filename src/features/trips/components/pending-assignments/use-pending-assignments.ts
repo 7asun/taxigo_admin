@@ -8,6 +8,7 @@ import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import {
   buildScheduledAt,
   parseScheduledAt,
+  parseScheduledAtOrFallback,
   TripTimeError
 } from '@/features/trips/lib/trip-time';
 
@@ -71,13 +72,8 @@ export function useDispatchInbox(
     setIsLoading(true);
     const supabase = createSupabaseClient();
 
-    // ── Calendar bounds for 'today' filter ──────────────────────────────
-    const now = new Date();
-    const startOfDay = new Date(now);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 59, 999);
-    const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    // ── "Heute" filter string (Berlin civil date, not UTC slice) ────────
+    const todayStr = todayYmdInBusinessTz();
 
     // ── Auth & company scope ────────────────────────────────────────────
     const {
@@ -154,13 +150,25 @@ export function useDispatchInbox(
       // Sourcing the exact date an unassigned trip actually falls on is complex if
       // the trip lacks a dedicated requested_date. This mimics the dashboard widget.
       // Priority: own scheduled_at → requested_date → linked outbound trip's scheduled_at → fallback to today.
+      // WHY: new Date(scheduled_at).toISOString().slice(0,10) returns
+      // UTC calendar date — wrong vs Berlin civil day near midnight.
+      // parseScheduledAtOrFallback returns Berlin ymd (same TZ as
+      // Fahrten filter) so tripDate === todayStr comparison is correct.
       const computedTripDate = (() => {
-        if (t.scheduled_at)
-          return new Date(t.scheduled_at).toISOString().slice(0, 10);
+        if (t.scheduled_at) {
+          return (
+            parseScheduledAtOrFallback(t.scheduled_at)?.ymd ??
+            todayYmdInBusinessTz()
+          );
+        }
         if (t.requested_date) return t.requested_date;
         const linkedAt = t.linked_trip?.scheduled_at;
-        if (linkedAt) return new Date(linkedAt).toISOString().slice(0, 10);
-        return new Date().toISOString().slice(0, 10);
+        if (linkedAt) {
+          return (
+            parseScheduledAtOrFallback(linkedAt)?.ymd ?? todayYmdInBusinessTz()
+          );
+        }
+        return todayYmdInBusinessTz();
       })();
 
       return {

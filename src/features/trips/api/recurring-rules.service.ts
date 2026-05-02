@@ -1,3 +1,4 @@
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/database.types';
 
@@ -94,7 +95,12 @@ export const recurringRulesService = {
       // 2. requested_date >= today (ISO format YYYY-MM-DD)
       // 3. status is not completion-like (completed, cancelled)
       // 4. ingestion_source is either 'recurring_rule' (new ones) or NULL (old ones)
-      const today = new Date().toISOString().split('T')[0];
+      // WHY: toISOString().split('T')[0] is UTC calendar date —
+      // near Berlin midnight (00:00–02:00 CEST) it is "yesterday"
+      // in UTC while operations are already on the next Berlin day.
+      // todayYmdInBusinessTz() returns the correct Berlin civil date
+      // so requested_date >= today matches dispatcher intent.
+      const today = todayYmdInBusinessTz();
       const { error: tripError } = await supabase
         .from('trips')
         .delete()

@@ -1,11 +1,25 @@
 import { useState, useEffect } from 'react';
+import { addDays, endOfWeek, format, startOfWeek } from 'date-fns';
+import { tz } from '@date-fns/tz';
 import { tripsService } from '../api/trips.service';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { startOfDay, endOfDay, addDays, endOfWeek, formatISO } from 'date-fns';
+import {
+  getTripsBusinessTimeZone,
+  getZonedDayBoundsIso,
+  instantToYmdInBusinessTz,
+  todayYmdInBusinessTz,
+  ymdToPickerDate
+} from '@/features/trips/lib/trip-business-date';
 
 export type TripFilter = 'today' | 'tomorrow' | 'week';
 export type StatusFilter = 'all' | 'completed' | 'open' | 'assigned';
+
+/** Last instant inside a Berlin calendar day (for PostgREST `.lte` on `scheduled_at`). */
+function zonedDayEndInclusiveIso(ymd: string): string {
+  const { endExclusiveISO } = getZonedDayBoundsIso(ymd);
+  return new Date(new Date(endExclusiveISO).getTime() - 1).toISOString();
+}
 
 export function useUpcomingTrips() {
   const [trips, setTrips] = useState<any[]>([]);
@@ -18,25 +32,38 @@ export function useUpcomingTrips() {
     try {
       setIsLoading(true);
 
-      const now = new Date();
+      const zone = getTripsBusinessTimeZone();
+      const inTz = tz(zone);
+      const todayYmd = todayYmdInBusinessTz();
+
+      // WHY: date-fns startOfDay/endOfDay use runtime local timezone
+      // (browser or server), not Europe/Berlin. getZonedDayBoundsIso
+      // always returns Berlin day boundaries matching Fahrten filter.
       let startDate = '';
       let endDate = '';
 
       if (filter === 'tomorrow') {
-        const tomorrow = addDays(now, 1);
-        startDate = startOfDay(tomorrow).toISOString();
-        endDate = endOfDay(tomorrow).toISOString();
+        const tomorrowYmd = instantToYmdInBusinessTz(
+          addDays(ymdToPickerDate(todayYmd), 1, { in: inTz }).getTime()
+        );
+        const { startISO } = getZonedDayBoundsIso(tomorrowYmd);
+        startDate = startISO;
+        endDate = zonedDayEndInclusiveIso(tomorrowYmd);
       } else if (filter === 'week') {
-        startDate = startOfDay(now).toISOString();
-        endDate = endOfWeek(now, { weekStartsOn: 1 }).toISOString();
+        const anchor = ymdToPickerDate(todayYmd);
+        const weekStart = startOfWeek(anchor, { weekStartsOn: 1, in: inTz });
+        const weekEnd = endOfWeek(anchor, { weekStartsOn: 1, in: inTz });
+        const weekStartYmd = format(weekStart, 'yyyy-MM-dd', { in: inTz });
+        const weekEndYmd = format(weekEnd, 'yyyy-MM-dd', { in: inTz });
+        startDate = getZonedDayBoundsIso(weekStartYmd).startISO;
+        endDate = zonedDayEndInclusiveIso(weekEndYmd);
       } else {
-        startDate = startOfDay(now).toISOString();
-        endDate = endOfDay(now).toISOString();
+        const { startISO } = getZonedDayBoundsIso(todayYmd);
+        startDate = startISO;
+        endDate = zonedDayEndInclusiveIso(todayYmd);
       }
 
-      console.log('Fetching upcoming trips:', { filter, startDate, endDate });
       const raw = await tripsService.getUpcomingTrips(startDate, endDate);
-      console.log('Upcoming trips data:', raw);
 
       // Cross-reference linked partners within the same result set.
       // This covers the common case where both Hin- and Rückfahrt fall in the
@@ -84,8 +111,7 @@ export function useUpcomingTrips() {
           schema: 'public',
           table: 'trips'
         },
-        (payload) => {
-          console.log('Real-time update received:', payload);
+        () => {
           fetchUpcomingTrips();
         }
       )
