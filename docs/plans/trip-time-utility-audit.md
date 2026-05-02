@@ -1,7 +1,7 @@
 # Trip time utility migration — strategic audit (`trip-time.ts`)
 
-**Status:** Phase 2 complete; **Phase 3A complete**; **Phase 3B complete**; **Phase 4 complete — all write paths migrated, ESLint guard active** (bulk CSV `buildScheduledAt`; `no-restricted-syntax` guard on `src/features/trips/**` + `src/app/api/**`; `AGENTS.md` invariant). Phase 1 reference preserved below.  
-**Note:** Remaining calendar/TZ gaps (non–`scheduled_at` write paths) — see **Post–Phase 4 / Phase 5 candidates** at the end of this file.
+**Status:** Phase 2 complete; **Phase 3A complete**; **Phase 3B complete**; **Phase 4 complete**; **Phase 5 complete — all UTC-calendar bugs fixed** for the scoped read/filter/delete/display paths (`parseScheduledAtOrFallback`; recurring delete cutoff; dispatch inbox; upcoming trips; pending assignment + pending tours display; CI `lint:trips-scheduled-at`). Phase 1 reference preserved below.  
+**Note:** Out-of-scope gaps — see **Post–Phase 5 known gaps** at the end of this file.
 
 ---
 
@@ -57,13 +57,13 @@ These **also** persist or stage `scheduled_at` and must be in the **overall** ro
 |------|----------------|-------|
 | `departure-schedule.ts` **58** | Create outbound time | **S — fix Phase 3** |
 | `print-trips-button.tsx` **58–65** | Print range boundaries | **N** (browser local day range for **query**) — separate from `trip-time`; consider aligning with **`getZonedDayBoundsIso`** later |
-| `use-upcoming-trips.ts` **27–34** | Dashboard upcoming window | **N** (browser-local bounds vs Fahrten Berlin — **orthogonal bug risk**) |
+| `use-upcoming-trips.ts` **27–34** | Dashboard upcoming window | **√ Phase 5** — `getZonedDayBoundsIso` + Berlin week bounds |
 | `use-create-trip-draft.ts` **25**, **32** | Draft timestamps / `return_date` ISO | **N** draft metadata |
 | `bulk-upload-dialog.tsx` | CSV trip insert | **S — Phase 4 shipped** (`buildScheduledAt`) |
 | `duplicate-trip-schedule.ts` **74**, **107**, **138**, **175**, **245+** | Zoned combines + deltas + payload normalize | **√ / S-adjacent** — **preserve** semantics; refactor to **`buildScheduledAt`** where equivalent |
 | `recurring-exceptions.actions.ts` **33**, **82**, **291** | Exception matching / future-trip query | Mixed **S-ish** (**82** UTC date slice risk) — **cron-adjacent** |
-| `recurring-rules.service.ts` **97** | `today` YMD | **N** |
-| `use-pending-assignments.ts` **73+, 247** | Date slice + PATCH | **S — Phase 3** |
+| `recurring-rules.service.ts` **97** | `today` YMD | **√ Phase 5** — `todayYmdInBusinessTz()` |
+| `use-pending-assignments.ts` **73+, 247** | Date slice + PATCH | **S — Phase 3** (write); **√ Phase 5** `todayStr` + `computedTripDate` |
 | `client-trips-panel.tsx` **44** | `since` filter | **N** (`startOfToday` browser) |
 | `trip-business-date.ts` **50–51** | Fahrten bounds | **√** authoritative read |
 | `build-trip-details-patch.ts` | PATCH `scheduled_at` | **S — Phase 3** |
@@ -71,7 +71,7 @@ These **also** persist or stage `scheduled_at` and must be in the **overall** ro
 | `reschedule.actions.ts` **34** | Update patch | **S — Phase 3** |
 | `reschedule-trip.ts` **88–95** | Paired reschedule ISO | **S — Phase 3** |
 | `trip-detail-sheet.tsx` **857** | Compare existing ISO | **N** equality check |
-| `pending-assignment-item.tsx` **57–61** | Display date derivation | **N** read |
+| `pending-assignment-item.tsx` **57–61** | Display date derivation | **√ Phase 5** — `parseScheduledAtOrFallback` |
 | `trips.service.ts` **191–194** | Analytics query range | **N** caller-supplied bounds |
 | `use-bulk-upload-resume-store.ts` **42** | Resume blob timestamp | **N** |
 | `build-return-trip-insert.ts` **107** | Return insert | **S — Phase 3** |
@@ -264,15 +264,15 @@ Before Phase **3**: a short dispatcher QA script (create outbound + return + CSV
 
 **Feature freeze:** not mandatory for Phase 1; **recommended** overlapping **cron** + **bulk** merges.
 
-### Post–Phase 4 / Phase 5 candidates (not shipped in Phase 4)
+### Post–Phase 5 known gaps (explicitly deferred)
 
-- **`getTodaysTrips` / driver day list:** device-local “today” vs Berlin business day (called out in `trips-date-filter.md`).
-- **`use-upcoming-trips.ts`:** dashboard window uses local day bounds vs Fahrten Berlin semantics.
-- **Print / export / analytics callers:** range boundaries may still use viewer-local or UTC slices where product wants Berlin (`print-trips-button`, `trips.service` analytics, etc.).
-- **`duplicate-trips.ts` pairing / `recurring-exceptions.actions`:** UTC `split('T')[0]`-style risks called out in Section 1.4 — query/pairing, not write paths.
-- **`use-pending-assignments` `todayStr` filter:** still `toISOString().slice(0,10)` for inbox “today” list scope — Berlin follow-up (Phase 5).
-- **`recurring-rules.service.ts`:** `today` from UTC calendar slice — Phase 5.
-- **Historical rows:** bad legacy UTC encodings are not backfilled by client migrations alone.
+- **`print-trips-button.tsx`:** runtime-local date range for print/export query — align with Berlin bounds in a later scope.
+- **`recurring-exceptions.actions.ts`:** UTC-adjacent pairing (~line 82) — not a Fahrten day filter; separate scope.
+- **`duplicate-trips.ts`:** UTC-adjacent same-day pairing (~line 68) — same.
+- **`occupancy-utils.ts`:** dashboard runtime-local semantics — separate dashboard scope.
+- **`getTodaysTrips` / driver day list:** device-local “today” vs Berlin (still called out in `trips-date-filter.md` Phase 2 gap).
+- **Print / export / analytics callers:** other range boundaries may still use viewer-local or UTC where product wants Berlin (`trips.service` analytics, etc.).
+- **Historical DB rows:** bad legacy UTC encodings are not backfilled by client migrations alone.
 
 ### 6e. One paragraph for a dispatcher (**plain English**)
 
@@ -282,7 +282,7 @@ We are aligning every place in software that decides **what “your pickup time�
 
 ## Appendix — `trip-time.ts` existence
 
-**`src/features/trips/lib/trip-time.ts`** — **implemented** in Phase 1 with **`trip-time.test.ts`** (golden ISO / DST oracle / regressions). **Phase 2** migrated server cron + two dashboard widgets to `buildScheduledAt` / `buildScheduledAtOrNull`; driver **Touren** day filter uses **`getZonedDayBoundsIso`**. **Phase 3B** migrated edit sheet, reschedule dialog, Kanban inline time, dispatch inbox assign, plus the **timeless rule trips** hook (Berlin today+tomorrow `.in`) and widget copy. **Phase 4** migrated bulk CSV `scheduled_at` / `requested_date` construction and added an ESLint **`no-restricted-syntax`** guard (see `.eslintrc.trips-time-guard.json` + `bun run lint:trips-scheduled-at`).
+**`src/features/trips/lib/trip-time.ts`** — **implemented** in Phase 1 with **`trip-time.test.ts`** (golden ISO / DST oracle / regressions). **Phase 2** migrated server cron + two dashboard widgets to `buildScheduledAt` / `buildScheduledAtOrNull`; driver **Touren** day filter uses **`getZonedDayBoundsIso`**. **Phase 3B** migrated edit sheet, reschedule dialog, Kanban inline time, dispatch inbox assign, plus the **timeless rule trips** hook (Berlin today+tomorrow `.in`) and widget copy. **Phase 4** migrated bulk CSV `scheduled_at` / `requested_date` construction and added an ESLint **`no-restricted-syntax`** guard (see `.eslintrc.trips-time-guard.json` + `bun run lint:trips-scheduled-at`). **Phase 5** added **`parseScheduledAtOrFallback`** (display-safe Berlin ymd/hm), fixed **`recurring-rules.service`** delete cutoff, dispatch inbox **`todayStr` / `computedTripDate`**, **`use-upcoming-trips`** Berlin windows, pending assignment row + **pending-tours** initial date string, and wired **`lint:trips-scheduled-at`** into **`.github/workflows/ci.yml`**.
 
 **Dependencies (**`package.json`**): **`@date-fns/tz` ^1.4.1**, **`date-fns` ^4.1.0** — **Luxon**, **Moment**, **`Temporal`** **not** declared.
 

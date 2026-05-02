@@ -178,3 +178,21 @@ export function parseScheduledAt(
     hm: format(d, 'HH:mm', { in: inTz })
   };
 }
+
+/**
+ * WHY: display paths need a Berlin civil ymd from a stored
+ * scheduled_at ISO without throwing on invalid or null input.
+ * Uses the same TZ as parseScheduledAt (getTripsBusinessTimeZone()).
+ * Returns null when iso is null, undefined, or not a valid
+ * ISO instant — callers must handle null for display fallback.
+ */
+export function parseScheduledAtOrFallback(
+  iso: string | null | undefined
+): { ymd: string; hm: string } | null {
+  if (!iso) return null;
+  try {
+    return parseScheduledAt(iso);
+  } catch {
+    return null;
+  }
+}

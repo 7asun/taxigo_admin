@@ -43,9 +43,11 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { format } from 'date-fns';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import {
   TripTimeError,
-  buildScheduledAtOrNull
+  buildScheduledAtOrNull,
+  parseScheduledAtOrFallback
 } from '@/features/trips/lib/trip-time';
 import { de } from 'date-fns/locale';
 
@@ -162,13 +164,23 @@ function UnplannedTripRow({
   // Pre-fill date/time: own scheduled_at takes priority (trip has time but no
   // driver), then requested_date (CSV import), then linked outbound trip time,
   // then today as fallback.
+  // WHY: toISOString().slice(0,10) is UTC calendar date — wrong vs Berlin civil day;
+  // parseScheduledAtOrFallback matches Fahrten ymd for the date input default.
   const initialDate = (() => {
-    if (trip.scheduled_at)
-      return new Date(trip.scheduled_at).toISOString().slice(0, 10);
+    if (trip.scheduled_at) {
+      return (
+        parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ??
+        todayYmdInBusinessTz()
+      );
+    }
     if (trip.requested_date) return trip.requested_date;
     const linkedAt = trip.linked_trip?.scheduled_at;
-    if (linkedAt) return new Date(linkedAt).toISOString().slice(0, 10);
-    return new Date().toISOString().slice(0, 10);
+    if (linkedAt) {
+      return (
+        parseScheduledAtOrFallback(linkedAt)?.ymd ?? todayYmdInBusinessTz()
+      );
+    }
+    return todayYmdInBusinessTz();
   })();
 
   const initialTime = trip.scheduled_at

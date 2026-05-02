@@ -109,6 +109,19 @@ Verification log: [`docs/plans/phase-3b-verification.md`](./plans/phase-3b-verif
 
 Verification: [`docs/plans/phase-4-verification.md`](./plans/phase-4-verification.md).
 
+### Phase 5 — Berlin calendar reads + delete cutoff + display helper (shipped)
+
+| Area | Behaviour |
+|------|-----------|
+| **`parseScheduledAtOrFallback`** | [`src/features/trips/lib/trip-time.ts`](../src/features/trips/lib/trip-time.ts): safe Berlin `{ ymd, hm }` from `scheduled_at` ISO for display paths; returns `null` on invalid/missing input (no throw). |
+| **Recurring rule hard-delete cutoff** | [`recurring-rules.service.ts`](../src/features/trips/api/recurring-rules.service.ts): `requested_date >= today` uses `todayYmdInBusinessTz()` instead of UTC `toISOString().split('T')[0]`. |
+| **Dispatch inbox “Heute”** | [`use-pending-assignments.ts`](../src/features/trips/components/pending-assignments/use-pending-assignments.ts): `todayStr` and per-row `tripDate` use Berlin ymd via `todayYmdInBusinessTz` + `parseScheduledAtOrFallback` so client filter matches Fahrten. |
+| **Upcoming trips widget** | [`use-upcoming-trips.ts`](../src/features/trips/hooks/use-upcoming-trips.ts): Heute / Morgen / Woche windows use `getZonedDayBoundsIso` + business-week `startOfWeek`/`endOfWeek` with `{ in: tz(getTripsBusinessTimeZone()) }`; inclusive day end for `.lte` via one ms before next-day start. |
+| **Display defaults** | [`pending-assignment-item.tsx`](../src/features/trips/components/pending-assignments/pending-assignment-item.tsx), [`pending-tours-widget.tsx`](../src/features/dashboard/components/pending-tours-widget.tsx): replace UTC `toISOString().slice(0, 10)` on `scheduled_at` / linked leg with `parseScheduledAtOrFallback`. |
+| **CI** | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `bun run lint:trips-scheduled-at` (among install, test, build). |
+
+Verification: [`docs/plans/phase-5-verification.md`](./plans/phase-5-verification.md).
+
 ---
 
 ## URL shape (`scheduled_at` query param)

@@ -14,6 +14,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import { parseScheduledAtOrFallback } from '@/features/trips/lib/trip-time';
 import type { DriverOption, DispatchTrip } from './use-pending-assignments';
 
 interface PendingAssignmentItemProps {
@@ -52,13 +54,23 @@ export function PendingAssignmentItem({
     ? format(new Date(trip.scheduled_at), 'HH:mm', { locale: de })
     : '';
 
+  // WHY: toISOString().slice(0,10) is UTC calendar date — wrong vs Berlin civil day;
+  // parseScheduledAtOrFallback matches Fahrten / dispatch inbox ymd.
   const tripDate = (() => {
-    if (trip?.scheduled_at)
-      return new Date(trip.scheduled_at).toISOString().slice(0, 10);
+    if (trip?.scheduled_at) {
+      return (
+        parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ??
+        todayYmdInBusinessTz()
+      );
+    }
     if (trip?.requested_date) return trip.requested_date;
     const linkedAt = trip?.linked_trip?.scheduled_at;
-    if (linkedAt) return new Date(linkedAt).toISOString().slice(0, 10);
-    return new Date().toISOString().slice(0, 10);
+    if (linkedAt) {
+      return (
+        parseScheduledAtOrFallback(linkedAt)?.ymd ?? todayYmdInBusinessTz()
+      );
+    }
+    return todayYmdInBusinessTz();
   })();
 
   let dateLabel = format(new Date(tripDate), 'dd.MM.yyyy');
