@@ -58,6 +58,11 @@ import {
   computeTripPrice,
   type PricingContext
 } from '@/features/trips/lib/trip-price-engine';
+import { isYmdString } from '@/features/trips/lib/trip-business-date';
+import {
+  buildScheduledAt,
+  TripTimeError
+} from '@/features/trips/lib/trip-time';
 
 interface BulkUploadDialogProps {
   onSuccess?: () => void;
@@ -278,68 +283,84 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   // ── CSV parsing helpers ───────────────────────────────────────────────────
 
   /**
-   * Parses a German date string (DD.MM.YY or DD.MM.YYYY).
-   * Returns midnight Date on success, null if the format is unrecognisable.
+   * Parses DD.MM.YY / DD.MM.YYYY into canonical `YYYY-MM-DD` for `requested_date`
+   * and for `buildScheduledAt` — no `new Date(y,m,d)` here (browser-local wall clock).
    */
-  const parseGermanDateOnly = (dateStr: string): Date | null => {
+  const parseGermanDateToYmd = (dateStr: string): string | null => {
     try {
       const dateParts = dateStr.trim().split('.');
       if (dateParts.length !== 3) return null;
       let [day, month, year] = dateParts.map(Number);
       if (year < 100) year += 2000;
-      const d = new Date(year, month - 1, day, 0, 0, 0, 0);
-      return isNaN(d.getTime()) ? null : d;
+      if (
+        !Number.isInteger(day) ||
+        !Number.isInteger(month) ||
+        !Number.isInteger(year)
+      ) {
+        return null;
+      }
+      const ymd = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (!isYmdString(ymd)) return null;
+      // Reject impossible civil dates in business TZ (same check as Fahrten writes).
+      try {
+        buildScheduledAt(ymd, '12:00');
+      } catch {
+        return null;
+      }
+      return ymd;
     } catch {
       return null;
     }
   };
 
   /**
-   * Formats a Date to YYYY-MM-DD using LOCAL time — not UTC.
-   * toISOString() converts to UTC first, which shifts the date back by one day
-   * for timezones ahead of UTC (e.g. Germany UTC+1/UTC+2).
-   */
-  const toLocalISODate = (d: Date): string =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-  /**
-   * Combines a date string with an optional HH:MM time string.
+   * Combines CSV date + optional time into `requested_date` + `scheduled_at` ISO.
    *
-   * requestedDate is ALWAYS set to the CSV date (local timezone) so the
-   * widget date-picker is always pre-filled correctly, regardless of whether
-   * a time was provided.
+   * WHY `buildScheduledAt` (not `new Date` + `setHours` + `toISOString()`): the old path
+   * encoded dispatcher intent in the **browser** timezone; persisted `scheduled_at` must
+   * use `getTripsBusinessTimeZone()` via `trip-time.ts`.
    *
    * Returns:
-   *   null                                         — date format invalid (blocking)
-   *   { scheduledAt: Date,  requestedDate: 'YYYY-MM-DD' } — date + time valid
-   *   { scheduledAt: null,  requestedDate: 'YYYY-MM-DD' } — date ok, time absent/invalid
+   *   null — date format invalid (blocking)
+   *   `{ scheduledAtIso, requestedDate, timeParseError? }` — `timeParseError` when
+   *   clock fails `buildScheduledAt` but the calendar day is still valid for the row.
    */
   const parseDateAndTime = (
     dateStr: string,
     timeStr: string | undefined
-  ): { scheduledAt: Date | null; requestedDate: string } | null => {
-    const dateOnly = parseGermanDateOnly(dateStr);
-    if (!dateOnly) return null;
-
-    const isoDate = toLocalISODate(dateOnly);
+  ): {
+    scheduledAtIso: string | null;
+    requestedDate: string;
+    timeParseError?: boolean;
+  } | null => {
+    const ymd = parseGermanDateToYmd(dateStr);
+    if (!ymd) return null;
 
     const trimmed = timeStr?.trim() ?? '';
     if (!trimmed) {
-      return { scheduledAt: null, requestedDate: isoDate };
+      return { scheduledAtIso: null, requestedDate: ymd };
     }
 
     const parts = trimmed.split(':');
     const hours = Number(parts[0]);
     const minutes = Number(parts[1]);
     if (isNaN(hours) || isNaN(minutes)) {
-      return { scheduledAt: null, requestedDate: isoDate };
+      return { scheduledAtIso: null, requestedDate: ymd };
     }
 
-    const full = new Date(dateOnly);
-    full.setHours(hours, minutes, 0, 0);
-    return isNaN(full.getTime())
-      ? { scheduledAt: null, requestedDate: isoDate }
-      : { scheduledAt: full, requestedDate: isoDate };
+    try {
+      const scheduledAtIso = buildScheduledAt(ymd, `${hours}:${minutes}`);
+      return { scheduledAtIso, requestedDate: ymd };
+    } catch (e) {
+      if (e instanceof TripTimeError) {
+        return {
+          scheduledAtIso: null,
+          requestedDate: ymd,
+          timeParseError: true
+        };
+      }
+      throw e;
+    }
   };
 
   // ── Billing type behavior helpers ─────────────────────────────────────────
@@ -897,7 +918,13 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
               message: `Ungültiges Datum-Format (erwartet DD.MM.YY): "${parsedRow.date}"`
             });
           }
-          const scheduled_at = dateTimeResult?.scheduledAt ?? null;
+          if (dateTimeResult?.timeParseError) {
+            issues.push({
+              type: 'invalid_datetime',
+              message: `Ungültige Uhrzeit für Datum "${parsedRow.date}": "${parsedRow.time ?? ''}"`
+            });
+          }
+          const scheduled_at = dateTimeResult?.scheduledAtIso ?? null;
           const requested_date = dateTimeResult?.requestedDate ?? null;
 
           let finalGroupId: string | null = null;
@@ -947,9 +974,8 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                       }`.trim() || null
                     : fullNameFromCsv,
                   client_phone: parsedRow.phone || null,
-                  scheduled_at: scheduled_at
-                    ? scheduled_at.toISOString()
-                    : null,
+                  // WHY: `scheduled_at` is already UTC ISO from `buildScheduledAt` (not a `Date`).
+                  scheduled_at: scheduled_at,
                   requested_date: requested_date,
                   pickup_address,
                   pickup_street:

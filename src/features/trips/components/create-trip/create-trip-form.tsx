@@ -972,7 +972,7 @@ export function CreateTripForm({
         if (target) updateDropoffAddress(target.uid, result);
       }
     },
-    [dropoffGroups] // eslint-disable-line react-hooks-exhaustive-deps
+    [dropoffGroups] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const handleManualAddressFieldChange = (

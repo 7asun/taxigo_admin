@@ -23,17 +23,27 @@ export function lineItemNetAmountForDisplay(
 }
 
 /**
- * Total gross for display in the Bruttopreis column.
- * For admin overrides: returns exactly what the admin typed (manualGrossTotal).
- * For engine-priced items: returns pr.gross directly — the engine already
- * includes approach_fee_net in the gross total, so no addition is needed.
+ * Total gross for display in the Bruttopreis column (full line incl. Anfahrt VAT).
+ * For admin overrides: returns `manualGrossTotal` (always full-line).
+ * Otherwise uses net fields only: `price_resolution.gross` is transport-only when
+ * Anfahrt lives on `approach_fee_net`, so we must not use it as the display anchor.
  */
 export function lineItemGrossTotalForDisplay(
   item: BuilderLineItem
 ): number | null {
-  if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined)
+  if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined) {
     return item.manualGrossTotal;
-  return item.price_resolution.gross ?? null;
+  }
+  if (item.unit_price === null || item.unit_price === undefined) {
+    return null;
+  }
+  const q = item.quantity;
+  const approach = item.approach_fee_net ?? 0;
+  // why: same formula as builder PDF draft — `price_resolution.gross` omits Anfahrt gross.
+  return (
+    Math.round((item.unit_price * q + approach) * (1 + item.tax_rate) * 100) /
+    100
+  );
 }
 
 /**

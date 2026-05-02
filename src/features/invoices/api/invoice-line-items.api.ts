@@ -472,6 +472,22 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
     const rate = item.tax_rate;
     const approach = item.approach_fee_net ?? 0;
 
+    if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined) {
+      const gLine = item.manualGrossTotal;
+      // why: Admin-entered brutto is the SSOT for Step 3 display; reverse-derived
+      // `unit_price` / `approach_fee_net` can drift by a cent. This path matches
+      // `lineItemGrossTotalForDisplay` so the footer matches the Bruttopreis column.
+      grossFixed += gLine;
+      const lineNet = gLine / (1 + rate);
+      priceTagNetTotal += lineNet;
+
+      if (byRateMerged[rate] === undefined) {
+        byRateMerged[rate] = 0;
+      }
+      byRateMerged[rate] += lineNet;
+      continue;
+    }
+
     if (isGrossAnchorClientPriceTag(pr)) {
       const g = pr.gross as number;
       const qty = item.quantity;

@@ -13,6 +13,7 @@
     "lint": "next lint",
     "lint:fix": "eslint src --fix && bun format",
     "lint:strict": "eslint --max-warnings=0 src",
+    "lint:trips-scheduled-at": "eslint --no-eslintrc -c .eslintrc.trips-time-guard.json \"src/features/trips\" \"src/app/api\" --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier -c -w .",
     "prepare": "husky",
