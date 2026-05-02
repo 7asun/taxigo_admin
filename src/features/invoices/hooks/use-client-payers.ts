@@ -5,6 +5,9 @@ export interface PayerCombination {
   payer_id: string;
   billing_variant_id: string | null;
   billing_variant_name: string | null;
+  /** Abrechnungsfamilie — `formatBillingVariantOptionLabel` omits Unterart „Standard“ (see trips/lib/format-billing-display-label). */
+  billing_type_id: string | null;
+  billing_type_name: string | null;
 }
 
 export function useClientPayers(clientId: string | null) {
@@ -14,17 +17,20 @@ export function useClientPayers(clientId: string | null) {
       if (!clientId) return [];
       const supabase = createClient();
 
+      const variantSelect =
+        'name, billing_type_id, billing_type:billing_types(name)';
+
       const [tripsRes, rulesRes] = await Promise.all([
         supabase
           .from('trips')
           .select(
-            'payer_id, billing_variant_id, billing_variant:billing_variants(name)'
+            `payer_id, billing_variant_id, billing_variant:billing_variants(${variantSelect})`
           )
           .eq('client_id', clientId),
         supabase
           .from('recurring_rules')
           .select(
-            'payer_id, billing_variant_id, billing_variant:billing_variants(name)'
+            `payer_id, billing_variant_id, billing_variant:billing_variants(${variantSelect})`
           )
           .eq('client_id', clientId)
       ]);
@@ -45,15 +51,28 @@ export function useClientPayers(clientId: string | null) {
           // Important: per_client “Abrechnung” combos are stored at Unterart (billing_variant_id) level.
           // Previous bug: this was returned in a field named `billing_type_id`, which downstream
           // code interpreted as a billing_types.id (family) and then returned zero trips.
+          let billing_variant_name: string | null = null;
+          let billing_type_id: string | null = null;
+          let billing_type_name: string | null = null;
+          if (t.billing_variant && typeof t.billing_variant === 'object') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const bv = t.billing_variant as any;
+            billing_variant_name = bv.name ?? null;
+            billing_type_id =
+              typeof bv.billing_type_id === 'string'
+                ? bv.billing_type_id
+                : null;
+            const bt = bv.billing_type;
+            if (bt && typeof bt === 'object') {
+              billing_type_name = bt.name ?? null;
+            }
+          }
           result.push({
             payer_id: t.payer_id,
             billing_variant_id: t.billing_variant_id,
-            billing_variant_name:
-              t.billing_variant && typeof t.billing_variant === 'object'
-                ? // PostgREST nested select object: { name: string | null }
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  ((t.billing_variant as any).name ?? null)
-                : null
+            billing_variant_name,
+            billing_type_id,
+            billing_type_name
           });
         }
       });

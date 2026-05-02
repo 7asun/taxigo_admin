@@ -47,6 +47,7 @@ import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/ho
 import { resolveRechnungsempfaenger } from '../../lib/resolve-rechnungsempfaenger';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { InvoiceMode } from '../../types/invoice.types';
+import { formatBillingVariantOptionLabel } from '@/features/trips/lib/format-billing-display-label';
 
 // ─── Local schema for step 2 form ─────────────────────────────────────────────
 // NOTE: Zod v4 — use 'message' instead of 'required_error'
@@ -275,16 +276,26 @@ export function Step2Params({
                         <Select
                           value={combinedValue}
                           onValueChange={(val) => {
-                            const [pId, bId] = val.split('|');
+                            const [pId, rawVariant] = val.split('|');
+                            const variantId =
+                              rawVariant && rawVariant.length > 0
+                                ? rawVariant
+                                : null;
                             field.onChange(pId);
-                            // per_client historical combos are stored at Unterart (variant) level.
-                            // Family is unknown here unless we explicitly join it, so do not fabricate it.
-                            form.setValue('billing_variant_id', bId || null, {
+                            const comb = clientCombinations.find(
+                              (c) =>
+                                c.payer_id === pId &&
+                                (c.billing_variant_id ?? '') ===
+                                  (variantId ?? '')
+                            );
+                            form.setValue('billing_variant_id', variantId, {
                               shouldValidate: true
                             });
-                            form.setValue('billing_type_id', null, {
-                              shouldValidate: true
-                            });
+                            form.setValue(
+                              'billing_type_id',
+                              comb?.billing_type_id ?? null,
+                              { shouldValidate: true }
+                            );
                           }}
                         >
                           <FormControl>
@@ -314,9 +325,14 @@ export function Step2Params({
                                   (p) => p.id === comb.payer_id
                                 );
                                 const payerName = payerObj?.name || 'Unbekannt';
-                                const variantName = comb.billing_variant_name;
-                                const label = variantName
-                                  ? `${payerName} — ${variantName}`
+                                const abrechnung =
+                                  formatBillingVariantOptionLabel({
+                                    name: comb.billing_variant_name ?? '',
+                                    billing_type_name:
+                                      comb.billing_type_name ?? ''
+                                  });
+                                const label = abrechnung
+                                  ? `${payerName} — ${abrechnung}`
                                   : payerName;
                                 const valStr = `${comb.payer_id}|${comb.billing_variant_id || ''}`;
                                 return (
