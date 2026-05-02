@@ -10,10 +10,7 @@ import { View, Text, Image } from '@react-pdf/renderer';
 import type { InvoiceDetail } from '../../types/invoice.types';
 
 import { formatInvoicePdfDate } from './lib/invoice-pdf-format';
-import {
-  collapseWhitespaceForPdf,
-  normalizeInvoiceRecipientPhone
-} from './lib/rechnungsempfaenger-pdf';
+import { collapseWhitespaceForPdf } from './lib/rechnungsempfaenger-pdf';
 import { styles } from './pdf-styles';
 
 /**
@@ -188,15 +185,13 @@ export function InvoicePdfRecipientBlock({
     streetNumber: recipientStreetNumber,
     zipCode: recipientZipCode,
     city: recipientCity,
-    phone: rawPhone,
     addressLine2: recipientAddressLine2,
     abteilung: recipientAbteilung,
     firstName: recipientFirstName,
     lastName: recipientLastName,
-    anrede: recipientAnrede
+    anrede
   } = recipient;
 
-  const recipientPhone = normalizeInvoiceRecipientPhone(rawPhone);
   const zipCityLine = [recipientZipCode, recipientCity]
     .map((x) => collapseWhitespaceForPdf(x ?? ''))
     .filter((x) => x.length > 0)
@@ -205,7 +200,12 @@ export function InvoicePdfRecipientBlock({
   return (
     <>
       <View style={styles.recipientBlock}>
-        {/* Briefkopf: Firmenname → First + Lastname → Abteilung → Street → Zip + City → Phone */}
+        {/* Briefkopf: optional standalone Anrede → Firmenname → First + Lastname → Abteilung → Street → Zip + City */}
+
+        {/* Anrede rendered as first standalone line in recipient block, above company/person name */}
+        {anrede && String(anrede).trim() ? (
+          <Text style={styles.addressPersonName}>{anrede}</Text>
+        ) : null}
 
         {/* 1. Firmenname (if exists) */}
         {recipientCompanyName ? (
@@ -213,9 +213,10 @@ export function InvoicePdfRecipientBlock({
         ) : null}
 
         {/* 2. Anrede + First + Lastname (if exists) */}
-        {recipientAnrede || recipientFirstName || recipientLastName ? (
+        {/* Only render person line when a name is present — anrede alone is shown by the standalone line above */}
+        {recipientFirstName || recipientLastName ? (
           <Text style={styles.addressPersonName}>
-            {[recipientAnrede, recipientFirstName, recipientLastName]
+            {[anrede, recipientFirstName, recipientLastName]
               .filter(Boolean)
               .join(' ')}
           </Text>
@@ -278,12 +279,7 @@ export function InvoicePdfRecipientBlock({
           </Text>
         ) : null}
 
-        {/* 6. Phone number (if exists) */}
-        {recipientPhone ? (
-          <Text style={styles.addressPhoneLine} wrap={false}>
-            {recipientPhone}
-          </Text>
-        ) : null}
+        {/* Phone number intentionally not rendered in the header recipient block */}
       </View>
 
       {secondaryLegalRecipient ? (
