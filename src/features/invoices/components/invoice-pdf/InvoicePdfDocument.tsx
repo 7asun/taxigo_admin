@@ -247,7 +247,8 @@ export function InvoicePdfDocument({
     city: client?.city ?? '',
     phone: recipientPhone,
     addressLine2: null as string | null,
-    anrede: null as string | null,
+    // Forward client salutation so Anrede renders in the header recipient block
+    anrede: client?.greeting_style ?? null,
     abteilung: null as string | null,
     firstName: null as string | null,
     lastName: null as string | null

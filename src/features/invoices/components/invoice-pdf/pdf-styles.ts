@@ -214,14 +214,6 @@ export const styles = StyleSheet.create({
     color: PDF_COLORS.text,
     marginBottom: 1
   },
-  /** Fensteranschrift: extra gap above Tel. — avoids tight kerning with PLZ/Ort line */
-  addressPhoneLine: {
-    fontSize: PDF_FONT_SIZES.base,
-    color: PDF_COLORS.text,
-    marginTop: 2,
-    marginBottom: 1,
-    lineHeight: 1.5
-  },
   secondaryLegalBlock: {
     marginTop: 14,
     paddingTop: 8,
