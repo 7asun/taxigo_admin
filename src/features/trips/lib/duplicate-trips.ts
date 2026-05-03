@@ -249,6 +249,8 @@ function copyRouteAndPassengerFields(
   | 'billing_betreuer'
   | 'billing_calling_station'
   | 'kts_document_applies'
+  | 'kts_fehler'
+  | 'kts_fehler_beschreibung'
   | 'kts_source'
   | 'no_invoice_required'
   | 'no_invoice_source'
@@ -293,6 +295,8 @@ function copyRouteAndPassengerFields(
     billing_betreuer: source.billing_betreuer,
     billing_calling_station: source.billing_calling_station,
     kts_document_applies: !!source.kts_document_applies,
+    kts_fehler: !!source.kts_fehler,
+    kts_fehler_beschreibung: source.kts_fehler_beschreibung ?? null,
     kts_source: 'manual',
     no_invoice_required: !!source.no_invoice_required,
     no_invoice_source: 'manual',

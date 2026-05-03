@@ -37,6 +37,8 @@ function serializeDraftPayload(
       billing_calling_station: values.billing_calling_station ?? '',
       billing_betreuer: values.billing_betreuer ?? '',
       kts_document_applies: values.kts_document_applies,
+      kts_fehler: values.kts_fehler,
+      kts_fehler_beschreibung: values.kts_fehler_beschreibung,
       no_invoice_required: values.no_invoice_required
     },
     passengers,

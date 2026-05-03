@@ -1,6 +1,6 @@
 # KTS (Krankentransportschein) — architecture
 
-**Last updated:** 2026-04-25
+**Last updated:** 2026-05-03
 
 > See [access-control.md](access-control.md) for the full role-based access control architecture.
 
@@ -68,6 +68,8 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 | Column | Type | Purpose |
 | ------ | ---- | ------- |
 | `kts_document_applies` | `boolean NOT NULL` | Operational flag: this trip is a KTS case for clearing / reporting. |
+| `kts_fehler` | `boolean NOT NULL` (default `false`) | Marks that the KTS document for this trip is erroneous (operational / QA). Independent of the catalog cascade; not set by `resolveKtsDefault`. |
+| `kts_fehler_beschreibung` | `text` (nullable) | Optional free-text explanation. Persisted as `NULL` whenever `kts_fehler` is false (no stale text). Description may be empty even when `kts_fehler` is true. |
 | `kts_source` | `varchar` (nullable) | How the flag was set: `variant`, `familie`, `payer`, `manual`, `system_default`. |
 | `base_net_price` | `numeric` (nullable) | **Phase 1 (2026-04):** transport net only; backfilled. For KTS, resolver net is €0; aligned with `net_price` / `gross` via `resolveTripPrice`. |
 | `approach_fee_net` | `numeric` (nullable) | **Phase 1:** Anfahrt net; KTS and taxameter paths use 0 where the resolver omits Anfahrt. |
@@ -78,13 +80,15 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 - If the **user changes** the switch away from the last resolved default, persist `kts_source = 'manual'`.
 - **Do not** add `kts_review_status` on `trips` in V1; reserve the concept for V2 (`kts_reviews` table below).
 
+**KTS-Fehler (UI v1):** Edited only in the **trip detail sheet** (not Neue Fahrt). Shown in the Fahrten table and on **Fahrten drucken** / PDF-style cards when `kts_fehler` is true. Neue Fahrt keeps schema defaults (`false` / `null`) and may still persist those via `createTrip` when KTS applies (see create-trip submit normalization).
+
 ### 3.1 Recurring rules
 
 Mirror the trip fields on `recurring_rules` (same pattern as `billing_calling_station` / `billing_variant_id` in [billing-families-variants.md](billing-families-variants.md)). Cron copies onto generated trips; admins may override per trip afterward.
 
 ### 3.2 Duplicate and Rückfahrt
 
-Copy `kts_document_applies` and `kts_source` together with other billing metadata (`duplicate-trips.ts`, `build-return-trip-insert.ts`). **Convention (V1):** when the flag is copied from another trip without re-running the resolver, set `kts_source = 'manual'` so it is obvious the value was not freshly resolved from the catalog (see plan notes if you later introduce a dedicated `duplicated` value).
+Copy `kts_document_applies`, `kts_fehler`, `kts_fehler_beschreibung`, and `kts_source` together with other billing metadata (`duplicate-trips.ts`, `build-return-trip-insert.ts`). **Convention (V1):** when the flag is copied from another trip without re-running the resolver, set `kts_source = 'manual'` so it is obvious the value was not freshly resolved from the catalog (see plan notes if you later introduce a dedicated `duplicated` value).
 
 ---
 

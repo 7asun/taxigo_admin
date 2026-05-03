@@ -1236,6 +1236,8 @@ export type Database = {
           billing_calling_station: string | null;
           billing_variant_id: string | null;
           kts_document_applies: boolean;
+          kts_fehler: boolean;
+          kts_fehler_beschreibung: string | null;
           kts_source: string | null;
           fremdfirma_cost: number | null;
           fremdfirma_id: string | null;
@@ -1261,6 +1263,7 @@ export type Database = {
           driving_duration_seconds: number | null;
           dropoff_location: Json | null;
           dropoff_station: string | null;
+          dropoff_place_id: string | null;
           greeting_style: string | null;
           has_missing_geodata: boolean;
           group_id: string | null;
@@ -1284,6 +1287,7 @@ export type Database = {
           pickup_zip_code: string | null;
           pickup_location: Json | null;
           pickup_station: string | null;
+          pickup_place_id: string | null;
           /** Generated STORED: COALESCE(base_net_price,0)+COALESCE(approach_fee_net,0). Read-only; omit from writes. */
           net_price: number;
           gross_price: number | null;
@@ -1308,6 +1312,8 @@ export type Database = {
           billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
+          kts_fehler?: boolean;
+          kts_fehler_beschreibung?: string | null;
           kts_source?: string | null;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
@@ -1333,6 +1339,7 @@ export type Database = {
           driving_duration_seconds?: number | null;
           dropoff_location?: Json | null;
           dropoff_station?: string | null;
+          dropoff_place_id?: string | null;
           greeting_style?: string | null;
           has_missing_geodata?: boolean;
           group_id?: string | null;
@@ -1356,6 +1363,7 @@ export type Database = {
           pickup_zip_code?: string | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
+          pickup_place_id?: string | null;
           gross_price?: number | null;
           tax_rate?: number | null;
           base_net_price?: number | null;
@@ -1378,6 +1386,8 @@ export type Database = {
           billing_calling_station?: string | null;
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
+          kts_fehler?: boolean;
+          kts_fehler_beschreibung?: string | null;
           kts_source?: string | null;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
@@ -1399,6 +1409,7 @@ export type Database = {
           driving_duration_seconds?: number | null;
           dropoff_location?: Json | null;
           dropoff_station?: string | null;
+          dropoff_place_id?: string | null;
           greeting_style?: string | null;
           has_missing_geodata?: boolean;
           group_id?: string | null;
@@ -1418,6 +1429,7 @@ export type Database = {
           pickup_lng?: number | null;
           pickup_location?: Json | null;
           pickup_station?: string | null;
+          pickup_place_id?: string | null;
           gross_price?: number | null;
           tax_rate?: number | null;
           base_net_price?: number | null;

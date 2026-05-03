@@ -89,12 +89,38 @@ This was fragile because it assumed the geocoder always returns bit-identical fl
 | Manual creation — anonymous mode (Hin-/Rückfahrt) | `create-trip-form.tsx` (client) | Calls `fetchDrivingMetrics` → `/api/trips/driving-metrics` |
 | Manual creation — passenger mode (outbound) | `create-trip-form.tsx` (client) | Same pattern as anonymous mode — no longer deferred to backfill |
 | Manual creation — passenger mode (return) | `create-trip-form.tsx` (client) | Reversed coords; awaited before insert |
-| Trip detail-sheet save | `build-trip-details-patch.ts` | Recalculates when pickup/dropoff coords change |
+| Trip detail-sheet save | `build-trip-details-patch.ts` | Recalculates when pickup/dropoff coords change — **unless** the distance freeze guard applies (see below) |
 | CSV bulk upload (outbound) | `bulk-upload-dialog.tsx → runBulkInsert Pass 0` | After geocoding resolves lat/lng, before insert |
 | CSV bulk upload (return) | `bulk-upload-dialog.tsx → runBulkInsert Pass 2` | Recalculated with reversed coords after `buildReturnTrip`; metrics NOT inherited from outbound |
 | Trip duplication | `duplicate-trips.ts → enrichInsertWithMetrics` | Fills gaps left by source trips with null metrics; skips when source already has metrics |
 | Recurring-rule cron | `generate-recurring-trips/route.ts` | In-memory Map as first level (within invocation), then `route_metrics_cache`, then Google |
 | Backfill script | `scripts/backfill-driving-distance.ts` | Idempotent; safe to re-run; uses `route_metrics_cache` to skip Google for already-known routes |
+
+---
+
+## Distance Freeze Guard (Plan A)
+
+**Trigger:** If **any** row exists in `invoice_line_items` with `trip_id` equal to the trip being saved (primary leg, checked before `buildTripDetailsPatch` in the trip detail sheet), **`driving_distance_km` and `driving_duration_seconds` are not recalculated** on that save path: the client skips `fetchDrivingMetrics` (no `POST /api/trips/driving-metrics` call) and omits those keys from the patch. The same idea applies to the **linked Gegenfahrt** when the user syncs both legs: before `finalizePartnerPatchWithDrivingMetrics`, the sheet queries `invoice_line_items` with `trip_id` **in** `(open trip id, partner id)` — if either leg has a line item, partner distance/duration are not recomputed.
+
+**Rationale:** Invoice lines snapshot distance for billing; mutating the live `trips` row after a line item exists would diverge from what was billed unless product explicitly allows it.
+
+**Fail-open:** If the `invoice_line_items` check errors (network, RLS, etc.), the code logs **`[distance-freeze]`**-prefixed **`console.error`** and treats distance as **not** locked (metrics may still be computed) so saves are not blocked.
+
+**Observability:** Warnings for suppressed updates use **`console.warn`** with prefix **`[distance-freeze]`**. The trip detail sheet is a **client** component — these messages go to the **browser DevTools console**, not Vercel server logs, unless you add a server endpoint later. Server-side creation paths (bulk, cron, etc.) are **not** covered by this guard in Plan A.
+
+**Plan B/C (not implemented here):** Broader policies (e.g. cache-only, status-based locks) are documented in `docs/plans/geocoding-strategy-brainstorm.md`.
+
+---
+
+## Place ID Storage (Plan B)
+
+**Columns:** `trips.pickup_place_id` and `trips.dropoff_place_id` (nullable `TEXT`) store the **Google Places `place_id`** for each endpoint when the dispatcher chose an address via **Places Autocomplete + Place Details** on the **Neue Fahrt** form. They are the stable semantic identity of the stop (unlike coordinates, which can jitter slightly across days and code paths).
+
+**Who writes them:** Only the **create-trip form** (`create-trip-form.tsx`) sets these on insert. **Bulk upload, CSV, recurring-rule cron, and other non-form paths** leave both columns **null** by design — those flows do not go through `/api/place-details`.
+
+**API contract:** `GET /api/place-details` includes **`place_id`** in the success JSON when present: it **echoes the raw `placeId` query parameter** the client sent, not a field read from the Places API response body (the handler already knows the id from the request). This keeps the client’s stored id aligned with what it submitted.
+
+**Plan B4 (deferred):** A follow-up change will add a **two-stage `route_metrics_cache` lookup** that prefers a **place-id-based key** before the existing rounded-coordinate key, so form-created trips sharing the same Places-selected route converge on one cache entry and one consistent `driving_distance_km`. Until B4 ships, `route_metrics_cache` and `resolveDrivingMetricsWithCache` are unchanged.
 
 ---
 

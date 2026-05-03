@@ -49,11 +49,18 @@ export interface BuildTripDetailsPatchInput {
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
   ktsDocumentAppliesDraft: boolean;
+  ktsFehlerDraft: boolean;
+  ktsFehlerBeschreibungDraft: string;
   /** Persisted with `kts_document_applies` (catalog tier vs manual). */
   ktsSourceForSave: string;
   noInvoiceRequiredDraft: boolean;
   /** Persisted with `no_invoice_required`. */
   noInvoiceSourceForSave: string;
+  /**
+   * When true, skip Directions (`fetchDrivingMetrics`) and omit distance/duration on the patch.
+   * Set when the trip already appears on an invoice line item — keeps `trips` aligned with billing snapshots.
+   */
+  isDistanceLocked?: boolean;
 }
 
 export interface BuildTripDetailsPatchResult {
@@ -65,6 +72,13 @@ function normalizeNotes(s: string): string {
   return s.trim();
 }
 
+function normalizeKtsFehlerBeschreibungStored(
+  s: string | null | undefined
+): string | null {
+  const t = normalizeNotes(s ?? '');
+  return t ? t : null;
+}
+
 /**
  * Computes the PATCH object and whether it is empty (no DB write needed).
  * May call Google Directions when pickup/dropoff coordinates support metrics.
@@ -72,7 +86,7 @@ function normalizeNotes(s: string): string {
 export async function buildTripDetailsPatch(
   input: BuildTripDetailsPatchInput
 ): Promise<BuildTripDetailsPatchResult> {
-  const { trip } = input;
+  const { trip, isDistanceLocked = false } = input;
   /** `Update` type omits some address columns; Supabase still accepts them. */
   const patch: Record<string, unknown> = {};
 
@@ -98,6 +112,24 @@ export async function buildTripDetailsPatch(
   if (noInvNext !== noInvWas || input.noInvoiceSourceForSave !== noInvSrcWas) {
     patch.no_invoice_required = noInvNext;
     patch.no_invoice_source = input.noInvoiceSourceForSave;
+  }
+  const ktsFehlerNext = !!input.ktsFehlerDraft;
+  const ktsFehlerWas = !!trip.kts_fehler;
+  if (ktsFehlerNext !== ktsFehlerWas) {
+    patch.kts_fehler = ktsFehlerNext;
+  }
+  const beschStored = normalizeKtsFehlerBeschreibungStored(
+    trip.kts_fehler_beschreibung
+  );
+  const beschDraft = ktsFehlerNext
+    ? normalizeKtsFehlerBeschreibungStored(input.ktsFehlerBeschreibungDraft)
+    : null;
+  if (!ktsFehlerNext) {
+    if (beschStored !== null) {
+      patch.kts_fehler_beschreibung = null;
+    }
+  } else if (beschDraft !== beschStored) {
+    patch.kts_fehler_beschreibung = beschDraft;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;
@@ -240,23 +272,39 @@ export async function buildTripDetailsPatch(
     typeof patch.dropoff_lng === 'number'
       ? patch.dropoff_lng
       : trip.dropoff_lng;
-  if (
+  const wouldRecomputeDrivingMetrics =
     typeof pickupLat === 'number' &&
     typeof pickupLng === 'number' &&
     typeof dropLat === 'number' &&
     typeof dropLng === 'number' &&
-    (patch.pickup_lat !== undefined || patch.dropoff_lat !== undefined)
-  ) {
-    const metrics = await fetchDrivingMetrics(
-      pickupLat,
-      pickupLng,
-      dropLat,
-      dropLng
-    );
-    if (metrics) {
-      patch.driving_distance_km = metrics.distanceKm;
-      patch.driving_duration_seconds = metrics.durationSeconds;
+    (patch.pickup_lat !== undefined || patch.dropoff_lat !== undefined);
+
+  if (wouldRecomputeDrivingMetrics) {
+    if (isDistanceLocked) {
+      // WHY: Do not call fetchDrivingMetrics at all — avoids Directions quota and implies we discard
+      // metrics we would not persist (same as skipping the network round-trip entirely).
+      delete patch.driving_distance_km;
+      delete patch.driving_duration_seconds;
+      console.warn(
+        `[distance-freeze] Trip ${trip.id} distance update suppressed — trip is linked to an invoice line item. Fields excluded: driving_distance_km, driving_duration_seconds.`
+      );
+    } else {
+      const metrics = await fetchDrivingMetrics(
+        pickupLat,
+        pickupLng,
+        dropLat,
+        dropLng
+      );
+      if (metrics) {
+        patch.driving_distance_km = metrics.distanceKm;
+        patch.driving_duration_seconds = metrics.durationSeconds;
+      }
     }
+  }
+
+  if (isDistanceLocked) {
+    delete patch.driving_distance_km;
+    delete patch.driving_duration_seconds;
   }
 
   return {

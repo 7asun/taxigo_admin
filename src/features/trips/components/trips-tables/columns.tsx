@@ -496,6 +496,61 @@ export const columns: ColumnDef<any>[] = [
     enableColumnFilter: false
   },
   {
+    id: 'kts_fehler',
+    accessorKey: 'kts_fehler',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='KTS-Fehler' />
+    ),
+    cell: ({ row }) => {
+      const err = !!row.original.kts_fehler;
+      if (!err) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return (
+        <Badge
+          variant='destructive'
+          className='px-1.5 py-0 text-[10px] font-normal'
+          title='KTS-Dokument mit Fehler markiert'
+        >
+          Fehler
+        </Badge>
+      );
+    },
+    meta: { label: 'KTS-Fehler', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
+    id: 'kts_fehler_beschreibung',
+    accessorFn: (row) => row.kts_fehler_beschreibung ?? '',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='KTS-Fehler (Text)' />
+    ),
+    cell: ({ row }) => {
+      const v = row.original.kts_fehler_beschreibung as
+        | string
+        | null
+        | undefined;
+      const t = v?.trim();
+      if (!t) return <span className='text-muted-foreground'>—</span>;
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className='max-w-[160px] cursor-default truncate text-sm'>
+                {t}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side='top' className='max-w-xs text-xs'>
+              {t}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    },
+    meta: { label: 'KTS-Fehler (Text)', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
     id: 'net_price',
     accessorKey: 'net_price',
     header: ({ column }) => (

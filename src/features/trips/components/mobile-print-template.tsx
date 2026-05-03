@@ -22,6 +22,9 @@ export interface TripData {
   dropoff_address: string | null;
   dropoff_station: string | null;
   notes: string | null;
+  /** Trip detail: KTS document flagged erroneous — shown on print cards when true. */
+  kts_fehler?: boolean | null;
+  kts_fehler_beschreibung?: string | null;
   is_wheelchair: boolean;
   driver?: { name: string } | null;
   billing_variant?: {

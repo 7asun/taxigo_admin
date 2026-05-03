@@ -70,6 +70,43 @@ export const PDF_DIN5008 = {
   foldMarkStroke: 0.5 // line thickness in pt
 } as const;
 
+/**
+ * Letter PDF only — do not import from invoice or Angebot modules.
+ *
+ * Brief letters use Path C: the recipient sits in an absolute DIN window
+ * (`PDF_DIN5008.addressWindowTop` / `addressWindowHeight`) while Betreff, Anrede,
+ * and body flow after `InvoicePdfCoverHeaderBrief`. There is no global
+ * `renderMode === 'brief'` offset pushing flow text below the window band, so
+ * compact headers can paint subject/salutation over the address (see
+ * docs/plans/letters-pdf-din-alignment-audit.md). `briefBodyExtraMarginTop` is a
+ * temporary letter-only `marginTop` on the body wrapper; remove or replace when a
+ * shared brief-body spacing solution lands.
+ *
+ * Geometry: incremental margin after the brief header, not raw clearance from
+ * page top — see docs/plans/letters-pdf-din-alignment-audit.md §5–7.
+ */
+const PDF_LETTER_BRIEF_BODY_SAFETY_BUFFER_PT = 12;
+
+/** Stand-in for typical `InvoicePdfCoverHeaderBrief` flow height (logo, sender, meta). Letter-only; tune after visual QA. */
+const PDF_LETTER_BRIEF_HEADER_FLOW_RESERVE_PT = 125;
+
+const letterBriefBodyWindowBottomPagePt =
+  PDF_DIN5008.addressWindowTop + PDF_DIN5008.addressWindowHeight;
+
+export const PDF_ZONES_LETTER = {
+  briefBodySafetyBufferPt: PDF_LETTER_BRIEF_BODY_SAFETY_BUFFER_PT,
+  briefHeaderFlowReservePt: PDF_LETTER_BRIEF_HEADER_FLOW_RESERVE_PT,
+  briefBodyExtraMarginTop: Math.max(
+    0,
+    letterBriefBodyWindowBottomPagePt +
+      PDF_LETTER_BRIEF_BODY_SAFETY_BUFFER_PT -
+      PDF_PAGE.marginTop -
+      PDF_ZONES.headerRowMarginBottom -
+      PDF_ZONES.subjectMarginTopOffer -
+      PDF_LETTER_BRIEF_HEADER_FLOW_RESERVE_PT
+  )
+} as const;
+
 export const PDF_RENDER_MODES = ['digital', 'brief'] as const;
 export type PdfRenderMode = (typeof PDF_RENDER_MODES)[number];
 

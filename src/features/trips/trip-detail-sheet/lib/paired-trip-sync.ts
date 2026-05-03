@@ -51,6 +51,8 @@ export const PAIRED_SYNC_COLUMN_KEYS = [
   'billing_calling_station',
   'billing_betreuer',
   'kts_document_applies',
+  'kts_fehler',
+  'kts_fehler_beschreibung',
   'kts_source',
   'no_invoice_required',
   'no_invoice_source',
@@ -108,6 +110,8 @@ export interface PartnerSyncDrafts {
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
   ktsDocumentAppliesDraft: boolean;
+  ktsFehlerDraft: boolean;
+  ktsFehlerBeschreibungDraft: string;
   ktsSourceForSave: string;
   noInvoiceRequiredDraft: boolean;
   noInvoiceSourceForSave: string;
@@ -253,6 +257,10 @@ export function buildPartnerSyncPatchFromDrafts(
     ),
     billing_betreuer: stationTrimOrNull(input.billingBetreuerDraft),
     kts_document_applies: input.ktsDocumentAppliesDraft,
+    kts_fehler: input.ktsFehlerDraft,
+    kts_fehler_beschreibung: input.ktsFehlerDraft
+      ? stationTrimOrNull(input.ktsFehlerBeschreibungDraft)
+      : null,
     kts_source: input.ktsSourceForSave,
     no_invoice_required: input.noInvoiceRequiredDraft,
     no_invoice_source: input.noInvoiceSourceForSave
@@ -265,7 +273,10 @@ export function buildPartnerSyncPatchFromDrafts(
  * numbers (Google Directions). No-op if coords are missing or the API returns null.
  */
 export async function finalizePartnerPatchWithDrivingMetrics(
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
+  isDistanceLocked = false,
+  primaryTripId?: string,
+  partnerTripId?: string
 ): Promise<Record<string, unknown>> {
   const plat = patch.pickup_lat;
   const plng = patch.pickup_lng;
@@ -277,6 +288,15 @@ export async function finalizePartnerPatchWithDrivingMetrics(
     typeof dlat === 'number' &&
     typeof dlng === 'number'
   ) {
+    if (isDistanceLocked) {
+      const out = { ...patch };
+      delete out.driving_distance_km;
+      delete out.driving_duration_seconds;
+      console.warn(
+        `[distance-freeze] Partner trip ${partnerTripId ?? '?'} distance update suppressed (primary ${primaryTripId ?? '?'}) — invoice line item linkage.`
+      );
+      return out;
+    }
     const metrics = await fetchDrivingMetrics(plat, plng, dlat, dlng);
     if (metrics) {
       return {

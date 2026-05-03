@@ -122,13 +122,16 @@ export async function GET(req: NextRequest) {
       data.addressComponents as PlacesAddressComponent[] | undefined
     )?.find((c) => c.types?.includes('locality'))?.shortText;
 
+    // Echo the raw query param as place_id (client contract / trip storage), not placeResourceId,
+    // which is only for building the Places GET path.
     return NextResponse.json({
       lat,
       lng,
       zip_code,
       street,
       street_number,
-      city
+      city,
+      ...(placeId ? { place_id: placeId } : {})
     });
   } catch (error) {
     console.error('Error in place-details:', error);

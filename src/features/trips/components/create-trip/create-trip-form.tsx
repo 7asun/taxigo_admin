@@ -72,6 +72,8 @@ const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   billing_calling_station: 'payer',
   billing_betreuer: 'payer',
   kts_document_applies: 'payer',
+  kts_fehler: 'payer',
+  kts_fehler_beschreibung: 'payer',
   no_invoice_required: 'payer',
   departure_date: 'schedule',
   departure_time: 'schedule',
@@ -192,6 +194,8 @@ export function CreateTripForm({
       billing_calling_station: '',
       billing_betreuer: '',
       kts_document_applies: false,
+      kts_fehler: false,
+      kts_fehler_beschreibung: null,
       no_invoice_required: false
     }
   });
@@ -245,6 +249,8 @@ export function CreateTripForm({
         'billing_calling_station',
         'billing_betreuer',
         'kts_document_applies',
+        'kts_fehler',
+        'kts_fehler_beschreibung',
         'no_invoice_required',
         'departure_date',
         'departure_time',
@@ -855,7 +861,9 @@ export function CreateTripForm({
               zip_code: isString ? g.zip_code : result.zip_code,
               city: isString ? g.city : result.city,
               lat: isString ? g.lat : result.lat,
-              lng: isString ? g.lng : result.lng
+              lng: isString ? g.lng : result.lng,
+              // Keep last resolved place when a later AddressResult has no placeId (typed edit).
+              placeId: isString ? g.placeId : (result.placeId ?? g.placeId)
             }
           : g
       )
@@ -879,7 +887,8 @@ export function CreateTripForm({
                 zip_code: isString ? g.zip_code : result.zip_code,
                 city: isString ? g.city : result.city,
                 lat: isString ? g.lat : result.lat,
-                lng: isString ? g.lng : result.lng
+                lng: isString ? g.lng : result.lng,
+                placeId: isString ? g.placeId : (result.placeId ?? g.placeId)
               }
             : g
         )
@@ -924,7 +933,8 @@ export function CreateTripForm({
               zip_code: isString ? g.zip_code : result.zip_code,
               city: isString ? g.city : result.city,
               lat: isString ? g.lat : result.lat,
-              lng: isString ? g.lng : result.lng
+              lng: isString ? g.lng : result.lng,
+              placeId: isString ? g.placeId : (result.placeId ?? g.placeId)
             }
           : g
       )
@@ -1288,11 +1298,19 @@ export function CreateTripForm({
       const tripStatus = (getStatusWhenDriverChanges('pending', driverId) ??
         'pending') as 'pending' | 'assigned';
 
+      const ktsFehlerForDb =
+        !!values.kts_document_applies && !!values.kts_fehler;
+      const ktsFehlerBeschreibungForDb = ktsFehlerForDb
+        ? values.kts_fehler_beschreibung?.trim() || null
+        : null;
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
         billing_type_id: ktsVariantRow?.billing_type_id || null,
         kts_document_applies: values.kts_document_applies,
+        kts_fehler: ktsFehlerForDb,
+        kts_fehler_beschreibung: ktsFehlerBeschreibungForDb,
         kts_source: ktsSource,
         no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
         no_invoice_source: noInvoiceSource,
@@ -1384,6 +1402,9 @@ export function CreateTripForm({
           dropoff_lng: dropoffGroup.lng || null,
           dropoff_station: null,
           group_id: null,
+          // Explicit null when no Places selection — stable intent for DB.
+          pickup_place_id: pickupGroup.placeId ?? null,
+          dropoff_place_id: dropoffGroup.placeId ?? null,
           driving_distance_km: outboundDrivingDistanceKm,
           driving_duration_seconds: outboundDrivingDurationSeconds
         } as any);
@@ -1452,6 +1473,9 @@ export function CreateTripForm({
             dropoff_lng: pickupGroup.lng || null,
             dropoff_station: null,
             group_id: null,
+            // Return leg: endpoints swapped — mirror pickup_lat/dropoff_lat (Plan B place IDs).
+            pickup_place_id: dropoffGroup.placeId ?? null,
+            dropoff_place_id: pickupGroup.placeId ?? null,
             // link_type marks this as the Rückfahrt so the direction can be
             // determined from the trip row alone, without joining the partner.
             link_type: 'return',
@@ -1539,6 +1563,9 @@ export function CreateTripForm({
               dropoff_station: p.dropoff_station || null,
               group_id: groupId,
               stop_order: passengers.length > 1 ? idx + 1 : null,
+              // Explicit null when no Places selection.
+              pickup_place_id: pickupGroup?.placeId ?? null,
+              dropoff_place_id: dropoffGroup?.placeId ?? null,
               driving_distance_km: outboundDrivingDistanceKm,
               driving_duration_seconds: outboundDrivingDurationSeconds
             } as any);
@@ -1626,6 +1653,9 @@ export function CreateTripForm({
                   dropoff_lng: pickupGroup?.lng || null,
                   dropoff_station: p.pickup_station || null,
                   group_id: null,
+                  // Return leg: swapped endpoints (same as pickup_lat/dropoff_lat).
+                  pickup_place_id: dropoffGroup?.placeId ?? null,
+                  dropoff_place_id: pickupGroup?.placeId ?? null,
                   // link_type marks this as the Rückfahrt so the direction can
                   // be determined from the trip row alone without joining partner.
                   link_type: 'return',

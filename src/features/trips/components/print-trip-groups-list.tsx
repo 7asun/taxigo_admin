@@ -44,6 +44,20 @@ function formatCity(addr: string | null): string {
  * Print/JPEG billing line — must stay aligned with `formatBillingDisplayLabel`
  * (Familie · Unterart, or Familie only when Unterart is Standard). Never hand-join names.
  */
+function ktsFehlerTextsFromTrips(trips: TripData[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of trips) {
+    if (!t.kts_fehler) continue;
+    const d = (t.kts_fehler_beschreibung ?? '').trim();
+    if (!d) continue;
+    if (seen.has(d)) continue;
+    seen.add(d);
+    out.push(d);
+  }
+  return out;
+}
+
 function tripPrintBilling(trip: TripData | undefined): {
   color: string | null;
   label: string | null;
@@ -264,6 +278,27 @@ export function PrintTripGroupsList({
                   </div>
                 </div>
 
+                {trip.kts_fehler ? (
+                  <div
+                    className={cn(
+                      'flex items-start gap-2 rounded-lg border border-rose-200/80 bg-rose-50/80',
+                      c ? 'mt-1.5 p-1.5' : 'mt-2 p-2'
+                    )}
+                  >
+                    <span className='mt-0.5 text-[9px] font-black tracking-tighter text-rose-700 uppercase'>
+                      KTS-Fehler
+                    </span>
+                    <p
+                      className={cn(
+                        'flex-1 leading-tight font-bold text-rose-950',
+                        c ? 'text-[10px]' : 'text-[11px]'
+                      )}
+                    >
+                      {(trip.kts_fehler_beschreibung ?? '').trim() ||
+                        'Krankentransportschein mit Fehler markiert.'}
+                    </p>
+                  </div>
+                ) : null}
                 {trip.notes && trip.notes.trim() !== '' && (
                   <div
                     className={cn(
@@ -562,6 +597,31 @@ export function PrintTripGroupsList({
                 </div>
               ))}
 
+              {group.trips.some((t) => t.kts_fehler) ? (
+                <div
+                  className={cn(
+                    'flex items-start gap-2 rounded-lg border border-rose-200/80 bg-rose-50/80',
+                    c ? 'mt-1.5 p-1.5' : 'mt-2 p-2'
+                  )}
+                >
+                  <span className='mt-0.5 text-[9px] font-black tracking-tighter text-rose-700 uppercase'>
+                    KTS-Fehler
+                  </span>
+                  <p
+                    className={cn(
+                      'flex-1 leading-tight font-bold text-rose-950',
+                      c ? 'text-[10px]' : 'text-[11px]'
+                    )}
+                  >
+                    {(() => {
+                      const texts = ktsFehlerTextsFromTrips(group.trips);
+                      return texts.length > 0
+                        ? texts.join(' • ')
+                        : 'Krankentransportschein mit Fehler markiert.';
+                    })()}
+                  </p>
+                </div>
+              ) : null}
               {group.trips.some((t) => t.notes && t.notes.trim() !== '') && (
                 <div
                   className={cn(
