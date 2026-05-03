@@ -112,6 +112,18 @@ This was fragile because it assumed the geocoder always returns bit-identical fl
 
 ---
 
+## Place ID Storage (Plan B)
+
+**Columns:** `trips.pickup_place_id` and `trips.dropoff_place_id` (nullable `TEXT`) store the **Google Places `place_id`** for each endpoint when the dispatcher chose an address via **Places Autocomplete + Place Details** on the **Neue Fahrt** form. They are the stable semantic identity of the stop (unlike coordinates, which can jitter slightly across days and code paths).
+
+**Who writes them:** Only the **create-trip form** (`create-trip-form.tsx`) sets these on insert. **Bulk upload, CSV, recurring-rule cron, and other non-form paths** leave both columns **null** by design — those flows do not go through `/api/place-details`.
+
+**API contract:** `GET /api/place-details` includes **`place_id`** in the success JSON when present: it **echoes the raw `placeId` query parameter** the client sent, not a field read from the Places API response body (the handler already knows the id from the request). This keeps the client’s stored id aligned with what it submitted.
+
+**Plan B4 (deferred):** A follow-up change will add a **two-stage `route_metrics_cache` lookup** that prefers a **place-id-based key** before the existing rounded-coordinate key, so form-created trips sharing the same Places-selected route converge on one cache entry and one consistent `driving_distance_km`. Until B4 ships, `route_metrics_cache` and `resolveDrivingMetricsWithCache` are unchanged.
+
+---
+
 ## Why a dedicated API route
 
 `GOOGLE_MAPS_API_KEY` must stay on the **server**. Next.js does not expose non-`NEXT_PUBLIC_` variables to the browser, so `'use client'` components cannot import `google-directions.ts` directly. Instead they call `fetchDrivingMetrics` from [`src/features/trips/lib/fetch-driving-metrics.ts`](../src/features/trips/lib/fetch-driving-metrics.ts), which POSTs to `/api/trips/driving-metrics`.

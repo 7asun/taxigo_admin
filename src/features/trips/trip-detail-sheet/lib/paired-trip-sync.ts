@@ -51,6 +51,8 @@ export const PAIRED_SYNC_COLUMN_KEYS = [
   'billing_calling_station',
   'billing_betreuer',
   'kts_document_applies',
+  'kts_fehler',
+  'kts_fehler_beschreibung',
   'kts_source',
   'no_invoice_required',
   'no_invoice_source',
@@ -108,6 +110,8 @@ export interface PartnerSyncDrafts {
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
   ktsDocumentAppliesDraft: boolean;
+  ktsFehlerDraft: boolean;
+  ktsFehlerBeschreibungDraft: string;
   ktsSourceForSave: string;
   noInvoiceRequiredDraft: boolean;
   noInvoiceSourceForSave: string;
@@ -253,6 +257,10 @@ export function buildPartnerSyncPatchFromDrafts(
     ),
     billing_betreuer: stationTrimOrNull(input.billingBetreuerDraft),
     kts_document_applies: input.ktsDocumentAppliesDraft,
+    kts_fehler: input.ktsFehlerDraft,
+    kts_fehler_beschreibung: input.ktsFehlerDraft
+      ? stationTrimOrNull(input.ktsFehlerBeschreibungDraft)
+      : null,
     kts_source: input.ktsSourceForSave,
     no_invoice_required: input.noInvoiceRequiredDraft,
     no_invoice_source: input.noInvoiceSourceForSave

@@ -47,6 +47,11 @@ export const tripFormSchema = z
     billing_betreuer: z.string().optional(),
     /** Krankentransportschein / KTS — see `resolveKtsDefault` + `trips.kts_source`. */
     kts_document_applies: z.boolean().default(false),
+    /**
+     * KTS document error flag — edited in Trip Detail Sheet in v1; Neue Fahrt keeps defaults.
+     */
+    kts_fehler: z.boolean().default(false),
+    kts_fehler_beschreibung: z.union([z.string(), z.null()]).default(null),
     /** Nur relevant wenn Kostenträger/Unterart „Keine Rechnung“ vorsieht (Neue Fahrt). */
     no_invoice_required: z.boolean().default(false)
   })
@@ -66,6 +71,18 @@ export const tripFormSchema = z
           path: ['return_time']
         });
       }
+    }
+    const desc =
+      data.kts_fehler_beschreibung == null
+        ? ''
+        : String(data.kts_fehler_beschreibung);
+    if (!data.kts_fehler && desc.trim() !== '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'KTS-Fehler-Beschreibung nur erlaubt, wenn „KTS-Fehler“ aktiviert ist.',
+        path: ['kts_fehler_beschreibung']
+      });
     }
   });
 

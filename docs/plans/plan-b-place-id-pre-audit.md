@@ -81,3 +81,5 @@ Code references use **file:line** as of the audit date. The create-trip implemen
 - **Create form** does **not** persist **`AddressResult.placeId`** on **`AddressGroupEntry`**; trip inserts cannot send place IDs until the group type and **`updatePickupAddress` / `updateDropoffAddress`** (and possibly **`ensureGroupHasCoords`**) are extended.
 
 - **Distance UI** is a **`Badge`**, not a field component; any “lock indicator” is additive UI next to or inside that area. **`isDistanceLocked`** from Plan A is **save-path only** — the dispatcher-facing distance display has **no** current linkage to invoice lock without new data loading or state.
+
+B1–B3 implemented 2026-05-04. B4 (cache resolver upgrade) is next as a standalone plan.

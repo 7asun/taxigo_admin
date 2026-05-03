@@ -21,6 +21,8 @@ const draftValuesSchemaV3 = z.object({
   billing_calling_station: z.string().optional(),
   billing_betreuer: z.string().optional(),
   kts_document_applies: z.boolean().optional(),
+  kts_fehler: z.boolean().optional(),
+  kts_fehler_beschreibung: z.union([z.string(), z.null()]).optional(),
   no_invoice_required: z.boolean().optional()
 });
 
@@ -131,6 +133,8 @@ export function buildTripFormValuesFromDraft(
       billing_calling_station: v3.billing_calling_station ?? '',
       billing_betreuer: v3.billing_betreuer ?? '',
       kts_document_applies: v3.kts_document_applies ?? false,
+      kts_fehler: v3.kts_fehler ?? false,
+      kts_fehler_beschreibung: v3.kts_fehler_beschreibung ?? null,
       no_invoice_required: v3.no_invoice_required ?? false
     };
   }
@@ -153,6 +157,8 @@ export function buildTripFormValuesFromDraft(
       billing_calling_station: '',
       billing_betreuer: '',
       kts_document_applies: false,
+      kts_fehler: false,
+      kts_fehler_beschreibung: null,
       no_invoice_required: false
     };
   }
@@ -174,6 +180,8 @@ export function buildTripFormValuesFromDraft(
     billing_calling_station: '',
     billing_betreuer: '',
     kts_document_applies: false,
+    kts_fehler: false,
+    kts_fehler_beschreibung: null,
     no_invoice_required: false
   };
 }

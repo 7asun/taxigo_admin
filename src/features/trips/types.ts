@@ -20,4 +20,6 @@ export interface AddressGroupEntry {
   city?: string;
   lat?: number;
   lng?: number;
+  /** Google Places place_id when the row came from Autocomplete + Place Details; optional for free-text rows. */
+  placeId?: string;
 }

@@ -49,6 +49,8 @@ export interface BuildTripDetailsPatchInput {
   billingCallingStationDraft: string;
   billingBetreuerDraft: string;
   ktsDocumentAppliesDraft: boolean;
+  ktsFehlerDraft: boolean;
+  ktsFehlerBeschreibungDraft: string;
   /** Persisted with `kts_document_applies` (catalog tier vs manual). */
   ktsSourceForSave: string;
   noInvoiceRequiredDraft: boolean;
@@ -68,6 +70,13 @@ export interface BuildTripDetailsPatchResult {
 
 function normalizeNotes(s: string): string {
   return s.trim();
+}
+
+function normalizeKtsFehlerBeschreibungStored(
+  s: string | null | undefined
+): string | null {
+  const t = normalizeNotes(s ?? '');
+  return t ? t : null;
 }
 
 /**
@@ -103,6 +112,24 @@ export async function buildTripDetailsPatch(
   if (noInvNext !== noInvWas || input.noInvoiceSourceForSave !== noInvSrcWas) {
     patch.no_invoice_required = noInvNext;
     patch.no_invoice_source = input.noInvoiceSourceForSave;
+  }
+  const ktsFehlerNext = !!input.ktsFehlerDraft;
+  const ktsFehlerWas = !!trip.kts_fehler;
+  if (ktsFehlerNext !== ktsFehlerWas) {
+    patch.kts_fehler = ktsFehlerNext;
+  }
+  const beschStored = normalizeKtsFehlerBeschreibungStored(
+    trip.kts_fehler_beschreibung
+  );
+  const beschDraft = ktsFehlerNext
+    ? normalizeKtsFehlerBeschreibungStored(input.ktsFehlerBeschreibungDraft)
+    : null;
+  if (!ktsFehlerNext) {
+    if (beschStored !== null) {
+      patch.kts_fehler_beschreibung = null;
+    }
+  } else if (beschDraft !== beschStored) {
+    patch.kts_fehler_beschreibung = beschDraft;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;

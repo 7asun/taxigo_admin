@@ -34,6 +34,7 @@ Trip cards in both JPEG overviews use **`PrintTripGroupsList`** (`src/features/t
 - **Wheelchair** icon next to names when `is_wheelchair`.
 - **Start / Ziel** with street + optional station chip + city suffix (incl. **Oldenburg** hide rule).
 - **Hinweis** amber block for notes.
+- **KTS-Fehler** rose-tinted block when `trips.kts_fehler` is true (optional description text; grouped cards dedupe non-empty descriptions).
 
 **`compact`:** narrow columns (Hochformat strip + landscape) use smaller typography; logic is unchanged.
 
