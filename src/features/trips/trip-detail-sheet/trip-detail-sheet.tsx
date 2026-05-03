@@ -159,6 +159,67 @@ function pickNewTripIdAfterDuplicate(
   return createdIds[0];
 }
 
+type BrowserSupabase = ReturnType<typeof createClient>;
+
+async function fetchHasInvoiceLineItemForTrip(
+  supabase: BrowserSupabase,
+  tripId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('invoice_line_items')
+      .select('id')
+      .eq('trip_id', tripId)
+      .limit(1);
+    if (error) {
+      console.error(
+        '[distance-freeze] Failed to check invoice linkage for trip',
+        tripId,
+        error
+      );
+      return false;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (e: unknown) {
+    console.error(
+      '[distance-freeze] Failed to check invoice linkage for trip',
+      tripId,
+      e
+    );
+    return false;
+  }
+}
+
+async function fetchHasInvoiceLineItemForEitherLeg(
+  supabase: BrowserSupabase,
+  tripId: string,
+  partnerTripId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('invoice_line_items')
+      .select('id')
+      .in('trip_id', [tripId, partnerTripId])
+      .limit(1);
+    if (error) {
+      console.error(
+        '[distance-freeze] Failed to check partner invoice linkage',
+        { tripId, partnerId: partnerTripId },
+        error
+      );
+      return false;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (e: unknown) {
+    console.error(
+      '[distance-freeze] Failed to check partner invoice linkage',
+      { tripId, partnerId: partnerTripId },
+      e
+    );
+    return false;
+  }
+}
+
 interface TripDetailSheetProps {
   tripId: string | null;
   isOpen: boolean;
@@ -222,6 +283,8 @@ export function TripDetailSheet({
     'details'
   );
   const pendingDetailsPatchRef = useRef<Record<string, unknown> | null>(null);
+  /** Mirrors `pendingDetailsPatchRef` lifecycle — primary leg was distance-locked at save time. */
+  const pendingDistanceLockRef = useRef(false);
   const pendingNotesTrimmedRef = useRef<string | null>(null);
   const pendingSaveRef = useRef<(() => Promise<void>) | null>(null);
   const [isSavingDetails, setIsSavingDetails] = useState(false);
@@ -689,6 +752,7 @@ export function TripDetailSheet({
       if (!trip) return;
       setPairSyncOpen(false);
       pendingDetailsPatchRef.current = null;
+      pendingDistanceLockRef.current = false;
       setIsSavingDetails(true);
       try {
         let currentPatch: Record<string, unknown> = { ...patch };
@@ -747,8 +811,19 @@ export function TripDetailSheet({
             lastPickupResolved: lastPickupResolved.current,
             lastDropoffResolved: lastDropoffResolved.current
           });
-          partnerPatch =
-            await finalizePartnerPatchWithDrivingMetrics(partnerPatch);
+          const supabase = createClient();
+          const isPartnerDistanceLocked =
+            await fetchHasInvoiceLineItemForEitherLeg(
+              supabase,
+              trip.id,
+              linkedPartner.id
+            );
+          partnerPatch = await finalizePartnerPatchWithDrivingMetrics(
+            partnerPatch,
+            isPartnerDistanceLocked,
+            trip.id,
+            linkedPartner.id
+          );
           await updateTripMutation.mutateAsync({
             id: linkedPartner.id,
             patch: partnerPatch as UpdateTrip
@@ -884,6 +959,12 @@ export function TripDetailSheet({
         const noInvoiceSourceForSave: TripNoInvoiceSource =
           noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedSave.source;
 
+        const supabaseForLock = createClient();
+        const isDistanceLocked = await fetchHasInvoiceLineItemForTrip(
+          supabaseForLock,
+          trip.id
+        );
+
         const built = await buildTripDetailsPatch({
           trip,
           payerDraft,
@@ -907,7 +988,8 @@ export function TripDetailSheet({
           ktsDocumentAppliesDraft,
           ktsSourceForSave,
           noInvoiceRequiredDraft,
-          noInvoiceSourceForSave
+          noInvoiceSourceForSave,
+          isDistanceLocked
         });
         if (built.isEmpty) {
           toast.info('Keine Änderungen zum Speichern.');
@@ -920,6 +1002,7 @@ export function TripDetailSheet({
           shouldOfferPairedSyncForDetailsSave(built.patch, notesDirty)
         ) {
           pendingDetailsPatchRef.current = built.patch;
+          pendingDistanceLockRef.current = isDistanceLocked;
           setPairSyncVariant('details');
           setPairSyncOpen(true);
           return;
@@ -1882,6 +1965,7 @@ export function TripDetailSheet({
                 setPairSyncOpen(open);
                 if (!open) {
                   pendingDetailsPatchRef.current = null;
+                  pendingDistanceLockRef.current = false;
                   pendingNotesTrimmedRef.current = null;
                 }
               }}

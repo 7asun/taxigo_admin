@@ -130,7 +130,12 @@ export function buildBreadcrumbsFromNav(
     const custom = customTitles[norm];
     let tailTitle = custom;
     if (!tailTitle && lastSeg) {
-      if (UUID_RE.test(lastSeg)) {
+      const isLettersRoute = norm.startsWith('/dashboard/letters');
+      if (isLettersRoute && lastSeg.toLowerCase() === 'new') {
+        tailTitle = 'Neuer Brief';
+      } else if (isLettersRoute && UUID_RE.test(lastSeg)) {
+        tailTitle = 'Brief bearbeiten';
+      } else if (UUID_RE.test(lastSeg)) {
         tailTitle = 'Rechnung';
       } else {
         tailTitle =

@@ -54,6 +54,11 @@ export interface BuildTripDetailsPatchInput {
   noInvoiceRequiredDraft: boolean;
   /** Persisted with `no_invoice_required`. */
   noInvoiceSourceForSave: string;
+  /**
+   * When true, skip Directions (`fetchDrivingMetrics`) and omit distance/duration on the patch.
+   * Set when the trip already appears on an invoice line item — keeps `trips` aligned with billing snapshots.
+   */
+  isDistanceLocked?: boolean;
 }
 
 export interface BuildTripDetailsPatchResult {
@@ -72,7 +77,7 @@ function normalizeNotes(s: string): string {
 export async function buildTripDetailsPatch(
   input: BuildTripDetailsPatchInput
 ): Promise<BuildTripDetailsPatchResult> {
-  const { trip } = input;
+  const { trip, isDistanceLocked = false } = input;
   /** `Update` type omits some address columns; Supabase still accepts them. */
   const patch: Record<string, unknown> = {};
 
@@ -240,23 +245,39 @@ export async function buildTripDetailsPatch(
     typeof patch.dropoff_lng === 'number'
       ? patch.dropoff_lng
       : trip.dropoff_lng;
-  if (
+  const wouldRecomputeDrivingMetrics =
     typeof pickupLat === 'number' &&
     typeof pickupLng === 'number' &&
     typeof dropLat === 'number' &&
     typeof dropLng === 'number' &&
-    (patch.pickup_lat !== undefined || patch.dropoff_lat !== undefined)
-  ) {
-    const metrics = await fetchDrivingMetrics(
-      pickupLat,
-      pickupLng,
-      dropLat,
-      dropLng
-    );
-    if (metrics) {
-      patch.driving_distance_km = metrics.distanceKm;
-      patch.driving_duration_seconds = metrics.durationSeconds;
+    (patch.pickup_lat !== undefined || patch.dropoff_lat !== undefined);
+
+  if (wouldRecomputeDrivingMetrics) {
+    if (isDistanceLocked) {
+      // WHY: Do not call fetchDrivingMetrics at all — avoids Directions quota and implies we discard
+      // metrics we would not persist (same as skipping the network round-trip entirely).
+      delete patch.driving_distance_km;
+      delete patch.driving_duration_seconds;
+      console.warn(
+        `[distance-freeze] Trip ${trip.id} distance update suppressed — trip is linked to an invoice line item. Fields excluded: driving_distance_km, driving_duration_seconds.`
+      );
+    } else {
+      const metrics = await fetchDrivingMetrics(
+        pickupLat,
+        pickupLng,
+        dropLat,
+        dropLng
+      );
+      if (metrics) {
+        patch.driving_distance_km = metrics.distanceKm;
+        patch.driving_duration_seconds = metrics.durationSeconds;
+      }
     }
+  }
+
+  if (isDistanceLocked) {
+    delete patch.driving_distance_km;
+    delete patch.driving_duration_seconds;
   }
 
   return {

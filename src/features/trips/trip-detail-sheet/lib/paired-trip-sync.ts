@@ -265,7 +265,10 @@ export function buildPartnerSyncPatchFromDrafts(
  * numbers (Google Directions). No-op if coords are missing or the API returns null.
  */
 export async function finalizePartnerPatchWithDrivingMetrics(
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
+  isDistanceLocked = false,
+  primaryTripId?: string,
+  partnerTripId?: string
 ): Promise<Record<string, unknown>> {
   const plat = patch.pickup_lat;
   const plng = patch.pickup_lng;
@@ -277,6 +280,15 @@ export async function finalizePartnerPatchWithDrivingMetrics(
     typeof dlat === 'number' &&
     typeof dlng === 'number'
   ) {
+    if (isDistanceLocked) {
+      const out = { ...patch };
+      delete out.driving_distance_km;
+      delete out.driving_duration_seconds;
+      console.warn(
+        `[distance-freeze] Partner trip ${partnerTripId ?? '?'} distance update suppressed (primary ${primaryTripId ?? '?'}) — invoice line item linkage.`
+      );
+      return out;
+    }
     const metrics = await fetchDrivingMetrics(plat, plng, dlat, dlng);
     if (metrics) {
       return {

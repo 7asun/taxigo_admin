@@ -89,12 +89,26 @@ This was fragile because it assumed the geocoder always returns bit-identical fl
 | Manual creation — anonymous mode (Hin-/Rückfahrt) | `create-trip-form.tsx` (client) | Calls `fetchDrivingMetrics` → `/api/trips/driving-metrics` |
 | Manual creation — passenger mode (outbound) | `create-trip-form.tsx` (client) | Same pattern as anonymous mode — no longer deferred to backfill |
 | Manual creation — passenger mode (return) | `create-trip-form.tsx` (client) | Reversed coords; awaited before insert |
-| Trip detail-sheet save | `build-trip-details-patch.ts` | Recalculates when pickup/dropoff coords change |
+| Trip detail-sheet save | `build-trip-details-patch.ts` | Recalculates when pickup/dropoff coords change — **unless** the distance freeze guard applies (see below) |
 | CSV bulk upload (outbound) | `bulk-upload-dialog.tsx → runBulkInsert Pass 0` | After geocoding resolves lat/lng, before insert |
 | CSV bulk upload (return) | `bulk-upload-dialog.tsx → runBulkInsert Pass 2` | Recalculated with reversed coords after `buildReturnTrip`; metrics NOT inherited from outbound |
 | Trip duplication | `duplicate-trips.ts → enrichInsertWithMetrics` | Fills gaps left by source trips with null metrics; skips when source already has metrics |
 | Recurring-rule cron | `generate-recurring-trips/route.ts` | In-memory Map as first level (within invocation), then `route_metrics_cache`, then Google |
 | Backfill script | `scripts/backfill-driving-distance.ts` | Idempotent; safe to re-run; uses `route_metrics_cache` to skip Google for already-known routes |
+
+---
+
+## Distance Freeze Guard (Plan A)
+
+**Trigger:** If **any** row exists in `invoice_line_items` with `trip_id` equal to the trip being saved (primary leg, checked before `buildTripDetailsPatch` in the trip detail sheet), **`driving_distance_km` and `driving_duration_seconds` are not recalculated** on that save path: the client skips `fetchDrivingMetrics` (no `POST /api/trips/driving-metrics` call) and omits those keys from the patch. The same idea applies to the **linked Gegenfahrt** when the user syncs both legs: before `finalizePartnerPatchWithDrivingMetrics`, the sheet queries `invoice_line_items` with `trip_id` **in** `(open trip id, partner id)` — if either leg has a line item, partner distance/duration are not recomputed.
+
+**Rationale:** Invoice lines snapshot distance for billing; mutating the live `trips` row after a line item exists would diverge from what was billed unless product explicitly allows it.
+
+**Fail-open:** If the `invoice_line_items` check errors (network, RLS, etc.), the code logs **`[distance-freeze]`**-prefixed **`console.error`** and treats distance as **not** locked (metrics may still be computed) so saves are not blocked.
+
+**Observability:** Warnings for suppressed updates use **`console.warn`** with prefix **`[distance-freeze]`**. The trip detail sheet is a **client** component — these messages go to the **browser DevTools console**, not Vercel server logs, unless you add a server endpoint later. Server-side creation paths (bulk, cron, etc.) are **not** covered by this guard in Plan A.
+
+**Plan B/C (not implemented here):** Broader policies (e.g. cache-only, status-based locks) are documented in `docs/plans/geocoding-strategy-brainstorm.md`.
 
 ---
 

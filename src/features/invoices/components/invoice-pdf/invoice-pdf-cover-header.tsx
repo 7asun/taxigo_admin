@@ -93,6 +93,23 @@ export function InvoicePdfMetaGrid({
     (r) => r.value?.trim().length > 0
   );
   const periodIsLastMetaRow = extraRows.length === 0;
+  const metaGridLayout = metaConfig?.metaGridLayout ?? 'full';
+
+  if (metaGridLayout === 'date_only') {
+    return (
+      <View style={styles.metaContainer}>
+        <Text style={styles.metaHeading}>{metaHeading}</Text>
+        <View style={[styles.metaItem, styles.metaItemLast]}>
+          <Text style={styles.metaLabel} wrap={false}>
+            {dateLabel}
+          </Text>
+          <Text style={styles.metaValue}>
+            {formatInvoicePdfDate(invoiceCreatedAtIso)}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.metaContainer}>
@@ -332,6 +349,11 @@ export interface PdfCoverHeaderMetaConfig {
    * on offer PDFs). Backward-compatible: omit for standard invoice output.
    */
   extraRows?: { label: string; value: string }[];
+  /**
+   * `'date_only'`: heading + document date row only (Geschäftsbrief PDFs).
+   * Default `'full'` — invoice/Angebot behaviour unchanged when omitted.
+   */
+  metaGridLayout?: 'full' | 'date_only';
 }
 
 export interface InvoicePdfCoverHeaderProps {

@@ -25,6 +25,10 @@ A separate chevron `SidebarMenuAction` acts as `CollapsibleTrigger`.
 The submenu auto-opens when `pathname.startsWith(item.url)`.
 Example: Abrechnung → `/dashboard/abrechnung`.
 
+## Account section (letters)
+
+- `/dashboard/letters` — **Letters**: table-free business letters (composer + PDF download), English nav label.
+
 ## Abrechnung section (Phase 10)
 
 All billing-related features are consolidated here:

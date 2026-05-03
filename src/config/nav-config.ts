@@ -121,6 +121,13 @@ export const navItems: NavItem[] = [
         url: '/dashboard/fremdfirmen',
         icon: 'fremdfirma',
         shortcut: ['f', 'r']
+      },
+      // Letters live under Account (operational correspondence) — not Abrechnung, which is billing artefacts (Rechnungen, Vorlagen).
+      {
+        title: 'Briefe',
+        url: '/dashboard/letters',
+        icon: 'post',
+        shortcut: ['l', 't']
       }
     ]
   },
