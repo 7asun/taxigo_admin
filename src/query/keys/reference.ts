@@ -59,5 +59,9 @@ export const referenceKeys = {
 
   /** One client's tags in the Preisregeln dialog manager. */
   clientPriceTagsManager: (clientId: string) =>
-    [...referenceKeys.root, 'clientPriceTags', 'manager', clientId] as const
+    [...referenceKeys.root, 'clientPriceTags', 'manager', clientId] as const,
+
+  /** One client's km overrides in the Fahrgast / Preisregeln dialog manager. */
+  clientKmOverridesManager: (clientId: string) =>
+    [...referenceKeys.root, 'clientKmOverrides', 'manager', clientId] as const
 };

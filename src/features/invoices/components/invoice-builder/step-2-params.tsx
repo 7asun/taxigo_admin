@@ -12,14 +12,28 @@
  * On submit, fetches trips and advances to step 3 (line items preview).
  */
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, PlusCircle, XCircle } from 'lucide-react';
+import { CheckIcon } from '@radix-ui/react-icons';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
 import {
   FormControl,
   FormDescription,
@@ -36,6 +50,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import { DateRangePicker } from '@/components/ui/date-time-picker';
 import { invoiceDateRangePresets } from '../../lib/invoice-date-range-presets';
 import { formatLocalDateToYmd, parseYmdToLocalDate } from '@/lib/date-ymd';
@@ -48,6 +63,8 @@ import { resolveRechnungsempfaenger } from '../../lib/resolve-rechnungsempfaenge
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { InvoiceMode } from '../../types/invoice.types';
 import { formatBillingVariantOptionLabel } from '@/features/trips/lib/format-billing-display-label';
+import { useBillingVariantsForPayerQuery } from '@/features/trips/hooks/use-trip-reference-queries';
+import type { BillingVariantOption } from '@/features/trips/types/trip-form-reference.types';
 
 // ─── Local schema for step 2 form ─────────────────────────────────────────────
 // NOTE: Zod v4 — use 'message' instead of 'required_error'
@@ -55,7 +72,10 @@ import { formatBillingVariantOptionLabel } from '@/features/trips/lib/format-bil
 const step2Schema = z.object({
   payer_id: z.string().uuid(),
   billing_type_id: z.string().uuid().nullish().or(z.literal('')),
+  /** Monthly / single_trip: multi-select families; per_client keeps null. */
+  billing_type_ids: z.array(z.string().uuid()).nullable(),
   billing_variant_id: z.string().uuid().nullable().nullish().or(z.literal('')),
+  billing_variant_ids: z.array(z.string().uuid()).nullable(),
   period_from: z.string().min(1, 'Startdatum erforderlich'),
   period_to: z.string().min(1, 'Enddatum erforderlich'),
   client_id: z.string().uuid().nullish().or(z.literal(''))
@@ -89,12 +109,283 @@ interface Step2ParamsProps {
   onNext: (values: {
     payer_id: string;
     billing_type_id: string | null;
+    billing_type_ids: string[] | null;
     billing_variant_id: string | null;
+    billing_variant_ids: string[] | null;
     period_from: string;
     period_to: string;
     client_id: string | null;
     mode: InvoiceMode;
   }) => void;
+}
+
+interface MonthlyVariantSubsetPickerProps {
+  variants: BillingVariantOption[];
+  value: string[] | null;
+  onChange: (next: string[] | null) => void;
+  disabled?: boolean;
+}
+
+interface MonthlyBillingTypesPickerProps {
+  options: { id: string; name: string }[];
+  value: string[] | null;
+  onChange: (next: string[] | null) => void;
+  disabled?: boolean;
+}
+
+/** Popover + Command multi-select for Abrechnungsfamilien (monthly / single_trip). */
+function MonthlyBillingTypesPicker({
+  options,
+  value,
+  onChange,
+  disabled
+}: MonthlyBillingTypesPickerProps) {
+  const [open, setOpen] = useState(false);
+  const selected = useMemo(() => new Set(value ?? []), [value]);
+
+  const triggerLabel = useMemo(() => {
+    const n = selected.size;
+    if (n === 0) return 'Alle Abrechnungsarten';
+    if (n === 1) {
+      const id = [...selected][0]!;
+      const t = options.find((x) => x.id === id);
+      return t?.name ?? '1 Abrechnungsart';
+    }
+    return `${n} Abrechnungsarten gewählt`;
+  }, [selected, options]);
+
+  const toggle = useCallback(
+    (id: string) => {
+      const next = new Set(selected);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      onChange(next.size ? [...next] : null);
+    },
+    [selected, onChange]
+  );
+
+  const clear = useCallback(() => {
+    onChange(null);
+  }, [onChange]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          disabled={disabled}
+          className='h-9 w-full justify-start border-dashed font-normal sm:w-[min(100%,20rem)]'
+        >
+          {selected.size > 0 ? (
+            <span
+              role='button'
+              tabIndex={0}
+              className='focus-visible:ring-ring mr-1 inline-flex rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+              aria-label='Abrechnungsarten-Auswahl zurücksetzen'
+              onClick={(e) => {
+                e.stopPropagation();
+                clear();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  clear();
+                }
+              }}
+            >
+              <XCircle className='size-4' />
+            </span>
+          ) : (
+            <PlusCircle className='mr-1 size-4' />
+          )}
+          <span className='truncate'>{triggerLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className='w-[min(calc(100vw-2rem),18rem)] p-0'
+        align='start'
+      >
+        <Command>
+          <CommandInput placeholder='Abrechnungsart suchen…' />
+          <CommandList>
+            <CommandEmpty>Keine Abrechnungsart gefunden.</CommandEmpty>
+            <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+              {options.map((t) => {
+                const isSelected = selected.has(t.id);
+                return (
+                  <CommandItem
+                    key={t.id}
+                    value={`${t.name} ${t.id}`}
+                    onSelect={() => toggle(t.id)}
+                  >
+                    <div
+                      className={cn(
+                        'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : 'opacity-50 [&_svg]:invisible'
+                      )}
+                    >
+                      <CheckIcon className='size-3' />
+                    </div>
+                    <span className='truncate'>{t.name}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+            {selected.size > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup>
+                  <CommandItem
+                    onSelect={() => clear()}
+                    className='justify-center text-center'
+                  >
+                    Auswahl löschen
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            ) : null}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Popover + Command multi-select (monthly only) — pattern aligned with DataTableFacetedFilter, RHF-driven. */
+function MonthlyVariantSubsetPicker({
+  variants,
+  value,
+  onChange,
+  disabled
+}: MonthlyVariantSubsetPickerProps) {
+  const [open, setOpen] = useState(false);
+  const selected = useMemo(() => new Set(value ?? []), [value]);
+
+  const triggerLabel = useMemo(() => {
+    const n = selected.size;
+    if (n === 0) return 'Alle Unterarten';
+    if (n === 1) {
+      const id = [...selected][0]!;
+      const v = variants.find((x) => x.id === id);
+      return v
+        ? formatBillingVariantOptionLabel({
+            name: v.name,
+            billing_type_name: v.billing_type_name ?? ''
+          })
+        : '1 Unterart';
+    }
+    return `${n} Unterarten gewählt`;
+  }, [selected, variants]);
+
+  const toggle = useCallback(
+    (id: string) => {
+      const next = new Set(selected);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      onChange(next.size ? [...next] : null);
+    },
+    [selected, onChange]
+  );
+
+  const clear = useCallback(() => {
+    onChange(null);
+  }, [onChange]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          disabled={disabled}
+          className='h-9 w-full justify-start border-dashed font-normal sm:w-[min(100%,20rem)]'
+        >
+          {selected.size > 0 ? (
+            <span
+              role='button'
+              tabIndex={0}
+              className='focus-visible:ring-ring mr-1 inline-flex rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+              aria-label='Unterartenauswahl zurücksetzen'
+              onClick={(e) => {
+                e.stopPropagation();
+                clear();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  clear();
+                }
+              }}
+            >
+              <XCircle className='size-4' />
+            </span>
+          ) : (
+            <PlusCircle className='mr-1 size-4' />
+          )}
+          <span className='truncate'>{triggerLabel}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className='w-[min(calc(100vw-2rem),18rem)] p-0'
+        align='start'
+      >
+        <Command>
+          <CommandInput placeholder='Unterart suchen…' />
+          <CommandList>
+            <CommandEmpty>Keine Unterart gefunden.</CommandEmpty>
+            <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+              {variants.map((v) => {
+                const isSelected = selected.has(v.id);
+                const label = formatBillingVariantOptionLabel({
+                  name: v.name,
+                  billing_type_name: v.billing_type_name ?? ''
+                });
+                return (
+                  <CommandItem
+                    key={v.id}
+                    value={`${v.name} ${v.code} ${v.id}`}
+                    onSelect={() => toggle(v.id)}
+                  >
+                    <div
+                      className={cn(
+                        'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : 'opacity-50 [&_svg]:invisible'
+                      )}
+                    >
+                      <CheckIcon className='size-3' />
+                    </div>
+                    <span className='truncate'>{label}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+            {selected.size > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup>
+                  <CommandItem
+                    onSelect={() => clear()}
+                    className='justify-center text-center'
+                  >
+                    Auswahl löschen
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            ) : null}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /** Step 2: Payer, date range, billing type, and (per_client) client picker. */
@@ -113,7 +404,9 @@ export function Step2Params({
     defaultValues: {
       payer_id: '',
       billing_type_id: null,
+      billing_type_ids: null,
       billing_variant_id: null,
+      billing_variant_ids: null,
       period_from: '',
       period_to: '',
       client_id: null
@@ -123,27 +416,63 @@ export function Step2Params({
   // Get billing types for the currently selected payer
   const selectedPayerId = form.watch('payer_id');
   const billingTypeIdRaw = form.watch('billing_type_id');
+  const billingTypeIdsRaw = form.watch('billing_type_ids');
   const billingTypeIdNorm =
     billingTypeIdRaw && String(billingTypeIdRaw).length > 0
       ? String(billingTypeIdRaw)
       : null;
+  const monthlyTypeIdsSorted = useMemo(() => {
+    if (!billingTypeIdsRaw?.length) return null;
+    return [...billingTypeIdsRaw].sort();
+  }, [billingTypeIdsRaw]);
+  const monthlySingleTypeId =
+    monthlyTypeIdsSorted?.length === 1 ? monthlyTypeIdsSorted[0]! : null;
   const selectedPayer = payers.find((p) => p.id === selectedPayerId);
   const billingTypes = selectedPayer?.billing_types ?? [];
+
+  const { data: allBillingVariants = [] } = useBillingVariantsForPayerQuery(
+    mode !== 'per_client' ? selectedPayerId : null
+  );
+  const variantsForType = useMemo(
+    () =>
+      monthlySingleTypeId
+        ? allBillingVariants.filter(
+            (v) => v.billing_type_id === monthlySingleTypeId
+          )
+        : [],
+    [allBillingVariants, monthlySingleTypeId]
+  );
 
   const { data: empfaengerCatalog = [], isLoading: empfaengerLoading } =
     useRechnungsempfaengerOptions();
 
   const step2RecipientPreview = useMemo(() => {
     if (!selectedPayerId || !selectedPayer) return null;
-    const bt = billingTypeIdNorm
-      ? selectedPayer.billing_types?.find((b) => b.id === billingTypeIdNorm)
-      : null;
+    let billingTypeRechnungsempfaengerId: string | null | undefined = null;
+    if (mode === 'per_client' && billingTypeIdNorm) {
+      const bt = selectedPayer.billing_types?.find(
+        (b) => b.id === billingTypeIdNorm
+      );
+      billingTypeRechnungsempfaengerId = bt?.rechnungsempfaenger_id ?? null;
+    } else if (mode !== 'per_client' && monthlySingleTypeId) {
+      // why: exactly one family in scope may pin a type-level Empfänger; 0 or 2+ families use payer tier only in this preview.
+      const bt = selectedPayer.billing_types?.find(
+        (b) => b.id === monthlySingleTypeId
+      );
+      billingTypeRechnungsempfaengerId = bt?.rechnungsempfaenger_id ?? null;
+    }
     return resolveRechnungsempfaenger({
       billingVariantRechnungsempfaengerId: null,
-      billingTypeRechnungsempfaengerId: bt?.rechnungsempfaenger_id ?? null,
+      billingTypeRechnungsempfaengerId,
       payerRechnungsempfaengerId: selectedPayer.rechnungsempfaenger_id ?? null
     });
-  }, [selectedPayerId, selectedPayer, billingTypeIdNorm]);
+  }, [
+    selectedPayerId,
+    selectedPayer,
+    mode,
+    billingTypeIdNorm,
+    monthlySingleTypeId
+  ]);
 
   // Watch client_id to fetch historical combinations
   const selectedClientId = form.watch('client_id');
@@ -195,10 +524,25 @@ export function Step2Params({
   };
 
   const onSubmit = (values: Step2Values) => {
+    const billing_variant_ids =
+      mode === 'per_client'
+        ? null
+        : values.billing_variant_ids?.length
+          ? values.billing_variant_ids
+          : null;
+    const billing_type_ids =
+      mode === 'per_client'
+        ? null
+        : values.billing_type_ids?.length
+          ? values.billing_type_ids
+          : null;
     onNext({
       payer_id: values.payer_id,
-      billing_type_id: values.billing_type_id || null,
+      billing_type_id:
+        mode === 'per_client' ? values.billing_type_id || null : null,
+      billing_type_ids,
       billing_variant_id: values.billing_variant_id || null,
+      billing_variant_ids,
       period_from: values.period_from,
       period_to: values.period_to,
       client_id: values.client_id || null,
@@ -244,7 +588,9 @@ export function Step2Params({
                             form.setValue('payer_id', '');
                             form.clearErrors('payer_id');
                             form.setValue('billing_type_id', null);
+                            form.setValue('billing_type_ids', null);
                             form.setValue('billing_variant_id', null);
+                            form.setValue('billing_variant_ids', null);
                           }}
                           onNameChange={() => {}}
                           searchClients={searchClients}
@@ -296,6 +642,9 @@ export function Step2Params({
                               comb?.billing_type_id ?? null,
                               { shouldValidate: true }
                             );
+                            form.setValue('billing_type_ids', null, {
+                              shouldValidate: true
+                            });
                           }}
                         >
                           <FormControl>
@@ -372,7 +721,14 @@ export function Step2Params({
                     <FormControl>
                       <Select
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(id) => {
+                          field.onChange(id);
+                          // why: payer-scoped families — reset all type / variant scope.
+                          form.setValue('billing_type_id', null);
+                          form.setValue('billing_type_ids', null);
+                          form.setValue('billing_variant_id', null);
+                          form.setValue('billing_variant_ids', null);
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder='Kostenträger wählen…' />
@@ -391,44 +747,65 @@ export function Step2Params({
                 )}
               />
 
-              {/* Billing type filter (optional) */}
+              {/* Abrechnungsfamilien (optional, multi) — monthly never mirrors into billing_type_id. */}
               {billingTypes.length > 0 && (
                 <FormField
                   control={form.control}
-                  name='billing_type_id'
+                  name='billing_type_ids'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Abrechnungsart (optional)</FormLabel>
+                      <FormLabel>Abrechnungsarten (optional)</FormLabel>
                       <FormControl>
-                        <Select
-                          value={field.value ?? 'all'}
-                          onValueChange={(val) =>
-                            field.onChange(val === 'all' ? null : val)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder='Alle Abrechnungsarten' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='all'>
-                              Alle Abrechnungsarten
-                            </SelectItem>
-                            {billingTypes.map((bt) => (
-                              <SelectItem key={bt.id} value={bt.id}>
-                                {bt.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <MonthlyBillingTypesPicker
+                          options={billingTypes.map((bt) => ({
+                            id: bt.id,
+                            name: bt.name
+                          }))}
+                          value={field.value ?? null}
+                          onChange={(next) => {
+                            field.onChange(next);
+                            const len = next?.length ?? 0;
+                            // why: Unterarten subset only meaningful relative to one Abrechnungsart.
+                            if (len !== 1) {
+                              form.setValue('billing_variant_ids', null);
+                              form.setValue('billing_variant_id', null);
+                            }
+                          }}
+                          disabled={isLoadingTrips}
+                        />
                       </FormControl>
                       <FormDescription>
-                        Nur Fahrten dieser Abrechnungsart einbeziehen.
+                        Leer = alle Abrechnungsarten dieses Kostenträgers.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               )}
+
+              {monthlySingleTypeId && variantsForType.length > 0 ? (
+                <FormField
+                  control={form.control}
+                  name='billing_variant_ids'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Unterarten (optional)</FormLabel>
+                      <FormControl>
+                        <MonthlyVariantSubsetPicker
+                          variants={variantsForType}
+                          value={field.value ?? null}
+                          onChange={field.onChange}
+                          disabled={isLoadingTrips}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Leer = alle Unterarten der gewählten Abrechnungsart.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
             </>
           )}
 

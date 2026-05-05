@@ -6,6 +6,7 @@
  * sofort stimmen — nicht nur der Klick-Snapshot aus der Elternliste.
  */
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Pencil,
   Plus,
@@ -60,6 +61,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { Switch } from '@/components/ui/switch';
+import { createClient } from '@/lib/supabase/client';
+import { referenceKeys } from '@/query/keys';
+import { PAYERS_QUERY_KEY } from '../hooks/use-payers';
+import { updatePayerManualKmEnabled } from '../api/payers.service';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
 import { useBillingPricingRules } from '../hooks/use-billing-pricing-rules';
@@ -95,6 +101,9 @@ export function PayerDetailsSheet({
     isDeleting
   } = useBillingTypes(payer?.id);
   const { data: payersList, updatePayer, isUpdating } = usePayers();
+  const queryClient = useQueryClient();
+  const supabase = useMemo(() => createClient(), []);
+  const [manualKmToggleBusy, setManualKmToggleBusy] = useState(false);
   const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
   const [variantDialog, setVariantDialog] = useState<{
     familyId: string;
@@ -199,6 +208,21 @@ export function PayerDetailsSheet({
       setIsEditing(false);
     } catch {
       toast.error('Fehler beim Aktualisieren');
+    }
+  };
+
+  const handleManualKmEnabledChange = async (checked: boolean) => {
+    if (!displayPayer) return;
+    setManualKmToggleBusy(true);
+    try {
+      await updatePayerManualKmEnabled(displayPayer.id, checked, supabase);
+      await queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      await queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
+      toast.success('Einstellung gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    } finally {
+      setManualKmToggleBusy(false);
     }
   };
 
@@ -462,6 +486,28 @@ export function PayerDetailsSheet({
                 setzen (Kaskade in Verhalten / Unterart). Wird sofort
                 gespeichert.
               </p>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='min-w-0 flex-1'>
+                  <label
+                    htmlFor='payer-manual-km'
+                    className='text-muted-foreground mb-1 block text-xs font-medium tracking-wide uppercase'
+                  >
+                    Manuelle KM-Eingabe
+                  </label>
+                  <p className='text-muted-foreground text-xs'>
+                    Zeigt in Schritt 3 ein KM-Eingabefeld pro Fahrt an.
+                  </p>
+                </div>
+                <Switch
+                  id='payer-manual-km'
+                  checked={displayPayer.manual_km_enabled ?? false}
+                  disabled={isUpdating || manualKmToggleBusy}
+                  onCheckedChange={(v) => void handleManualKmEnabledChange(v)}
+                />
+              </div>
             </div>
 
             <div className='bg-card rounded-xl border p-5 shadow-sm'>

@@ -51,6 +51,8 @@ type EditingState = {
   approachValue: string;
 } | null;
 
+type KmEditingState = { position: number; value: string } | null;
+
 function priceResolutionBadge(
   item: BuilderLineItem
 ): { label: string; className: string } | null {
@@ -153,6 +155,8 @@ interface Step3LineItemsProps {
   ) => void;
   /** Called when the admin resets a manual override back to engine-computed price. */
   onResetOverride: (position: number) => void;
+  onApplyKmOverride: (position: number, km: number) => void;
+  onResetKmOverride: (position: number) => void;
 }
 
 /**
@@ -167,9 +171,12 @@ export function Step3LineItems({
   isLoadingTrips,
   onConfirm,
   onApplyGrossOverride,
-  onResetOverride
+  onResetOverride,
+  onApplyKmOverride,
+  onResetKmOverride
 }: Step3LineItemsProps) {
   const [editing, setEditing] = useState<EditingState>(null);
+  const [kmEditing, setKmEditing] = useState<KmEditingState>(null);
   // Per-row `Collapsible` + `Set`: multiple rows may stay open so the admin
   // can compare two trips side-by-side. Accordion `type="single"` would close
   // the other row and is intentionally avoided.
@@ -178,6 +185,8 @@ export function Step3LineItems({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const editingRef = useRef<EditingState>(null);
+  const kmEditingRef = useRef<KmEditingState>(null);
+  const kmCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -200,6 +209,60 @@ export function Step3LineItems({
   // does not commit mid-edit; clearing the timer on focus **must** be gated by row
   // position, otherwise focusing another row's input cancels row A's pending commit.
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const beginKmEditing = (item: BuilderLineItem) => {
+    const value =
+      item.effective_distance_km != null
+        ? String(item.effective_distance_km)
+        : '';
+    const newState = { position: item.position, value };
+    kmEditingRef.current = newState;
+    setKmEditing(newState);
+  };
+
+  const cancelKmEdit = () => {
+    if (kmCommitTimerRef.current) clearTimeout(kmCommitTimerRef.current);
+    kmEditingRef.current = null;
+    setKmEditing(null);
+  };
+
+  const commitKmEdit = (state: KmEditingState) => {
+    if (!state) return;
+    const parsed = parseFloat(state.value.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      cancelKmEdit();
+      return;
+    }
+    onApplyKmOverride(state.position, parsed);
+    kmEditingRef.current = null;
+    setKmEditing(null);
+  };
+
+  const handleKmBlur = (state: KmEditingState) => {
+    kmCommitTimerRef.current = setTimeout(() => {
+      commitKmEdit(state);
+    }, 0);
+  };
+
+  const handleKmFocus = (focusedPosition: number) => {
+    if (
+      kmCommitTimerRef.current &&
+      kmEditingRef.current?.position === focusedPosition
+    ) {
+      clearTimeout(kmCommitTimerRef.current);
+    }
+  };
+
+  const blurKmIfThisRow = (position: number) => {
+    const snap = kmEditingRef.current;
+    if (snap?.position === position) handleKmBlur(snap);
+  };
+
+  const commitKmIfThisRow = (position: number) => {
+    if (kmCommitTimerRef.current) clearTimeout(kmCommitTimerRef.current);
+    const snap = kmEditingRef.current;
+    if (snap?.position === position) commitKmEdit(snap);
+  };
 
   // Blur reads `editingRef.current`, kept in sync synchronously with `setEditing`
   // so the first focus→blur before paint never sees a stale null.
@@ -337,6 +400,8 @@ export function Step3LineItems({
             >
               {lineItems.map((item) => {
                 const isEditingThisRow = editing?.position === item.position;
+                const isKmEditingThisRow =
+                  kmEditing?.position === item.position;
                 const grossDisplay = lineItemGrossTotalForDisplay(item);
                 const badge = priceResolutionBadge(item);
                 // Chevron only: editing Bruttopreis in the collapsed row does not
@@ -344,12 +409,12 @@ export function Step3LineItems({
                 const expanded = openRows.has(item.position);
 
                 // Radix passes the desired open state; we only drop from `openRows`
-                // on close when not editing — otherwise deleting while the admin
-                // still has draft values in the detail inputs would desync state.
+                // on close when not editing price/Anfahrt and not editing KM — otherwise
+                // draft values would desync from controlled `open`.
                 const handleCollapsibleOpenChange = (next: boolean) => {
                   if (next) {
                     ensureRowOpen(item.position);
-                  } else if (!isEditingThisRow) {
+                  } else if (!isEditingThisRow && !isKmEditingThisRow) {
                     setOpenRows((prev) => {
                       const n = new Set(prev);
                       n.delete(item.position);
@@ -370,6 +435,13 @@ export function Step3LineItems({
                     : item.approach_fee_gross != null &&
                         item.approach_fee_gross !== undefined
                       ? formatEurInput(item.approach_fee_gross)
+                      : '';
+
+                const kmInputValue =
+                  isKmEditingThisRow && kmEditing
+                    ? kmEditing.value
+                    : item.effective_distance_km != null
+                      ? String(item.effective_distance_km)
                       : '';
 
                 // why: three border states so missing price (destructive) wins over manual amber, not just override vs default.
@@ -398,7 +470,7 @@ export function Step3LineItems({
                     >
                       <div
                         className={cn(
-                          'grid grid-cols-[1fr_1fr_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
+                          'grid grid-cols-[1fr_auto_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
                         )}
                       >
                         <div className='flex min-w-0 flex-col'>
@@ -419,18 +491,91 @@ export function Step3LineItems({
                           </span>
                         </div>
 
-                        {/* pt = one text-sm line-height so pickup aligns with client name */}
-                        <div className='flex min-w-0 flex-col pt-[1.25rem]'>
-                          <span className='text-foreground truncate text-xs'>
-                            {item.pickup_address ?? '—'}
-                          </span>
-                          <span className='text-muted-foreground truncate text-xs'>
-                            {item.dropoff_address ?? '—'}
-                          </span>
+                        <div className='flex min-w-24 flex-col items-end gap-1'>
+                          {/* why: same min-h as price column meta row so both inputs start at the same y. */}
+                          <div className='flex min-h-4 w-full items-center justify-end'>
+                            <span className='text-muted-foreground text-[10px] whitespace-nowrap tabular-nums'>
+                              {item.original_distance_km != null
+                                ? `${item.original_distance_km.toFixed(1)} km`
+                                : item.distance_km != null
+                                  ? `${item.distance_km.toFixed(1)} km`
+                                  : '—'}
+                            </span>
+                          </div>
+                          {item.manual_km_enabled ? (
+                            <div className='flex items-center gap-1'>
+                              <Input
+                                type='text'
+                                inputMode='decimal'
+                                aria-label='Manuelle Distanz in km'
+                                className='h-7 w-24 shrink-0 text-right text-sm tabular-nums'
+                                value={kmInputValue}
+                                placeholder='km'
+                                onFocus={() => {
+                                  handleKmFocus(item.position);
+                                  if (!isKmEditingThisRow) beginKmEditing(item);
+                                }}
+                                onChange={(e) => {
+                                  if (isKmEditingThisRow) {
+                                    setKmEditing((prev) => {
+                                      const next = prev
+                                        ? { ...prev, value: e.target.value }
+                                        : prev;
+                                      kmEditingRef.current = next;
+                                      return next;
+                                    });
+                                  } else {
+                                    const next = {
+                                      position: item.position,
+                                      value: e.target.value
+                                    };
+                                    kmEditingRef.current = next;
+                                    setKmEditing(next);
+                                  }
+                                }}
+                                onBlur={() => blurKmIfThisRow(item.position)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    commitKmIfThisRow(item.position);
+                                  }
+                                  if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    cancelKmEdit();
+                                  }
+                                }}
+                              />
+                              <span className='text-muted-foreground shrink-0 text-[10px]'>
+                                km
+                              </span>
+                            </div>
+                          ) : null}
+                          {item.isManualKmOverride ? (
+                            <div className='flex items-center gap-1'>
+                              <Badge
+                                variant='outline'
+                                className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                              >
+                                KM manuell
+                              </Badge>
+                              <button
+                                type='button'
+                                aria-label='Manuellen KM zurücksetzen'
+                                className='text-muted-foreground hover:text-foreground'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  cancelKmEdit();
+                                  onResetKmOverride(item.position);
+                                }}
+                              >
+                                <X className='h-3 w-3' />
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
 
-                        <div className='flex shrink-0 flex-col items-end gap-0.5'>
-                          <div className='flex items-center gap-1'>
+                        <div className='flex shrink-0 flex-col items-end gap-1'>
+                          <div className='flex min-h-4 items-center justify-end gap-1'>
                             {(item.isManualOverride ||
                               item.price_resolution.source ===
                                 'manual_gross_price') && (
@@ -483,7 +628,7 @@ export function Step3LineItems({
                             type='text'
                             inputMode='decimal'
                             aria-label='Bruttopreis'
-                            className='h-7 w-24 text-right text-sm tabular-nums'
+                            className='h-7 w-24 shrink-0 text-right text-sm tabular-nums'
                             value={grossInputValue}
                             placeholder='Betrag'
                             onFocus={() => {
@@ -525,12 +670,6 @@ export function Step3LineItems({
                               }
                             }}
                           />
-
-                          <span className='text-muted-foreground text-[10px] tabular-nums'>
-                            {item.distance_km != null
-                              ? `${item.distance_km.toFixed(1)} km`
-                              : '—'}
-                          </span>
                         </div>
                       </div>
 
@@ -554,6 +693,14 @@ export function Step3LineItems({
 
                       <CollapsibleContent>
                         <div className='bg-muted/30 border-border space-y-2 border-t px-4 pt-2 pb-3'>
+                          <div className='text-muted-foreground grid grid-cols-2 gap-x-3 border-b pb-3 text-sm'>
+                            <span className='truncate'>
+                              {item.pickup_address ?? '—'}
+                            </span>
+                            <span className='truncate'>
+                              {item.dropoff_address ?? '—'}
+                            </span>
+                          </div>
                           <div className='flex flex-wrap items-center gap-2'>
                             {item.line_date && (
                               <span className='text-muted-foreground text-xs'>

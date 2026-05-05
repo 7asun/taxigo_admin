@@ -37,7 +37,11 @@ export interface InvoiceBuilderStep2Snapshot {
   mode: InvoiceMode;
   payer_id: string;
   billing_type_id: string | null;
+  /** Monthly scope; preview parity — header billing_type_id stays null for non–per_client. */
+  billing_type_ids: string[] | null;
   billing_variant_id: string | null;
+  /** Monthly subset selection for preview parity; fetch-only, not on invoice header. */
+  billing_variant_ids: string[] | null;
   period_from: string;
   period_to: string;
   client_id: string | null;
@@ -62,6 +66,9 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
     pickup_address: item.pickup_address,
     dropoff_address: item.dropoff_address,
     distance_km: item.distance_km,
+    // why: draft PDF must mirror persisted invoice_line_items snapshot shape (§14 audit).
+    effective_distance_km: item.effective_distance_km ?? null,
+    original_distance_km: item.original_distance_km ?? null,
     unit_price: u,
     quantity: q,
     approach_fee_net: item.approach_fee_net ?? null,
@@ -173,7 +180,8 @@ export function buildDraftInvoiceDetailForPdf(params: {
     company_id: companyId,
     invoice_number: placeholderInvoiceNumber,
     payer_id: step2.payer_id,
-    billing_type_id: step2.billing_type_id,
+    // why: monthly scope is array-driven; draft header must match insert (null for non–per_client).
+    billing_type_id: step2.mode === 'per_client' ? step2.billing_type_id : null,
     billing_variant_id: step2.billing_variant_id,
     mode: step2.mode,
     client_id: step2.client_id,

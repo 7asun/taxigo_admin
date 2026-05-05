@@ -45,6 +45,10 @@ export function formatPricingRuleConfigSummary(
         const base = 'Kunde Preis-Tag (Brutto)';
         return `${base}${approachSuffix(cfg, fmt)}`;
       }
+      case 'client_km_override': {
+        const base = 'KM-Override (Abrechnungsstrecke)';
+        return `${base}${approachSuffix(cfg, fmt)}`;
+      }
       // config: {} plus optional approach_fee_net
       case 'manual_trip_price': {
         return `Manuell${approachSuffix(cfg, fmt)}`;

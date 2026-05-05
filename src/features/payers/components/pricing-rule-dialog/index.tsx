@@ -53,6 +53,7 @@ import { Step1StrategyPicker } from './step1-strategy-picker';
 import { Step2RuleConfig } from './step2-rule-config';
 import { Step2ScopePicker } from './step2-scope-picker';
 import { ClientPriceTagStep } from './client-price-tag-step';
+import { ClientKmOverrideStep } from './client-km-override-step';
 
 export { PRICING_STRATEGY_LABELS_DE };
 
@@ -102,7 +103,10 @@ export function PricingRuleDialog({
       setStep(2);
       return;
     }
-    if (initialStrategy === 'client_price_tag') {
+    if (
+      initialStrategy === 'client_price_tag' ||
+      initialStrategy === 'client_km_override'
+    ) {
       setStep(2);
     } else {
       setStep(1);
@@ -111,7 +115,9 @@ export function PricingRuleDialog({
 
   const showScopePicker = !editing && scope === null;
   const effectiveShowScopePicker =
-    showScopePicker && strategy !== 'client_price_tag';
+    showScopePicker &&
+    strategy !== 'client_price_tag' &&
+    strategy !== 'client_km_override';
 
   useEffect(() => {
     if (!open || !effectiveShowScopePicker) return;
@@ -268,12 +274,22 @@ export function PricingRuleDialog({
   const showStep2 = !!editing || step === 2;
   const isClientPriceManager =
     !editing && step === 2 && strategy === 'client_price_tag';
+  const isClientKmOverrideManager =
+    !editing && step === 2 && strategy === 'client_km_override';
   const showBillingRuleStep2 =
-    showStep2 && (editing || strategy !== 'client_price_tag');
+    showStep2 &&
+    (editing ||
+      (strategy !== 'client_price_tag' && strategy !== 'client_km_override'));
   const showWeiter = !editing && step === 1;
   const showSpeichern =
-    !!editing || (step === 2 && strategy !== 'client_price_tag');
-  const showFertig = !editing && step === 2 && strategy === 'client_price_tag';
+    !!editing ||
+    (step === 2 &&
+      strategy !== 'client_price_tag' &&
+      strategy !== 'client_km_override');
+  const showFertig =
+    !editing &&
+    step === 2 &&
+    (strategy === 'client_price_tag' || strategy === 'client_km_override');
   const createNeedsScopeBlockingSubmit =
     !editing && step === 2 && effectiveShowScopePicker && !resolvedCreateScope;
   const submitDisabled =
@@ -283,14 +299,18 @@ export function PricingRuleDialog({
     ? 'Preisregel bearbeiten'
     : isClientPriceManager
       ? 'Kunden-Preise'
-      : 'Neue Preisregel';
+      : isClientKmOverrideManager
+        ? 'KM-Overrides'
+        : 'Neue Preisregel';
   const dialogDescription = editing
     ? strategySummaryLabel
     : isClientPriceManager
       ? 'Preise je Kostenträger oder Unterart — globaler Preis bleibt mit Stammdaten synchron.'
-      : !editing && step === 1
-        ? 'Strategie wählen'
-        : strategySummaryLabel;
+      : isClientKmOverrideManager
+        ? 'Abrechnungsstrecken je Kostenträger oder Unterart pflegen.'
+        : !editing && step === 1
+          ? 'Strategie wählen'
+          : strategySummaryLabel;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
@@ -319,6 +339,15 @@ export function PricingRuleDialog({
 
             {isClientPriceManager && (
               <ClientPriceTagStep
+                busy={busy}
+                initialClientId={initialClientId ?? null}
+                lockClientSelection={lockClientSelection}
+                onSaved={onSaved}
+              />
+            )}
+
+            {isClientKmOverrideManager && (
+              <ClientKmOverrideStep
                 busy={busy}
                 initialClientId={initialClientId ?? null}
                 lockClientSelection={lockClientSelection}

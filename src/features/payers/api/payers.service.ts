@@ -1,5 +1,7 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
+import type { Database } from '@/types/database.types';
 import type {
   BillingFamilyWithVariants,
   BillingTypeBehavior,
@@ -43,7 +45,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, billing_types(count)'
       )
       .order('name');
 
@@ -460,4 +462,21 @@ export class PayersService {
     }
     return rows;
   }
+}
+
+/**
+ * Enables or disables manual KM override input for all trips invoiced under
+ * this payer. When true, Step 3 shows the KM editing column for every trip row
+ * (`payers.manual_km_enabled` on trip fetch).
+ */
+export async function updatePayerManualKmEnabled(
+  payerId: string,
+  enabled: boolean,
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  const { error } = await supabase
+    .from('payers')
+    .update({ manual_km_enabled: enabled })
+    .eq('id', payerId);
+  if (error) throw toQueryError(error);
 }

@@ -26,6 +26,28 @@ export interface InvoiceListFilter {
   kpi_bucket?: 'open' | 'overdue' | 'this_month';
 }
 
+/**
+ * Order-stable variant subset for `tripsForBuilder` cache keys.
+ * // why: same logical subset must hit the same cache entry regardless of click order.
+ */
+export function normalizeTripsForBuilderVariantIdsForQueryKey(
+  ids: string[] | null | undefined
+): string[] | null {
+  if (!ids?.length) return null;
+  return [...ids].sort();
+}
+
+/**
+ * Order-stable billing type ids for `tripsForBuilder` cache keys.
+ * // why: same multi-select must hit one cache entry regardless of selection order.
+ */
+export function normalizeTripsForBuilderTypeIdsForQueryKey(
+  ids: string[] | null | undefined
+): string[] | null {
+  if (!ids?.length) return null;
+  return [...ids].sort();
+}
+
 export const invoiceKeys = {
   /** Root — invalidate to refetch all invoice queries. */
   all: ['invoices'] as const,
@@ -63,11 +85,26 @@ export const invoiceKeys = {
   tripsForBuilder: (params: {
     payer_id: string;
     billing_type_id?: string | null;
+    billing_type_ids?: string[] | null;
     billing_variant_id?: string | null;
+    billing_variant_ids?: string[] | null;
     period_from: string;
     period_to: string;
     client_id?: string | null;
-  }) => ['invoices', 'builder-trips', params] as const,
+  }) =>
+    [
+      'invoices',
+      'builder-trips',
+      {
+        ...params,
+        billing_type_ids: normalizeTripsForBuilderTypeIdsForQueryKey(
+          params.billing_type_ids
+        ),
+        billing_variant_ids: normalizeTripsForBuilderVariantIdsForQueryKey(
+          params.billing_variant_ids
+        )
+      }
+    ] as const,
 
   /**
    * Invoice text blocks (Baukasten) for template management.

@@ -70,9 +70,19 @@ import {
   listClientPriceTagsForManager,
   type ClientPriceTagManagerRow
 } from '@/features/payers/api/client-price-tags.service';
+import {
+  listClientKmOverridesForManager,
+  type ClientKmOverrideManagerRow
+} from '@/features/invoices/api/client-km-overrides.api';
 import { PricingRuleDialog } from '@/features/payers/components/pricing-rule-dialog';
 
 const CLIENT_DETAIL_PRICE_TAGS_IDLE = '__client_detail_idle__';
+const CLIENT_DETAIL_KM_OVERRIDES_IDLE = '__client_detail_km_idle__';
+
+const kmDisplayFormat = new Intl.NumberFormat('de-DE', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2
+});
 
 interface ClientDetailPanelProps {
   clientId: string;
@@ -103,6 +113,7 @@ export function ClientDetailPanel({
   const [rules, setRules] = useState<RecurringRuleWithBillingEmbed[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [priceTagDialogOpen, setPriceTagDialogOpen] = useState(false);
+  const [kmOverrideDialogOpen, setKmOverrideDialogOpen] = useState(false);
 
   // After creating a new client, we receive the saved Client object and update
   // the active clientId to the real UUID. We store it locally here and also
@@ -135,11 +146,15 @@ export function ClientDetailPanel({
   }, [clientId, isNew]);
 
   useEffect(() => {
-    if (!activeClientId) setPriceTagDialogOpen(false);
+    if (!activeClientId) {
+      setPriceTagDialogOpen(false);
+      setKmOverrideDialogOpen(false);
+    }
   }, [activeClientId]);
 
   useEffect(() => {
     setPriceTagDialogOpen(false);
+    setKmOverrideDialogOpen(false);
   }, [clientId]);
 
   const handlePriceTagDialogSaved = useCallback(() => {
@@ -149,6 +164,13 @@ export function ClientDetailPanel({
     });
     void queryClient.invalidateQueries({
       queryKey: referenceKeys.allClientPriceTags()
+    });
+  }, [queryClient, activeClientId]);
+
+  const handleKmOverrideDialogSaved = useCallback(() => {
+    if (!activeClientId) return;
+    void queryClient.invalidateQueries({
+      queryKey: referenceKeys.clientKmOverridesManager(activeClientId)
     });
   }, [queryClient, activeClientId]);
 
@@ -174,6 +196,15 @@ export function ClientDetailPanel({
     ),
     queryFn: () =>
       listClientPriceTagsForManager(activeClientId as string, supabase),
+    enabled: !!activeClientId
+  });
+
+  const kmOverridesQuery = useQuery({
+    queryKey: referenceKeys.clientKmOverridesManager(
+      activeClientId ?? CLIENT_DETAIL_KM_OVERRIDES_IDLE
+    ),
+    queryFn: () =>
+      listClientKmOverridesForManager(activeClientId as string, supabase),
     enabled: !!activeClientId
   });
 
@@ -331,6 +362,40 @@ export function ClientDetailPanel({
                 </section>
               )}
 
+              {activeClientId && !isNew && client && (
+                <section className='space-y-2' aria-label='KM-Overrides'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <h3 className='text-sm font-medium tracking-tight'>
+                      KM-Overrides
+                    </h3>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-7 gap-1 px-2 text-xs'
+                      type='button'
+                      onClick={() => setKmOverrideDialogOpen(true)}
+                    >
+                      <Pencil className='mr-1 h-3 w-3' />
+                      Bearbeiten
+                    </Button>
+                  </div>
+                  {kmOverridesQuery.isLoading ? (
+                    <div className='text-muted-foreground flex h-10 items-center text-xs'>
+                      <Loader2 className='mr-2 h-3.5 w-3.5 animate-spin' />
+                      KM-Overrides werden geladen…
+                    </div>
+                  ) : kmOverridesQuery.isError ? (
+                    <p className='text-destructive text-xs'>
+                      KM-Overrides konnten nicht geladen werden.
+                    </p>
+                  ) : (
+                    <ClientKmOverridesPanelBody
+                      rows={kmOverridesQuery.data ?? []}
+                    />
+                  )}
+                </section>
+              )}
+
               {/* Recurring rules — only shown when editing an existing client */}
               {activeClientId && (
                 <RecurringRulesList
@@ -384,16 +449,28 @@ export function ClientDetailPanel({
       </Panel>
 
       {activeClientId && !isNew && (
-        <PricingRuleDialog
-          open={priceTagDialogOpen}
-          onOpenChange={setPriceTagDialogOpen}
-          scope={null}
-          editing={null}
-          initialStrategy='client_price_tag'
-          initialClientId={activeClientId}
-          lockClientSelection
-          onSaved={handlePriceTagDialogSaved}
-        />
+        <>
+          <PricingRuleDialog
+            open={priceTagDialogOpen}
+            onOpenChange={setPriceTagDialogOpen}
+            scope={null}
+            editing={null}
+            initialStrategy='client_price_tag'
+            initialClientId={activeClientId}
+            lockClientSelection
+            onSaved={handlePriceTagDialogSaved}
+          />
+          <PricingRuleDialog
+            open={kmOverrideDialogOpen}
+            onOpenChange={setKmOverrideDialogOpen}
+            scope={null}
+            editing={null}
+            initialStrategy='client_km_override'
+            initialClientId={activeClientId}
+            lockClientSelection
+            onSaved={handleKmOverrideDialogSaved}
+          />
+        </>
       )}
     </>
   );
@@ -405,6 +482,24 @@ function grossFromTag(v: unknown): number {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') return parseFloat(v);
   return Number.NaN;
+}
+
+function kmPanelScopeLabel(row: ClientKmOverrideManagerRow): string {
+  if (!row.payer_id && !row.billing_variant_id) {
+    return 'Global (alle Kostenträger)';
+  }
+  if (row.billing_variant_id && row.billing_variant) {
+    const fam = row.billing_variant.billing_type?.name;
+    const parts = [
+      row.payer?.name,
+      fam ? `${fam} › ${row.billing_variant.name}` : row.billing_variant.name
+    ].filter(Boolean);
+    return parts.join(' › ');
+  }
+  if (row.payer_id && row.payer) {
+    return row.payer.name;
+  }
+  return '—';
 }
 
 function panelScopeLabel(row: ClientPriceTagManagerRow): string {
@@ -423,6 +518,47 @@ function panelScopeLabel(row: ClientPriceTagManagerRow): string {
     return row.payer.name;
   }
   return '—';
+}
+
+interface ClientKmOverridesPanelBodyProps {
+  rows: ClientKmOverrideManagerRow[];
+}
+
+function ClientKmOverridesPanelBody({ rows }: ClientKmOverridesPanelBodyProps) {
+  const active = rows.filter((r) => r.is_active);
+
+  if (active.length === 0) {
+    return (
+      <p className='text-muted-foreground text-xs'>
+        Kein KM-Override hinterlegt
+      </p>
+    );
+  }
+
+  return (
+    <div className='rounded-md border'>
+      <table className='w-full text-sm'>
+        <thead>
+          <tr className='text-muted-foreground border-b text-left text-xs'>
+            <th className='px-3 py-2 font-medium'>Geltungsbereich</th>
+            <th className='px-3 py-2 text-right font-medium'>km</th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((r) => (
+            <tr key={r.id} className='border-b last:border-0'>
+              <td className='text-foreground px-3 py-2'>
+                {kmPanelScopeLabel(r)}
+              </td>
+              <td className='px-3 py-2 text-right font-mono text-xs'>
+                {kmDisplayFormat.format(Number(r.distance_km))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 interface ClientPriceTagsPanelBodyProps {

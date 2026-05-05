@@ -76,6 +76,10 @@ export const billingPricingRuleUpsertSchema = z.discriminatedUnion('strategy', [
     config: emptyConfigSchema
   }),
   z.object({
+    strategy: z.literal('client_km_override'),
+    config: emptyConfigSchema
+  }),
+  z.object({
     strategy: z.literal('tiered_km'),
     config: tieredKmConfigSchema
   }),
@@ -108,6 +112,7 @@ export function parseConfigForStrategy(
 ): unknown {
   switch (strategy) {
     case 'client_price_tag':
+    case 'client_km_override':
     case 'manual_trip_price':
     case 'no_price':
       return emptyConfigSchema.parse(raw ?? {});

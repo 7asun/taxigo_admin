@@ -80,7 +80,7 @@ export interface InvoicePdfSummaryRow {
   descriptionSecondary: string;
   /** Same as descriptionPrimary — PDF catalog `description` column uses dataField `description`. */
   description: string;
-  /** Sum of `distance_km` in group; null if any line has null distance. */
+  /** Sum of billed km (`effective_distance_km` with legacy fallback to `distance_km`); null if any line lacks a value. */
   total_km: number | null;
   /** Sum of `approach_fee_net` (net) in group. */
   approach_costs_net: number;
@@ -106,7 +106,7 @@ interface RouteGroupAgg {
   total_price: number;
   /** Sum of km when all lines have distance; meaningless while `has_null_km`. */
   total_km: number;
-  /** True if any line in the group has null `distance_km`. */
+  /** True if any line in the group has null billed km (effective, else routing snapshot). */
   has_null_km: boolean;
   /** Sum of `approach_fee_net` (null treated as 0). */
   approach_costs_net: number;
@@ -126,6 +126,26 @@ export function buildAddressOnlyRouteKey(
   to: CanonicalPlace
 ): string {
   return `${from.key} -> ${to.key}`;
+}
+
+/**
+ * Human-readable Abrechnungsart label for PDF grouping (`main_layout: grouped_by_billing_type`)
+ * and matching appendix sections.
+ *
+ * // why: Line items always snapshot `billing_type_name` (billing_types.name — e.g. Abreise, Anreise).
+ * The Unterart name (`billing_variant_name`) is often the generic **"Standard"**; using it as the
+ * group label made the PDF show "Standard" instead of the real Abrechnungsfamilie. Legacy rows
+ * without `billing_type_name` keep the previous fallback chain.
+ */
+export function invoicePdfBillingCategoryLabel(
+  item: Pick<
+    InvoiceLineItemRow,
+    'billing_type_name' | 'billing_variant_name' | 'billing_variant_code'
+  >
+): string {
+  const family = item.billing_type_name?.trim();
+  if (family) return family;
+  return item.billing_variant_name ?? item.billing_variant_code ?? 'Unbekannt';
 }
 
 function summaryRowFromAgg(
@@ -212,10 +232,11 @@ export function buildInvoicePdfSummary(
     group.total_price += lineNetEurForPdfLineItem(item);
     group.total_gross += lineGrossEurForPdfLineItem(item);
     group.approach_costs_net += item.approach_fee_net ?? 0;
-    if (item.distance_km == null) {
+    const lineKm = item.effective_distance_km ?? item.distance_km;
+    if (lineKm == null) {
       group.has_null_km = true;
     } else if (!group.has_null_km) {
-      group.total_km += Number(item.distance_km);
+      group.total_km += Number(lineKm);
     }
   });
 
@@ -303,10 +324,11 @@ export function buildInvoicePdfSingleRow(
     count += 1;
     totalGrossAccum += lineGrossEurForPdfLineItem(item);
     approachNet += item.approach_fee_net ?? 0;
-    if (item.distance_km == null) {
+    const lineKm = item.effective_distance_km ?? item.distance_km;
+    if (lineKm == null) {
       hasNullKm = true;
     } else if (!hasNullKm) {
-      totalKm += Number(item.distance_km);
+      totalKm += Number(lineKm);
     }
   }
 
@@ -334,14 +356,12 @@ export function buildInvoicePdfSingleRow(
 }
 
 /**
- * Groups invoice line items by Abrechnungsart (billing variant) + tax rate, producing one
- * `InvoicePdfSummaryRow` per unique `(billing_variant_name ?? billing_variant_code ?? 'Unbekannt',
- * tax_rate)` combination.
+ * Groups invoice line items by Abrechnungsfamilie + tax rate, producing one
+ * `InvoicePdfSummaryRow` per unique `(invoicePdfBillingCategoryLabel(item), tax_rate)` combination.
  *
- * **Label source:** `billing_variant_name` is the snapshotted Unterart name (`billing_variants.name`)
- * at invoice creation time. This layout intentionally groups at Unterart level so the PDF clearly
- * shows the leaf billing classification (e.g. “Deutsche Rentenversicherung”). Falls back to
- * `billing_variant_code`, then `'Unbekannt'`.
+ * **Label source:** Prefer snapshotted **`billing_type_name`** (`billing_types.name` — e.g. Abreise,
+ * Anreise). Falls back to `billing_variant_name` / `billing_variant_code` when the family name was
+ * not stored (legacy). See {@link invoicePdfBillingCategoryLabel}.
  *
  * **Why the composite key includes `tax_rate`:**
  * Including the tax rate in the key ensures every output row has exactly one MwSt. rate — no
@@ -350,18 +370,18 @@ export function buildInvoicePdfSingleRow(
  * the `tax_rate` column. No `console.warn` or special-case logic is needed.
  *
  * **Example:**
- * - Input: 80 × "Krankenfahrt" at 7%, 4 × "Krankenfahrt" at 19%, 32 × "Dialyse" at 7%.
+ * - Input: 80 × family "Krankenfahrt" at 7%, 4 × same at 19%, 32 × "Dialyse" at 7%.
  * - Output: row 1 → Krankenfahrt 7%, row 2 → Krankenfahrt 19%, row 3 → Dialyse 7%.
  *
- * **`descriptionPrimary` / `description`:** the billing variant label only (e.g. "Krankenfahrt").
+ * **`descriptionPrimary` / `description`:** the Abrechnungsfamilie label (or legacy variant label).
  * The tax rate is already shown by the `tax_rate` column — do not repeat it in the label.
  *
  * **`from` / `to`:** set to `EMPTY_CANONICAL_PLACE`. Origin/destination addresses are not
  * meaningful at billing-category level; the `route_leistung` grouped column renderer will show
  * the description text only (primary with empty secondary).
  *
- * **`total_km`:** `null` when **any** trip in the group has a `null` `distance_km`. This mirrors
- * route-group semantics — a partial km sum would be misleading, so the whole group shows `—`.
+ * **`total_km`:** `null` when **any** trip in the group has a `null` billed km (`effective_distance_km`,
+ * with legacy fallback to `distance_km`). A partial km sum would be misleading, so the whole group shows `—`.
  *
  * @param lineItems — persisted `InvoiceLineItemRow[]` from `invoice.line_items`.
  * @returns sorted array of `InvoicePdfSummaryRow` alphabetically by label (de-DE), then by tax_rate ascending.
@@ -370,7 +390,7 @@ export function buildInvoicePdfGroupedByBillingType(
   lineItems: InvoiceLineItemRow[]
 ): InvoicePdfSummaryRow[] {
   interface BillingTypeAgg {
-    /** Human-readable label shown in the PDF description column (billing_types.name). */
+    /** Human-readable label — {@link invoicePdfBillingCategoryLabel} (family first). */
     label: string;
     count: number;
     total_price: number;
@@ -384,10 +404,7 @@ export function buildInvoicePdfGroupedByBillingType(
   const groups: Record<string, BillingTypeAgg> = {};
 
   lineItems.forEach((item) => {
-    // Group key/label is Unterart (billing_variants.name) snapshot.
-    // Fallback: use billing_variant_code if name is missing.
-    const label =
-      item.billing_variant_name ?? item.billing_variant_code ?? 'Unbekannt';
+    const label = invoicePdfBillingCategoryLabel(item);
     // Composite key: label + tax_rate guarantees no mixed-rate rows within a group.
     const key = `${label}__${item.tax_rate}`;
 
@@ -409,10 +426,11 @@ export function buildInvoicePdfGroupedByBillingType(
     g.total_price += lineNetEurForPdfLineItem(item);
     g.total_gross += lineGrossEurForPdfLineItem(item);
     g.approach_costs_net += item.approach_fee_net ?? 0;
-    if (item.distance_km == null) {
+    const lineKm = item.effective_distance_km ?? item.distance_km;
+    if (lineKm == null) {
       g.has_null_km = true;
     } else if (!g.has_null_km) {
-      g.total_km += Number(item.distance_km);
+      g.total_km += Number(lineKm);
     }
   });
 
@@ -451,7 +469,7 @@ export function buildInvoicePdfGroupedByBillingType(
 }
 
 /**
- * Groups flat line items by billing_variant_name for the appendix.
+ * Groups flat line items by {@link invoicePdfBillingCategoryLabel} for the appendix.
  * Returns ordered groups preserving original position order within each group.
  * Used by InvoicePdfAppendix when main_layout === 'grouped_by_billing_type'.
  * Does NOT affect column selection — columnProfile.appendix_columns is unchanged.
@@ -463,8 +481,7 @@ export function groupLineItemsByBillingType(
   const map = new Map<string, InvoiceLineItemRow[]>();
 
   for (const item of lineItems) {
-    const label =
-      item.billing_variant_name ?? item.billing_variant_code ?? 'Unbekannt';
+    const label = invoicePdfBillingCategoryLabel(item);
     if (!map.has(label)) {
       map.set(label, []);
       order.push(label);

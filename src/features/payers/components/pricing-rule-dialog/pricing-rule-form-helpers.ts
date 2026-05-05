@@ -101,6 +101,7 @@ export function buildApiPayload(v: PricingRuleFormValues): {
 
   switch (v.strategy) {
     case 'client_price_tag':
+    case 'client_km_override':
     case 'manual_trip_price':
     case 'no_price':
       return {
