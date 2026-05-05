@@ -53,7 +53,8 @@ function stripLegacyKeys(
     header: c.header,
     preset: c.preset,
     required: c.required,
-    formula: c.formula
+    formula: c.formula,
+    role: c.role
   }));
 }
 

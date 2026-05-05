@@ -28,7 +28,10 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { AngebotColumnDef } from '@/features/angebote/types/angebot.types';
-import { COLUMN_PRESET_UI } from '@/features/angebote/lib/angebot-column-presets';
+import {
+  ANGEBOT_COLUMN_ROLE_UI,
+  COLUMN_PRESET_UI
+} from '@/features/angebote/lib/angebot-column-presets';
 
 function SortableChip({
   id,
@@ -168,6 +171,14 @@ export function SortableAngebotColumnList({
                   <span className='truncate text-sm'>
                     {COLUMN_PRESET_UI[col.preset].emoji} {col.header}
                   </span>
+                  {col.role ? (
+                    <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]'>
+                      {ANGEBOT_COLUMN_ROLE_UI[col.role].group === 'computed'
+                        ? '⚙ '
+                        : ''}
+                      {ANGEBOT_COLUMN_ROLE_UI[col.role].label}
+                    </span>
+                  ) : null}
                   {col.preset === 'percent' ? (
                     <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]'>
                       Legacy

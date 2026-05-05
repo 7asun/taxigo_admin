@@ -9,6 +9,8 @@ export type InsertRecurringRule =
 export type UpdateRecurringRule =
   Database['public']['Tables']['recurring_rules']['Update'];
 
+/** Creates/updates via [`recurring-rules.actions.ts`](./recurring-rules.actions.ts) — server geocoding (Plan C). */
+
 /** List rows: `billing_variant` join for `formatBillingDisplayLabel` (same embed shape as trips). */
 export type RecurringRuleWithBillingEmbed = RecurringRule & {
   billing_variant: {
@@ -59,31 +61,6 @@ export const recurringRulesService = {
 
     if (error) throw error;
     return data as RecurringRule | null;
-  },
-
-  async createRule(rule: InsertRecurringRule) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('recurring_rules')
-      .insert(rule)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as RecurringRule;
-  },
-
-  async updateRule(id: string, rule: UpdateRecurringRule) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('recurring_rules')
-      .update(rule)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as RecurringRule;
   },
 
   async deleteRule(id: string, deleteFutureTrips: boolean = false) {

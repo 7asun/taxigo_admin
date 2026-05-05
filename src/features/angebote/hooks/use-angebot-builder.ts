@@ -12,7 +12,7 @@
  * step components in the parent — this hook only owns line items and mutations.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -20,6 +20,7 @@ import { angebotKeys } from '@/query/keys';
 import {
   createAngebot,
   replaceAngebotLineItems,
+  updateDraftAngebotSchema,
   updateAngebot
 } from '../api/angebote.api';
 import { ANGEBOT_LEGACY_COLUMN_IDS } from '../lib/angebot-legacy-column-ids';
@@ -29,6 +30,10 @@ import type {
   AngebotLineItemRow,
   UpdateAngebotPayload
 } from '../types/angebot.types';
+
+export const DEFAULT_TOTALS_LABEL_NET = 'Summe Netto';
+export const DEFAULT_TOTALS_LABEL_TAX = 'zzgl. MwSt';
+export const DEFAULT_TOTALS_LABEL_GROSS = 'Gesamtbetrag (Brutto)';
 
 export interface BuilderLineItem {
   position: number;
@@ -73,8 +78,18 @@ export interface UseAngebotBuilderOptions {
   mode?: 'create' | 'edit';
   angebotId?: string;
   initialLineItems?: BuilderLineItem[];
+  initialShowTotalsBlock?: boolean;
+  initialInputMode?: 'net' | 'gross';
+  initialTotalsLabelNet?: string | null;
+  initialTotalsLabelTax?: string | null;
+  initialTotalsLabelGross?: string | null;
   /** Resolved template / snapshot columns — returned unchanged for Step 2 + payload builders. */
   columnSchema: AngebotColumnDef[];
+  /**
+   * Optional: live Vorlage columns to persist back to table_schema_snapshot on edit-save.
+   * Only pass this for draft edit flows; the API write path has a DB guard (`status='draft'`).
+   */
+  liveColumnSchema?: AngebotColumnDef[];
   onSuccess: (id: string) => void;
 }
 
@@ -82,11 +97,52 @@ export function useAngebotBuilder({
   mode = 'create',
   angebotId,
   initialLineItems,
+  initialShowTotalsBlock,
+  initialInputMode,
+  initialTotalsLabelNet,
+  initialTotalsLabelTax,
+  initialTotalsLabelGross,
   columnSchema,
+  liveColumnSchema,
   onSuccess
 }: UseAngebotBuilderOptions) {
   const queryClient = useQueryClient();
   const isEdit = mode === 'edit';
+
+  // WHY: input mode is a per-quote setting; gross mode reinterprets entered prices (but does not change editability).
+  const initialInputModeRef = useRef<'net' | 'gross'>(
+    initialInputMode ?? 'net'
+  );
+  const [inputMode, setInputMode] = useState<'net' | 'gross'>(
+    initialInputModeRef.current
+  );
+
+  // WHY: totals-block visibility is a per-quote setting, independent from schema/rows.
+  const initialShowTotalsBlockRef = useRef(initialShowTotalsBlock ?? false);
+  const [showTotalsBlock, setShowTotalsBlock] = useState(
+    initialShowTotalsBlockRef.current
+  );
+
+  // WHY: labels are stored nullable in DB (null → app default), but the builder always edits strings.
+  const initialTotalsLabelNetRef = useRef<string | null>(
+    initialTotalsLabelNet ?? null
+  );
+  const initialTotalsLabelTaxRef = useRef<string | null>(
+    initialTotalsLabelTax ?? null
+  );
+  const initialTotalsLabelGrossRef = useRef<string | null>(
+    initialTotalsLabelGross ?? null
+  );
+
+  const [totalsLabelNet, setTotalsLabelNet] = useState(
+    initialTotalsLabelNetRef.current ?? DEFAULT_TOTALS_LABEL_NET
+  );
+  const [totalsLabelTax, setTotalsLabelTax] = useState(
+    initialTotalsLabelTaxRef.current ?? DEFAULT_TOTALS_LABEL_TAX
+  );
+  const [totalsLabelGross, setTotalsLabelGross] = useState(
+    initialTotalsLabelGrossRef.current ?? DEFAULT_TOTALS_LABEL_GROSS
+  );
 
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>(() =>
     initialLineItems && initialLineItems.length > 0
@@ -157,8 +213,26 @@ export function useAngebotBuilder({
       if (!angebotId) {
         throw new Error('angebotId fehlt.');
       }
-      await updateAngebot(angebotId, header);
+      // WHY: avoid accidentally resetting the input mode on edits that didn't touch it.
+      const inputModeDirty = inputMode !== initialInputModeRef.current;
+      // WHY: avoid accidentally resetting the flag on edits that didn't touch it.
+      const dirty = showTotalsBlock !== initialShowTotalsBlockRef.current;
+      await updateAngebot(
+        angebotId,
+        dirty || inputModeDirty
+          ? {
+              ...header,
+              ...(dirty && { showTotalsBlock }),
+              ...(inputModeDirty && { inputMode })
+            }
+          : header
+      );
       await replaceAngebotLineItems(angebotId, rows);
+      // Draft-only: keep snapshot schema in sync with the live Vorlage once the user saved edits.
+      // Non-draft edits must never overwrite snapshots; the API enforces this via a status='draft' guard.
+      if (liveColumnSchema && liveColumnSchema.length > 0) {
+        await updateDraftAngebotSchema(angebotId, liveColumnSchema);
+      }
     },
     onSuccess: async () => {
       if (!angebotId) return;
@@ -178,6 +252,16 @@ export function useAngebotBuilder({
   return {
     lineItems,
     columnSchema,
+    inputMode,
+    setInputMode,
+    showTotalsBlock,
+    setShowTotalsBlock,
+    totalsLabelNet,
+    setTotalsLabelNet,
+    totalsLabelTax,
+    setTotalsLabelTax,
+    totalsLabelGross,
+    setTotalsLabelGross,
     addLineItem,
     deleteLineItem,
     updateLineItem,

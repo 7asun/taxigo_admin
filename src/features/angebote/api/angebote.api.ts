@@ -27,6 +27,7 @@ import type {
   AngebotStatus,
   AngebotWithLineItems,
   CreateAngebotPayload,
+  DraftSchemaRefreshPayload,
   UpdateAngebotPayload
 } from '../types/angebot.types';
 
@@ -109,6 +110,18 @@ function mapAngebotHeaderFromDb(raw: Record<string, unknown>): AngebotRow {
     company_id: String(raw.company_id),
     angebot_number: String(raw.angebot_number),
     status: raw.status as AngebotStatus,
+    // WHY: defensive coercion — if DB has unexpected values, default to 'net' to preserve legacy behaviour.
+    input_mode: (raw.input_mode === 'gross' ? 'gross' : 'net') as
+      | 'net'
+      | 'gross',
+    // WHY: opt-in totals block must default to false for legacy rows and preserve existing quote PDFs.
+    show_totals_block: raw.show_totals_block === true,
+    totals_label_net:
+      raw.totals_label_net == null ? null : String(raw.totals_label_net),
+    totals_label_tax:
+      raw.totals_label_tax == null ? null : String(raw.totals_label_tax),
+    totals_label_gross:
+      raw.totals_label_gross == null ? null : String(raw.totals_label_gross),
     recipient_company:
       raw.recipient_company == null ? null : String(raw.recipient_company),
     recipient_name:
@@ -252,7 +265,8 @@ export async function createAngebot(
       header: c.header,
       preset: c.preset,
       required: c.required,
-      formula: c.formula
+      formula: c.formula,
+      role: c.role
     }))
   );
 
@@ -264,6 +278,13 @@ export async function createAngebot(
       company_id: payload.companyId,
       angebot_number: angebotNumber,
       status: 'draft',
+      input_mode: payload.inputMode ?? 'net',
+      // WHY: default false keeps existing behavior; totals only appear when explicitly enabled per quote.
+      show_totals_block: payload.showTotalsBlock ?? false,
+      // WHY: nullable DB columns allow changing default labels in the app without rewriting existing rows.
+      totals_label_net: payload.totalsLabelNet ?? null,
+      totals_label_tax: payload.totalsLabelTax ?? null,
+      totals_label_gross: payload.totalsLabelGross ?? null,
       recipient_company: payload.recipient_company ?? null,
       recipient_first_name: payload.recipient_first_name ?? null,
       recipient_last_name: payload.recipient_last_name ?? null,
@@ -290,7 +311,8 @@ export async function createAngebot(
         header: c.header,
         preset: c.preset,
         required: c.required,
-        formula: c.formula
+        formula: c.formula,
+        role: c.role
       })),
       // Explicitly null — new offers use table_schema_snapshot. pdf_column_override is a legacy field for pre-Phase-2a rows only.
       pdf_column_override: null
@@ -341,15 +363,68 @@ export async function updateAngebot(
 ): Promise<AngebotRow> {
   const supabase = createClient();
 
+  // WHY: Supabase updates must never receive UI-only camelCase keys (e.g. showTotalsBlock),
+  // otherwise PostgREST tries to update a non-existent column and the request fails.
+  const {
+    showTotalsBlock,
+    inputMode,
+    totalsLabelNet,
+    totalsLabelTax,
+    totalsLabelGross,
+    ...rest
+  } = payload;
+  const updatePayload = {
+    ...rest,
+    ...(showTotalsBlock !== undefined && {
+      show_totals_block: showTotalsBlock
+    }),
+    ...(inputMode !== undefined && { input_mode: inputMode }),
+    ...(totalsLabelNet !== undefined && { totals_label_net: totalsLabelNet }),
+    ...(totalsLabelTax !== undefined && { totals_label_tax: totalsLabelTax }),
+    ...(totalsLabelGross !== undefined && {
+      totals_label_gross: totalsLabelGross
+    }),
+    updated_at: new Date().toISOString()
+  };
+
   const { data, error } = await supabase
     .from('angebote')
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', id)
     .select('*')
     .single();
 
   if (error) throw toQueryError(error);
   return mapAngebotHeaderFromDb(data as Record<string, unknown>);
+}
+
+/**
+ * Refreshes table_schema_snapshot for draft offers only.
+ * Must never be called for non-draft status offers.
+ * Separate from updateAngebot to make the draft-only constraint explicit and auditable.
+ */
+export async function updateDraftAngebotSchema(
+  id: string,
+  snapshot: DraftSchemaRefreshPayload['table_schema_snapshot']
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('angebote')
+    .update({
+      table_schema_snapshot: snapshot.map((c) => ({
+        id: c.id,
+        header: c.header,
+        preset: c.preset,
+        required: c.required,
+        formula: c.formula,
+        role: c.role
+      })),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .eq('status', 'draft'); // hard safety guard: only ever updates a draft row
+
+  if (error) throw toQueryError(error);
 }
 
 // ─── Update status ────────────────────────────────────────────────────────────

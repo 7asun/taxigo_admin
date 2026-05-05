@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Lock, Star, Trash2 } from 'lucide-react';
+import { AlertTriangle, Lock, Star, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,13 +32,17 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type {
   AngebotColumnDef,
+  AngebotColumnRole,
   AngebotVorlageRow
 } from '@/features/angebote/types/angebot.types';
 import {
@@ -51,6 +55,8 @@ import {
 } from '@/features/angebote/lib/angebot-auto-columns';
 import type { AngebotColumnPreset } from '@/features/angebote/lib/angebot-column-presets';
 import {
+  ANGEBOT_ROLE_COMPUTED_OPTIONS,
+  ANGEBOT_ROLE_INPUT_OPTIONS,
   COLUMN_PRESET_UI,
   defaultHeaderForPreset,
   resolveColumnLayout
@@ -98,6 +104,7 @@ export function AngebotVorlageEditorPanel({
   const [newPreset, setNewPreset] =
     useState<AngebotColumnPreset>('beschreibung');
   const [newRequired, setNewRequired] = useState(false);
+  const [newRole, setNewRole] = useState<AngebotColumnRole | null>(null);
 
   useEffect(() => {
     if (!vorlage) {
@@ -147,6 +154,19 @@ export function AngebotVorlageEditorPanel({
   const fixedWarn = fixedTotal >= 455 && hasFlex;
   const fixedHardBlock = fixedTotal >= 487 && hasFlex;
 
+  const duplicateRoles = useMemo(() => {
+    const counts = new Map<AngebotColumnRole, number>();
+    for (const c of editableColumns) {
+      if (!c.role) continue;
+      counts.set(c.role, (counts.get(c.role) ?? 0) + 1);
+    }
+    const dups = new Set<AngebotColumnRole>();
+    for (const [role, count] of counts.entries()) {
+      if (count >= 2) dups.add(role);
+    }
+    return dups;
+  }, [editableColumns]);
+
   if (!vorlage) {
     return (
       <Panel className={cn('min-w-0 flex-1', className)}>
@@ -183,6 +203,55 @@ export function AngebotVorlageEditorPanel({
     !editableHeaderTooLong &&
     !fixedHardBlock;
 
+  function RoleSelect({
+    value,
+    onChange,
+    disabled
+  }: {
+    value: AngebotColumnRole | null;
+    onChange: (v: AngebotColumnRole | null) => void;
+    disabled?: boolean;
+  }) {
+    return (
+      <Select
+        disabled={disabled}
+        value={value ?? '__none__'}
+        onValueChange={(v) =>
+          onChange(v === '__none__' ? null : (v as AngebotColumnRole))
+        }
+      >
+        <SelectTrigger>
+          <SelectValue placeholder='Keine Rolle' />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value='__none__'>Keine Rolle</SelectItem>
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectLabel>Eingabe</SelectLabel>
+            {ANGEBOT_ROLE_INPUT_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectLabel>Berechnet ⚙</SelectLabel>
+            {ANGEBOT_ROLE_COMPUTED_OPTIONS.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className='text-muted-foreground'
+              >
+                <span title={opt.description}>{opt.label}</span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    );
+  }
+
   function handleAddColumn() {
     const h = newHeader.trim();
     if (!h) return;
@@ -194,12 +263,14 @@ export function AngebotVorlageEditorPanel({
         id: crypto.randomUUID(),
         header: h.slice(0, 20),
         preset: newPreset,
-        required: newRequired
+        required: newRequired,
+        role: newRole ?? undefined
       }
     ]);
     setNewHeader('');
     setNewPreset('beschreibung');
     setNewRequired(false);
+    setNewRole(null);
   }
 
   return (
@@ -334,6 +405,29 @@ export function AngebotVorlageEditorPanel({
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className='w-[220px] space-y-1'>
+                    <Label className='text-xs font-normal'>
+                      Rolle (optional)
+                    </Label>
+                    <RoleSelect
+                      value={col.role ?? null}
+                      onChange={(value) => {
+                        setColumns((prev) =>
+                          prev.map((c) =>
+                            c.id === col.id
+                              ? { ...c, role: value ?? undefined }
+                              : c
+                          )
+                        );
+                      }}
+                    />
+                    {col.role && duplicateRoles.has(col.role) ? (
+                      <p className='flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400'>
+                        <AlertTriangle className='h-3.5 w-3.5' />
+                        Diese Rolle ist bereits vergeben
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               );
             }}
@@ -391,6 +485,10 @@ export function AngebotVorlageEditorPanel({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-xs'>Rolle (optional)</Label>
+              <RoleSelect value={newRole} onChange={setNewRole} />
             </div>
             <div className='flex items-end gap-2 pb-1'>
               <Checkbox

@@ -46,6 +46,10 @@ import {
   RecurringRule
 } from '@/features/trips/api/recurring-rules.service';
 import {
+  createRecurringRule,
+  updateRecurringRule
+} from '@/features/trips/api/recurring-rules.actions';
+import {
   RecurringRuleFormBody,
   RuleFormValues,
   ruleFormSchema,
@@ -203,14 +207,20 @@ export function RecurringRulePanel({
         if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
           payload.billing_variant_id = null;
         }
-        await recurringRulesService.updateRule(existingRule.id, payload);
+        const { error } = await updateRecurringRule(existingRule.id, payload);
+        if (error) {
+          throw new Error(error);
+        }
         toast.success('Regel erfolgreich aktualisiert');
       } else {
         const payload = { ...ruleData };
         if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
           payload.billing_variant_id = null;
         }
-        await recurringRulesService.createRule(payload);
+        const { error } = await createRecurringRule(payload);
+        if (error) {
+          throw new Error(error);
+        }
         toast.success('Regel erfolgreich erstellt');
       }
 

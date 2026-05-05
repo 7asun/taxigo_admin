@@ -22,8 +22,13 @@ import { AlertTriangle, Eye } from 'lucide-react';
 
 import {
   lineItemsFromAngebotRows,
-  useAngebotBuilder
+  useAngebotBuilder,
+  DEFAULT_TOTALS_LABEL_GROSS,
+  DEFAULT_TOTALS_LABEL_NET,
+  DEFAULT_TOTALS_LABEL_TAX
 } from '../../hooks/use-angebot-builder';
+import { useAngebotVorlagenList } from '../../hooks/use-angebot-vorlagen';
+import { ANGEBOT_POSITION_COLUMN_ID } from '../../lib/angebot-auto-columns';
 import { resolveAngebotPdfColumnSchema } from '../angebot-pdf/AngebotPdfDocument';
 import type {
   AngebotColumnDef,
@@ -35,6 +40,7 @@ import { Step1Empfaenger, type EmpfaengerValues } from './step-1-empfaenger';
 import { Step2Positionen } from './step-2-positionen';
 import { Step3Details, type DetailsValues } from './step-3-details';
 import { useAngebotBuilderPdfPreview } from './use-angebot-builder-pdf-preview';
+import { computeRow, isComputedColumn } from '../../lib/angebot-formula-engine';
 
 function defaultEmpfaengerValues(): EmpfaengerValues {
   return {
@@ -107,6 +113,11 @@ export function AngebotBuilder({
   const router = useRouter();
   const isMobile = useIsMobile();
   const isEdit = !!initialAngebot;
+  const isDraftEdit = isEdit && initialAngebot?.status === 'draft';
+
+  // Fetch Vorlagen here as well (in addition to Step 2). React Query caches the result,
+  // and the builder needs access to live columns in draft edit mode.
+  const { data: vorlagen = [] } = useAngebotVorlagenList(companyId);
 
   const [selectedVorlageId, setSelectedVorlageId] = useState<string | null>(
     null
@@ -129,12 +140,32 @@ export function AngebotBuilder({
     if (vid) setSelectedVorlageId(vid);
   }, [isEdit, initialAngebot?.angebot_vorlage_id]);
 
-  const columnSchema = useMemo(() => {
+  /**
+   * Draft edit: resolve the live Vorlage columns so that any columns added to the template
+   * after the offer was created become visible. Falls back to the saved snapshot if the
+   * Vorlage is gone or has no columns.
+   */
+  const liveEditColumnSchema = useMemo<AngebotColumnDef[] | null>(() => {
+    if (!isDraftEdit) return null;
+    const vorlageId = initialAngebot?.angebot_vorlage_id;
+    if (!vorlageId) return null;
+    const vorlage = vorlagen.find((v) => v.id === vorlageId);
+    if (!vorlage) return null;
+    const cols = Array.isArray(vorlage.columns) ? vorlage.columns : [];
+    const safeCols = cols.filter((c) => c.id !== ANGEBOT_POSITION_COLUMN_ID);
+    return safeCols.length > 0 ? safeCols : null;
+  }, [isDraftEdit, initialAngebot?.angebot_vorlage_id, vorlagen]);
+
+  const columnSchema = useMemo<AngebotColumnDef[]>(() => {
+    // Draft edit: prefer live Vorlage columns so any new template columns are visible.
+    // Falls back to snapshot (or legacy/standard profile via resolver) if Vorlage is unavailable.
     if (isEdit && initialAngebot) {
-      return resolveAngebotPdfColumnSchema(initialAngebot);
+      return (
+        liveEditColumnSchema ?? resolveAngebotPdfColumnSchema(initialAngebot)
+      );
     }
     return createColumnSchema;
-  }, [isEdit, initialAngebot, createColumnSchema]);
+  }, [isEdit, initialAngebot, createColumnSchema, liveEditColumnSchema]);
 
   const [openSections, setOpenSections] = useState({
     empfaenger: true,
@@ -160,6 +191,16 @@ export function AngebotBuilder({
 
   const {
     lineItems,
+    inputMode,
+    setInputMode,
+    showTotalsBlock,
+    setShowTotalsBlock,
+    totalsLabelNet,
+    setTotalsLabelNet,
+    totalsLabelTax,
+    setTotalsLabelTax,
+    totalsLabelGross,
+    setTotalsLabelGross,
     addLineItem,
     deleteLineItem,
     updateLineItem,
@@ -174,11 +215,84 @@ export function AngebotBuilder({
     initialLineItems: initialAngebot
       ? lineItemsFromAngebotRows(initialAngebot.line_items ?? [])
       : undefined,
+    initialShowTotalsBlock: initialAngebot?.show_totals_block ?? false,
+    initialInputMode: (initialAngebot?.input_mode ?? 'net') as 'net' | 'gross',
+    initialTotalsLabelNet: initialAngebot?.totals_label_net ?? null,
+    initialTotalsLabelTax: initialAngebot?.totals_label_tax ?? null,
+    initialTotalsLabelGross: initialAngebot?.totals_label_gross ?? null,
     columnSchema,
+    // Draft edit only: tell the hook what live schema to persist back to the snapshot on save.
+    liveColumnSchema: liveEditColumnSchema ?? undefined,
     onSuccess: (id) => {
       router.push(`/dashboard/angebote/${id}`);
     }
   });
+
+  /**
+   * Wraps updateLineItem to automatically recompute derived columns after
+   * every manual input change. This is what makes the builder behave like
+   * a live spreadsheet — computed cells update on every keystroke without
+   * the dispatcher needing to trigger anything explicitly.
+   *
+   * WHY: computed columns must always reflect the latest inputs while keeping
+   * persistence and row operations (add/delete/reorder) on the existing code path.
+   */
+  const updateLineItemWithComputed = useCallback(
+    (index: number, patch: Partial<(typeof lineItems)[number]>) => {
+      const currentItem = lineItems[index];
+      if (!currentItem) return;
+      // Merge the incoming patch first, then run the engine on the full row.
+      const mergedData = { ...currentItem.data, ...(patch.data ?? {}) };
+      const computedPatch = computeRow(mergedData, columnSchema, inputMode);
+      // Merge computed values on top — input values always win over computed
+      // for non-computed columns; computed columns are overwritten by engine.
+      updateLineItem(index, {
+        ...patch,
+        data: { ...mergedData, ...computedPatch }
+      });
+    },
+    [lineItems, columnSchema, updateLineItem, inputMode]
+  );
+
+  // Keep the latest row state available to the reconciliation effect without depending on lineItems,
+  // so we can intentionally omit it from deps and avoid feedback loops.
+  const lineItemsRef = useRef(lineItems);
+  const updateLineItemRef = useRef(updateLineItem);
+  useEffect(() => {
+    lineItemsRef.current = lineItems;
+    updateLineItemRef.current = updateLineItem;
+  }, [lineItems, updateLineItem]);
+
+  /**
+   * Once the live schema has loaded in draft edit mode, patch each existing row's data to include
+   * null entries for any new column IDs. Existing values are never touched; orphaned keys are kept.
+   *
+   * Dependency note:
+   * - This effect must depend ONLY on liveEditColumnSchema. Depending on lineItems/updateLineItem would loop.
+   */
+  const liveSchemaApplied = useRef(false);
+  useEffect(() => {
+    if (!liveEditColumnSchema) return;
+    if (liveSchemaApplied.current) return;
+    liveSchemaApplied.current = true;
+
+    const ids = liveEditColumnSchema
+      .map((c) => c.id)
+      .filter((id) => id !== ANGEBOT_POSITION_COLUMN_ID);
+    const items = lineItemsRef.current;
+    const patchRow = updateLineItemRef.current;
+
+    items.forEach((item, idx) => {
+      const missing = ids.filter((id) => !(id in item.data));
+      if (missing.length === 0) return;
+      const patch: Record<string, null> = {};
+      missing.forEach((k) => {
+        patch[k] = null;
+      });
+      patchRow(idx, { data: { ...item.data, ...patch } });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveEditColumnSchema]);
 
   const handleVorlageChange = useCallback(
     (id: string, columns: AngebotColumnDef[]) => {
@@ -261,6 +375,12 @@ export function AngebotBuilder({
       angebot_number:
         base?.angebot_number ?? `AG-${format(new Date(), 'yyyy-MM')}-XXXX`,
       status: base?.status ?? 'draft',
+      // WHY: draft preview must reflect the per-quote opt-in setting.
+      show_totals_block: showTotalsBlock,
+      // WHY: draft preview should reflect the current editable label inputs, even before persistence.
+      totals_label_net: totalsLabelNet,
+      totals_label_tax: totalsLabelTax,
+      totals_label_gross: totalsLabelGross,
       recipient_company: empfaengerValues.recipient_company || null,
       recipient_first_name: empfaengerValues.recipient_first_name || null,
       recipient_last_name: empfaengerValues.recipient_last_name || null,
@@ -290,13 +410,8 @@ export function AngebotBuilder({
       angebot_vorlage_id: isEdit
         ? (base?.angebot_vorlage_id ?? null)
         : (selectedVorlageId ?? null),
-      table_schema_snapshot: isEdit
-        ? base?.table_schema_snapshot && base.table_schema_snapshot.length > 0
-          ? base.table_schema_snapshot
-          : null
-        : columnSchema.length > 0
-          ? columnSchema
-          : null,
+      // Use columnSchema unconditionally so the live PDF preview stays in sync with the active builder session schema.
+      table_schema_snapshot: columnSchema.length > 0 ? columnSchema : null,
       created_at: base?.created_at ?? new Date().toISOString(),
       updated_at: base?.updated_at ?? new Date().toISOString(),
       line_items: lineItems.map((item, idx) => ({
@@ -326,7 +441,11 @@ export function AngebotBuilder({
     lineItems,
     columnSchema,
     isEdit,
-    selectedVorlageId
+    selectedVorlageId,
+    showTotalsBlock,
+    totalsLabelNet,
+    totalsLabelTax,
+    totalsLabelGross
   ]);
 
   const { pdf, livePreviewActive } = useAngebotBuilderPdfPreview({
@@ -345,6 +464,15 @@ export function AngebotBuilder({
 
   const handleConfirm = useCallback(() => {
     if (!companyId) return;
+
+    const totalsLabelNetPayload =
+      totalsLabelNet === DEFAULT_TOTALS_LABEL_NET ? undefined : totalsLabelNet;
+    const totalsLabelTaxPayload =
+      totalsLabelTax === DEFAULT_TOTALS_LABEL_TAX ? undefined : totalsLabelTax;
+    const totalsLabelGrossPayload =
+      totalsLabelGross === DEFAULT_TOTALS_LABEL_GROSS
+        ? undefined
+        : totalsLabelGross;
 
     if (isEdit && initialAngebot) {
       const header: UpdateAngebotPayload = {
@@ -374,7 +502,12 @@ export function AngebotBuilder({
         valid_until: detailsValues.valid_until || null,
         offer_date: detailsValues.offer_date,
         intro_text: detailsValues.intro_text || null,
-        outro_text: detailsValues.outro_text || null
+        outro_text: detailsValues.outro_text || null,
+        // WHY: this is a per-quote PDF output setting, saved on the Angebot header.
+        showTotalsBlock,
+        totalsLabelNet: totalsLabelNetPayload,
+        totalsLabelTax: totalsLabelTaxPayload,
+        totalsLabelGross: totalsLabelGrossPayload
       };
       saveEditMutation({ header, rows: lineItemsPayload() });
       return;
@@ -415,6 +548,12 @@ export function AngebotBuilder({
       outro_text: detailsValues.outro_text || null,
       angebotVorlageId: selectedVorlageId,
       tableSchemaSnapshot: columnSchema,
+      inputMode,
+      // WHY: default is false; opt-in enables Netto/MwSt/Brutto summary on the PDF.
+      showTotalsBlock,
+      totalsLabelNet: totalsLabelNetPayload,
+      totalsLabelTax: totalsLabelTaxPayload,
+      totalsLabelGross: totalsLabelGrossPayload,
       line_items: lineItemsPayload()
     });
   }, [
@@ -426,6 +565,11 @@ export function AngebotBuilder({
     selectedVorlageId,
     columnSchema,
     lineItemsPayload,
+    showTotalsBlock,
+    totalsLabelNet,
+    totalsLabelTax,
+    totalsLabelGross,
+    inputMode,
     saveEditMutation,
     createAngebotMutation
   ]);
@@ -490,10 +634,20 @@ export function AngebotBuilder({
               isEditMode={isEdit}
               columnSchema={columnSchema}
               items={lineItems}
-              onUpdate={updateLineItem}
+              onUpdate={updateLineItemWithComputed}
               onDelete={deleteLineItem}
               onReorder={reorderLineItems}
               onAdd={addLineItem}
+              inputMode={inputMode}
+              onInputModeChange={setInputMode}
+              showTotalsBlock={showTotalsBlock}
+              onShowTotalsBlockChange={setShowTotalsBlock}
+              totalsLabelNet={totalsLabelNet}
+              totalsLabelTax={totalsLabelTax}
+              totalsLabelGross={totalsLabelGross}
+              onTotalsLabelNetChange={setTotalsLabelNet}
+              onTotalsLabelTaxChange={setTotalsLabelTax}
+              onTotalsLabelGrossChange={setTotalsLabelGross}
             />
           </BuilderSectionCard>
 

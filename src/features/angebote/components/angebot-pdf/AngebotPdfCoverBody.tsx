@@ -225,6 +225,14 @@ export interface AngebotPdfCoverBodyProps {
   columnSchema: AngebotColumnDef[];
   introText: string | null;
   outroText: string | null;
+  totalsData: {
+    netTotal: number | null;
+    taxTotal: number | null;
+    grossTotal: number | null;
+    labelNet: string;
+    labelTax: string;
+    labelGross: string;
+  } | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -238,7 +246,8 @@ export function AngebotPdfCoverBody({
   lineItems,
   columnSchema,
   introText,
-  outroText
+  outroText,
+  totalsData
 }: AngebotPdfCoverBodyProps) {
   // Strip col_position before prepending — it must never come from the stored schema.
   // Defensive guard: seed data or legacy snapshots may contain it.
@@ -376,6 +385,46 @@ export function AngebotPdfCoverBody({
             </View>
           ))}
         </>
+      ) : null}
+
+      {totalsData ? (
+        <View
+          style={[
+            styles.totalsSection,
+            { marginTop: PDF_ZONES.totalsSectionMarginTop }
+          ]}
+          wrap={false}
+        >
+          {totalsData.netTotal !== null ? (
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>{totalsData.labelNet}</Text>
+              <Text style={styles.totalsValue}>
+                {formatEur(totalsData.netTotal)}
+              </Text>
+            </View>
+          ) : null}
+          {totalsData.taxTotal !== null ? (
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>{totalsData.labelTax}</Text>
+              <Text style={styles.totalsValue}>
+                {formatEur(totalsData.taxTotal)}
+              </Text>
+            </View>
+          ) : null}
+          {totalsData.grossTotal !== null ? (
+            <>
+              <View style={styles.totalsGrandSpacer} />
+              <View style={styles.totalsGrandRow} wrap={false}>
+                <Text style={styles.totalsGrandLabel}>
+                  {totalsData.labelGross}
+                </Text>
+                <Text style={styles.totalsGrandValue}>
+                  {formatEur(totalsData.grossTotal)}
+                </Text>
+              </View>
+            </>
+          ) : null}
+        </View>
       ) : null}
 
       {outroHtml ? (
