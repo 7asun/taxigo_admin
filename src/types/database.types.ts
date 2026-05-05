@@ -338,6 +338,71 @@ export type Database = {
           }
         ];
       };
+      client_km_overrides: {
+        Row: {
+          id: string;
+          company_id: string;
+          client_id: string;
+          payer_id: string | null;
+          billing_variant_id: string | null;
+          distance_km: number;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          client_id: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
+          distance_km: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          client_id?: string;
+          payer_id?: string | null;
+          billing_variant_id?: string | null;
+          distance_km?: number;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'client_km_overrides_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_km_overrides_client_id_fkey';
+            columns: ['client_id'];
+            isOneToOne: false;
+            referencedRelation: 'clients';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_km_overrides_payer_id_fkey';
+            columns: ['payer_id'];
+            isOneToOne: false;
+            referencedRelation: 'payers';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'client_km_overrides_billing_variant_id_fkey';
+            columns: ['billing_variant_id'];
+            isOneToOne: false;
+            referencedRelation: 'billing_variants';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       companies: {
         Row: {
           code: string;
@@ -610,6 +675,7 @@ export type Database = {
           created_at: string;
           id: string;
           kts_default: boolean | null;
+          manual_km_enabled: boolean;
           name: string;
           no_invoice_required_default: boolean | null;
           number: string;
@@ -621,6 +687,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           kts_default?: boolean | null;
+          manual_km_enabled?: boolean;
           name: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -632,6 +699,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           kts_default?: boolean | null;
+          manual_km_enabled?: boolean;
           name?: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -1306,6 +1374,7 @@ export type Database = {
           tax_rate: number | null;
           base_net_price: number | null;
           approach_fee_net: number | null;
+          manual_distance_km: number | null;
           manual_gross_price: number | null;
           billing_type_id: string | null;
           requested_date: string | null;
@@ -1380,6 +1449,7 @@ export type Database = {
           tax_rate?: number | null;
           base_net_price?: number | null;
           approach_fee_net?: number | null;
+          manual_distance_km?: number | null;
           manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
@@ -1446,6 +1516,7 @@ export type Database = {
           tax_rate?: number | null;
           base_net_price?: number | null;
           approach_fee_net?: number | null;
+          manual_distance_km?: number | null;
           manual_gross_price?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;

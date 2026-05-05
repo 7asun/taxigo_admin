@@ -199,6 +199,8 @@ export function InvoiceBuilder({
     confirmSection3,
     applyGrossOverride,
     resetLineItemOverride,
+    applyKmOverride,
+    resetKmOverride,
     createInvoice,
     isCreating,
     catalogRecipientId
@@ -301,7 +303,9 @@ export function InvoiceBuilder({
       mode: step2Values.mode as InvoiceBuilderStep2Snapshot['mode'],
       payer_id: step2Values.payer_id,
       billing_type_id: step2Values.billing_type_id ?? null,
+      billing_type_ids: step2Values.billing_type_ids ?? null,
       billing_variant_id: step2Values.billing_variant_id ?? null,
+      billing_variant_ids: step2Values.billing_variant_ids ?? null,
       period_from: step2Values.period_from,
       period_to: step2Values.period_to,
       client_id: step2Values.client_id ?? null
@@ -595,6 +599,8 @@ export function InvoiceBuilder({
               onConfirm={confirmSection3}
               onApplyGrossOverride={applyGrossOverride}
               onResetOverride={resetLineItemOverride}
+              onApplyKmOverride={applyKmOverride}
+              onResetKmOverride={resetKmOverride}
             />
           </BuilderSectionCard>
 

@@ -25,11 +25,16 @@ import {
   calculateInvoiceTotals,
   insertLineItems
 } from '../api/invoice-line-items.api';
-import { applyGrossOverrideToResolution } from '../lib/resolve-trip-price';
+import {
+  applyGrossOverrideToResolution,
+  resolveTripPrice as resolveTripPricePure,
+  type TripPriceInput
+} from '../lib/resolve-trip-price';
 import { createInvoice } from '../api/invoices.api';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
 import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
+import { resolveTaxRate } from '../lib/tax-calculator';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
   InvoiceBuilderFormValues,
@@ -38,6 +43,7 @@ import type {
 } from '../types/invoice.types';
 import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
 import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
+import { tripsBuilderParamsFromStep2 } from '../lib/trips-builder-params';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
 type Step2Values = Pick<
@@ -45,7 +51,9 @@ type Step2Values = Pick<
   | 'mode'
   | 'payer_id'
   | 'billing_type_id'
+  | 'billing_type_ids'
   | 'billing_variant_id'
+  | 'billing_variant_ids'
   | 'period_from'
   | 'period_to'
   | 'client_id'
@@ -57,6 +65,26 @@ function legacyPriceSourceFromResolution(
   if (src === 'client_price_tag') return 'client_price_tag';
   if (src === 'trip_price') return 'trip_price';
   return null;
+}
+
+/**
+ * Minimal trip shape for repricing after KM edit. Legacy `client.price_tag` is omitted —
+ * client tag gross lives on `resolved_rule._price_gross` when applicable.
+ */
+function tripInputFromLineItem(item: BuilderLineItem): TripPriceInput {
+  return {
+    kts_document_applies: item.kts_document_applies,
+    net_price: null,
+    base_net_price: null,
+    manual_gross_price:
+      item.price_resolution.source === 'manual_gross_price' &&
+      item.price_resolution.gross != null
+        ? item.price_resolution.gross
+        : null,
+    driving_distance_km: null,
+    scheduled_at: item.line_date,
+    client: undefined
+  };
 }
 
 /**
@@ -91,14 +119,7 @@ export function useInvoiceBuilder(
 
   const tripsQuery = useQuery({
     queryKey: step2Values
-      ? invoiceKeys.tripsForBuilder({
-          payer_id: step2Values.payer_id,
-          billing_type_id: step2Values.billing_type_id,
-          billing_variant_id: step2Values.billing_variant_id,
-          period_from: step2Values.period_from,
-          period_to: step2Values.period_to,
-          client_id: step2Values.client_id
-        })
+      ? invoiceKeys.tripsForBuilder(tripsBuilderParamsFromStep2(step2Values))
       : ['invoices', 'builder-trips', 'idle'],
     queryFn: async () => {
       const payerId = step2Values!.payer_id;
@@ -108,19 +129,18 @@ export function useInvoiceBuilder(
         staleTime: 30_000
       });
       const rules = mapBillingPricingRuleRowsToLike(rulesRows);
-      const tripsParams = {
-        payer_id: payerId,
-        billing_type_id: step2Values?.billing_type_id,
-        billing_variant_id: step2Values?.billing_variant_id,
-        period_from: step2Values!.period_from,
-        period_to: step2Values!.period_to,
-        client_id: step2Values?.client_id
-      };
-      const [{ trips, clientPriceTags }, cancelled] = await Promise.all([
-        fetchTripsForBuilder(tripsParams),
-        fetchCancelledTripsForBuilder(tripsParams)
-      ]);
-      const items = buildLineItemsFromTrips(trips, rules, clientPriceTags);
+      const tripsParams = tripsBuilderParamsFromStep2(step2Values!);
+      const [{ trips, clientPriceTags, clientKmOverrides }, cancelled] =
+        await Promise.all([
+          fetchTripsForBuilder(tripsParams),
+          fetchCancelledTripsForBuilder(tripsParams)
+        ]);
+      const items = buildLineItemsFromTrips(
+        trips,
+        rules,
+        clientPriceTags,
+        clientKmOverrides
+      );
       setCancelledTrips(cancelled);
       // Billing uses `trips` only; cancelled rows are display-only — never totals or INSERT.
       setLineItems(items);
@@ -193,6 +213,103 @@ export function useInvoiceBuilder(
           manualGrossTotal: null,
           manualApproachFeeGross: null,
           isManualOverride: false
+        };
+        return { ...patched, warnings: validateLineItem(patched) };
+      })
+    );
+  }, []);
+
+  const applyKmOverride = useCallback((position: number, km: number) => {
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.position !== position) return item;
+        // why: non-positive distance is not billable — matches resolveEffectiveDistanceKm.
+        if (!Number.isFinite(km) || km <= 0) return item;
+        const { rate: newTaxRate } = resolveTaxRate(km);
+        const approachNet = item.approach_fee_net;
+
+        // why: Taxameter gross is all-in; changing KM must not re-run tiered pricing on that gross.
+        if (item.price_resolution.source === 'manual_gross_price') {
+          const patched: BuilderLineItem = {
+            ...item,
+            effective_distance_km: km,
+            manualDistanceKm: km,
+            isManualKmOverride: true,
+            tax_rate: newTaxRate,
+            approach_fee_gross:
+              approachNet != null
+                ? Math.round(approachNet * (1 + newTaxRate) * 100) / 100
+                : null,
+            price_resolution: {
+              ...item.price_resolution,
+              tax_rate: newTaxRate
+            }
+          };
+          return { ...patched, warnings: validateLineItem(patched) };
+        }
+
+        const newPriceResolution = item.resolved_rule
+          ? resolveTripPricePure(
+              {
+                ...tripInputFromLineItem(item),
+                driving_distance_km: km
+              },
+              newTaxRate,
+              item.resolved_rule
+            )
+          : {
+              ...item.price_resolution,
+              tax_rate: newTaxRate
+            };
+
+        const nextApproachNet = newPriceResolution.approach_fee_net ?? null;
+        const patched: BuilderLineItem = {
+          ...item,
+          effective_distance_km: km,
+          manualDistanceKm: km,
+          isManualKmOverride: true,
+          tax_rate: newTaxRate,
+          unit_price: newPriceResolution.unit_price_net ?? item.unit_price,
+          quantity: newPriceResolution.quantity,
+          approach_fee_net: nextApproachNet,
+          approach_fee_gross:
+            nextApproachNet != null
+              ? Math.round(nextApproachNet * (1 + newTaxRate) * 100) / 100
+              : null,
+          price_resolution: newPriceResolution,
+          kts_override: newPriceResolution.strategy_used === 'kts_override',
+          price_source: legacyPriceSourceFromResolution(
+            newPriceResolution.source
+          )
+        };
+        return { ...patched, warnings: validateLineItem(patched) };
+      })
+    );
+  }, []);
+
+  const resetKmOverride = useCallback((position: number) => {
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.position !== position) return item;
+        const orig = item.originalPriceResolution ?? item.price_resolution;
+        const restoredRate = resolveTaxRate(item.original_distance_km).rate;
+        const approachNet = orig.approach_fee_net ?? null;
+        const patched: BuilderLineItem = {
+          ...item,
+          effective_distance_km: item.original_distance_km,
+          manualDistanceKm: null,
+          isManualKmOverride: false,
+          tax_rate: restoredRate,
+          unit_price: orig.unit_price_net,
+          quantity: orig.quantity,
+          approach_fee_net: approachNet,
+          approach_fee_gross:
+            approachNet != null
+              ? Math.round(approachNet * (1 + restoredRate) * 100) / 100
+              : null,
+          price_resolution: orig,
+          kts_override: orig.strategy_used === 'kts_override',
+          price_source: legacyPriceSourceFromResolution(orig.source)
         };
         return { ...patched, warnings: validateLineItem(patched) };
       })
@@ -279,6 +396,7 @@ export function useInvoiceBuilder(
       // Fire-and-forget: failed writeback must never block the invoice.
       // price_resolution.net is transport-only; Anfahrt on approach_fee_net.
       // Phase 2: `trips.net_price` is a generated column — never write it here; DB combines base + approach.
+      // why: persist admin KM for future resolveEffectiveDistanceKm; never write driving_distance_km.
       void Promise.allSettled(
         lineItems
           .filter((item) => item.trip_id !== null)
@@ -292,6 +410,9 @@ export function useInvoiceBuilder(
               approach_fee_net: approachNet,
               ...(item.isManualOverride && item.manualGrossTotal !== null
                 ? { manual_gross_price: item.manualGrossTotal }
+                : {}),
+              ...(item.isManualKmOverride && item.manualDistanceKm != null
+                ? { manual_distance_km: item.manualDistanceKm }
                 : {})
             });
           })
@@ -335,6 +456,8 @@ export function useInvoiceBuilder(
     confirmSection3,
     applyGrossOverride,
     resetLineItemOverride,
+    applyKmOverride,
+    resetKmOverride,
 
     createInvoice: (
       step4Values: Pick<

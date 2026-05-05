@@ -266,6 +266,22 @@ function executeStrategy(
       }
       return null;
     }
+    case 'client_km_override': {
+      // Not a billing_pricing_rules strategy in production — exhaustiveness only.
+      if (trip.base_net_price != null) {
+        return resolution(
+          {
+            net: trip.base_net_price,
+            strategy_used: 'trip_price_fallback',
+            source: 'trip_price',
+            unit_price_net: trip.base_net_price,
+            quantity: 1
+          },
+          taxRate
+        );
+      }
+      return null;
+    }
     case 'manual_trip_price': {
       // Explicit rule to invoice stored driver net price only.
       if (trip.base_net_price == null) return null;

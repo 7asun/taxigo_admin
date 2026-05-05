@@ -1,5 +1,12 @@
 # Clients (Fahrgäste)
 
+## `client_km_overrides` (manual distance catalog)
+
+Optional per-client fixed distances for invoicing when routing returns the wrong km. Table: `public.client_km_overrides` (`company_id`, `client_id`, optional `payer_id`, optional `billing_variant_id`, `distance_km`, `is_active`, timestamps). Resolution priority and RLS mirror `client_price_tags`.
+
+- **UI:** Fahrgast detail panel — section **KM-Overrides** opens [`PricingRuleDialog`](../src/features/payers/components/pricing-rule-dialog/index.tsx) with pseudo-strategy `client_km_override` ([`ClientKmOverrideStep`](../src/features/payers/components/pricing-rule-dialog/client-km-override-step.tsx)). Query cache: `referenceKeys.clientKmOverridesManager(clientId)`.
+- **Builder:** Active rows are loaded in `fetchTripsForBuilder` and passed as `clientKmOverrides` into `buildLineItemsFromTrips` (see [manual-km-overrides.md](manual-km-overrides.md)).
+
 ## `reference_fields` (Bezugszeichen / Referenzfelder)
 
 Optional JSON column on `public.clients`: ordered array of `{ "label": string, "value": string }`.

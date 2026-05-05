@@ -79,6 +79,9 @@ export async function createStornorechnung(
     pickup_address: item.pickup_address,
     dropoff_address: item.dropoff_address,
     distance_km: item.distance_km,
+    // why: Storno mirrors legal snapshots, not recomputed km — same audit pair as the original line.
+    effective_distance_km: item.effective_distance_km ?? null,
+    original_distance_km: item.original_distance_km ?? null,
     unit_price: -Math.abs(item.unit_price),
     quantity: item.quantity,
     total_price: -Math.abs(item.total_price),

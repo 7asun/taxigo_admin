@@ -311,6 +311,9 @@ export function InvoicePdfDocument({
     pickup_address: li.pickup_address,
     dropoff_address: li.dropoff_address,
     distance_km: li.distance_km,
+    effective_distance_km: li.effective_distance_km ?? li.distance_km,
+    original_distance_km: li.original_distance_km ?? li.distance_km,
+    manual_km_enabled: false,
     unit_price: li.unit_price,
     quantity: li.quantity,
     approach_fee_net: li.approach_fee_net ?? null,
@@ -332,7 +335,7 @@ export function InvoicePdfDocument({
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);
 
-  // grouped_by_billing_type: one summary row per Abrechnungsart + tax_rate combination
+  // grouped_by_billing_type: one summary row per Abrechnungsfamilie + tax_rate (see invoicePdfBillingCategoryLabel)
   // Splitting by tax_rate ensures no mixed-rate ambiguity — each row is always clean
   // Uses same InvoicePdfSummaryRow shape as grouped — no renderer changes needed
   const summaryItems =

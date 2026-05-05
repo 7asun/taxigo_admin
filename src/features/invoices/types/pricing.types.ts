@@ -4,6 +4,7 @@
 
 export const PRICING_STRATEGIES = [
   'client_price_tag',
+  'client_km_override',
   'tiered_km',
   'fixed_below_threshold_then_km',
   'time_based',

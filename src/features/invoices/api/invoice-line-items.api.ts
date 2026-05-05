@@ -25,6 +25,10 @@ import { toQueryError } from '@/lib/supabase/to-query-error';
 import { resolveTaxRate } from '../lib/tax-calculator';
 import { resolvePricingRule } from '../lib/resolve-pricing-rule';
 import { resolveTripPrice as resolveTripPricePure } from '../lib/resolve-trip-price';
+import {
+  resolveEffectiveDistanceKm,
+  type ClientKmOverrideLike
+} from '../lib/resolve-effective-distance';
 import { validateLineItems } from '../lib/invoice-validators';
 import { buildTripMetaFromTrip } from '../lib/trip-meta-snapshot';
 import type {
@@ -32,6 +36,7 @@ import type {
   ClientPriceTagLike
 } from '../types/pricing.types';
 import { listClientPriceTagsForClientIds } from '@/features/payers/api/client-price-tags.service';
+import { listClientKmOverridesForClientIds } from '@/features/invoices/api/client-km-overrides.api';
 import type { PriceResolution } from '../types/pricing.types';
 import type {
   TripForInvoice,
@@ -56,12 +61,95 @@ export function isGrossAnchorClientPriceTag(pr: PriceResolution): boolean {
 
 export interface FetchTripsForBuilderParams {
   payer_id: string;
-  billing_type_id?: string | null; // null = all billing types
+  billing_type_id?: string | null; // null = all billing types (per_client / legacy)
+  /**
+   * Monthly / single_trip: optional Abrechnungsfamilien subset (billing_types.id).
+   * Union of variants is resolved in {@link resolveBillingVariantFilters}.
+   */
+  billing_type_ids?: string[] | null;
   /** Optional: scope to exactly one Unterart (billing_variants.id). */
   billing_variant_id?: string | null; // null = all variants (subject to billing_type_id filter)
+  /**
+   * Monthly subset: explicit Unterarten under exactly one billing type in scope.
+   * Empty / null = all variants of that type (same as omitting this field).
+   */
+  billing_variant_ids?: string[] | null;
   period_from: string; // ISO date string
   period_to: string; // ISO date string
   client_id?: string | null; // only for per_client mode
+}
+
+/** Pure precedence for tests — keep in sync with {@link resolveBillingVariantFilters}. */
+export type BillingVariantFetchBranch =
+  | { branch: 'subset'; billingTypeId: string; requestedIds: string[] }
+  | { branch: 'single'; variantId: string }
+  | { branch: 'multiTypes'; billingTypeIds: string[] }
+  | { branch: 'allVariantsOfType'; billingTypeId: string }
+  | { branch: 'noVariantFilter' };
+
+export function billingVariantFetchBranchFromParams(
+  params: Pick<
+    FetchTripsForBuilderParams,
+    | 'billing_type_id'
+    | 'billing_type_ids'
+    | 'billing_variant_id'
+    | 'billing_variant_ids'
+  >
+): BillingVariantFetchBranch {
+  const legacyTypeId =
+    params.billing_type_id && params.billing_type_id.length > 0
+      ? params.billing_type_id
+      : null;
+  const typeIdsSorted =
+    params.billing_type_ids && params.billing_type_ids.length > 0
+      ? [...params.billing_type_ids].sort()
+      : null;
+  const multiLen = typeIdsSorted?.length ?? 0;
+
+  const subset =
+    params.billing_variant_ids && params.billing_variant_ids.length > 0
+      ? params.billing_variant_ids
+      : null;
+  const single =
+    params.billing_variant_id && params.billing_variant_id.length > 0
+      ? params.billing_variant_id
+      : null;
+
+  // why: Unterarten subset is only defined when exactly one Abrechnungsfamilie is in scope (monthly array length 1, or per_client legacy type id).
+  const effectiveSingleTypeForSubset: string | null =
+    multiLen === 1
+      ? typeIdsSorted![0]!
+      : multiLen === 0 && legacyTypeId
+        ? legacyTypeId
+        : null;
+
+  // why: explicit monthly subset wins over single-Unterart — do not overload billing_variant_id from the subset UI.
+  if (subset && effectiveSingleTypeForSubset) {
+    return {
+      branch: 'subset',
+      billingTypeId: effectiveSingleTypeForSubset,
+      requestedIds: subset
+    };
+  }
+
+  if (single) {
+    return { branch: 'single', variantId: single };
+  }
+
+  // why: multi-family scope = union of all variants for selected billing_type_ids (one DB round-trip in resolver).
+  if (multiLen > 1) {
+    return { branch: 'multiTypes', billingTypeIds: typeIdsSorted! };
+  }
+
+  if (multiLen === 1) {
+    return { branch: 'allVariantsOfType', billingTypeId: typeIdsSorted![0]! };
+  }
+
+  if (legacyTypeId) {
+    return { branch: 'allVariantsOfType', billingTypeId: legacyTypeId };
+  }
+
+  return { branch: 'noVariantFilter' };
 }
 
 /** Shared payer/period/variant shaping for billing vs cancelled-trip fetches — keeps filters identical. */
@@ -74,25 +162,57 @@ async function resolveBillingVariantFilters(
   abortEmpty: boolean;
 }> {
   const supabase = createClient();
-  const variantId =
-    params.billing_variant_id && params.billing_variant_id.length > 0
-      ? params.billing_variant_id
-      : null;
+  const plan = billingVariantFetchBranchFromParams(params);
 
-  let variantIdsForType: string[] | null = null;
-  if (!variantId && params.billing_type_id) {
-    const { data: variants, error: vErr } = await supabase
+  if (plan.branch === 'subset') {
+    const { data: rows, error: vErr } = await supabase
       .from('billing_variants')
       .select('id')
-      .eq('billing_type_id', params.billing_type_id);
+      .eq('billing_type_id', plan.billingTypeId)
+      .in('id', plan.requestedIds);
     if (vErr) throw toQueryError(vErr);
-    variantIdsForType = (variants ?? []).map((v) => v.id);
+    const ids = (rows ?? []).map((r) => r.id).sort();
+    if (ids.length === 0) {
+      return { variantId: null, variantIdsForType: null, abortEmpty: true };
+    }
+    return { variantId: null, variantIdsForType: ids, abortEmpty: false };
+  }
+
+  if (plan.branch === 'single') {
+    return {
+      variantId: plan.variantId,
+      variantIdsForType: null,
+      abortEmpty: false
+    };
+  }
+
+  if (plan.branch === 'multiTypes') {
+    const { data: rows, error: vErr } = await supabase
+      .from('billing_variants')
+      .select('id')
+      .in('billing_type_id', plan.billingTypeIds);
+    if (vErr) throw toQueryError(vErr);
+    const variantIdsForType = (rows ?? []).map((r) => r.id).sort();
     if (variantIdsForType.length === 0) {
       return { variantId: null, variantIdsForType: null, abortEmpty: true };
     }
+    return { variantId: null, variantIdsForType, abortEmpty: false };
   }
 
-  return { variantId, variantIdsForType, abortEmpty: false };
+  if (plan.branch === 'allVariantsOfType') {
+    const { data: variants, error: vErr } = await supabase
+      .from('billing_variants')
+      .select('id')
+      .eq('billing_type_id', plan.billingTypeId);
+    if (vErr) throw toQueryError(vErr);
+    const variantIdsForType = (variants ?? []).map((v) => v.id);
+    if (variantIdsForType.length === 0) {
+      return { variantId: null, variantIdsForType: null, abortEmpty: true };
+    }
+    return { variantId: null, variantIdsForType, abortEmpty: false };
+  }
+
+  return { variantId: null, variantIdsForType: null, abortEmpty: false };
 }
 
 function legacyPriceSource(
@@ -149,15 +269,18 @@ export async function fetchTripsForBuilder(
 ): Promise<{
   trips: TripForInvoice[];
   clientPriceTags: ClientPriceTagLike[];
+  clientKmOverrides: ClientKmOverrideLike[];
 }> {
   const supabase = createClient();
 
   const { variantId, variantIdsForType, abortEmpty } =
     await resolveBillingVariantFilters(params);
   if (abortEmpty) {
-    return { trips: [], clientPriceTags: [] };
+    return { trips: [], clientPriceTags: [], clientKmOverrides: [] };
   }
 
+  // why: include `trips.client_name` so line-item snapshots can show Fahrgast when `client_id`
+  // is null but the trip carries a denormalized name (named-but-unlinked — trip-client-linking.md).
   let query = supabase
     .from('trips')
     .select(
@@ -171,6 +294,7 @@ export async function fetchTripsForBuilder(
       approach_fee_net,
       manual_gross_price,
       driving_distance_km,
+      manual_distance_km,
       billing_variant_id,
       pickup_address,
       dropoff_address,
@@ -178,8 +302,9 @@ export async function fetchTripsForBuilder(
       no_invoice_required,
       link_type,
       linked_trip_id,
+      client_name,
       driver:accounts!trips_driver_id_fkey(name),
-      payer:payers(rechnungsempfaenger_id),
+      payer:payers(rechnungsempfaenger_id, manual_km_enabled),
       billing_variant:billing_variants(
         id, code, name, billing_type_id, rechnungsempfaenger_id,
         billing_type:billing_types(name, rechnungsempfaenger_id)
@@ -218,8 +343,11 @@ export async function fetchTripsForBuilder(
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     )
   ];
-  const clientPriceTags = await listClientPriceTagsForClientIds(clientIds);
-  return { trips, clientPriceTags };
+  const [clientPriceTags, clientKmOverrides] = await Promise.all([
+    listClientPriceTagsForClientIds(clientIds),
+    listClientKmOverridesForClientIds(clientIds)
+  ]);
+  return { trips, clientPriceTags, clientKmOverrides };
 }
 
 /**
@@ -299,8 +427,10 @@ export async function fetchBuilderTripsAndRules(
   trips: TripForInvoice[];
   rules: BillingPricingRuleLike[];
   clientPriceTags: ClientPriceTagLike[];
+  clientKmOverrides: ClientKmOverrideLike[];
 }> {
-  const { trips, clientPriceTags } = await fetchTripsForBuilder(params);
+  const { trips, clientPriceTags, clientKmOverrides } =
+    await fetchTripsForBuilder(params);
   let rules: BillingPricingRuleLike[];
   if (preloadedRules !== undefined) {
     rules = preloadedRules;
@@ -308,7 +438,7 @@ export async function fetchBuilderTripsAndRules(
     const rulesRows = await listPricingRulesForPayer(params.payer_id);
     rules = mapBillingPricingRuleRowsToLike(rulesRows);
   }
-  return { trips, rules, clientPriceTags };
+  return { trips, rules, clientPriceTags, clientKmOverrides };
 }
 
 // ─── Build line items ─────────────────────────────────────────────────────────
@@ -320,10 +450,22 @@ export async function fetchBuilderTripsAndRules(
 export function buildLineItemsFromTrips(
   trips: TripForInvoice[],
   rules: BillingPricingRuleLike[],
-  clientPriceTags: ClientPriceTagLike[] = []
+  clientPriceTags: ClientPriceTagLike[] = [],
+  clientKmOverrides: ClientKmOverrideLike[] = []
 ): BuilderLineItem[] {
   const rawItems = trips.map((trip, index) => {
-    const { rate: taxRate } = resolveTaxRate(trip.driving_distance_km);
+    // why: VAT and pricing must use the same distance the business intends to bill;
+    // resolving once avoids split-brain between §12 UStG tiering and per-km rules.
+    const effectiveDistanceKm = resolveEffectiveDistanceKm({
+      manualDistanceKm: trip.manual_distance_km ?? null,
+      drivingDistanceKm: trip.driving_distance_km ?? null,
+      clientId: trip.client?.id ?? null,
+      payerId: trip.payer_id ?? null,
+      billingVariantId: trip.billing_variant_id ?? null,
+      clientKmOverrides
+    });
+
+    const { rate: taxRate } = resolveTaxRate(effectiveDistanceKm);
 
     const rule = resolvePricingRule({
       rules,
@@ -341,7 +483,7 @@ export function buildLineItemsFromTrips(
         net_price: trip.net_price ?? null,
         base_net_price: trip.base_net_price ?? null,
         manual_gross_price: trip.manual_gross_price ?? null,
-        driving_distance_km: trip.driving_distance_km ?? null,
+        driving_distance_km: effectiveDistanceKm,
         scheduled_at: trip.scheduled_at,
         client: trip.client
       },
@@ -353,11 +495,14 @@ export function buildLineItemsFromTrips(
     const unitPrice = priceResolution.unit_price_net;
     const quantity = priceResolution.quantity;
 
+    // why: monthly batches include “named but not registered” trips (`client_id` null,
+    // `trips.client_name` set per docs/trip-client-linking.md). Stammdaten wins when linked;
+    // otherwise snapshot the trip-level display name so PDF appendix Fahrgast is not blank.
     const clientName = trip.client
       ? [trip.client.first_name, trip.client.last_name]
           .filter(Boolean)
           .join(' ')
-      : null;
+      : trip.client_name?.trim() || null;
 
     const dateStr = trip.scheduled_at
       ? new Date(trip.scheduled_at).toLocaleDateString('de-DE', {
@@ -383,6 +528,9 @@ export function buildLineItemsFromTrips(
       pickup_address: trip.pickup_address,
       dropoff_address: trip.dropoff_address,
       distance_km: trip.driving_distance_km,
+      effective_distance_km: effectiveDistanceKm,
+      original_distance_km: trip.driving_distance_km ?? null,
+      manual_km_enabled: trip.payer?.manual_km_enabled ?? false,
       unit_price: unitPrice,
       quantity,
       tax_rate: taxRate,
@@ -396,6 +544,7 @@ export function buildLineItemsFromTrips(
       kts_document_applies: trip.kts_document_applies === true,
       no_invoice_warning: trip.no_invoice_required === true,
       price_resolution: priceResolution,
+      resolved_rule: rule ?? null,
       kts_override,
       approach_fee_net: priceResolution.approach_fee_net ?? null,
       approach_fee_gross:
@@ -596,6 +745,9 @@ export async function insertLineItems(
       pickup_address: item.pickup_address,
       dropoff_address: item.dropoff_address,
       distance_km: item.distance_km,
+      // why: frozen audit trail — which km was billed vs what Google returned.
+      effective_distance_km: item.effective_distance_km ?? null,
+      original_distance_km: item.original_distance_km ?? null,
       unit_price: item.unit_price ?? 0,
       quantity: item.quantity,
       total_price,

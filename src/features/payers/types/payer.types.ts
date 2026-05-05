@@ -90,6 +90,8 @@ export interface Payer {
   rechnungsempfaenger_id?: string | null;
   /** PDF column Vorlage; null = company default / system fallback */
   pdf_vorlage_id?: string | null;
+  /** When true, invoice Step 3 shows per-trip KM input for this payer's trips. */
+  manual_km_enabled?: boolean | null;
 }
 
 export interface PayerWithBillingCount extends Payer {

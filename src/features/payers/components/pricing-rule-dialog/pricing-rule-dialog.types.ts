@@ -32,6 +32,8 @@ export const STRATEGY_DESCRIPTION: Record<PricingStrategy, string> = {
   fixed_below_threshold_then_km: 'Pauschal bis X km, danach km-Staffeln',
   time_based: 'Pauschalpreis außerhalb definierter Arbeitszeiten',
   client_price_tag: 'Fester Brutto-Preis direkt am Fahrgast hinterlegt',
+  client_km_override:
+    'Feste Abrechnungsstrecke (km) je Fahrgast — global, Kostenträger oder Unterart',
   manual_trip_price: 'Preis wird manuell je Fahrt eingetragen',
   no_price: 'Keine Preisermittlung — Fahrt wird nicht berechnet'
 };

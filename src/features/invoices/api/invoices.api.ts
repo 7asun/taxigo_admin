@@ -284,8 +284,12 @@ export async function createInvoice(
       company_id: payload.companyId,
       invoice_number: invoiceNumber,
       payer_id: payload.formValues.payer_id,
-      billing_type_id: payload.formValues.billing_type_id,
-      // Set when the invoice is scoped to exactly one Unterart (billing_variants.id); NULL otherwise.
+      // why: monthly / single_trip scope is `billing_type_ids` (array, not persisted); a header UUID would duplicate semantics and invite wrong single-type “optimizations”. Line-item / trip-set truth stays variant-scoped; per_client keeps one family on the row.
+      billing_type_id:
+        payload.formValues.mode === 'per_client'
+          ? payload.formValues.billing_type_id
+          : null,
+      // Single-Unterart header scope only (billing_variants.id). Monthly subset invoices keep NULL — line items carry mixed Unterarten; billing_variant_ids is fetch-only and never persisted on the row.
       billing_variant_id: payload.formValues.billing_variant_id ?? null,
       mode: payload.formValues.mode,
       client_id: payload.formValues.client_id,

@@ -93,11 +93,19 @@ The **Preisregeln** page under Abrechnung lists and edits every `billing_pricing
 
 For each `TripForInvoice`:
 
-1. **`resolveTaxRate(trip.driving_distance_km)`** — VAT rate for the line (7% / 19%).
-2. **`resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId, clientId, clientPriceTags })`** — **STEP 0** picks the best **`client_price_tags`** hit (variant → payer → global) and synthesizes a `BillingPricingRuleLike` with `strategy: 'client_price_tag'` and **`_price_gross`**; otherwise **STEP 1–3**: billing rules **variant → billing type → payer** (see `resolve-pricing-rule.ts`). `billingTypeId` / `billingVariantId` come from the joined `billing_variant` on the trip.
-3. **`resolveTripPrice(tripInput, taxRate, rule | null)`** — applies the locked P0–P4 price cascade and returns a full **`PriceResolution`** (strategy, source, net, gross, `unit_price_net`, `quantity`, optional `note`). P1 prefers **`_price_gross`** on the resolved rule over **`trip.client.price_tag`**.
+1. **`resolveEffectiveDistanceKm(...)`** — Pure helper in `src/features/invoices/lib/resolve-effective-distance.ts`. Chooses the km used for both VAT and distance-based pricing: **`trips.manual_distance_km`** (when set and valid) → matching **`client_km_overrides`** (variant + payer → variant-only → payer-wide → global; active rows loaded in `fetchTripsForBuilder`) → **`trips.driving_distance_km`**. The raw routing column is **not** passed directly into tax or `resolveTripPrice` anymore; `trip.driving_distance_km` remains on the trip for display and is still copied to `BuilderLineItem.distance_km` / `original_distance_km` unchanged.
 
-`buildLineItemsFromTrips` then maps that into a **`BuilderLineItem`**: `unit_price` from `unit_price_net`, `kts_override` when `strategy_used === 'kts_override'`, `no_invoice_warning` from `trips.no_invoice_required`, and attaches `warnings` from `validateLineItems`.
+2. **`resolveTaxRate(effectiveDistanceKm)`** — VAT rate for the line (7% / 19%).
+
+3. **`resolvePricingRule({ rules, payerId, billingTypeId, billingVariantId, clientId, clientPriceTags })`** — **STEP 0** picks the best **`client_price_tags`** hit (variant → payer → global) and synthesizes a `BillingPricingRuleLike` with `strategy: 'client_price_tag'` and **`_price_gross`**; otherwise **STEP 1–3**: billing rules **variant → billing type → payer** (see `resolve-pricing-rule.ts`). `billingTypeId` / `billingVariantId` come from the joined `billing_variant` on the trip.
+
+4. **`resolveTripPrice(tripInput, taxRate, rule | null)`** — applies the locked P0–P4 price cascade and returns a full **`PriceResolution`** (strategy, source, net, gross, `unit_price_net`, `quantity`, optional `note`). The trip input’s **`driving_distance_km`** field is set to **`effectiveDistanceKm`** for this call so per-km strategies align with the resolved distance. P1 prefers **`_price_gross`** on the resolved rule over **`trip.client.price_tag`**.
+
+`buildLineItemsFromTrips` then maps that into a **`BuilderLineItem`**: `unit_price` from `unit_price_net`, `kts_override` when `strategy_used === 'kts_override'`, `no_invoice_warning` from `trips.no_invoice_required`, **`resolved_rule`** = the `BillingPricingRuleLike` passed into `resolveTripPrice` (for Step 3 KM repricing), `originalPriceResolution` = initial engine snapshot, and attaches `warnings` from `validateLineItems`.
+
+**Pseudo-strategy `client_km_override`:** Listed in `PRICING_STRATEGIES` only so the shared `PricingRuleDialog` can open **`ClientKmOverrideStep`**; it is **not** stored on `billing_pricing_rules`. `executeStrategy` treats it like an empty-config fallback for exhaustiveness.
+
+See [manual-km-overrides.md](manual-km-overrides.md) for the full priority chain and phase status.
 
 ### Persisting to `invoice_line_items`
 

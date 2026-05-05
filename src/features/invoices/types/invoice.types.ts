@@ -19,7 +19,10 @@
 
 import { z } from 'zod';
 
-import type { PriceResolution } from '@/features/invoices/types/pricing.types';
+import type {
+  BillingPricingRuleLike,
+  PriceResolution
+} from '@/features/invoices/types/pricing.types';
 import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 import type { ClientReferenceField } from '@/features/clients/lib/client-reference-fields.schema';
@@ -114,6 +117,15 @@ export interface InvoiceLineItemRow {
   pickup_address: string | null;
   dropoff_address: string | null;
   distance_km: number | null; // driving distance (from trips.driving_distance_km)
+  /**
+   * Distance in km used for pricing and VAT for this line (manual → client override → routing).
+   * Snapshotted at creation; see docs/manual-km-overrides.md.
+   */
+  effective_distance_km: number | null;
+  /**
+   * Snapshot of trips.driving_distance_km at creation — routing provider only, never manual.
+   */
+  original_distance_km: number | null;
   unit_price: number; // price per unit (per trip or per km)
   quantity: number; // usually 1; or distance_km for per-km pricing
   total_price: number; // Bruttobetrag = (unit_price × quantity + approach_fee_net) × (1 + tax_rate)
@@ -243,10 +255,13 @@ export interface TripForInvoice {
   approach_fee_net: number | null;
   /** Taxameter gross on trip — resolveTripPrice P0 when set. */
   manual_gross_price: number | null;
+  /** Admin KM override on trip; Phase 2 writeback. NULL = use routing / client catalog. */
+  manual_distance_km: number | null;
   driving_distance_km: number | null; // for tax rate calculation
   billing_variant_id: string | null;
   payer?: {
     rechnungsempfaenger_id: string | null;
+    manual_km_enabled: boolean;
   } | null;
   billing_variant?: {
     id: string;
@@ -260,6 +275,11 @@ export interface TripForInvoice {
       rechnungsempfaenger_id: string | null;
     } | null;
   } | null;
+  /**
+   * Denormalized passenger display name on `trips` when not Stammdaten-linked.
+   * Fetched for invoice snapshots; see `buildLineItemsFromTrips` fallback when `client` is absent.
+   */
+  client_name?: string | null;
   // Client snapshot fields — includes price_tag for invoice price resolution
   // price_tag is the highest priority source for pricing
   client?: {
@@ -326,10 +346,24 @@ export const invoiceBuilderSchema = z.object({
   billing_type_id: z.string().uuid().nullable(),
 
   /**
+   * Monthly / single_trip: optional subset of Abrechnungsfamilien (billing_types.id).
+   * NULL or empty = all types for the payer. A single UUID header cannot represent this scope — use this array; monthly insert keeps billing_type_id null.
+   */
+  billing_type_ids: z.array(z.string().uuid()).nullable(),
+
+  /**
    * Optional: scope trips to exactly one Unterart (billing_variants.id).
    * NULL means "all Unterarten" (subject to billing_type_id filter if present).
    */
   billing_variant_id: z.string().uuid().nullable(),
+
+  /**
+   * Monthly / standard mode only: optional subset of Unterarten (billing_variants.id)
+   * under the single billing type in scope (`billing_type_ids.length === 1` or per_client `billing_type_id`).
+   * NULL or empty = all variants of that type.
+   * Fetch-only; never persisted on invoices.billing_variant_id.
+   */
+  billing_variant_ids: z.array(z.string().uuid()).nullable(),
 
   // Required only when mode === 'per_client'
   client_id: z.string().uuid().nullable(),
@@ -382,8 +416,46 @@ export interface BuilderLineItem {
   client_name: string | null;
   pickup_address: string | null;
   dropoff_address: string | null;
-  /** `trips.driving_distance_km` — feeds tax rate and per-km strategies. */
+  /**
+   * Snapshot of `trips.driving_distance_km` for Step 3 / PDF / detail display.
+   * Pricing and VAT use `effective_distance_km`.
+   */
   distance_km: number | null;
+  /**
+   * Effective distance used for pricing and VAT in this line item.
+   * Resolved from: manual_distance_km → client_km_overrides → driving_distance_km.
+   * Snapshotted to invoice_line_items.effective_distance_km on insert.
+   */
+  effective_distance_km: number | null;
+
+  /**
+   * Snapshot of trips.driving_distance_km at build time — the routing provider value.
+   * Always preserved regardless of any override. Displayed read-only in Step 3
+   * alongside the manual KM input. Snapshotted to invoice_line_items.original_distance_km.
+   */
+  original_distance_km: number | null;
+
+  /**
+   * `payers.manual_km_enabled` at build time — Step 3 shows KM input when true.
+   * Same payer for all rows in a session; avoids threading payer through Step 3 props.
+   */
+  manual_km_enabled?: boolean;
+
+  // ── In-session KM override (set by admin in Step 3) ─────────────────────────
+
+  /**
+   * KM value committed by the admin in this builder session via the Step 3
+   * inline input. null = not overridden in this session.
+   * Written back to trips.manual_distance_km on invoice save (fire-and-forget)
+   * so the same effective KM pre-resolves in future sessions.
+   */
+  manualDistanceKm?: number | null;
+
+  /**
+   * true when the admin has committed a KM override via applyKmOverride in
+   * this session. Drives the amber "KM manuell" badge and × reset button.
+   */
+  isManualKmOverride?: boolean;
   /**
    * Net unit price for the line (€). Mirrors `price_resolution.unit_price_net` until the
    * user overrides in step 3; `null` means unresolved / missing (step-3 `missing_price`).
@@ -395,7 +467,7 @@ export interface BuilderLineItem {
    * Billing quantity from `PriceResolution.quantity` (usually `1`; equals km for per-km rules).
    */
   quantity: number;
-  /** VAT rate from `resolveTaxRate(driving_distance_km)` — not from the pricing rule. */
+  /** VAT rate from `resolveTaxRate(effective_distance_km)` — not from the pricing rule. */
   tax_rate: number;
   /** From joined `billing_variants.code` on the trip. */
   billing_variant_code: string | null;
@@ -418,6 +490,11 @@ export interface BuilderLineItem {
    * read `strategy_used` and `source` from here.
    */
   price_resolution: PriceResolution;
+  /**
+   * Rule passed to `resolveTripPrice` at build time so `applyKmOverride` can reprice with a
+   * new effective KM without inferring config from the snapshot. Null when no active rule applied.
+   */
+  resolved_rule?: BillingPricingRuleLike | null;
   /**
    * `true` when `price_resolution.strategy_used === 'kts_override'` (KTS branch in
    * `resolveTripPrice`). Skips the `zero_price` validator warning for €0 lines.

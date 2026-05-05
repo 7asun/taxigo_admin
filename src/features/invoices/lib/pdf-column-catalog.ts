@@ -208,8 +208,9 @@ export const PDF_COLUMN_CATALOG: PdfColumnDef[] = [
     key: 'distance_km',
     label: 'km',
     uiLabel: 'Fahrtstrecke (km)',
-    description: 'Gefahrene Strecke in Kilometern',
-    dataField: 'distance_km',
+    description:
+      'Abgerechnete Strecke in Kilometern (inkl. manueller Anpassung und Katalog-Overrides)',
+    dataField: 'effective_distance_km',
     defaultWidthPt: 40,
     minWidthPt: 32,
     align: 'right',

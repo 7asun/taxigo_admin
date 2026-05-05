@@ -9,6 +9,7 @@ import type {
 
 export const PRICING_STRATEGY_LABELS_DE: Record<PricingStrategy, string> = {
   client_price_tag: 'Kunde Preis-Tag (Brutto)',
+  client_km_override: 'Kunde KM-Override',
   tiered_km: 'Staffelpreis pro km',
   fixed_below_threshold_then_km: 'Festpreis unter Schwelle, dann km',
   time_based: 'Zeitbasiert (Außerhalb Arbeitszeit)',
