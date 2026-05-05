@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/sheet';
 import { ClientAutoSuggest } from '@/components/ui/client-auto-suggest';
 import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
+import { createRecurringRule } from '@/features/trips/api/recurring-rules.actions';
 import {
   RecurringRuleFormBody,
   RuleFormValues,
@@ -35,7 +36,6 @@ import {
   NO_BILLING_VARIANT_SENTINEL,
   handleRuleFormInvalid
 } from '@/features/clients/components/recurring-rule-form-body';
-import { recurringRulesService } from '@/features/trips/api/recurring-rules.service';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
 import { formatClientAddress } from '@/features/clients/lib/format-client-address';
@@ -196,7 +196,10 @@ export function CreateRecurringRuleSheet({
         ruleData.billing_variant_id = null;
       }
 
-      await recurringRulesService.createRule(ruleData);
+      const { error } = await createRecurringRule(ruleData);
+      if (error) {
+        throw new Error(error);
+      }
       toast.success('Regel erfolgreich erstellt');
       onSuccess();
       onOpenChange(false);

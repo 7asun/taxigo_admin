@@ -108,7 +108,7 @@ This was fragile because it assumed the geocoder always returns bit-identical fl
 
 **Observability:** Warnings for suppressed updates use **`console.warn`** with prefix **`[distance-freeze]`**. The trip detail sheet is a **client** component — these messages go to the **browser DevTools console**, not Vercel server logs, unless you add a server endpoint later. Server-side creation paths (bulk, cron, etc.) are **not** covered by this guard in Plan A.
 
-**Plan B/C (not implemented here):** Broader policies (e.g. cache-only, status-based locks) are documented in `docs/plans/geocoding-strategy-brainstorm.md`.
+**Further policies:** Broader ideas (e.g. cache-only, status-based locks) are documented in `docs/plans/geocoding-strategy-brainstorm.md`. Recurring-rule coordinate stabilisation is **Plan C** (see section below), not the freeze guard.
 
 ---
 
@@ -121,6 +121,18 @@ This was fragile because it assumed the geocoder always returns bit-identical fl
 **API contract:** `GET /api/place-details` includes **`place_id`** in the success JSON when present: it **echoes the raw `placeId` query parameter** the client sent, not a field read from the Places API response body (the handler already knows the id from the request). This keeps the client’s stored id aligned with what it submitted.
 
 **Plan B4 (deferred):** A follow-up change will add a **two-stage `route_metrics_cache` lookup** that prefers a **place-id-based key** before the existing rounded-coordinate key, so form-created trips sharing the same Places-selected route converge on one cache entry and one consistent `driving_distance_km`. Until B4 ships, `route_metrics_cache` and `resolveDrivingMetricsWithCache` are unchanged.
+
+---
+
+## Recurring Rule Coordinate Stabilisation (Plan C)
+
+**Columns:** `recurring_rules.pickup_lat`, `pickup_lng`, `dropoff_lat`, `dropoff_lng` (nullable `FLOAT8`) store coordinates resolved **once** when an admin saves a rule via server actions. Legacy rows keep **null** — behaviour falls back to live geocoding (same as before Plan C).
+
+**Who writes them:** [`createRecurringRule`](../src/features/trips/api/recurring-rules.actions.ts) and [`updateRecurringRule`](../src/features/trips/api/recurring-rules.actions.ts) call [`geocodeRuleAddresses`](../src/lib/geocode-rule-addresses.ts) (parallel `geocodeAddressLineToStructured`). **`GOOGLE_MAPS_API_KEY` stays server-only** — browser [`recurring-rules.service.ts`](../src/features/trips/api/recurring-rules.service.ts) no longer exposes insert/update for rules. **Fail-open:** geocode errors are logged with prefix **`[plan-c]`**; null coordinates are saved and the cron still materialises trips using live geocoding for those legs. **Updates:** coordinates are recomputed only when `pickup_address` or `dropoff_address` **strings** change (existing row is read on the server and compared) — billing-only saves do not call Google.
+
+**Cron:** [`generate-recurring-trips/route.ts`](../src/app/api/cron/generate-recurring-trips/route.ts) still calls `resolveGeoLine` (in-memory `geoCache` of **unmodified** Geocoding API results) to fill **structured** address fields on each trip. When the rule has **all four** coordinates set and the occurrence has **no** `modified_pickup_address` / `modified_dropoff_address` on the exception, **lat/lng on a clone of** that structured result are **overridden** with the stored rule coordinates (outbound: pickup/dropoff map to `pickup_*` / `dropoff_*`; return leg: **swapped** to match address strings). **Never** put those overridden objects into `geoCache` — otherwise a later occurrence in the same run with the same string but a free-text exception would read the wrong coordinates. Per-occurrence **exception address overrides** always use **live** geocoding only; stored rule coordinates are not used for those legs.
+
+**Deferred — Option 2:** Capturing Places Autocomplete lat/lng/`place_id` on the **rule form** to avoid the Geocoding API on save. **Not in Plan C:** `place_id` columns on `recurring_rules`, `recurring_rule_exceptions` changes, coordinate backfill SQL, Plan B4 cache changes.
 
 ---
 

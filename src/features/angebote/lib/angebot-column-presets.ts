@@ -1,7 +1,9 @@
 import type {
   AngebotColumnDef,
+  AngebotColumnRole,
   AngebotColumnType
 } from '../types/angebot.types';
+import { angebotColumnRoleSchema } from '../types/angebot.types';
 
 export type AngebotColumnPreset =
   | 'beschreibung'
@@ -121,6 +123,105 @@ export const COLUMN_PRESET_UI: Record<
   }
 };
 
+/**
+ * Display metadata for each AngebotColumnRole.
+ * Used by the Vorlage editor role picker and any future UI that renders roles.
+ * group: 'input' = admin fills manually; 'computed' = engine derives (Phase 3+).
+ */
+export const ANGEBOT_COLUMN_ROLE_UI: Record<
+  AngebotColumnRole,
+  {
+    label: string;
+    group: 'input' | 'computed';
+    description: string;
+  }
+> = {
+  // Input roles
+  description: {
+    label: 'Beschreibung',
+    group: 'input',
+    description: 'Leistungstext oder Streckenbeschreibung'
+  },
+  time: {
+    label: 'Uhrzeit',
+    group: 'input',
+    description: 'Abfahrts- oder Ankunftszeit'
+  },
+  days: {
+    label: 'Wochentage',
+    group: 'input',
+    description: 'Fahrttage, z. B. MO–FR'
+  },
+  quantity: {
+    label: 'Anzahl',
+    group: 'input',
+    description: 'Anzahl der Fahrten oder Einheiten'
+  },
+  distance_km: {
+    label: 'Kilometer',
+    group: 'input',
+    description: 'Gefahrene Strecke in Kilometern'
+  },
+  unit_price: {
+    label: 'Einheitspreis',
+    group: 'input',
+    description: 'Preis pro Einheit oder pro km'
+  },
+  flat_rate: {
+    label: 'Pauschale',
+    group: 'input',
+    description: 'Fester Betrag unabhängig von der Strecke'
+  },
+  surcharge: {
+    label: 'Zuschlag',
+    group: 'input',
+    description: 'Zusätzlicher Aufschlag, z. B. Nacht- oder Wochenendzuschlag'
+  },
+  tax_rate: {
+    label: 'MwSt-Satz',
+    group: 'input',
+    description: 'Umsatzsteuersatz (0%, 7% oder 19%)'
+  },
+  // Computed roles
+  net_amount: {
+    label: 'Nettobetrag',
+    group: 'computed',
+    description: 'Wird automatisch berechnet (Phase 3)'
+  },
+  tax_amount: {
+    label: 'MwSt-Betrag',
+    group: 'computed',
+    description: 'Wird automatisch berechnet (Phase 3)'
+  },
+  gross_amount: {
+    label: 'Bruttobetrag',
+    group: 'computed',
+    description: 'Wird automatisch berechnet (Phase 3)'
+  }
+};
+
+type AngebotColumnRoleUi =
+  (typeof ANGEBOT_COLUMN_ROLE_UI)[keyof typeof ANGEBOT_COLUMN_ROLE_UI];
+
+// Ordered lists for rendering grouped selects — order matters for UX.
+export const ANGEBOT_ROLE_INPUT_OPTIONS = (
+  Object.entries(ANGEBOT_COLUMN_ROLE_UI) as [
+    AngebotColumnRole,
+    AngebotColumnRoleUi
+  ][]
+)
+  .filter(([, v]) => v.group === 'input')
+  .map(([k, v]) => ({ value: k, label: v.label, description: v.description }));
+
+export const ANGEBOT_ROLE_COMPUTED_OPTIONS = (
+  Object.entries(ANGEBOT_COLUMN_ROLE_UI) as [
+    AngebotColumnRole,
+    AngebotColumnRoleUi
+  ][]
+)
+  .filter(([, v]) => v.group === 'computed')
+  .map(([k, v]) => ({ value: k, label: v.label, description: v.description }));
+
 export function defaultHeaderForPreset(preset: AngebotColumnPreset): string {
   switch (preset) {
     case 'beschreibung':
@@ -189,6 +290,12 @@ export function normalizeLegacyColumn(raw: unknown): AngebotColumnDef {
             ? null
             : typeof rec.formula === 'string'
               ? rec.formula
+              : undefined,
+        role:
+          rec.role === null
+            ? null
+            : angebotColumnRoleSchema.safeParse(rec.role).success
+              ? (rec.role as AngebotColumnRole)
               : undefined
       };
     }
@@ -217,6 +324,12 @@ export function normalizeLegacyColumn(raw: unknown): AngebotColumnDef {
         ? null
         : typeof rec.formula === 'string'
           ? rec.formula
+          : undefined,
+    role:
+      rec.role === null
+        ? null
+        : angebotColumnRoleSchema.safeParse(rec.role).success
+          ? (rec.role as AngebotColumnRole)
           : undefined
   };
 }

@@ -156,6 +156,26 @@ export async function GET(request: NextRequest) {
       return resolved;
     }
 
+    /** Plan C: merge stored rule lat/lng — only on a clone; never write overrides into geoCache. */
+    function mergeLegCoords(
+      live: GeocodedAddressLineResult | null,
+      lat: number,
+      lng: number
+    ): GeocodedAddressLineResult {
+      if (live) {
+        return { ...live, lat, lng };
+      }
+      return {
+        lat,
+        lng,
+        street: null,
+        street_number: null,
+        zip_code: null,
+        city: null,
+        formatted_address: null
+      };
+    }
+
     // 3) Counters for JSON response (new inserts only; deduped legs do not increment `generated`).
     let tripsInserted = 0;
     let errorCount = 0;
@@ -217,8 +237,43 @@ export async function GET(request: NextRequest) {
         exception?.modified_dropoff_address ||
         (isReturnTrip ? rule.pickup_address : rule.dropoff_address);
 
-      const pickupGeo = await resolveGeoLine(pickupAddress);
-      const dropoffGeo = await resolveGeoLine(dropoffAddress);
+      const hasAddressException =
+        !!exception?.modified_pickup_address ||
+        !!exception?.modified_dropoff_address;
+
+      const pickupLive = await resolveGeoLine(pickupAddress);
+      const dropoffLive = await resolveGeoLine(dropoffAddress);
+
+      let pickupGeo: GeocodedAddressLineResult | null = pickupLive
+        ? { ...pickupLive }
+        : null;
+      let dropoffGeo: GeocodedAddressLineResult | null = dropoffLive
+        ? { ...dropoffLive }
+        : null;
+
+      const hasFullRuleCoords =
+        rule.pickup_lat != null &&
+        rule.pickup_lng != null &&
+        rule.dropoff_lat != null &&
+        rule.dropoff_lng != null;
+
+      // WHY Plan C: prefer stable coords from recurring_rules when no per-occurrence
+      // address override; apply overrides on clones only — geoCache stays unmodified live results.
+      if (!hasAddressException && hasFullRuleCoords) {
+        // Narrowed by hasFullRuleCoords — all four are non-null numbers.
+        const pLat = rule.pickup_lat!;
+        const pLng = rule.pickup_lng!;
+        const dLat = rule.dropoff_lat!;
+        const dLng = rule.dropoff_lng!;
+        if (!isReturnTrip) {
+          pickupGeo = mergeLegCoords(pickupGeo, pLat, pLng);
+          dropoffGeo = mergeLegCoords(dropoffGeo, dLat, dLng);
+        } else {
+          pickupGeo = mergeLegCoords(pickupGeo, dLat, dLng);
+          dropoffGeo = mergeLegCoords(dropoffGeo, pLat, pLng);
+        }
+      }
+
       const geodataOk = !!pickupGeo && !!dropoffGeo;
 
       let driving_distance_km: number | null = null;

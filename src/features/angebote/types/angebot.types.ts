@@ -31,13 +31,49 @@ const angebotColumnPresetSchema = z.enum([
   'percent'
 ]);
 
+/**
+ * Semantic role of a column within the formula engine.
+ * Input roles mark columns the admin fills manually.
+ * Computed roles mark columns whose values are derived by the engine
+ * from other columns in the same row — never entered by hand.
+ *
+ * Phase 2b: role is set via the Vorlage editor UI.
+ * Phase 3:  engine reads role to infer calculations and mark computed
+ *           columns read-only in the builder form.
+ * formula field (separate): future escape hatch for custom expressions.
+ */
+export const angebotColumnRoleSchema = z.enum([
+  // Input roles
+  'description',
+  'time',
+  'days',
+  'quantity',
+  'distance_km',
+  'unit_price',
+  'flat_rate',
+  'surcharge',
+  'tax_rate',
+  // Computed roles
+  'net_amount',
+  'tax_amount',
+  'gross_amount'
+]);
+
+export type AngebotColumnRole = z.infer<typeof angebotColumnRoleSchema>;
+
 export const angebotColumnDefSchema = z.object({
   id: z.string().min(1),
   header: z.string().max(20),
   preset: angebotColumnPresetSchema,
   required: z.boolean().optional(),
   /** Reserved for Phase 2b+ calculated columns. Not evaluated in Phase 2a — store null. */
-  formula: z.string().nullable().optional()
+  formula: z.string().nullable().optional(),
+  /**
+   * Semantic role used by the formula engine (Phase 3+).
+   * null / undefined = no role assigned; column behaves as manual input.
+   * Set via Vorlage editor UI in Phase 2b.
+   */
+  role: angebotColumnRoleSchema.nullable().optional()
 });
 
 export const angebotColumnDefArraySchema = z.array(angebotColumnDefSchema);
@@ -85,6 +121,11 @@ export interface AngebotRow {
   company_id: string;
   angebot_number: string;
   status: AngebotStatus;
+  input_mode: 'net' | 'gross';
+  show_totals_block: boolean;
+  totals_label_net: string | null;
+  totals_label_tax: string | null;
+  totals_label_gross: string | null;
   recipient_company: string | null;
   recipient_name: string | null;
   recipient_first_name: string | null;
@@ -188,6 +229,11 @@ export interface CreateAngebotPayload {
   outro_text?: string | null;
   angebotVorlageId?: string | null;
   tableSchemaSnapshot: AngebotColumnDef[];
+  inputMode: 'net' | 'gross';
+  showTotalsBlock: boolean;
+  totalsLabelNet?: string;
+  totalsLabelTax?: string;
+  totalsLabelGross?: string;
   line_items: AngebotLineItemPayload[];
 }
 
@@ -207,4 +253,22 @@ export type UpdateAngebotPayload = Partial<
     | 'table_schema_snapshot'
     | 'pdf_column_override'
   >
->;
+> & {
+  /**
+   * UI-only camelCase flag for mapping to DB `show_totals_block`.
+   * Never pass snake_case outside the API mapping layer.
+   */
+  showTotalsBlock?: boolean;
+  inputMode?: 'net' | 'gross';
+  totalsLabelNet?: string;
+  totalsLabelTax?: string;
+  totalsLabelGross?: string;
+};
+
+/**
+ * Payload for refreshing the schema snapshot on draft quotes only.
+ * Kept separate from UpdateAngebotPayload so non-draft edits cannot overwrite the snapshot.
+ */
+export type DraftSchemaRefreshPayload = {
+  table_schema_snapshot: AngebotColumnDef[];
+};

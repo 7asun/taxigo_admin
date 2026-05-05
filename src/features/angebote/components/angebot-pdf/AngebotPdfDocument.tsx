@@ -41,6 +41,12 @@ import type {
 } from '../../types/angebot.types';
 import { ANGEBOT_STANDARD_COLUMN_PROFILE } from '../../types/angebot.types';
 import { AngebotPdfCoverBody } from './AngebotPdfCoverBody';
+import { computeAngebotTotals } from '../../lib/angebot-formula-engine';
+import {
+  DEFAULT_TOTALS_LABEL_GROSS,
+  DEFAULT_TOTALS_LABEL_NET,
+  DEFAULT_TOTALS_LABEL_TAX
+} from '../../hooks/use-angebot-builder';
 
 /**
  * Shared by PDF export and detail UI — resolves the same column schema as the document body.
@@ -137,6 +143,25 @@ export function AngebotPdfDocument({
 
   const resolvedIntroText = introText ?? angebot.intro_text ?? null;
   const resolvedOutroText = outroText ?? angebot.outro_text ?? null;
+
+  /**
+   * Only compute totals when show_totals_block is true — the formula engine
+   * writes schema-independent synthetic totals keys into row data, and
+   * computeAngebotTotals falls back to role-column IDs for legacy rows.
+   *
+   * WHY: totals must never appear unless explicitly enabled per quote.
+   */
+  const totalsData = angebot.show_totals_block
+    ? {
+        ...computeAngebotTotals(
+          angebot.line_items.map((item) => item.data),
+          columnSchema
+        ),
+        labelNet: angebot.totals_label_net ?? DEFAULT_TOTALS_LABEL_NET,
+        labelTax: angebot.totals_label_tax ?? DEFAULT_TOTALS_LABEL_TAX,
+        labelGross: angebot.totals_label_gross ?? DEFAULT_TOTALS_LABEL_GROSS
+      }
+    : null;
 
   return (
     <Document
@@ -253,6 +278,7 @@ export function AngebotPdfDocument({
             columnSchema={columnSchema}
             introText={resolvedIntroText}
             outroText={resolvedOutroText}
+            totalsData={totalsData}
           />
         </View>
 

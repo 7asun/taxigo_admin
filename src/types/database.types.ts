@@ -732,6 +732,10 @@ export type Database = {
           rrule_string: string;
           pickup_address: string;
           dropoff_address: string;
+          pickup_lat: number | null;
+          pickup_lng: number | null;
+          dropoff_lat: number | null;
+          dropoff_lng: number | null;
           pickup_time: string | null;
           return_mode: string;
           return_trip: boolean;
@@ -756,6 +760,10 @@ export type Database = {
           rrule_string: string;
           pickup_address: string;
           dropoff_address: string;
+          pickup_lat?: number | null;
+          pickup_lng?: number | null;
+          dropoff_lat?: number | null;
+          dropoff_lng?: number | null;
           pickup_time: string | null;
           return_mode: string;
           return_trip?: boolean;
@@ -780,6 +788,10 @@ export type Database = {
           rrule_string?: string;
           pickup_address?: string;
           dropoff_address?: string;
+          pickup_lat?: number | null;
+          pickup_lng?: number | null;
+          dropoff_lat?: number | null;
+          dropoff_lng?: number | null;
           pickup_time?: string | null;
           return_mode?: string;
           return_trip?: boolean;

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   GripVertical,
@@ -47,10 +48,12 @@ import {
   TooltipContent,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 import { useAngebotVorlagenList } from '../../hooks/use-angebot-vorlagen';
 import { ANGEBOT_POSITION_COLUMN_ID } from '../../lib/angebot-auto-columns';
+import { isComputedColumn } from '../../lib/angebot-formula-engine';
 import {
   COLUMN_PRESET_UI,
   resolveColumnLayout,
@@ -59,12 +62,72 @@ import {
 import type { AngebotColumnDef } from '../../types/angebot.types';
 import type { BuilderLineItem } from '../../hooks/use-angebot-builder';
 
+function hasTaxRateValue(
+  data: Record<string, string | number | null>,
+  columns: AngebotColumnDef[]
+): boolean {
+  const taxRateCol = columns.find((c) => c.role === 'tax_rate');
+  if (!taxRateCol) return false;
+  const raw = data[taxRateCol.id];
+  if (raw === null || raw === undefined || raw === '') return false;
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+  // WHY: tax_rate=0 is valid; only empty/non-numeric blocks gross reinterpretation.
+  return isFinite(n) && n >= 0;
+}
+
+function formatEur(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR'
+  }).format(value);
+}
+
+function formatEurPerKm(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return `${new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value)} €/km`;
+}
+
+function renderComputedDisplay(col: AngebotColumnDef, raw: unknown): string {
+  const layout = resolveColumnLayout(col);
+  switch (layout.pdfRenderType) {
+    case 'text': {
+      if (raw == null || raw === '') return '—';
+      return String(raw);
+    }
+    case 'integer': {
+      if (raw == null || raw === '') return '—';
+      const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+      return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'currency': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEur(Number.isFinite(n) ? n : null);
+    }
+    case 'currency_per_km': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatEurPerKm(Number.isFinite(n) ? n : null);
+    }
+    case 'percent': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      if (!Number.isFinite(n)) return '—';
+      return `${n} %`;
+    }
+    default:
+      return '—';
+  }
+}
+
 // ─── Sortable card row ────────────────────────────────────────────────────────
 
 interface SortableCardProps {
   index: number;
   item: BuilderLineItem;
   columnSchema: AngebotColumnDef[];
+  inputMode: 'net' | 'gross';
   canDelete: boolean;
   onUpdate: (patch: Partial<BuilderLineItem>) => void;
   onDelete: () => void;
@@ -74,10 +137,27 @@ function SortableCard({
   index,
   item,
   columnSchema,
+  inputMode,
   canDelete,
   onUpdate,
   onDelete
 }: SortableCardProps) {
+  /**
+   * Holds the raw gross values typed by the dispatcher while gross mode
+   * is active. Kept local — never written to row data. Row data always
+   * receives engine-converted net values via onUpdate.
+   */
+  const [grossInputs, setGrossInputs] = useState<Record<string, string>>({});
+  const prevInputModeRef = useRef<'net' | 'gross'>(inputMode);
+  useEffect(() => {
+    const prev = prevInputModeRef.current;
+    prevInputModeRef.current = inputMode;
+    // WHY: gross inputs are display-only; once leaving gross mode, clear them so net mode shows canonical values.
+    if (prev === 'gross' && inputMode !== 'gross') {
+      setGrossInputs({});
+    }
+  }, [inputMode]);
+
   const {
     attributes,
     listeners,
@@ -144,92 +224,225 @@ function SortableCard({
               const raw = item.data[col.id];
               const key = `${col.id}-${index}`;
               const layout = resolveColumnLayout(col);
+              const computed = isComputedColumn(col);
+              const showGrossWarning =
+                inputMode === 'gross' &&
+                (col.role === 'unit_price' ||
+                  col.role === 'flat_rate' ||
+                  col.role === 'surcharge') &&
+                !hasTaxRateValue(item.data, columnSchema);
+              const isGrossPriceInput =
+                inputMode === 'gross' &&
+                (col.role === 'unit_price' ||
+                  col.role === 'flat_rate' ||
+                  col.role === 'surcharge');
               return (
                 <div key={key} className='space-y-1'>
                   <Label className='text-xs'>{col.header}</Label>
-                  {layout.pdfRenderType === 'text' ? (
-                    <Input
-                      className='h-8 text-sm'
-                      // Free text — no step or min constraints.
-                      type='text'
-                      value={raw != null ? String(raw) : ''}
-                      onChange={(e) =>
-                        onUpdate({
-                          data: {
-                            ...item.data,
-                            [col.id]: e.target.value || null
+                  {computed ? (
+                    <div
+                      className='bg-muted/30 border-border flex h-8 items-center justify-between gap-2 rounded-md border px-2 text-sm'
+                      title='Wird automatisch berechnet'
+                    >
+                      <span className='text-muted-foreground truncate'>
+                        {renderComputedDisplay(col, raw)}
+                      </span>
+                      <span className='text-muted-foreground text-xs'>⚙</span>
+                    </div>
+                  ) : (
+                    <>
+                      {layout.pdfRenderType === 'text' ? (
+                        <Input
+                          className='h-8 text-sm'
+                          // Free text — no step or min constraints.
+                          type='text'
+                          value={raw != null ? String(raw) : ''}
+                          onChange={(e) =>
+                            onUpdate({
+                              data: {
+                                ...item.data,
+                                [col.id]: e.target.value || null
+                              }
+                            })
                           }
-                        })
-                      }
-                    />
-                  ) : null}
-                  {layout.pdfRenderType === 'integer' ? (
-                    <Input
-                      className='h-8 text-sm'
-                      // Whole numbers only — step=1 prevents decimal input.
-                      type='number'
-                      step={layout.inputStep ?? 1}
-                      min={layout.inputMin}
-                      value={raw != null && raw !== '' ? String(raw) : ''}
-                      onChange={(e) => {
-                        const t = e.target.value;
-                        onUpdate({
-                          data: {
-                            ...item.data,
-                            [col.id]: t === '' ? null : parseInt(t, 10)
+                        />
+                      ) : null}
+                      {layout.pdfRenderType === 'integer' ? (
+                        <Input
+                          className='h-8 text-sm'
+                          // Whole numbers only — step=1 prevents decimal input.
+                          type='number'
+                          step={layout.inputStep ?? 1}
+                          min={layout.inputMin}
+                          value={raw != null && raw !== '' ? String(raw) : ''}
+                          onChange={(e) => {
+                            const t = e.target.value;
+                            onUpdate({
+                              data: {
+                                ...item.data,
+                                [col.id]: t === '' ? null : parseInt(t, 10)
+                              }
+                            });
+                          }}
+                        />
+                      ) : null}
+                      {layout.pdfRenderType === 'currency' ||
+                      layout.pdfRenderType === 'currency_per_km' ? (
+                        isGrossPriceInput ? (
+                          <div className='flex items-center gap-1.5'>
+                            {/* Left — editable gross input */}
+                            <div className='flex w-1/2 items-center gap-2'>
+                              <Input
+                                className='h-8 w-full text-sm'
+                                placeholder='Brutto'
+                                value={grossInputs[col.id] ?? ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const parsed =
+                                    raw === ''
+                                      ? null
+                                      : parseFloat(raw.replace(',', '.'));
+                                  const safeParsed =
+                                    parsed === null || isNaN(parsed)
+                                      ? null
+                                      : parsed;
+
+                                  // Update local gross state for this column
+                                  const nextGrossInputs = {
+                                    ...grossInputs,
+                                    [col.id]: raw
+                                  };
+                                  setGrossInputs(nextGrossInputs);
+
+                                  // Build a patch that includes gross values for ALL price columns
+                                  // that have been typed into — so the engine converts the full set
+                                  // and never re-converts a net value from a previous update.
+                                  const grossPatch: Record<
+                                    string,
+                                    number | null
+                                  > = {};
+                                  for (const c of columnSchema) {
+                                    if (
+                                      c.role === 'unit_price' ||
+                                      c.role === 'flat_rate' ||
+                                      c.role === 'surcharge'
+                                    ) {
+                                      if (c.id === col.id) {
+                                        grossPatch[c.id] = safeParsed;
+                                      } else if (
+                                        nextGrossInputs[c.id] !== undefined
+                                      ) {
+                                        const other = parseFloat(
+                                          nextGrossInputs[c.id].replace(
+                                            ',',
+                                            '.'
+                                          )
+                                        );
+                                        grossPatch[c.id] = isNaN(other)
+                                          ? null
+                                          : other;
+                                      }
+                                    }
+                                  }
+
+                                  onUpdate({ data: grossPatch });
+                                }}
+                              />
+                              {showGrossWarning ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertTriangle className='text-warning h-3.5 w-3.5 shrink-0' />
+                                  </TooltipTrigger>
+                                  <TooltipContent side='top'>
+                                    <p className='text-xs'>
+                                      Steuersatz fehlt – Brutto-Rückrechnung
+                                      nicht möglich.
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </div>
+
+                            {/* Right — read-only net value derived by engine */}
+                            <div className='bg-muted/30 border-border text-muted-foreground flex h-8 w-1/2 items-center rounded-md border px-2 text-sm'>
+                              {item.data[col.id] != null ? (
+                                renderComputedDisplay(col, item.data[col.id])
+                              ) : (
+                                <span className='text-muted-foreground/40 text-xs'>
+                                  Netto
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className='flex items-center gap-2'>
+                            <Input
+                              className='h-8 text-sm'
+                              // Currency — step=0.01 aligns with cent precision; min=0 prevents negative prices.
+                              type='number'
+                              step={layout.inputStep ?? 0.01}
+                              min={layout.inputMin}
+                              value={
+                                raw != null &&
+                                raw !== '' &&
+                                !Number.isNaN(Number(raw))
+                                  ? String(raw)
+                                  : ''
+                              }
+                              onChange={(e) => {
+                                const t = e.target.value;
+                                onUpdate({
+                                  data: {
+                                    ...item.data,
+                                    [col.id]: t === '' ? null : parseFloat(t)
+                                  }
+                                });
+                              }}
+                            />
+                            {showGrossWarning ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <AlertTriangle className='text-warning h-3.5 w-3.5 shrink-0' />
+                                </TooltipTrigger>
+                                <TooltipContent side='top'>
+                                  <p className='text-xs'>
+                                    Steuersatz fehlt – Brutto-Rückrechnung nicht
+                                    möglich.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </div>
+                        )
+                      ) : null}
+                      {layout.pdfRenderType === 'percent' ? (
+                        <Input
+                          className='h-8 text-sm'
+                          // Stored as 0–100.
+                          type='number'
+                          step={layout.inputStep ?? 0.1}
+                          min={layout.inputMin}
+                          max={layout.inputMax}
+                          value={
+                            raw != null &&
+                            raw !== '' &&
+                            !Number.isNaN(Number(raw))
+                              ? String(raw)
+                              : ''
                           }
-                        });
-                      }}
-                    />
-                  ) : null}
-                  {layout.pdfRenderType === 'currency' ||
-                  layout.pdfRenderType === 'currency_per_km' ? (
-                    <Input
-                      className='h-8 text-sm'
-                      // Currency — step=0.01 aligns with cent precision; min=0 prevents negative prices.
-                      type='number'
-                      step={layout.inputStep ?? 0.01}
-                      min={layout.inputMin}
-                      value={
-                        raw != null && raw !== '' && !Number.isNaN(Number(raw))
-                          ? String(raw)
-                          : ''
-                      }
-                      onChange={(e) => {
-                        const t = e.target.value;
-                        onUpdate({
-                          data: {
-                            ...item.data,
-                            [col.id]: t === '' ? null : parseFloat(t)
-                          }
-                        });
-                      }}
-                    />
-                  ) : null}
-                  {layout.pdfRenderType === 'percent' ? (
-                    <Input
-                      className='h-8 text-sm'
-                      // Stored as 0–100.
-                      type='number'
-                      step={layout.inputStep ?? 0.1}
-                      min={layout.inputMin}
-                      max={layout.inputMax}
-                      value={
-                        raw != null && raw !== '' && !Number.isNaN(Number(raw))
-                          ? String(raw)
-                          : ''
-                      }
-                      onChange={(e) => {
-                        const t = e.target.value;
-                        onUpdate({
-                          data: {
-                            ...item.data,
-                            [col.id]: t === '' ? null : parseFloat(t)
-                          }
-                        });
-                      }}
-                    />
-                  ) : null}
+                          onChange={(e) => {
+                            const t = e.target.value;
+                            onUpdate({
+                              data: {
+                                ...item.data,
+                                [col.id]: t === '' ? null : parseFloat(t)
+                              }
+                            });
+                          }}
+                        />
+                      ) : null}
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -254,6 +467,16 @@ export interface Step2PositionenProps {
   onDelete: (index: number) => void;
   onReorder: (reordered: BuilderLineItem[]) => void;
   onAdd: () => void;
+  inputMode: 'net' | 'gross';
+  onInputModeChange: (mode: 'net' | 'gross') => void;
+  showTotalsBlock: boolean;
+  onShowTotalsBlockChange: (value: boolean) => void;
+  totalsLabelNet: string;
+  totalsLabelTax: string;
+  totalsLabelGross: string;
+  onTotalsLabelNetChange: (value: string) => void;
+  onTotalsLabelTaxChange: (value: string) => void;
+  onTotalsLabelGrossChange: (value: string) => void;
 }
 
 export function Step2Positionen({
@@ -267,7 +490,17 @@ export function Step2Positionen({
   onUpdate,
   onDelete,
   onReorder,
-  onAdd
+  onAdd,
+  inputMode,
+  onInputModeChange,
+  showTotalsBlock,
+  onShowTotalsBlockChange,
+  totalsLabelNet,
+  totalsLabelTax,
+  totalsLabelGross,
+  onTotalsLabelNetChange,
+  onTotalsLabelTaxChange,
+  onTotalsLabelGrossChange
 }: Step2PositionenProps) {
   const { data: vorlagen = [], isLoading: vorlagenLoading } =
     useAngebotVorlagenList(companyId);
@@ -474,6 +707,7 @@ export function Step2Positionen({
                   index={idx}
                   item={item}
                   columnSchema={columnSchema}
+                  inputMode={inputMode}
                   canDelete={items.length > 1}
                   onUpdate={(patch) => onUpdate(idx, patch)}
                   onDelete={() => onDelete(idx)}
@@ -482,6 +716,78 @@ export function Step2Positionen({
             </div>
           </SortableContext>
         </DndContext>
+
+        <div className='flex items-center gap-3 pt-4 pb-2'>
+          <Switch
+            id='input-mode-toggle'
+            checked={inputMode === 'gross'}
+            onCheckedChange={(checked) =>
+              onInputModeChange(checked ? 'gross' : 'net')
+            }
+          />
+          <label
+            htmlFor='input-mode-toggle'
+            className='text-muted-foreground cursor-pointer text-sm select-none'
+          >
+            Brutto-Eingabe
+            {inputMode === 'gross' ? (
+              <span className='text-muted-foreground/60 ml-1.5 text-xs'>
+                (Rückrechnung auf Netto)
+              </span>
+            ) : null}
+          </label>
+        </div>
+
+        <div className='flex items-center gap-3 pt-4'>
+          <Switch
+            id='show-totals-block'
+            checked={showTotalsBlock}
+            onCheckedChange={(checked) => onShowTotalsBlockChange(checked)}
+          />
+          <label
+            htmlFor='show-totals-block'
+            className='text-muted-foreground cursor-pointer text-sm select-none'
+          >
+            Summenblock im Angebot anzeigen (Netto / MwSt / Brutto)
+          </label>
+        </div>
+
+        {showTotalsBlock ? (
+          <div className='mt-3 flex flex-col gap-2 pl-1'>
+            <p className='text-muted-foreground text-xs font-medium'>
+              Beschriftung der Summenzeilen
+            </p>
+            {[
+              {
+                label: 'Netto-Zeile',
+                value: totalsLabelNet,
+                onChange: onTotalsLabelNetChange
+              },
+              {
+                label: 'MwSt-Zeile',
+                value: totalsLabelTax,
+                onChange: onTotalsLabelTaxChange
+              },
+              {
+                label: 'Brutto-Zeile',
+                value: totalsLabelGross,
+                onChange: onTotalsLabelGrossChange
+              }
+            ].map(({ label, value, onChange }) => (
+              <div key={label} className='flex items-center gap-2'>
+                <span className='text-muted-foreground w-24 shrink-0 text-xs'>
+                  {label}
+                </span>
+                <Input
+                  value={value}
+                  onChange={(e) => onChange(e.target.value)}
+                  className='h-7 text-xs'
+                  maxLength={60}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <Button
           type='button'
