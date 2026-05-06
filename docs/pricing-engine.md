@@ -32,7 +32,9 @@ At invoice creation, each `invoice_line_items` row stores:
 
 The `price_resolution_snapshot` field is JSONB. PostgREST may return it as a string at runtime — `coerceLineItemJsonbSnapshots` in `src/features/invoices/components/invoice-pdf/pdf-column-layout.ts` handles this transparently before PDF rendering.
 
-**Line net on the PDF (grouped and flat):** use **column math** — `(unit_price × quantity) + (approach_fee_net ?? 0)` — not `price_resolution_snapshot.net`, which is **base transport only** and may be null for some strategies. For a full-line gross check, `total_price` on the row already reflects tax on base + Anfahrt.
+**Net-anchored line money (builder, `insertLineItems`, `calculateInvoiceTotals`, Step 3 / draft PDF display):** transport net for totals must come from **`PriceResolution.net`** (via `frozenPriceResolutionForInsert` at persist time), not from **`unit_price × quantity`**. For `tiered_km`, `unit_price_net` is a rounded **per-km display** rate (`roundMoneyOnce(totalNet / dist)`), so the product **`unit_price × quantity` can differ from `net`** across tier boundaries. **`unit_price` and `quantity` remain display fields** on the PDF line; do not multiply them for persisted `total_price` or header totals when `net` is present.
+
+**Line net on persisted PDF aggregates:** helpers such as `lineNetEurForPdfLineItem` still use **column math** on stored `unit_price` / `quantity` for historical rows; new invoices store `total_price` from the authoritative net path. Where needed, `total_price / (1 + tax_rate)` matches stored line gross.
 
 Persisted columns:
 
@@ -52,10 +54,11 @@ A flat per-trip **net** add-on configured on billing rules as `billing_pricing_r
 
 For every other resolution (including `tiered_km`, `fixed_below_threshold_then_km`, `time_based`, `manual_trip_price`, `trip_price_fallback`, `no_price` with rule present, etc.), if the active rule’s config contains a valid `approach_fee_net`, it is copied onto the returned `PriceResolution.approach_fee_net`.
 
-**Price math (per line):**
+**Price math (per line, net-anchored):**
 
-- `total_line_net = (unit_price × quantity) + (approach_fee_net ?? 0)` (base from pricing strategy + optional Anfahrt).
-- `total_price` (DB gross) = `total_line_net × (1 + tax_rate)` (same rounding as `insertLineItems`).
+- `transport_net` = `PriceResolution.net` when set (authoritative `tieredNetTotal` / resolver), else fall back to `(unit_price × quantity)` when `net` is null (e.g. unresolved).
+- `total_line_net = transport_net + (approach_fee_net ?? 0)`.
+- `total_price` (DB gross) = `total_line_net × (1 + tax_rate)` (`insertLineItems` net-anchor branch leaves this as float; draft PDF preview rounds gross to cents — small gap predates the net-first fix; see comments in code).
 
 **Where stored:** `invoice_line_items.approach_fee_net` and `price_resolution_snapshot.approach_fee_net`.
 

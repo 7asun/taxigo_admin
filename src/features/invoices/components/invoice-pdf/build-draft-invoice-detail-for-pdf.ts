@@ -52,9 +52,18 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
   const u = item.unit_price ?? 0;
   const q = item.quantity;
   const approach = item.approach_fee_net ?? 0;
-  const total_price = isGrossAnchorClientPriceTag(frozen)
-    ? frozen.gross! * q + approach * (1 + item.tax_rate)
-    : Math.round((u * q + approach) * (1 + item.tax_rate) * 100) / 100;
+  let total_price: number;
+  if (isGrossAnchorClientPriceTag(frozen)) {
+    total_price = frozen.gross! * q + approach * (1 + item.tax_rate);
+  } else {
+    const transportNet =
+      frozen.net !== null && frozen.net !== undefined ? frozen.net : u * q;
+    // why: Same authoritative transport net as insertLineItems; not u × q alone.
+    total_price =
+      Math.round((transportNet + approach) * (1 + item.tax_rate) * 100) / 100;
+    // note: Draft line gross is rounded here; persisted insertLineItems net-anchor
+    // total_price is unrounded float — small preview-vs-DB gap predates this PR.
+  }
   return {
     id: `draft-li-${item.position}`,
     invoice_id: '__draft__',
