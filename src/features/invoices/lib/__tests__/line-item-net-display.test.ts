@@ -117,6 +117,35 @@ describe('lineItemGrossTotalForDisplay', () => {
       lineItemGrossTotalForDisplay(tieredItem({ unit_price: null }))
     ).toBeNull();
   });
+
+  test('tiered_km: brutto uses price_resolution.net when unit × qty drifts', () => {
+    const tax = 0.07;
+    const transportNet = 41.55;
+    const unitPerKm = 2.07;
+    const qty = 20.1;
+    const approachNet = 3.8;
+    const wrongBrutto =
+      Math.round((unitPerKm * qty + approachNet) * (1 + tax) * 100) / 100;
+    const item = tieredItem({
+      unit_price: unitPerKm,
+      quantity: qty,
+      approach_fee_net: approachNet,
+      approach_fee_gross: Math.round(approachNet * (1 + tax) * 100) / 100,
+      price_resolution: {
+        gross: null,
+        net: transportNet,
+        tax_rate: tax,
+        strategy_used: 'tiered_km',
+        source: 'payer',
+        unit_price_net: unitPerKm,
+        quantity: qty,
+        approach_fee_net: approachNet
+      }
+    });
+    expect(unitPerKm * qty).not.toBeCloseTo(transportNet, 5);
+    expect(lineItemGrossTotalForDisplay(item)).toBe(48.52);
+    expect(wrongBrutto).toBe(48.59);
+  });
 });
 
 describe('unitNetFromEditedLineNet', () => {

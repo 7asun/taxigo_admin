@@ -39,10 +39,16 @@ export function lineItemGrossTotalForDisplay(
   }
   const q = item.quantity;
   const approach = item.approach_fee_net ?? 0;
-  // why: same formula as builder PDF draft — `price_resolution.gross` omits Anfahrt gross.
+  const transportNet =
+    item.price_resolution.net !== null &&
+    item.price_resolution.net !== undefined
+      ? item.price_resolution.net
+      : item.unit_price * q;
+  // why: Transport net from resolver (tieredNetTotal); unit × q is display reconstruction.
+  // Same idea as lineItemNetAmountForDisplay for quantity > 1. price_resolution.gross
+  // omits Anfahrt gross — do not use it as the brutto anchor here.
   return (
-    Math.round((item.unit_price * q + approach) * (1 + item.tax_rate) * 100) /
-    100
+    Math.round((transportNet + approach) * (1 + item.tax_rate) * 100) / 100
   );
 }
 

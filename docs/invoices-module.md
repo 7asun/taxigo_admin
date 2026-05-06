@@ -179,7 +179,7 @@ Column flags:
 - `mainTableKeys` is the **single source array** for `calcColumnWidths`, the header row, and all data rows. Using different arrays for any of these three causes column misalignment after drag reorder.
 - `@react-pdf/renderer` flex rows require `width: '100%'` on row containers and `minWidth: 0, overflow: 'hidden'` on cells or columns overflow and misalign.
 - PostgREST returns JSONB columns (`trip_meta_snapshot`, `price_resolution_snapshot`) as strings despite TypeScript typing them as objects. `coerceLineItemJsonbSnapshots` parses them once per row before any `renderCellValue` call.
-- Per-line net for grouping and aggregates uses **`(unit_price × quantity) + (approach_fee_net ?? 0)`** (`lineNetEurForPdfLineItem`). Do not use `price_resolution_snapshot.net` for that total — it is base-only and may be null. Where a single gross-backed net is needed, `total_price / (1 + tax_rate)` still matches the stored line gross.
+- Per-line net for grouping and aggregates in **`lineNetEurForPdfLineItem`** still uses **`(unit_price × quantity) + (approach_fee_net ?? 0)`** on **persisted** columns (historical rows may predate the net-first insert). **New** invoices: `insertLineItems` writes `total_price` from **`price_resolution_snapshot.net` + approach** so totals match tiered pricing; the builder / draft PDF use the same authoritative `net`. Where a single gross-backed net is needed, `total_price / (1 + tax_rate)` matches the stored line gross.
 
 #### Phase 9 — grouped_by_billing_type layout
 

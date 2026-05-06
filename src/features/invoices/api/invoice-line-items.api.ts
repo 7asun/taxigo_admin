@@ -558,10 +558,18 @@ export function buildLineItemsFromTrips(
       isManualOverride: false,
       trip_meta: buildTripMetaFromTrip(trip),
       price_source: legacyPriceSource(priceResolution.source),
+      // why: When net is set, value is line net (transport + approach_fee_net) rounded to
+      // cents — not transport-only; old helper used unit×qty only. Fallback keeps legacy
+      // transport-only from display fields. Discarded before validateLineItems.
       _totalPrice:
-        unitPrice !== null && unitPrice !== undefined
-          ? Math.round(unitPrice * quantity * 100) / 100
-          : null
+        priceResolution.net !== null && priceResolution.net !== undefined
+          ? Math.round(
+              (priceResolution.net + (priceResolution.approach_fee_net ?? 0)) *
+                100
+            ) / 100
+          : unitPrice !== null && unitPrice !== undefined
+            ? Math.round(unitPrice * quantity * 100) / 100
+            : null
     } as Omit<BuilderLineItem, 'warnings'> & { _totalPrice: number | null };
   });
 
@@ -599,10 +607,13 @@ export function frozenPriceResolutionForInsert(
  * `price_resolution.gross × quantity` plus grossed-up `approach_fee_net` — never
  * re-derive transport gross from rounded `unit_price_net`.
  *
- * **Net-anchor lines:** Net is accumulated into `byRate` buckets; VAT is rounded
- * once per rate bucket. Header `tax_amount` is `total − subtotal` so Netto + MwSt
- * equals Brutto. `breakdown` merges gross-anchor implied net into the same rate
- * buckets (display; per-bucket `tax` may differ slightly from the header).
+ * **Net-anchor lines:** Line transport net uses `PriceResolution.net` from
+ * `frozenPriceResolutionForInsert` when present — not `unit_price × quantity`
+ * (display per-km unit can round so the product ≠ tiered total). Net is accumulated
+ * into `byRate` buckets; VAT is rounded once per rate bucket. Header `tax_amount` is
+ * `total − subtotal` so Netto + MwSt equals Brutto. `breakdown` merges gross-anchor
+ * implied net into the same rate buckets (display; per-bucket `tax` may differ
+ * slightly from the header).
  */
 export function calculateInvoiceTotals(items: BuilderLineItem[]): {
   subtotal: number;
@@ -658,8 +669,14 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
       // Accumulate net line totals by tax rate. Tax is computed ONCE per rate bucket
       // below (round(bucketNet × rate)), not per line, to minimise rounding drift
       // across many trips at the same rate.
-      const baseNet =
+      const frozen = frozenPriceResolutionForInsert(item);
+      const fallbackTransport =
         item.unit_price !== null ? item.unit_price * item.quantity : 0;
+      const baseNet =
+        frozen.net !== null && frozen.net !== undefined
+          ? frozen.net
+          : fallbackTransport;
+      // why: Same transport net as insertLineItems / tieredNetTotal; not unit × qty.
       const lineTotal = baseNet + approach;
       nonTagSubtotal += lineTotal;
 
@@ -723,18 +740,31 @@ export async function insertLineItems(
     // P1 branch). We use price_resolution.gross × quantity so that the stored line
     // gross matches the negotiated tag exactly — no float drift from round(net) × qty.
     //
-    // For all other strategies (net-anchored), gross is derived here as
-    // (unit_price × quantity + approach_fee_net) × (1 + tax_rate). The one-time
-    // rounding happens here at line level, not inside the resolver.
+    // For all other strategies (net-anchored), gross is
+    // (transport_net + approach_fee_net) × (1 + tax_rate). Transport net must come
+    // from frozen.net (tieredNetTotal / resolver), not unit_price × quantity — display
+    // per-km unit is round(totalNet / dist), so reconstructing net from unit × qty drifts.
     //
     // approach_fee_net is always net-anchored and follows the net-anchor path
     // regardless of the base transport strategy.
-    const total_price = isGrossAnchorClientPriceTag(frozen)
-      ? frozen.gross! * item.quantity +
-        (item.approach_fee_net ?? 0) * (1 + item.tax_rate)
-      : ((item.unit_price ?? 0) * item.quantity +
-          (item.approach_fee_net ?? 0)) *
-        (1 + item.tax_rate);
+    let total_price: number;
+    if (isGrossAnchorClientPriceTag(frozen)) {
+      total_price =
+        frozen.gross! * item.quantity +
+        (item.approach_fee_net ?? 0) * (1 + item.tax_rate);
+    } else {
+      const transportNet =
+        frozen.net !== null && frozen.net !== undefined
+          ? frozen.net
+          : (item.unit_price ?? 0) * item.quantity;
+      // why: frozen.net is authoritative tiered (or fallback) transport net; unit × qty
+      // loses precision when unit_price_net is a rounded per-km display rate.
+      total_price =
+        (transportNet + (item.approach_fee_net ?? 0)) * (1 + item.tax_rate);
+      // note: Net-anchor total_price stays an unrounded float here. Draft PDF preview uses
+      // Math.round on line gross — slight insert-vs-preview gap predates this PR; not a
+      // regression from using frozen.net (see build-draft-invoice-detail-for-pdf).
+    }
     return {
       invoice_id: invoiceId,
       trip_id: item.trip_id,

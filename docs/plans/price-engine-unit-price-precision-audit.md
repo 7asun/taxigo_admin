@@ -1,6 +1,12 @@
 # Price engine — unit price × quantity precision audit
 
-Read-only. **Problem:** For `tiered_km` (and similar per-km strategies), `unit_price_net = roundMoneyOnce(totalNet / dist)` and `quantity = dist`, so **`unit_price_net * quantity` can differ from `totalNet`** (`priceResolution.net`). Net-anchored line gross is currently built from **`unit_price × quantity + approach`**, which amplifies the error after VAT.
+## Status
+
+**Implemented (2026-05-06):** Net-anchor money totals use authoritative transport net from `PriceResolution.net` (via `frozenPriceResolutionForInsert` where applicable) in [`invoice-line-items.api.ts`](../src/features/invoices/api/invoice-line-items.api.ts) (`insertLineItems`, `calculateInvoiceTotals`, `buildLineItemsFromTrips` `_totalPrice` helper), [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts), and [`line-item-net-display.ts`](../src/features/invoices/lib/line-item-net-display.ts) (`lineItemGrossTotalForDisplay`). `unit_price` / `quantity` remain display-only for per-km lines.
+
+---
+
+**Historical problem (pre-fix):** For `tiered_km` (and similar per-km strategies), `unit_price_net = roundMoneyOnce(totalNet / dist)` and `quantity = dist`, so **`unit_price_net * quantity` can differ from `totalNet`** (`priceResolution.net`). Net-anchored line gross was built from **`unit_price × quantity + approach`**, which amplified the error after VAT.
 
 ---
 

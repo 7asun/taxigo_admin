@@ -5,11 +5,10 @@ import { lineItemGrossTotalForDisplay } from '@/features/invoices/lib/line-item-
 import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
 
 /**
- * Mirrors the pre-fix net-anchor branch for a single line (same rounding as
- * `calculateInvoiceTotals` when the line would fall through to the else-branch).
- * Used to prove the mock is skewed: this value must differ from `manualGrossTotal`.
+ * Mirrors net-anchor header math using the **wrong** transport reconstruction
+ * (`unit × qty` only) for a single line — used to prove tiered drift vs `net`.
  */
-function singleLineBruttoViaNetAnchorPath(item: BuilderLineItem): number {
+function singleLineBruttoViaUnitTimesQtyOnly(item: BuilderLineItem): number {
   const rate = item.tax_rate;
   const approach = item.approach_fee_net ?? 0;
   const baseNet =
@@ -76,12 +75,70 @@ describe('calculateInvoiceTotals — manual gross override', () => {
 
     expect(lineItemGrossTotalForDisplay(item)).toBe(25);
 
-    const netPathBrutto = singleLineBruttoViaNetAnchorPath(item);
-    expect(netPathBrutto).not.toBe(item.manualGrossTotal);
-    expect(netPathBrutto).toBe(24.98);
+    const wrongTransportBrutto = singleLineBruttoViaUnitTimesQtyOnly(item);
+    expect(wrongTransportBrutto).not.toBe(item.manualGrossTotal);
+    expect(wrongTransportBrutto).toBe(24.98);
 
     expect(calculateInvoiceTotals([item]).total).toBe(
       lineItemGrossTotalForDisplay(item)
     );
+  });
+
+  test('tiered_km: header uses price_resolution.net not unit × qty', () => {
+    const taxRate = 0.07;
+    const transportNet = 41.55;
+    const unitPerKm = 2.07;
+    const qty = 20.1;
+    const approach = 3.8;
+    const item: BuilderLineItem = {
+      trip_id: 't-tier',
+      position: 1,
+      line_date: null,
+      description: 'Tier drift',
+      client_name: null,
+      pickup_address: null,
+      dropoff_address: null,
+      distance_km: qty,
+      effective_distance_km: qty,
+      original_distance_km: qty,
+      manual_km_enabled: false,
+      unit_price: unitPerKm,
+      quantity: qty,
+      tax_rate: taxRate,
+      billing_variant_code: null,
+      billing_variant_name: null,
+      billing_type_name: null,
+      kts_document_applies: false,
+      no_invoice_warning: false,
+      price_resolution: {
+        gross: null,
+        net: transportNet,
+        tax_rate: taxRate,
+        strategy_used: 'tiered_km',
+        source: 'payer',
+        unit_price_net: unitPerKm,
+        quantity: qty,
+        approach_fee_net: approach
+      },
+      kts_override: false,
+      trip_meta: null,
+      price_source: null,
+      warnings: [],
+      approach_fee_net: approach,
+      approach_fee_gross: Math.round(approach * (1 + taxRate) * 100) / 100
+    };
+
+    expect(unitPerKm * qty).not.toBeCloseTo(transportNet, 5);
+
+    const lineNet = transportNet + approach;
+    const taxBucket = Math.round(lineNet * taxRate * 100) / 100;
+    const expectedTotal = Math.round((lineNet + taxBucket) * 100) / 100;
+    expect(calculateInvoiceTotals([item]).total).toBe(expectedTotal);
+    expect(lineItemGrossTotalForDisplay(item)).toBe(
+      Math.round((transportNet + approach) * (1 + taxRate) * 100) / 100
+    );
+
+    const wrongTotal = singleLineBruttoViaUnitTimesQtyOnly(item);
+    expect(wrongTotal).not.toBe(expectedTotal);
   });
 });

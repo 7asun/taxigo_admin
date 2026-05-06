@@ -54,6 +54,9 @@ export function resolveTripPrice(
   );
   const unit = pr.unit_price_net;
   const qty = pr.quantity;
+  // TODO: Same precision fix needed if this adapter is ever reactivated — totalPrice
+  // uses unit × qty which loses precision for tiered_km vs pr.net.
+  // See docs/plans/price-engine-unit-price-precision-audit.md.
   const total =
     unit !== null && unit !== undefined
       ? Math.round(unit * qty * 100) / 100
