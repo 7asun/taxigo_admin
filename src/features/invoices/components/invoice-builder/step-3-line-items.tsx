@@ -845,7 +845,15 @@ export function Step3LineItems({
                               const rate = item.tax_rate;
                               const approachGross = isNaN(a) ? 0 : a;
                               const transportNet =
-                                (g - approachGross) / (1 + rate);
+                                item.price_resolution?.net !== null &&
+                                item.price_resolution?.net !== undefined
+                                  ? item.price_resolution.net
+                                  : (g - approachGross) / (1 + rate);
+                              // why: price_resolution.net is the authoritative transport net
+                              // from the resolver (e.g. tieredNetTotal). Back-deriving from the
+                              // cent-rounded line gross loses precision: (48.52 − 4.07) / 1.07
+                              // = 41.542, not the resolver's 41.55. Net must be read directly,
+                              // never reverse-engineered from gross.
                               const approachNet = approachGross / (1 + rate);
                               const totalNet = transportNet + approachNet;
                               const vat = g - totalNet;

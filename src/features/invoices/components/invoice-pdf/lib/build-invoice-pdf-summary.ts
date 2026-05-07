@@ -2,23 +2,35 @@
  * Builds `InvoicePdfSummaryRow` objects for grouped, single-row, and
  * billing-type-grouped PDF layouts.
  *
- * ## Gross-anchor net display contract
+ * ## Net column contract (per-anchor)
  *
- * For `client_price_tag` lines the gross is the pricing anchor. Displayed net
- * on summary rows is therefore back-derived from the accumulated gross:
+ * The cover NET fields (`transport_costs_net`, `approach_costs_net`, `total_price`)
+ * are accumulated **per anchor**, mirroring how `insertLineItems` writes per-line
+ * `total_price`:
  *
- *   displayed_net = round(totalGross / (1 + tax_rate))
+ * - **Net-anchor lines** (every strategy except `client_price_tag`): per-line
+ *   transport net is read **directly from `price_resolution_snapshot.net`**
+ *   (defensively coerced — PostgREST may deliver JSONB as a string), with a
+ *   documented fallback to `unit_price × quantity` for legacy / unresolved rows
+ *   that lack a snapshot. `approach_fee_net` is summed separately. The net column
+ *   is therefore identical to the resolver's authoritative net (e.g. tiered
+ *   `tieredNetTotal`) — not a reverse-engineered value derived from gross.
  *
- * This is correct for both new invoices (unrounded `unit_price_net`) and
- * pre-fix invoices (`unit_price` frozen as `round(gross / (1+rate))` in DB),
- * because `total_price` per line item was always written as `gross × qty`
- * (plus grossed-up approach) by `insertLineItems` — even before the resolver fix.
+ * - **Gross-anchor lines** (`client_price_tag`): gross **is** the pricing anchor,
+ *   so per-line transport net is back-derived from the stored line gross:
+ *   `lineGross / (1 + tax_rate) − approach_fee_net`. This matches the resolver's
+ *   `unit_price_net = round(gross / (1 + tax))` and remains stable across
+ *   pre-fix and post-fix invoices.
  *
- * Do **not** replace this with `SUM(unit_price × qty)` on the summary row — that
- * reintroduces cent drift for pre-fix invoices (e.g. 13 × 30.47 = 396.11 ≠ 396.07).
+ * ## Brutto column
  *
- * See [docs/pricing-engine-3.md](../../../../../../docs/pricing-engine-3.md) — subsection
- * **Why back-derivation is used at render time**.
+ * `total_costs_gross` continues to sum per-line `lineGrossEurForPdfLineItem`
+ * (stored `invoice_line_items.total_price`). It is the customer-facing number
+ * and unchanged by this contract.
+ *
+ * Do **not** revert the net-anchor branch to `SUM(unit_price × qty)` or to a
+ * group-level `round(totalGross / (1 + tax))` back-derivation — both lose the
+ * resolver's tiered precision (e.g. `(48.52 − 4.07) / 1.07 = 41.542 ≠ 41.55`).
  *
  * ---
  *
@@ -27,9 +39,6 @@
  *
  * **Trip count:** uses line-item index order (`firstSeen`), not `quantity`, because quantity can
  * represent billing units (e.g. km) rather than trips.
- *
- * **Brutto column:** `total_costs_gross` sums `lineGrossEurForPdfLineItem` (reads stored line
- * `invoice_line_items.total_price` per row).
  */
 
 import type {
@@ -42,6 +51,8 @@ import {
   lineNetEurForPdfLineItem
 } from './invoice-pdf-line-amounts';
 
+import { coerceLineItemJsonbSnapshots } from '@/features/invoices/components/invoice-pdf/pdf-column-layout';
+
 import {
   buildInvoicePdfPlaceHintMap,
   buildInvoicePdfRouteSecondaryLine,
@@ -49,6 +60,46 @@ import {
   type CanonicalPlace,
   type InvoicePdfPlaceHintMap
 } from './invoice-pdf-places';
+
+/**
+ * Per-line **transport net** (€), no approach. Anchor-aware:
+ *
+ * - Gross-anchor (`price_resolution_snapshot.strategy_used === 'client_price_tag'`):
+ *   `lineGross / (1 + tax_rate) − approach_fee_net`.
+ * - Net-anchor: `price_resolution_snapshot.net` (parsed defensively — PostgREST may
+ *   return JSONB as a string), with fallback to `unit_price × quantity` for legacy
+ *   rows that lack a snapshot.
+ *
+ * KTS rows return `0` (mirrors `lineNetEurForPdfLineItem` / `lineGrossEurForPdfLineItem`).
+ */
+function transportNetEurForPdfLineItem(item: InvoiceLineItemRow): number {
+  if (item.kts_override) return 0;
+  const coerced = coerceLineItemJsonbSnapshots(item);
+  const snap = coerced.price_resolution_snapshot as
+    | { net?: number | string | null; strategy_used?: string | null }
+    | null
+    | undefined;
+
+  // why: gross is the pricing anchor for client_price_tag; back-derive per-line so
+  // the cover NET column matches the resolver's unit_price_net = round(gross / (1+tax)).
+  if (snap?.strategy_used === 'client_price_tag') {
+    const lineGross = lineGrossEurForPdfLineItem(item);
+    return lineGross / (1 + item.tax_rate) - (item.approach_fee_net ?? 0);
+  }
+
+  const rawNet = snap?.net;
+  const snapNet =
+    typeof rawNet === 'number'
+      ? rawNet
+      : typeof rawNet === 'string' && rawNet.trim() !== ''
+        ? Number(rawNet)
+        : null;
+  if (snapNet !== null && Number.isFinite(snapNet)) return snapNet;
+  // why: legacy / unresolved net-anchor rows lack snapshot.net; fall back to
+  // columnar transport net (unit_price × quantity). For new rows where snapshot.net
+  // is authoritative, this branch never runs.
+  return (item.unit_price ?? 0) * item.quantity;
+}
 
 export type InvoicePdfRouteDirectionLabel = 'Hinfahrt' | 'Rückfahrt' | 'Fahrt';
 
@@ -112,6 +163,15 @@ interface RouteGroupAgg {
   approach_costs_net: number;
   /** Running sum of line gross via `lineGrossEurForPdfLineItem` (stored `total_price`). */
   total_gross: number;
+  /**
+   * Running sum of per-line **transport net** (no approach) from
+   * `transportNetEurForPdfLineItem`. Net-anchor lines contribute `snapshot.net`
+   * (with `unit_price × quantity` fallback); gross-anchor lines contribute
+   * `lineGross / (1 + tax) − approach_fee_net`. Drives `transport_costs_net` /
+   * `total_price` (NET) on the output row — read directly, never back-derived
+   * from the gross sum.
+   */
+  total_net_for_gross: number;
   /** Index of first line item in this group — determines Hinfahrt vs Rückfahrt */
   firstSeen: number;
 }
@@ -154,14 +214,11 @@ function summaryRowFromAgg(
   directionLabel: InvoicePdfRouteDirectionLabel
 ): InvoicePdfSummaryRow {
   const totalGross = Math.round(g.total_gross * 100) / 100;
+  // Net column read directly from per-line accumulators; never back-derived from
+  // gross. See `transportNetEurForPdfLineItem` for the per-anchor source.
+  const transportNet = Math.round(g.total_net_for_gross * 100) / 100;
   const approachNet = Math.round(g.approach_costs_net * 100) / 100;
-  // Derive net from gross anchor — do not use g.total_price (sum of stored
-  // unit_price × qty) because pre-fix invoices have rounded unit_price values
-  // that accumulate drift (e.g. 13 × 30.47 = 396.11 instead of 396.07).
-  // Back-deriving from the correct gross is the standard accounting practice:
-  // displayed_net = round(gross / (1 + tax_rate)).
-  const totalNet = Math.round((totalGross / (1 + g.tax_rate)) * 100) / 100;
-  const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
+  const totalNet = Math.round((transportNet + approachNet) * 100) / 100;
   const descriptionPrimary = `${directionLabel}: ${g.from.primary} nach ${g.to.primary}`;
   return {
     id: g.id,
@@ -223,6 +280,7 @@ export function buildInvoicePdfSummary(
         has_null_km: false,
         approach_costs_net: 0,
         total_gross: 0,
+        total_net_for_gross: 0,
         firstSeen: idx
       };
     }
@@ -231,6 +289,9 @@ export function buildInvoicePdfSummary(
     group.count += 1;
     group.total_price += lineNetEurForPdfLineItem(item);
     group.total_gross += lineGrossEurForPdfLineItem(item);
+    // why: per-line transport net read directly (anchor-aware); summed independently of gross
+    // so the cover NET column shows the resolver's authoritative value, not a back-derivation.
+    group.total_net_for_gross += transportNetEurForPdfLineItem(item);
     group.approach_costs_net += item.approach_fee_net ?? 0;
     const lineKm = item.effective_distance_km ?? item.distance_km;
     if (lineKm == null) {
@@ -315,7 +376,8 @@ export function buildInvoicePdfSingleRow(
 
   let count = 0;
   let totalGrossAccum = 0;
-  let approachNet = 0;
+  let totalNetForGross = 0;
+  let approachNetAccum = 0;
   let totalKm = 0;
   let hasNullKm = false;
   const tax_rate = lineItems[0]!.tax_rate;
@@ -323,7 +385,10 @@ export function buildInvoicePdfSingleRow(
   for (const item of lineItems) {
     count += 1;
     totalGrossAccum += lineGrossEurForPdfLineItem(item);
-    approachNet += item.approach_fee_net ?? 0;
+    // why: anchor-aware per-line transport net (snapshot.net for net-anchor;
+    // back-derivation for gross-anchor) — see transportNetEurForPdfLineItem.
+    totalNetForGross += transportNetEurForPdfLineItem(item);
+    approachNetAccum += item.approach_fee_net ?? 0;
     const lineKm = item.effective_distance_km ?? item.distance_km;
     if (lineKm == null) {
       hasNullKm = true;
@@ -333,9 +398,9 @@ export function buildInvoicePdfSingleRow(
   }
 
   const totalGross = Math.round(totalGrossAccum * 100) / 100;
-  const totalNet = Math.round((totalGross / (1 + tax_rate)) * 100) / 100;
-  approachNet = Math.round(approachNet * 100) / 100;
-  const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
+  const transportNet = Math.round(totalNetForGross * 100) / 100;
+  const approachNet = Math.round(approachNetAccum * 100) / 100;
+  const totalNet = Math.round((transportNet + approachNet) * 100) / 100;
 
   return {
     id: 'summary-single',
@@ -395,6 +460,11 @@ export function buildInvoicePdfGroupedByBillingType(
     count: number;
     total_price: number;
     total_gross: number;
+    /**
+     * Running sum of per-line transport net from `transportNetEurForPdfLineItem`
+     * (anchor-aware: snapshot.net for net-anchor, back-derivation for gross-anchor).
+     */
+    total_net_for_gross: number;
     total_km: number;
     has_null_km: boolean;
     approach_costs_net: number;
@@ -414,6 +484,7 @@ export function buildInvoicePdfGroupedByBillingType(
         count: 0,
         total_price: 0,
         total_gross: 0,
+        total_net_for_gross: 0,
         total_km: 0,
         has_null_km: false,
         approach_costs_net: 0,
@@ -425,6 +496,9 @@ export function buildInvoicePdfGroupedByBillingType(
     g.count += 1;
     g.total_price += lineNetEurForPdfLineItem(item);
     g.total_gross += lineGrossEurForPdfLineItem(item);
+    // why: anchor-aware per-line transport net summed directly — net column never
+    // reverse-engineered from cent-rounded gross sum.
+    g.total_net_for_gross += transportNetEurForPdfLineItem(item);
     g.approach_costs_net += item.approach_fee_net ?? 0;
     const lineKm = item.effective_distance_km ?? item.distance_km;
     if (lineKm == null) {
@@ -445,9 +519,9 @@ export function buildInvoicePdfGroupedByBillingType(
     })
     .map((g, i) => {
       const totalGross = Math.round(g.total_gross * 100) / 100;
+      const transportNet = Math.round(g.total_net_for_gross * 100) / 100;
       const approachNet = Math.round(g.approach_costs_net * 100) / 100;
-      const totalNet = Math.round((totalGross / (1 + g.tax_rate)) * 100) / 100;
-      const transportNet = Math.round((totalNet - approachNet) * 100) / 100;
+      const totalNet = Math.round((transportNet + approachNet) * 100) / 100;
       return {
         id: `billing-type-group-${i}`,
         position: i + 1,

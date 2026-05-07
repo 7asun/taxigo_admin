@@ -164,6 +164,12 @@ export async function buildTripDetailsPatch(
     if (typeof r?.lat === 'number' && typeof r?.lng === 'number') {
       patch.pickup_lat = r.lat;
       patch.pickup_lng = r.lng;
+    } else if (!isDistanceLocked) {
+      // why: address changed without autocomplete selection — nullify stale coords so server-side price engine recalculates
+      patch.pickup_lat = null;
+      patch.pickup_lng = null;
+      patch.driving_distance_km = null;
+      patch.driving_duration_seconds = null;
     }
   }
   if (
@@ -188,6 +194,12 @@ export async function buildTripDetailsPatch(
     if (typeof r?.lat === 'number' && typeof r?.lng === 'number') {
       patch.dropoff_lat = r.lat;
       patch.dropoff_lng = r.lng;
+    } else if (!isDistanceLocked) {
+      // why: address changed without autocomplete selection — nullify stale coords so server-side price engine recalculates
+      patch.dropoff_lat = null;
+      patch.dropoff_lng = null;
+      patch.driving_distance_km = null;
+      patch.driving_duration_seconds = null;
     }
   }
   if (
