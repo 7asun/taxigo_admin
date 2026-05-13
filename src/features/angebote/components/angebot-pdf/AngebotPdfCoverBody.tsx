@@ -8,9 +8,10 @@
  *   no name at all  → "Sehr geehrte Damen und Herren,"
  *
  * Intro/outro are Tiptap HTML strings, rendered via `react-pdf-html` `<Html>` (bold, italic,
- * underline, bullet/ordered lists). Prose matches `styles.bodyText` in pdf-styles (base 9pt,
- * lineHeight 1.6); line item table cells keep `PDF_FONT_SIZES.sm` separately below. Intro/outro
- * `<Html>` sits in `View` + `styles.htmlBlock` with `wrap` so long prose can paginate.
+ * underline, bullet/ordered lists). Line-item cells with `pdfRenderType === 'text'` always use
+ * `<Html>` as well: plain values are wrapped in a safe `<p>`, rich HTML is passed through.
+ * Table cells use `PDF_FONT_SIZES.sm`; `<strong>` maps to Helvetica-Bold like invoice PDFs.
+ * Intro/outro `<Html>` sits in `View` + `styles.htmlBlock` with `wrap` so long prose can paginate.
  *
  * No totals row — offers are informational pricing documents, not tax invoices.
  * Tax calculation (§14 UStG) is the invoice's responsibility, not the offer's.
@@ -35,6 +36,7 @@ import {
   ANGEBOT_POSITION_COLUMN_ID
 } from '../../lib/angebot-auto-columns';
 import { ANGEBOT_LEGACY_COLUMN_IDS } from '../../lib/angebot-legacy-column-ids';
+import { angebotTextCellHtmlForPdf } from '../../lib/angebot-rich-text';
 
 /** Intro/outro prose — mirrors `styles.bodyText` (invoice PDF); does not affect the table. */
 const HTML_PROSE = {
@@ -66,6 +68,38 @@ const ANGEBOT_HTML_STYLESHEET: HtmlStyles = {
   i: { ...HTML_PROSE, fontStyle: 'italic' },
   u: { ...HTML_PROSE, textDecoration: 'underline' },
   span: { ...HTML_PROSE },
+  br: {}
+};
+
+/** Table body cells — matches `PDF_FONT_SIZES.sm` used on plain `<Text>` rows. */
+const TABLE_CELL_HTML_BASE = {
+  fontSize: PDF_FONT_SIZES.sm,
+  lineHeight: 1.45,
+  color: PDF_COLORS.text
+} as const;
+
+const ANGEBOT_TABLE_CELL_HTML_STYLESHEET: HtmlStyles = {
+  body: { ...TABLE_CELL_HTML_BASE, marginBottom: 0 },
+  div: { ...TABLE_CELL_HTML_BASE, marginBottom: 0 },
+  p: { ...TABLE_CELL_HTML_BASE, marginTop: 0, marginBottom: 4 },
+  li: { ...TABLE_CELL_HTML_BASE, marginBottom: 2 },
+  ul: { marginBottom: 4, paddingLeft: 8 },
+  ol: { marginBottom: 4, paddingLeft: 8 },
+  // Built-in Helvetica-Bold — matches invoice PDF bold blocks (fontWeight alone can be unreliable in react-pdf-html).
+  strong: {
+    ...TABLE_CELL_HTML_BASE,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'normal'
+  },
+  b: {
+    ...TABLE_CELL_HTML_BASE,
+    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'normal'
+  },
+  em: { ...TABLE_CELL_HTML_BASE, fontStyle: 'italic' },
+  i: { ...TABLE_CELL_HTML_BASE, fontStyle: 'italic' },
+  u: { ...TABLE_CELL_HTML_BASE, textDecoration: 'underline' },
+  span: { ...TABLE_CELL_HTML_BASE },
   br: {}
 };
 
@@ -354,31 +388,50 @@ export function AngebotPdfCoverBody({
                   colWidths[col.id] ??
                   PDF_ZONES.columnWidthFloor; /* minimum flex column width before layout warning */
                 const raw = cellRawValue(item, col, idx);
+                const layout = resolveColumnLayout(col);
+                const rawStr =
+                  raw === null || raw === undefined ? '' : String(raw);
+                const textHtmlFragment =
+                  layout.pdfRenderType === 'text' &&
+                  col.id !== ANGEBOT_POSITION_COLUMN_ID
+                    ? angebotTextCellHtmlForPdf(rawStr)
+                    : null;
+                const useHtmlForCell = textHtmlFragment != null;
                 return (
                   <View
                     key={col.id}
                     style={{
                       width: w,
                       minWidth: 0,
-                      overflow: 'hidden',
-                      flexWrap: 'nowrap',
+                      ...(useHtmlForCell
+                        ? { flexWrap: 'wrap' as const }
+                        : {
+                            overflow: 'hidden',
+                            flexWrap: 'nowrap' as const
+                          }),
                       paddingRight:
                         PDF_ZONES.tableCellPaddingRight /* consistent column breathing room across tables */
                     }}
                   >
-                    <Text
-                      style={{
-                        fontSize: PDF_FONT_SIZES.sm,
-                        color: PDF_COLORS.text,
-                        // Pos. is always left-aligned and narrowest — never centre or right.
-                        textAlign:
-                          col.id === ANGEBOT_POSITION_COLUMN_ID
-                            ? 'left'
-                            : textAlignForCol(col)
-                      }}
-                    >
-                      {renderCell(col, raw, idx)}
-                    </Text>
+                    {useHtmlForCell ? (
+                      <Html stylesheet={ANGEBOT_TABLE_CELL_HTML_STYLESHEET}>
+                        {textHtmlFragment}
+                      </Html>
+                    ) : (
+                      <Text
+                        style={{
+                          fontSize: PDF_FONT_SIZES.sm,
+                          color: PDF_COLORS.text,
+                          // Pos. is always left-aligned and narrowest — never centre or right.
+                          textAlign:
+                            col.id === ANGEBOT_POSITION_COLUMN_ID
+                              ? 'left'
+                              : textAlignForCol(col)
+                        }}
+                      >
+                        {renderCell(col, raw, idx)}
+                      </Text>
+                    )}
                   </View>
                 );
               })}

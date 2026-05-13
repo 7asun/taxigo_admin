@@ -44,6 +44,10 @@ import {
 import { ANGEBOT_LEGACY_COLUMN_IDS } from '../lib/angebot-legacy-column-ids';
 import { ANGEBOT_POSITION_COLUMN_ID } from '../lib/angebot-auto-columns';
 import { resolveColumnLayout } from '../lib/angebot-column-presets';
+import {
+  looksLikeRichTextHtml,
+  plainTextFromPossibleHtml
+} from '../lib/angebot-rich-text';
 import type {
   AngebotColumnDef,
   AngebotLineItemRow,
@@ -165,7 +169,7 @@ function formatDetailCell(
   switch (layout.pdfRenderType) {
     case 'text':
       if (raw == null || raw === '') return '—';
-      return String(raw);
+      return plainTextFromPossibleHtml(String(raw));
     case 'integer': {
       if (raw == null || raw === '') return '—';
       const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
@@ -187,6 +191,35 @@ function formatDetailCell(
     default:
       return '—';
   }
+}
+
+function DetailLineItemCell({
+  col,
+  raw,
+  rowIndex
+}: {
+  col: AngebotColumnDef;
+  raw: string | number | null;
+  rowIndex: number;
+}) {
+  const layout = resolveColumnLayout(col);
+  if (
+    layout.pdfRenderType === 'text' &&
+    raw != null &&
+    String(raw).trim() !== ''
+  ) {
+    const s = String(raw);
+    if (looksLikeRichTextHtml(s)) {
+      return (
+        <span
+          className='inline-block max-w-full [&_p]:my-0 [&_strong]:font-semibold'
+          // Admin-authored offer body HTML (same payload as PDF).
+          dangerouslySetInnerHTML={{ __html: s }}
+        />
+      );
+    }
+  }
+  return <>{formatDetailCell(col, raw, rowIndex)}</>;
 }
 
 function alignClass(col: AngebotColumnDef): string {
@@ -439,7 +472,11 @@ export function AngebotDetailView({ angebotId }: AngebotDetailViewProps) {
                             key={col.id}
                             className={cn('p-3', alignClass(col))}
                           >
-                            {formatDetailCell(col, raw, idx)}
+                            <DetailLineItemCell
+                              col={col}
+                              raw={raw}
+                              rowIndex={idx}
+                            />
                           </td>
                         );
                       })}
