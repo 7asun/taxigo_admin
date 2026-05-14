@@ -19,7 +19,8 @@
     "prepare": "husky",
     "db:types": "npx supabase gen types typescript --local > src/types/database.types.ts",
     "test": "bun test src/features/invoices/lib/__tests__ src/features/trips/lib/__tests__",
-    "backfill:audit": "bun run scripts/backfill-trip-prices-audit.ts"
+    "backfill:audit": "bun run scripts/backfill-trip-prices-audit.ts",
+    "backfill:apply": "bun run scripts/backfill-trip-prices-apply.ts"
   },
   "lint-staged": {
     "**/*.{js,jsx,tsx,ts,css,less,scss,sass}": [
