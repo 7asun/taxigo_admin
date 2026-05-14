@@ -239,7 +239,11 @@ export function KtsFehlerSwitchCell({ trip }: { trip: TripRow }) {
   const checked = ctx?.ktsFehlerActive ?? !!trip.kts_fehler;
 
   if (!ktsActive) {
-    return <span className='text-muted-foreground'>—</span>;
+    return (
+      <div className='flex justify-center px-1'>
+        <span className='text-muted-foreground'>—</span>
+      </div>
+    );
   }
 
   function handleChange(next: boolean) {
@@ -293,7 +297,11 @@ export function KtsFehlerTextCell({ trip }: { trip: TripRow }) {
 
   if (!ktsActive || !ktsFehlerActive) {
     if (!t) {
-      return <span className='text-muted-foreground'>—</span>;
+      return (
+        <div className='flex justify-center px-1'>
+          <span className='text-muted-foreground'>—</span>
+        </div>
+      );
     }
     return (
       <TooltipProvider>

@@ -20,7 +20,11 @@ export function RehaScheinSwitchCell({ trip }: { trip: TripRow }) {
 
   // Same gate as Neue Fahrt / Detail: Reha only when Kostenträger has `reha_schein_enabled`.
   if (!trip.payer?.reha_schein_enabled) {
-    return <span className='text-muted-foreground'>—</span>;
+    return (
+      <div className='flex justify-center px-1'>
+        <span className='text-muted-foreground'>—</span>
+      </div>
+    );
   }
 
   return (
