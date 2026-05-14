@@ -10,6 +10,8 @@ export interface PayerOption {
   kts_default: boolean | null;
   /** NULL = unset in no_invoice cascade. */
   no_invoice_required_default: boolean | null;
+  /** When true, trip forms show the Reha-Schein switch (`payers.reha_schein_enabled`). */
+  reha_schein_enabled: boolean;
 }
 
 /**

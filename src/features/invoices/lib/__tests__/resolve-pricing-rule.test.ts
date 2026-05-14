@@ -18,6 +18,7 @@ function rule(
     billing_variant_id: partial.billing_variant_id ?? null,
     strategy: partial.strategy,
     config: partial.config,
+    pricing_basis: partial.pricing_basis ?? 'net',
     is_active: partial.is_active ?? true,
     _price_gross: partial._price_gross
   };
@@ -206,6 +207,7 @@ describe('resolvePricingRule', () => {
       billing_variant_id: undefined,
       strategy: 'tiered_km' as const,
       config: { tiers: [] },
+      pricing_basis: 'net' as const,
       is_active: true
     } as unknown as BillingPricingRuleLike;
 

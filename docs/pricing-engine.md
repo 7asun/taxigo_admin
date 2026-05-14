@@ -8,6 +8,11 @@ Pure resolution for invoice line items: **no database access** inside the cascad
 2. **Client gross (negotiated)** — gross → net using the line tax rate; **overrides all billing rules**.  
    Source order inside `resolveTripPrice` P1: **`rule._price_gross`** when `resolvePricingRule` matched a row in **`client_price_tags`** (STEP 0: variant-scoped → payer-scoped → global for that `client_id`); otherwise legacy **`clients.price_tag`**. See [client-price-tags.md](client-price-tags.md).
 3. **Billing pricing rule** — one active row per scope (variant → billing type → payer); strategy from `billing_pricing_rules.config` (Zod-validated). **STEP 0** in `resolve-pricing-rule.ts` runs **before** this catalog waterfall when the trip has a `client_id` and matching tags were loaded.
+
+### `pricing_basis` on `billing_pricing_rules`
+
+Column **`pricing_basis`** (`'net' | 'gross'`, default `net`): declares whether **`config`** monetary fields (**km rates**, **fixed below-threshold price**, **time_based `fixed_fee`**) are stored **excl.** or **incl.** VAT. **`approach_fee_net` is always net** and is ignored by gross→net conversion. The admin dialog exposes **Preisbasis** for `tiered_km`, `fixed_below_threshold_then_km`, and `time_based` only; **`client_price_tag`** rows carry the column but resolution uses **`_price_gross` / tags**, not these config numerics. Gross config values are normalized to net in **`normalizeRuleConfigToNet`** inside **`resolveTripPrice`** (P3) before **`executeStrategy`**.
+
 4. **`trips.price`** — net fallback.
 5. **Unresolved** — `unit_price_net` null (manual entry in the builder).
 

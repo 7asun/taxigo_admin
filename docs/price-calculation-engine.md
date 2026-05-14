@@ -145,6 +145,21 @@ All MwSt logic lives exclusively in `src/features/invoices/lib/tax-calculator.ts
 
 ---
 
+## Preisbasis (net / gross) on catalog rules
+
+`billing_pricing_rules.pricing_basis` is `'net' | 'gross'` (default **`net`**). It declares how **monetary values inside `config`** were entered for **`tiered_km`**, **`fixed_below_threshold_then_km`**, and **`time_based`**:
+
+- **`net`:** unchanged behavior — config rates are net; VAT is applied by the resolver / trip snapshot as before.
+- **`gross`:** before any tier sum or fixed-price branch runs, `normalizeRuleConfigToNet` in `src/lib/pricing/normalize-rule-config.ts` converts **`price_per_km`**, **`fixed_price`**, and **`fixed_fee`** to net by dividing by `(1 + taxRate)` (with shared `roundMoneyOnce`). The active rate is always the one from `resolveTaxRate` in `src/features/invoices/lib/tax-calculator.ts` for the trip — never hardcoded in the normalizer.
+
+**`approach_fee_net` in `config` is always net** and is **never** converted, regardless of `pricing_basis`.
+
+**Untouched paths:** **`client_price_tag`** (STEP 0 tag / legacy gross), **`trips.manual_gross_price`** (taxameter P0), and **KTS** — they do not use catalog `config` amounts for the main transport charge.
+
+Normalization runs in **`resolveTripPrice`** immediately before `executeStrategy` (P3), so invoice line building and trip snapshots share the same net-anchored math.
+
+---
+
 ## Wired creation paths
 
 | Path | File | Wiring pattern |

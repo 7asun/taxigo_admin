@@ -1,17 +1,9 @@
 import { Badge } from '@/components/ui/badge';
 import {
   resolveEffectiveTripInvoiceStatus,
-  type EffectiveTripInvoiceStatus
+  type EffectiveTripInvoiceStatus,
+  type InvoiceLineItemWithStatus
 } from '@/features/trips/lib/effective-trip-invoice-status';
-
-type InvoiceLineItemWithStatus = {
-  invoice_id: string;
-  invoices: {
-    status: 'draft' | 'sent' | 'paid' | 'cancelled' | 'corrected';
-    paid_at: string | null;
-    sent_at: string | null;
-  } | null;
-};
 
 const statusConfig: Record<
   EffectiveTripInvoiceStatus,

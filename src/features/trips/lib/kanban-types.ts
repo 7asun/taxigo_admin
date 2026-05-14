@@ -9,7 +9,10 @@ import type { Trip } from '../api/trips.service';
 
 /** A single trip enriched with joined relations used on the board. */
 export type KanbanTrip = Trip & {
-  payer?: { name?: string | null } | null;
+  payer?: {
+    name?: string | null;
+    reha_schein_enabled?: boolean;
+  } | null;
   /** Joined billing leaf + parent family (color/display). */
   billing_variant?: {
     id?: string;

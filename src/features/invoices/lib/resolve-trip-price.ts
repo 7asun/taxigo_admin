@@ -21,6 +21,8 @@ import { parseISO } from 'date-fns';
 import { tz } from '@date-fns/tz';
 
 import { parseConfigForStrategy } from '@/features/invoices/lib/pricing-rule-config.schema';
+import { normalizeRuleConfigToNet } from '@/lib/pricing/normalize-rule-config';
+import { roundMoneyOnce } from '@/lib/pricing/round-money-once';
 import type {
   ApproachFeeConfig,
   BillingPricingRuleLike,
@@ -93,10 +95,6 @@ export interface TripPriceInput {
   driving_distance_km: number | null;
   scheduled_at: string | null;
   client?: { price_tag: number | null } | null;
-}
-
-function roundMoneyOnce(raw: number): number {
-  return Math.round(raw * 100) / 100;
 }
 
 /** Maps which catalog level produced the active rule — stored as PriceResolution.source for audit. */
@@ -482,9 +480,26 @@ export function resolveTripPrice(
 
   // P3 — catalog rule strategies (skipped when price_tag already won at P2).
   if (rule && rule.is_active) {
-    const strategyResult = executeStrategy(rule, rule.strategy, trip, taxRate);
+    // WHY: Normalization runs once here so every strategy branch stays net-anchored; we do not
+    // thread gross/config into `executeStrategy` (avoids splitting VAT logic across many cases).
+    // `approach_fee_net` is left unchanged inside config — see `normalizeRuleConfigToNet`.
+    const configForExecution = normalizeRuleConfigToNet(
+      rule.config,
+      rule.strategy,
+      rule.pricing_basis,
+      taxRate
+    );
+    const strategyResult = executeStrategy(
+      { ...rule, config: configForExecution },
+      rule.strategy,
+      trip,
+      taxRate
+    );
     if (strategyResult) {
-      return withApproachFeeFromRule(strategyResult, rule);
+      return withApproachFeeFromRule(strategyResult, {
+        ...rule,
+        config: configForExecution
+      });
     }
   }
 

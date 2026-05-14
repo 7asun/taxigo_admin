@@ -21,6 +21,7 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { looksLikeRichTextHtml } from '@/features/angebote/lib/angebot-rich-text';
 
 export interface AngebotTiptapFieldProps {
   id?: string;
@@ -35,7 +36,7 @@ export interface AngebotTiptapFieldProps {
 export function templateContentToHtml(content: string): string {
   const t = content.trim();
   if (!t) return '<p></p>';
-  if (/<[a-z][\s\S]*>/i.test(t)) return t;
+  if (looksLikeRichTextHtml(t)) return t;
   const escaped = t
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

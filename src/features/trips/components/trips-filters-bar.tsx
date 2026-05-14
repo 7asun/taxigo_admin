@@ -80,9 +80,18 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const invoiceStatus = searchParams.get('invoice_status') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
   const currentView = searchParams.get('view') ?? 'list';
+  const ktsFilterRaw = searchParams.get('kts_filter') ?? 'all';
+  const ktsFilter =
+    ktsFilterRaw === 'kts' ||
+    ktsFilterRaw === 'kts_fehler' ||
+    ktsFilterRaw === 'all'
+      ? ktsFilterRaw
+      : 'all';
 
   const table = useTripsTableStore((s) => s.table);
   const columnVisibility = useTripsTableStore((s) => s.columnVisibility);
+  // Hide invoice_status filter when the column is hidden — filtering by a column the user chose to hide is confusing.
+  const invoiceStatusVisible = columnVisibility.invoice_status !== false;
 
   const hidableColumns = useMemo(() => {
     if (!table) return [];
@@ -134,9 +143,10 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       status !== 'all' ||
       payerId !== 'all' ||
       (Boolean(billingVariantId) && billingVariantId !== 'all') ||
-      invoiceStatus !== 'all'
+      invoiceStatus !== 'all' ||
+      ktsFilter !== 'all'
     );
-  }, [driverId, status, payerId, billingVariantId, invoiceStatus]);
+  }, [driverId, status, payerId, billingVariantId, invoiceStatus, ktsFilter]);
 
   const prevAdvancedRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -252,11 +262,36 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     }, 350);
   };
 
+  const invoiceStatusFilterSelect = (
+    <Select
+      value={invoiceStatus}
+      onValueChange={(val) => {
+        if (val === 'all') {
+          updateFilters({ invoice_status: null });
+        } else {
+          updateFilters({ invoice_status: val });
+        }
+      }}
+    >
+      <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
+        <SelectValue placeholder='Rechnungsstatus' />
+      </SelectTrigger>
+      <SelectContent>
+        {invoiceStatusOptions.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value} className='text-xs'>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   const renderColumnVisibilityPopover = (triggerClassName: string) =>
     currentView === 'list' && table ? (
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant='outline' size='sm' className={triggerClassName}>
+          {/* Match SelectTrigger / Input: h-10 touch row, md:h-9 (shadcn default height) */}
+          <Button variant='outline' className={cn('px-3', triggerClassName)}>
             <Settings2 className='h-3.5 w-3.5 shrink-0' />
             <span className='truncate'>Spalten</span>
             <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
@@ -303,7 +338,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     <DateRangePicker
       value={selectedDateRange}
       onChange={handleDateRangeChange}
-      triggerClassName='h-10 min-h-10 min-w-0 flex-1 md:h-8 md:min-h-0 md:flex-initial'
+      triggerClassName='h-10 min-h-10 min-w-0 flex-1 md:h-9 md:min-h-0 md:flex-initial'
       placeholder='Zeitraum wählen'
     />
   );
@@ -320,7 +355,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
           }
         }}
       >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
+        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
           <SelectValue placeholder='Fahrer' />
         </SelectTrigger>
         <SelectContent>
@@ -342,7 +377,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
           }
         }}
       >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
+        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
           <SelectValue placeholder='Status' />
         </SelectTrigger>
         <SelectContent>
@@ -355,24 +390,24 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       </Select>
 
       <Select
-        value={invoiceStatus}
+        value={ktsFilter}
         onValueChange={(val) => {
-          if (val === 'all') {
-            updateFilters({ invoice_status: null });
-          } else {
-            updateFilters({ invoice_status: val });
-          }
+          updateFilters({ kts_filter: val === 'all' ? null : val });
         }}
       >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
-          <SelectValue placeholder='Rechnungsstatus' />
+        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
+          <SelectValue placeholder='KTS' />
         </SelectTrigger>
         <SelectContent>
-          {invoiceStatusOptions.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value} className='text-xs'>
-              {opt.label}
-            </SelectItem>
-          ))}
+          <SelectItem value='all' className='text-xs'>
+            KTS: Kein Filter
+          </SelectItem>
+          <SelectItem value='kts' className='text-xs'>
+            KTS: Nur KTS
+          </SelectItem>
+          <SelectItem value='kts_fehler' className='text-xs'>
+            KTS: Nur Fehler
+          </SelectItem>
         </SelectContent>
       </Select>
 
@@ -386,7 +421,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
           }
         }}
       >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
+        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
           <SelectValue placeholder='Kostenträger' />
         </SelectTrigger>
         <SelectContent>
@@ -412,7 +447,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             }
           }}
         >
-          <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-8 md:min-h-0 md:w-auto md:shrink-0'>
+          <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
             <SelectValue placeholder='Abrechnung' />
           </SelectTrigger>
           <SelectContent>
@@ -457,7 +492,8 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
             payer_id: null,
             scheduled_at: null,
             billing_variant_id: null,
-            invoice_status: null
+            invoice_status: null,
+            kts_filter: null
           });
         }}
       >
@@ -504,9 +540,19 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
                   <div className='grid w-full grid-cols-1 gap-2 sm:grid-cols-2'>
                     {advancedFilterSelects}
                   </div>
-                  {renderColumnVisibilityPopover(
-                    'h-10 min-h-10 w-full justify-between gap-1.5 text-xs font-normal'
-                  )}
+                  <div className='flex min-w-0 gap-2'>
+                    {invoiceStatusVisible && (
+                      <div className='min-w-0 flex-1'>
+                        {invoiceStatusFilterSelect}
+                      </div>
+                    )}
+                    {renderColumnVisibilityPopover(
+                      cn(
+                        'h-10 min-h-10 justify-between gap-1.5 text-xs font-normal',
+                        invoiceStatusVisible ? 'min-w-0 flex-1' : 'w-full'
+                      )
+                    )}
+                  </div>
                 </div>
               </CollapsibleContent>
             </div>
@@ -514,19 +560,20 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
           {filterCountResetFooter}
         </div>
       ) : (
-        <div className='bg-muted/40 mb-1 flex min-w-0 shrink-0 flex-col gap-2 rounded-lg px-3 py-2 text-xs md:flex-row md:items-start md:justify-between md:gap-3'>
+        <div className='bg-muted/40 mb-1 flex min-w-0 shrink-0 flex-col gap-2 rounded-lg px-3 py-2 text-xs md:flex-row md:items-center md:justify-between md:gap-3'>
           <div className='flex w-full min-w-0 flex-col gap-2 md:min-w-0 md:flex-1 md:flex-row md:flex-nowrap md:items-center md:gap-2 md:overflow-x-auto'>
             <Input
               placeholder='Fahrgast oder Adresse suchen'
               value={localSearch}
               onChange={(event) => handleSearchChange(event.target.value)}
-              className='h-10 min-h-10 w-full min-w-0 md:h-8 md:min-h-0 md:min-w-[120px] md:flex-1'
+              className='h-10 min-h-10 w-full min-w-0 md:h-9 md:min-h-0 md:min-w-[120px] md:flex-1'
             />
 
             <div className='flex w-full min-w-0 gap-2 md:w-auto md:shrink-0'>
               {dateFilterPicker}
+              {invoiceStatusVisible && invoiceStatusFilterSelect}
               {renderColumnVisibilityPopover(
-                'h-10 min-h-10 min-w-0 flex-1 justify-between gap-1.5 text-xs font-normal md:h-8 md:min-h-0 md:min-w-[8.5rem] md:flex-initial'
+                'h-10 min-h-10 min-w-0 flex-1 justify-between gap-1.5 text-xs font-normal md:h-9 md:min-h-0 md:min-w-[8.5rem] md:flex-initial'
               )}
             </div>
 

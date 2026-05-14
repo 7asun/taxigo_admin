@@ -47,6 +47,8 @@ export const tripFormSchema = z
     billing_betreuer: z.string().optional(),
     /** Krankentransportschein / KTS — see `resolveKtsDefault` + `trips.kts_source`. */
     kts_document_applies: z.boolean().default(false),
+    /** Reha-Schein flag; only relevant when payer has `reha_schein_enabled` (UI + submit normalize). */
+    reha_schein: z.boolean().default(false),
     /**
      * KTS document error flag — edited in Trip Detail Sheet in v1; Neue Fahrt keeps defaults.
      */

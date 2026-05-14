@@ -29,7 +29,14 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
-import { TripInvoiceStatusBadge } from '@/features/trips/components/trip-invoice-status-badge';
+import { TripInvoiceStatusBadgeCell } from '@/features/trips/components/trip-invoice-status-badge-cell';
+import {
+  KtsCellGroupProvider,
+  KtsSwitchCell,
+  KtsFehlerSwitchCell,
+  KtsFehlerTextCell,
+  RehaScheinSwitchCell
+} from './inline-cells';
 
 /** de-DE currency for list prices (Fahrten table). */
 const EUR_DE = new Intl.NumberFormat('de-DE', {
@@ -297,15 +304,17 @@ export const columns: ColumnDef<any>[] = [
   },
   {
     id: 'invoice_status',
+    // Synthetic accessor so the column appears in the Spalten popover (`hidableColumns` requires accessorFn).
+    accessorFn: () => '',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Rechnungsstatus' />
     ),
-    // invoice_line_items injected via widened PostgREST select in trips-listing.tsx
+    // Rechnungsstatus: deferred client fetch — see TripInvoiceStatusesProvider + docs/trips-performance.md
     cell: ({ row }) => {
-      const lineItems = row.original.invoice_line_items ?? [];
+      const id = row.original.id as string;
       return (
         <div className='flex justify-center px-1'>
-          <TripInvoiceStatusBadge lineItems={lineItems} />
+          <TripInvoiceStatusBadgeCell tripId={id} />
         </div>
       );
     },
@@ -477,21 +486,11 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='KTS' />
     ),
-    cell: ({ row }) => {
-      const applies = !!row.original.kts_document_applies;
-      if (!applies) {
-        return <span className='text-muted-foreground'>—</span>;
-      }
-      return (
-        <Badge
-          variant='secondary'
-          className='px-1.5 py-0 text-[10px] font-normal'
-          title='Krankentransportschein (KTS) — laut Fahrt markiert'
-        >
-          KTS
-        </Badge>
-      );
-    },
+    cell: ({ row }) => (
+      <KtsCellGroupProvider key={row.original.id} trip={row.original}>
+        <KtsSwitchCell trip={row.original} />
+      </KtsCellGroupProvider>
+    ),
     meta: { label: 'KTS', variant: 'text' },
     enableColumnFilter: false
   },
@@ -501,21 +500,11 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='KTS-Fehler' />
     ),
-    cell: ({ row }) => {
-      const err = !!row.original.kts_fehler;
-      if (!err) {
-        return <span className='text-muted-foreground'>—</span>;
-      }
-      return (
-        <Badge
-          variant='destructive'
-          className='px-1.5 py-0 text-[10px] font-normal'
-          title='KTS-Dokument mit Fehler markiert'
-        >
-          Fehler
-        </Badge>
-      );
-    },
+    cell: ({ row }) => (
+      <KtsCellGroupProvider key={row.original.id} trip={row.original}>
+        <KtsFehlerSwitchCell trip={row.original} />
+      </KtsCellGroupProvider>
+    ),
     meta: { label: 'KTS-Fehler', variant: 'text' },
     enableColumnFilter: false
   },
@@ -525,29 +514,22 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='KTS-Fehler (Text)' />
     ),
-    cell: ({ row }) => {
-      const v = row.original.kts_fehler_beschreibung as
-        | string
-        | null
-        | undefined;
-      const t = v?.trim();
-      if (!t) return <span className='text-muted-foreground'>—</span>;
-      return (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className='max-w-[160px] cursor-default truncate text-sm'>
-                {t}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side='top' className='max-w-xs text-xs'>
-              {t}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    },
+    cell: ({ row }) => (
+      <KtsCellGroupProvider key={row.original.id} trip={row.original}>
+        <KtsFehlerTextCell trip={row.original} />
+      </KtsCellGroupProvider>
+    ),
     meta: { label: 'KTS-Fehler (Text)', variant: 'text' },
+    enableColumnFilter: false
+  },
+  {
+    id: 'reha_schein',
+    accessorKey: 'reha_schein',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Reha' />
+    ),
+    cell: ({ row }) => <RehaScheinSwitchCell trip={row.original} />,
+    meta: { label: 'Reha-Schein', variant: 'text' },
     enableColumnFilter: false
   },
   {

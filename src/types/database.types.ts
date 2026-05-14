@@ -23,6 +23,8 @@ export type Database = {
           billing_variant_id: string | null;
           strategy: string;
           config: Json;
+          /** Declares whether config monetary fields are net or gross; DB enum `pricing_basis_enum`. */
+          pricing_basis: 'net' | 'gross';
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -35,6 +37,7 @@ export type Database = {
           billing_variant_id?: string | null;
           strategy: string;
           config?: Json;
+          pricing_basis?: 'net' | 'gross';
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -47,6 +50,7 @@ export type Database = {
           billing_variant_id?: string | null;
           strategy?: string;
           config?: Json;
+          pricing_basis?: 'net' | 'gross';
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -676,6 +680,7 @@ export type Database = {
           id: string;
           kts_default: boolean | null;
           manual_km_enabled: boolean;
+          reha_schein_enabled: boolean;
           name: string;
           no_invoice_required_default: boolean | null;
           number: string;
@@ -688,6 +693,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           manual_km_enabled?: boolean;
+          reha_schein_enabled?: boolean;
           name: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -700,6 +706,7 @@ export type Database = {
           id?: string;
           kts_default?: boolean | null;
           manual_km_enabled?: boolean;
+          reha_schein_enabled?: boolean;
           name?: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -816,6 +823,7 @@ export type Database = {
           billing_variant_id: string | null;
           kts_document_applies: boolean;
           kts_source: string | null;
+          reha_schein: boolean;
           no_invoice_required: boolean;
           no_invoice_source: string | null;
           fremdfirma_id: string | null;
@@ -844,6 +852,7 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          reha_schein?: boolean;
           no_invoice_required?: boolean;
           no_invoice_source?: string | null;
           fremdfirma_id?: string | null;
@@ -872,6 +881,7 @@ export type Database = {
           billing_variant_id?: string | null;
           kts_document_applies?: boolean;
           kts_source?: string | null;
+          reha_schein?: boolean;
           no_invoice_required?: boolean;
           no_invoice_source?: string | null;
           fremdfirma_id?: string | null;
@@ -1308,6 +1318,50 @@ export type Database = {
           }
         ];
       };
+      trip_presets: {
+        Row: {
+          id: string;
+          company_id: string;
+          name: string;
+          params: Json;
+          column_visibility: Json;
+          column_order: Json;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          name: string;
+          params?: Json;
+          column_visibility?: Json;
+          column_order?: Json;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          name?: string;
+          params?: Json;
+          column_visibility?: Json;
+          column_order?: Json;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'trip_presets_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       trips: {
         Row: {
           actual_dropoff_at: string | null;
@@ -1319,6 +1373,7 @@ export type Database = {
           kts_fehler: boolean;
           kts_fehler_beschreibung: string | null;
           kts_source: string | null;
+          reha_schein: boolean;
           fremdfirma_cost: number | null;
           fremdfirma_id: string | null;
           fremdfirma_payment_mode: string | null;
@@ -1396,6 +1451,7 @@ export type Database = {
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
           kts_source?: string | null;
+          reha_schein?: boolean;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
           fremdfirma_payment_mode?: string | null;
@@ -1471,6 +1527,7 @@ export type Database = {
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
           kts_source?: string | null;
+          reha_schein?: boolean;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
           fremdfirma_payment_mode?: string | null;
@@ -1597,6 +1654,77 @@ export type Database = {
             columns: ['vehicle_id'];
             isOneToOne: false;
             referencedRelation: 'vehicles';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      trip_price_backfill_audit: {
+        Row: {
+          id: string;
+          trip_id: string;
+          company_id: string;
+          current_gross_price: number | null;
+          current_net_price: number | null;
+          current_base_net_price: number | null;
+          current_approach_fee_net: number | null;
+          current_tax_rate: number | null;
+          recalc_gross_price: number | null;
+          recalc_net_price: number | null;
+          recalc_base_net_price: number | null;
+          recalc_approach_fee_net: number | null;
+          recalc_tax_rate: number | null;
+          gross_price_delta: number | null;
+          net_price_delta: number | null;
+          pricing_basis_used: string | null;
+          strategy_used: string | null;
+          rule_id: string | null;
+          audited_at: string | null;
+          needs_update: boolean | null;
+        };
+        Insert: {
+          id?: string;
+          trip_id: string;
+          company_id: string;
+          current_gross_price?: number | null;
+          current_net_price?: number | null;
+          current_base_net_price?: number | null;
+          current_approach_fee_net?: number | null;
+          current_tax_rate?: number | null;
+          recalc_gross_price?: number | null;
+          recalc_net_price?: number | null;
+          recalc_base_net_price?: number | null;
+          recalc_approach_fee_net?: number | null;
+          recalc_tax_rate?: number | null;
+          pricing_basis_used?: string | null;
+          strategy_used?: string | null;
+          rule_id?: string | null;
+          audited_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          trip_id?: string;
+          company_id?: string;
+          current_gross_price?: number | null;
+          current_net_price?: number | null;
+          current_base_net_price?: number | null;
+          current_approach_fee_net?: number | null;
+          current_tax_rate?: number | null;
+          recalc_gross_price?: number | null;
+          recalc_net_price?: number | null;
+          recalc_base_net_price?: number | null;
+          recalc_approach_fee_net?: number | null;
+          recalc_tax_rate?: number | null;
+          pricing_basis_used?: string | null;
+          strategy_used?: string | null;
+          rule_id?: string | null;
+          audited_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'trip_price_backfill_audit_trip_id_fkey';
+            columns: ['trip_id'];
+            isOneToOne: false;
+            referencedRelation: 'trips';
             referencedColumns: ['id'];
           }
         ];

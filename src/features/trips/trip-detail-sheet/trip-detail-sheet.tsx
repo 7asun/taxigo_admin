@@ -146,6 +146,9 @@ import type { TripDirection } from '@/features/trips/lib/trip-direction';
 import { TripFremdfirmaSection } from '@/features/fremdfirmen/components/trip-fremdfirma-section';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
+/** Label for `trips.reha_schein`; UI only when Kostenträger `reha_schein_enabled`. */
+const REHA_SCHEIN_TRIP_LABEL = 'Reha-Schein';
+
 /**
  * `POST /api/trips/duplicate` returns ids in insert order: for Hin+Rück, `[outboundId, returnId]`
  * (`executeDuplicateTrips`). Pick the id that corresponds to the leg the user had open.
@@ -264,6 +267,7 @@ export function TripDetailSheet({
     useState('');
   const [billingBetreuerDraft, setBillingBetreuerDraft] = useState('');
   const [ktsDocumentAppliesDraft, setKtsDocumentAppliesDraft] = useState(false);
+  const [rehaScheinDraft, setRehaScheinDraft] = useState(false);
   const [ktsFehlerDraft, setKtsFehlerDraft] = useState(false);
   const [ktsFehlerBeschreibungDraft, setKtsFehlerBeschreibungDraft] =
     useState('');
@@ -510,6 +514,8 @@ export function TripDetailSheet({
     setBillingCallingStationDraft(trip.billing_calling_station ?? '');
     setBillingBetreuerDraft(trip.billing_betreuer ?? '');
     setKtsDocumentAppliesDraft(!!trip.kts_document_applies);
+    // why: Persisted trip flag — gate + payer resets happen in payer/reha effects below.
+    setRehaScheinDraft(!!trip.reha_schein);
     setKtsFehlerDraft(!!trip.kts_fehler);
     setKtsFehlerBeschreibungDraft(trip.kts_fehler_beschreibung ?? '');
     ktsUserLockedRef.current = false;
@@ -528,7 +534,13 @@ export function TripDetailSheet({
     lastDropoffResolved.current = null;
     setPickupRouteExpanded(false);
     setDropoffRouteExpanded(false);
-  }, [trip?.id]);
+  }, [
+    trip?.id,
+    trip?.kts_document_applies,
+    trip?.kts_fehler,
+    trip?.kts_fehler_beschreibung,
+    trip?.reha_schein
+  ]);
 
   // Align Abrechnungsfamilie with the selected Unterart (same as Neue Fahrt `payer-section`).
   useEffect(() => {
@@ -792,6 +804,10 @@ export function TripDetailSheet({
           const noInvoiceSourceP: TripNoInvoiceSource =
             noInvoiceUserLockedRef.current ? 'manual' : noInvResolvedP.source;
 
+          const rehaPartnerForSave = !!(
+            ktsPayerRowP?.reha_schein_enabled && rehaScheinDraft
+          );
+
           let partnerPatch = buildPartnerSyncPatchFromDrafts({
             trip,
             clientIdDraft,
@@ -814,6 +830,7 @@ export function TripDetailSheet({
             ktsFehlerDraft,
             ktsFehlerBeschreibungDraft,
             ktsSourceForSave: ktsSourceP,
+            rehaScheinForSave: rehaPartnerForSave,
             noInvoiceRequiredDraft,
             noInvoiceSourceForSave: noInvoiceSourceP,
             lastPickupResolved: lastPickupResolved.current,
@@ -875,6 +892,7 @@ export function TripDetailSheet({
       ktsFehlerDraft,
       ktsFehlerBeschreibungDraft,
       noInvoiceRequiredDraft,
+      rehaScheinDraft,
       payers,
       billingVariants,
       lastPickupResolved,
@@ -903,6 +921,14 @@ export function TripDetailSheet({
   const currentDateYmd = trip?.scheduled_at
     ? format(new Date(trip.scheduled_at), 'yyyy-MM-dd')
     : (trip?.requested_date ?? '');
+
+  const detailPayerRowForReha = payerDraft
+    ? payers.find((p) => p.id === payerDraft)
+    : undefined;
+  const detailPayerRehaGate = !!detailPayerRowForReha?.reha_schein_enabled;
+  const rehaScheinForSave = !!(
+    detailPayerRowForReha?.reha_schein_enabled && rehaScheinDraft
+  );
 
   /** Kostenträger/Route/… + Datum/Uhrzeit (inkl. reiner Uhrzeit-Änderung am gleichen Tag). */
   const detailsDirty =
@@ -947,7 +973,9 @@ export function TripDetailSheet({
           return (
             next.toISOString() !== new Date(trip.scheduled_at!).toISOString()
           );
-        })()));
+        })()) ||
+      (detailPayerRehaGate && rehaScheinDraft !== !!trip.reha_schein) ||
+      (!detailPayerRehaGate && !!trip.reha_schein));
 
   const handleSaveTripDetails = () => {
     if (!trip) return;
@@ -1006,6 +1034,7 @@ export function TripDetailSheet({
           ktsSourceForSave,
           noInvoiceRequiredDraft,
           noInvoiceSourceForSave,
+          rehaScheinForSave,
           isDistanceLocked
         });
         if (built.isEmpty) {
@@ -1540,6 +1569,15 @@ export function TripDetailSheet({
                           setPayerDraft(v);
                           setBillingVariantDraft('');
                           setBillingFamilyDraft('');
+                          const row = payers.find((p) => p.id === v);
+                          // Mirror Neue Fahrt: neue gated Kostenträger default off; zurück zum gespeicherten → DB-Zustand.
+                          if (!row?.reha_schein_enabled) {
+                            setRehaScheinDraft(false);
+                          } else if (trip && v === (trip.payer_id ?? '')) {
+                            setRehaScheinDraft(!!trip.reha_schein);
+                          } else {
+                            setRehaScheinDraft(false);
+                          }
                         }}
                       >
                         <SelectTrigger className='border-border h-8 w-full min-w-0 text-xs font-semibold'>
@@ -1674,6 +1712,23 @@ export function TripDetailSheet({
                           }}
                         />
                       </div>
+                    </div>
+                  ) : null}
+                  {/* trips.reha_schein — nur wenn Kostenträger-Reiter Reha eingeschaltet hat (Spiegelbild Neue Fahrt). */}
+                  {payerDraft && detailPayerRehaGate ? (
+                    <div className='col-span-2 flex flex-row items-center justify-between gap-3 rounded-lg border border-dashed p-3'>
+                      <Label
+                        htmlFor='trip-detail-reha-schein'
+                        className='text-muted-foreground cursor-pointer text-xs font-medium'
+                      >
+                        {REHA_SCHEIN_TRIP_LABEL}
+                      </Label>
+                      <Switch
+                        id='trip-detail-reha-schein'
+                        checked={rehaScheinDraft}
+                        onCheckedChange={setRehaScheinDraft}
+                        disabled={!isOpen}
+                      />
                     </div>
                   ) : null}
                   {payerDraft ? (

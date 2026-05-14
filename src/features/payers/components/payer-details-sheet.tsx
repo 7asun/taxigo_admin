@@ -65,7 +65,10 @@ import { Switch } from '@/components/ui/switch';
 import { createClient } from '@/lib/supabase/client';
 import { referenceKeys } from '@/query/keys';
 import { PAYERS_QUERY_KEY } from '../hooks/use-payers';
-import { updatePayerManualKmEnabled } from '../api/payers.service';
+import {
+  updatePayerManualKmEnabled,
+  updatePayerRehaScheinEnabled
+} from '../api/payers.service';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
 import { useBillingPricingRules } from '../hooks/use-billing-pricing-rules';
@@ -81,6 +84,11 @@ import type {
   BillingPricingRuleRow,
   PricingRuleScope
 } from '../api/billing-pricing-rules.api';
+
+/** UI copy for payer-level Reha gate (see `payers.reha_schein_enabled`). */
+const REHA_SCHEIN_PAYER_LABEL = 'Reha-Schein';
+const REHA_SCHEIN_PAYER_HELPER =
+  'Aktiviert den Reha-Schein-Schalter auf Fahrten dieses Kostenträgers';
 
 interface PayerDetailsSheetProps {
   payer: PayerWithBillingCount | null;
@@ -104,6 +112,7 @@ export function PayerDetailsSheet({
   const queryClient = useQueryClient();
   const supabase = useMemo(() => createClient(), []);
   const [manualKmToggleBusy, setManualKmToggleBusy] = useState(false);
+  const [rehaScheinToggleBusy, setRehaScheinToggleBusy] = useState(false);
   const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
   const [variantDialog, setVariantDialog] = useState<{
     familyId: string;
@@ -223,6 +232,22 @@ export function PayerDetailsSheet({
       toast.error('Speichern fehlgeschlagen');
     } finally {
       setManualKmToggleBusy(false);
+    }
+  };
+
+  /** why: Kostenträger-level gate keeps Reha UI off for payers who never need the document flag. */
+  const handleRehaScheinEnabledChange = async (checked: boolean) => {
+    if (!displayPayer) return;
+    setRehaScheinToggleBusy(true);
+    try {
+      await updatePayerRehaScheinEnabled(displayPayer.id, checked, supabase);
+      await queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      await queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
+      toast.success('Einstellung gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    } finally {
+      setRehaScheinToggleBusy(false);
     }
   };
 
@@ -506,6 +531,28 @@ export function PayerDetailsSheet({
                   checked={displayPayer.manual_km_enabled ?? false}
                   disabled={isUpdating || manualKmToggleBusy}
                   onCheckedChange={(v) => void handleManualKmEnabledChange(v)}
+                />
+              </div>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='min-w-0 flex-1'>
+                  <label
+                    htmlFor='payer-reha-schein-enabled'
+                    className='text-muted-foreground mb-1 block text-xs font-medium tracking-wide uppercase'
+                  >
+                    {REHA_SCHEIN_PAYER_LABEL}
+                  </label>
+                  <p className='text-muted-foreground text-xs'>
+                    {REHA_SCHEIN_PAYER_HELPER}
+                  </p>
+                </div>
+                <Switch
+                  id='payer-reha-schein-enabled'
+                  checked={displayPayer.reha_schein_enabled ?? false}
+                  disabled={isUpdating || rehaScheinToggleBusy}
+                  onCheckedChange={(v) => void handleRehaScheinEnabledChange(v)}
                 />
               </div>
             </div>

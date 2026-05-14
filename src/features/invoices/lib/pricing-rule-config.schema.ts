@@ -68,9 +68,9 @@ export const timeBasedConfigSchema = z
 export const emptyConfigSchema = z.object({}).merge(approachFeeSchema).strict();
 
 /**
- * Discriminated union on strategy — use when validating API body { strategy, config }.
+ * Discriminated union on strategy — use when validating API body { strategy, config, pricing_basis? }.
  */
-export const billingPricingRuleUpsertSchema = z.discriminatedUnion('strategy', [
+const billingPricingRuleUpsertStrategyUnion = z.discriminatedUnion('strategy', [
   z.object({
     strategy: z.literal('client_price_tag'),
     config: emptyConfigSchema
@@ -100,6 +100,13 @@ export const billingPricingRuleUpsertSchema = z.discriminatedUnion('strategy', [
     config: emptyConfigSchema
   })
 ]);
+
+export const billingPricingRuleUpsertSchema =
+  billingPricingRuleUpsertStrategyUnion.and(
+    z.object({
+      pricing_basis: z.enum(['net', 'gross']).default('net')
+    })
+  );
 
 export type BillingPricingRuleUpsert = z.infer<
   typeof billingPricingRuleUpsertSchema

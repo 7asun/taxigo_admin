@@ -56,6 +56,8 @@ export interface BuildTripDetailsPatchInput {
   noInvoiceRequiredDraft: boolean;
   /** Persisted with `no_invoice_required`. */
   noInvoiceSourceForSave: string;
+  /** Normalized trip flag — false when Kostenträger has no `reha_schein_enabled`. */
+  rehaScheinForSave: boolean;
   /**
    * When true, skip Directions (`fetchDrivingMetrics`) and omit distance/duration on the patch.
    * Set when the trip already appears on an invoice line item — keeps `trips` aligned with billing snapshots.
@@ -112,6 +114,11 @@ export async function buildTripDetailsPatch(
   if (noInvNext !== noInvWas || input.noInvoiceSourceForSave !== noInvSrcWas) {
     patch.no_invoice_required = noInvNext;
     patch.no_invoice_source = input.noInvoiceSourceForSave;
+  }
+  const rehaNext = !!input.rehaScheinForSave;
+  const rehaWas = !!trip.reha_schein;
+  if (rehaNext !== rehaWas) {
+    patch.reha_schein = rehaNext;
   }
   const ktsFehlerNext = !!input.ktsFehlerDraft;
   const ktsFehlerWas = !!trip.kts_fehler;

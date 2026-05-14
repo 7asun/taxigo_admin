@@ -19,6 +19,19 @@ export type TripInvoiceLineForStatus = {
   invoices: { status: InvoiceStatusLite } | null;
 };
 
+/**
+ * One `invoice_line_items` row as embedded for the trips list badge
+ * (`trip_id` FK, joined `invoices`).
+ */
+export type InvoiceLineItemWithStatus = {
+  invoice_id: string;
+  invoices: {
+    status: InvoiceStatusLite;
+    paid_at: string | null;
+    sent_at: string | null;
+  } | null;
+};
+
 export function resolveEffectiveTripInvoiceStatus(
   lineItems: TripInvoiceLineForStatus[]
 ): EffectiveTripInvoiceStatus {

@@ -252,6 +252,7 @@ function copyRouteAndPassengerFields(
   | 'kts_fehler'
   | 'kts_fehler_beschreibung'
   | 'kts_source'
+  | 'reha_schein'
   | 'no_invoice_required'
   | 'no_invoice_source'
   | 'payment_method'
@@ -298,6 +299,8 @@ function copyRouteAndPassengerFields(
     kts_fehler: !!source.kts_fehler,
     kts_fehler_beschreibung: source.kts_fehler_beschreibung ?? null,
     kts_source: 'manual',
+    // why: duplicate inherits trip flags for billing-adjacent metadata (boolean like KTS).
+    reha_schein: !!source.reha_schein,
     no_invoice_required: !!source.no_invoice_required,
     no_invoice_source: 'manual',
     payment_method: source.payment_method,

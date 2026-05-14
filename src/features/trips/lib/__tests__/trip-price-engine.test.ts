@@ -21,6 +21,7 @@ function rule(
     billing_variant_id: partial.billing_variant_id ?? null,
     strategy: partial.strategy,
     config: partial.config,
+    pricing_basis: partial.pricing_basis ?? 'net',
     is_active: partial.is_active ?? true,
     _price_gross: partial._price_gross
   };
@@ -103,6 +104,31 @@ describe('computeTripPrice', () => {
     expect(result.tax_rate).toBe(0.07);
     expect(result.base_net_price).toBe(11.0);
     expect(result.approach_fee_net).toBe(0);
+  });
+
+  test('gross-basis tiered_km — snapshot matches (base_net + approach) × (1 + tax)', () => {
+    const ctx: PricingContext = {
+      rules: [
+        rule({
+          strategy: 'tiered_km',
+          pricing_basis: 'gross',
+          config: {
+            tiers: [{ from_km: 0, to_km: null, price_per_km: 1.07 }],
+            approach_fee_net: 2
+          }
+        })
+      ],
+      clientPriceTags: [],
+      clientPriceTag: null
+    };
+    const result = computeTripPrice(
+      { ...baseTrip, driving_distance_km: 10 },
+      ctx
+    );
+    expect(result.base_net_price).toBe(10);
+    expect(result.approach_fee_net).toBe(2);
+    expect(result.tax_rate).toBe(0.07);
+    expect(result.gross_price).toBe(12.84);
   });
 
   test('tiered_km with null distance → all three null (distance required)', () => {
@@ -280,6 +306,7 @@ describe('computeTripPrice — edit context (merged input)', () => {
       billing_variant_id: partial.billing_variant_id ?? null,
       strategy: partial.strategy,
       config: partial.config,
+      pricing_basis: partial.pricing_basis ?? 'net',
       is_active: partial.is_active ?? true,
       _price_gross: partial._price_gross
     };

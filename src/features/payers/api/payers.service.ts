@@ -45,7 +45,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, reha_schein_enabled, billing_types(count)'
       )
       .order('name');
 
@@ -477,6 +477,22 @@ export async function updatePayerManualKmEnabled(
   const { error } = await supabase
     .from('payers')
     .update({ manual_km_enabled: enabled })
+    .eq('id', payerId);
+  if (error) throw toQueryError(error);
+}
+
+/**
+ * Enables the Reha-Schein trip switch for this payer’s trips in admin UI only;
+ * does not change existing trip rows (see `trips.reha_schein`).
+ */
+export async function updatePayerRehaScheinEnabled(
+  payerId: string,
+  enabled: boolean,
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  const { error } = await supabase
+    .from('payers')
+    .update({ reha_schein_enabled: enabled })
     .eq('id', payerId);
   if (error) throw toQueryError(error);
 }

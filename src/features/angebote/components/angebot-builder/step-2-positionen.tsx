@@ -51,6 +51,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
+import { AngebotPositionTextField } from './angebot-position-text-field';
+import { plainTextFromPossibleHtml } from '@/features/angebote/lib/angebot-rich-text';
 import { useAngebotVorlagenList } from '../../hooks/use-angebot-vorlagen';
 import { ANGEBOT_POSITION_COLUMN_ID } from '../../lib/angebot-auto-columns';
 import { isComputedColumn } from '../../lib/angebot-formula-engine';
@@ -96,7 +98,7 @@ function renderComputedDisplay(col: AngebotColumnDef, raw: unknown): string {
   switch (layout.pdfRenderType) {
     case 'text': {
       if (raw == null || raw === '') return '—';
-      return String(raw);
+      return plainTextFromPossibleHtml(String(raw));
     }
     case 'integer': {
       if (raw == null || raw === '') return '—';
@@ -252,19 +254,18 @@ function SortableCard({
                   ) : (
                     <>
                       {layout.pdfRenderType === 'text' ? (
-                        <Input
-                          className='h-8 text-sm'
-                          // Free text — no step or min constraints.
-                          type='text'
+                        <AngebotPositionTextField
+                          key={`${col.id}-${index}`}
                           value={raw != null ? String(raw) : ''}
-                          onChange={(e) =>
+                          onChange={(html) =>
                             onUpdate({
                               data: {
                                 ...item.data,
-                                [col.id]: e.target.value || null
+                                [col.id]: html
                               }
                             })
                           }
+                          aria-label={col.header}
                         />
                       ) : null}
                       {layout.pdfRenderType === 'integer' ? (

@@ -54,6 +54,7 @@ export const PAIRED_SYNC_COLUMN_KEYS = [
   'kts_fehler',
   'kts_fehler_beschreibung',
   'kts_source',
+  'reha_schein',
   'no_invoice_required',
   'no_invoice_source',
   'driving_distance_km',
@@ -113,6 +114,7 @@ export interface PartnerSyncDrafts {
   ktsFehlerDraft: boolean;
   ktsFehlerBeschreibungDraft: string;
   ktsSourceForSave: string;
+  rehaScheinForSave: boolean;
   noInvoiceRequiredDraft: boolean;
   noInvoiceSourceForSave: string;
   lastPickupResolved: AddressResult | null;
@@ -262,6 +264,7 @@ export function buildPartnerSyncPatchFromDrafts(
       ? stationTrimOrNull(input.ktsFehlerBeschreibungDraft)
       : null,
     kts_source: input.ktsSourceForSave,
+    reha_schein: input.rehaScheinForSave,
     no_invoice_required: input.noInvoiceRequiredDraft,
     no_invoice_source: input.noInvoiceSourceForSave
   };

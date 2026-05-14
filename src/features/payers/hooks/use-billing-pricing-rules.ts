@@ -40,6 +40,7 @@ export function useBillingPricingRules(payerId: string | undefined | null) {
       id: string;
       strategy?: BillingPricingRuleRow['strategy'];
       config?: unknown;
+      pricing_basis?: BillingPricingRuleRow['pricing_basis'];
       is_active?: boolean;
     }) => updatePricingRule(args.id, args),
     onSuccess: invalidate

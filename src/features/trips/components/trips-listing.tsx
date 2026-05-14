@@ -8,7 +8,7 @@ import { searchParamsCache } from '@/lib/searchparams';
 import { createClient } from '@/lib/supabase/server';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import { TripsTable, columns } from './trips-tables/index';
-import { Trip } from '../api/trips.service';
+import { type TripListRow } from '../api/trips.service';
 import { getSortingStateParser } from '@/lib/parsers';
 import {
   TRIPS_SORT_MAP,
@@ -27,7 +27,7 @@ import {
 import type { EffectiveTripInvoiceStatus } from '@/features/trips/lib/effective-trip-invoice-status';
 import { resolveInvoiceStatusTripFilter } from '@/features/trips/lib/resolve-invoice-status-trip-filter';
 
-/** URL `invoice_status` values (RPC when present; else line-item scan — see resolveInvoiceStatusTripFilter). */
+/** URL `invoice_status` values — pre-filter via `resolveInvoiceStatusTripFilter` (RPC). */
 const INVOICE_STATUS_FILTER_VALUES = new Set([
   'uninvoiced',
   'draft',
@@ -57,6 +57,7 @@ export default async function TripsListingPage({
   const search = searchParamsCache.get('search');
   const scheduledAt = searchParamsCache.get('scheduled_at');
   const invoiceStatus = searchParamsCache.get('invoice_status');
+  const ktsFilter = searchParamsCache.get('kts_filter') ?? 'all';
 
   const supabase = await createClient();
 
@@ -77,27 +78,39 @@ export default async function TripsListingPage({
   const skipTripsQuery =
     invoiceTripFilter?.kind === 'in' && invoiceTripFilter.tripIds.length === 0;
 
-  let trips: any[];
+  let trips: TripListRow[];
   let totalTrips: number;
 
   if (skipTripsQuery) {
     trips = [];
     totalTrips = 0;
   } else {
-    let query = supabase.from('trips').select(
-      `
+    /** Liste: no invoice_line_items embed — Rechnungsstatus badges load in a second client query (see docs/trips-performance.md). Kanban keeps the embed until that view is migrated. */
+    const tripsListSelect = `
     *,
-    payer:payers(name),
+    payer:payers(name, reha_schein_enabled),
+    billing_variant:billing_variants(name, code, billing_types(name, color)),
+    driver:accounts!trips_driver_id_fkey(name),
+    fremdfirma:fremdfirmen(id, name, default_payment_mode)
+  `;
+
+    const tripsKanbanSelect = `
+    *,
+    payer:payers(name, reha_schein_enabled),
     billing_variant:billing_variants(name, code, billing_types(name, color)),
     driver:accounts!trips_driver_id_fkey(name),
     fremdfirma:fremdfirmen(id, name, default_payment_mode),
     invoice_line_items!invoice_line_items_trip_id_fkey(
       invoice_id,
       invoices(status, paid_at, sent_at)
-    ) // For trip invoice status badge — only trip_id-linked line items; manual lines (trip_id IS NULL) are excluded by the FK join
-  `,
-      { count: 'exact' }
-    );
+    )
+  `;
+
+    let query = supabase
+      .from('trips')
+      .select(view === 'kanban' ? tripsKanbanSelect : tripsListSelect, {
+        count: 'exact'
+      });
 
     // Apply filters
     if (status) {
@@ -119,6 +132,14 @@ export default async function TripsListingPage({
     }
     if (billingVariantId && billingVariantId !== 'all') {
       query = query.eq('billing_variant_id', billingVariantId);
+    }
+    // KTS filter — narrows trips by KTS document state.
+    // 'kts_fehler' implies kts_document_applies so both conditions are applied.
+    // 'all' (default) applies no condition.
+    if (ktsFilter === 'kts') {
+      query = query.eq('kts_document_applies', true);
+    } else if (ktsFilter === 'kts_fehler') {
+      query = query.eq('kts_document_applies', true).eq('kts_fehler', true);
     }
     if (
       invoiceTripFilter?.kind === 'in' &&
@@ -259,7 +280,7 @@ export default async function TripsListingPage({
     const { data, count, error } = await query;
     if (error) throw toQueryError(error);
 
-    trips = data as any[];
+    trips = (data ?? []) as unknown as TripListRow[];
     totalTrips = count || 0;
   }
 
@@ -299,12 +320,17 @@ export default async function TripsListingPage({
       {view === 'kanban' && (
         <TripsKanbanBoard
           key={kanbanKey}
-          trips={trips as Trip[]}
+          trips={trips}
           totalItems={totalTrips}
         />
       )}
       {view !== 'kanban' && (
-        <TripsTable data={trips} totalItems={totalTrips} columns={columns} />
+        <TripsTable
+          data={trips}
+          totalItems={totalTrips}
+          columns={columns}
+          invoiceStatusTripIds={trips.map((t) => t.id)}
+        />
       )}
     </div>
   );

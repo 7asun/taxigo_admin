@@ -3,8 +3,11 @@
  * No React, no hooks, no side-effects — safe to import in tests.
  */
 
-import type { TimeBasedConfig } from '@/features/invoices/types/pricing.types';
-import type { PricingStrategy } from '@/features/invoices/types/pricing.types';
+import type {
+  PricingBasis,
+  PricingStrategy,
+  TimeBasedConfig
+} from '@/features/invoices/types/pricing.types';
 import {
   WEEKDAY_ORDER,
   type DaysForm,
@@ -60,6 +63,7 @@ export function buildWorkingHoursFromDays(
 export function defaultFormValues(): PricingRuleFormValues {
   return {
     strategy: 'tiered_km',
+    pricing_basis: 'net',
     approach_fee_net: null,
     tiers: [defaultTier()],
     threshold_km: 4,
@@ -73,7 +77,7 @@ export function defaultFormValues(): PricingRuleFormValues {
 }
 
 /**
- * Maps validated form values to the `{ strategy, config }` shape expected by
+ * Maps validated form values to the `{ strategy, config, pricing_basis }` shape expected by
  * createPricingRule / updatePricingRule.
  *
  * approach_fee_net is merged into every config object when present and valid.
@@ -85,6 +89,7 @@ export function defaultFormValues(): PricingRuleFormValues {
 export function buildApiPayload(v: PricingRuleFormValues): {
   strategy: PricingStrategy;
   config: Record<string, unknown>;
+  pricing_basis: PricingBasis;
 } {
   const withApproach = (
     config: Record<string, unknown>
@@ -99,6 +104,8 @@ export function buildApiPayload(v: PricingRuleFormValues): {
     return config;
   };
 
+  const basis = v.pricing_basis;
+
   switch (v.strategy) {
     case 'client_price_tag':
     case 'client_km_override':
@@ -106,12 +113,14 @@ export function buildApiPayload(v: PricingRuleFormValues): {
     case 'no_price':
       return {
         strategy: v.strategy,
-        config: withApproach({})
+        config: withApproach({}),
+        pricing_basis: basis
       };
     case 'tiered_km':
       return {
         strategy: v.strategy,
-        config: withApproach({ tiers: v.tiers })
+        config: withApproach({ tiers: v.tiers }),
+        pricing_basis: basis
       };
     case 'fixed_below_threshold_then_km':
       return {
@@ -120,7 +129,8 @@ export function buildApiPayload(v: PricingRuleFormValues): {
           threshold_km: v.threshold_km,
           fixed_price: v.fixed_price,
           km_tiers: v.km_tiers
-        })
+        }),
+        pricing_basis: basis
       };
     case 'time_based':
       return {
@@ -130,7 +140,8 @@ export function buildApiPayload(v: PricingRuleFormValues): {
           working_hours: buildWorkingHoursFromDays(v.days),
           holiday_rule: v.holiday_rule,
           holidays: v.holidays
-        })
+        }),
+        pricing_basis: basis
       };
     default: {
       const _e: never = v.strategy;
