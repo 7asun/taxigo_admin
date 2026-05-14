@@ -74,6 +74,7 @@ const FIELD_TO_SECTION: Partial<Record<keyof TripFormValues, string>> = {
   kts_document_applies: 'payer',
   kts_fehler: 'payer',
   kts_fehler_beschreibung: 'payer',
+  reha_schein: 'payer',
   no_invoice_required: 'payer',
   departure_date: 'schedule',
   departure_time: 'schedule',
@@ -194,6 +195,7 @@ export function CreateTripForm({
       billing_calling_station: '',
       billing_betreuer: '',
       kts_document_applies: false,
+      reha_schein: false,
       kts_fehler: false,
       kts_fehler_beschreibung: null,
       no_invoice_required: false
@@ -249,6 +251,7 @@ export function CreateTripForm({
         'billing_calling_station',
         'billing_betreuer',
         'kts_document_applies',
+        'reha_schein',
         'kts_fehler',
         'kts_fehler_beschreibung',
         'no_invoice_required',
@@ -393,6 +396,7 @@ export function CreateTripForm({
     ktsUserLockedRef.current = false;
     noInvoiceUserLockedRef.current = false;
     form.setValue('billing_variant_id', '');
+    form.setValue('reha_schein', false);
     setBillingFamilyId('');
   }, [watchedPayerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1304,6 +1308,10 @@ export function CreateTripForm({
         ? values.kts_fehler_beschreibung?.trim() || null
         : null;
 
+      const submitPayerRow = payers.find((p) => p.id === values.payer_id);
+      const rehaScheinForDb =
+        !!submitPayerRow?.reha_schein_enabled && values.reha_schein;
+
       const baseTrip = {
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
@@ -1312,6 +1320,7 @@ export function CreateTripForm({
         kts_fehler: ktsFehlerForDb,
         kts_fehler_beschreibung: ktsFehlerBeschreibungForDb,
         kts_source: ktsSource,
+        reha_schein: rehaScheinForDb,
         no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
         no_invoice_source: noInvoiceSource,
         billing_calling_station: askBillingExtras

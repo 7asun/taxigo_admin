@@ -315,8 +315,8 @@ export async function GET(request: NextRequest) {
 
       const hasFremdfirma = !!rule.fremdfirma_id;
 
-      // no_invoice_required, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost
-      // are mirrored from recurring_rules — same pattern as kts_document_applies.
+      // no_invoice_required, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost,
+      // `reha_schein` mirrored from recurring_rules — same rationale as `kts_document_applies`.
       // Admin can override on individual generated trips after creation.
 
       return {
@@ -327,6 +327,7 @@ export async function GET(request: NextRequest) {
         payer_id: rule.payer_id,
         billing_variant_id: rule.billing_variant_id,
         kts_document_applies: rule.kts_document_applies ?? false,
+        reha_schein: rule.reha_schein ?? false,
         kts_source: rule.kts_source ?? null,
         no_invoice_required: rule.no_invoice_required ?? false,
         no_invoice_source: rule.no_invoice_source ?? null,

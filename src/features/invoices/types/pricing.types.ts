@@ -14,6 +14,9 @@ export const PRICING_STRATEGIES = [
 
 export type PricingStrategy = (typeof PRICING_STRATEGIES)[number];
 
+/** Whether monetary values in `billing_pricing_rules.config` are stored net or gross (column `pricing_basis`). */
+export type PricingBasis = 'net' | 'gross';
+
 /** Stored on invoice_line_items.pricing_source and in PriceResolution.source */
 export type PriceResolutionSource =
   | 'kts_override'
@@ -88,6 +91,8 @@ export interface BillingPricingRuleLike {
   billing_variant_id: string | null;
   strategy: PricingStrategy;
   config: unknown;
+  /** From DB; ignored for STEP 0 synthetic `client_price_tag` hits (gross is always `_price_gross`). */
+  pricing_basis: PricingBasis;
   is_active: boolean;
   /** Gross € from `client_price_tags` when this object is a synthetic STEP 0 hit. */
   _price_gross?: number;

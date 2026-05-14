@@ -4,22 +4,22 @@ overview: Add a DB enum column `pricing_basis` on `billing_pricing_rules`, threa
 todos:
   - id: migration-pricing-basis
     content: Add Supabase migration pricing_basis_enum + column on billing_pricing_rules
-    status: pending
+    status: completed
   - id: types-map-like
     content: Update database.types, BillingPricingRuleLike, mapBillingPricingRuleRowsToLike, synthetic rules
-    status: pending
+    status: completed
   - id: normalizer-round
     content: Extract roundMoneyOnce; implement normalizeRuleConfigToNet + unit tests
-    status: pending
+    status: completed
   - id: resolver-wire
     content: Wire normalization in resolve-trip-price P3; keep P0-P2 untouched
-    status: pending
+    status: completed
   - id: zod-api-ui
     content: Extend billingPricingRuleUpsertSchema, billing-pricing-rules API, dialog form + step2 UI
-    status: pending
+    status: completed
   - id: tests-docs
     content: Extend resolve-trip-price + trip-price-engine tests; update docs + audit status
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -92,9 +92,28 @@ In [`resolve-trip-price.ts`](src/features/invoices/lib/resolve-trip-price.ts), i
 
 ## Step 5 — Zod + API
 
+### Verified (read-only): how the dialog updates rules today
+
+**First read before changing the API:** Confirm update payload shape in [`pricing-rule-dialog/index.tsx`](src/features/payers/components/pricing-rule-dialog/index.tsx) and [`updatePricingRule`](src/features/payers/api/billing-pricing-rules.api.ts).
+
+**Finding:** On **edit**, `onSubmit` builds the payload with **`buildApiPayload(v)`** (full strategy-specific `config` from the **entire** React Hook Form state), validates with **`billingPricingRuleUpsertSchema.safeParse(raw)`**, then calls:
+
+```ts
+await updatePricingRule(editing.id, {
+  strategy: parsed.data.strategy,
+  config: parsed.data.config
+});
+```
+
+So the dialog **always sends `strategy` and `config` together** on save. It does **not** apply partial JSON patches or deep-merge against the database row; each save replaces **`config`** with the object produced from the form. Adding **`pricing_basis`** to the same parsed payload does **not** introduce a new “partial patch that could wipe sibling keys” failure mode for `config`—that risk would only exist if some caller sent an incomplete `config` object, which the Zod schemas for `tiered_km` / `fixed_below_threshold_then_km` / `time_based` already guard against (full arrays / required fields).
+
+**Other callers:** [`updatePricingRule`](src/features/payers/api/billing-pricing-rules.api.ts) also supports **`config` without `strategy`** (it loads `strategy` from the row and re-parses). The exported hooks accept `strategy`, `config`, and `is_active` optionally; **`is_active`-only** updates skip the strategy/config branches entirely. No other in-repo call sites invoke `updatePricingRule` directly besides the dialog (hooks are unused for updates today). When implementing **`pricing_basis`**, add an explicit **`update.pricing_basis = …`** branch when the patch includes `pricing_basis`, including the case **`is_active`-only** toggles—otherwise changing only `is_active` would leave `pricing_basis` untouched (correct) but **`pricing_basis`-only** updates would need a dedicated branch.
+
+### Implementation checklist (Step 5)
+
 - Extend [`billingPricingRuleUpsertSchema`](src/features/invoices/lib/pricing-rule-config.schema.ts): wrap the discriminated union with **`.and(z.object({ pricing_basis: z.enum(['net', 'gross']).default('net') }))`** so every branch accepts `pricing_basis`.
 - **Payload typing:** extend [`CreatePricingRulePayload`](src/features/payers/api/billing-pricing-rules.api.ts) and **parse** `{ strategy, config, pricing_basis }` in `createPricingRule`; include **`pricing_basis`** on the Supabase **insert** object.
-- **`updatePricingRule`:** extend patch with optional `pricing_basis`; when only basis changes, merge into **update** row (today’s code often requires strategy+config pair—add a branch that allows `pricing_basis` without resending full config if needed, or always load row and re-parse full payload from dialog—simplest: dialog always sends `pricing_basis` with updates).
+- **`updatePricingRule`:** extend the patch type with optional **`pricing_basis`**. When **`pricing_basis`** is present, set it on the Supabase update object. For the **dialog**, extend the `updatePricingRule` call to pass **`pricing_basis: parsed.data.pricing_basis`** together with **`strategy`** and **`config`** (same object as today, one extra field).
 
 **Gate:** `bun run build`.
 

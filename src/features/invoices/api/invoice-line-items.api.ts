@@ -412,6 +412,7 @@ export function mapBillingPricingRuleRowsToLike(
     billing_variant_id: r.billing_variant_id,
     strategy: r.strategy as BillingPricingRuleLike['strategy'],
     config: r.config,
+    pricing_basis: r.pricing_basis ?? 'net',
     is_active: r.is_active === true
   }));
 }

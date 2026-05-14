@@ -129,6 +129,7 @@ function mapJoinedRowToContext(
     billing_variant_id: row.billing_variant_id,
     strategy: row.strategy,
     config: row.config,
+    pricing_basis: row.pricing_basis,
     is_active: row.is_active,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -253,6 +254,8 @@ export function pricingRuleRowToScope(
 export interface CreatePricingRulePayload {
   strategy: BillingPricingRuleUpsert['strategy'];
   config: BillingPricingRuleUpsert['config'];
+  /** Omitted → Zod default `'net'`. */
+  pricing_basis?: BillingPricingRuleRow['pricing_basis'];
   scope: PricingRuleScope;
 }
 
@@ -261,7 +264,8 @@ export async function createPricingRule(
 ): Promise<BillingPricingRuleRow> {
   const parsed = billingPricingRuleUpsertSchema.parse({
     strategy: payload.strategy,
-    config: payload.config
+    config: payload.config,
+    pricing_basis: payload.pricing_basis
   });
   const companyId = await getSessionCompanyId();
   const supabase = createClient();
@@ -270,6 +274,7 @@ export async function createPricingRule(
     company_id: companyId,
     strategy: parsed.strategy,
     config: parsed.config as BillingPricingRuleInsert['config'],
+    pricing_basis: parsed.pricing_basis,
     is_active: true
   };
 
@@ -312,6 +317,7 @@ export async function updatePricingRule(
   patch: {
     strategy?: BillingPricingRuleRow['strategy'];
     config?: unknown;
+    pricing_basis?: BillingPricingRuleRow['pricing_basis'];
     is_active?: boolean;
   }
 ): Promise<void> {
@@ -323,25 +329,42 @@ export async function updatePricingRule(
   };
 
   if (patch.strategy !== undefined && patch.config !== undefined) {
+    let basisForParse: BillingPricingRuleRow['pricing_basis'] =
+      patch.pricing_basis ?? 'net';
+    if (patch.pricing_basis === undefined) {
+      const { data: rowB, error: bErr } = await supabase
+        .from('billing_pricing_rules')
+        .select('pricing_basis')
+        .eq('id', id)
+        .single();
+      if (bErr) throw toQueryError(bErr);
+      basisForParse = rowB.pricing_basis ?? 'net';
+    }
     const parsed = billingPricingRuleUpsertSchema.parse({
       strategy: patch.strategy,
-      config: patch.config
+      config: patch.config,
+      pricing_basis: basisForParse
     });
     update.strategy = parsed.strategy;
     update.config = parsed.config as BillingPricingRuleUpdate['config'];
+    update.pricing_basis = parsed.pricing_basis;
   } else if (patch.config !== undefined) {
     const { data: row, error: gErr } = await supabase
       .from('billing_pricing_rules')
-      .select('strategy')
+      .select('strategy, pricing_basis')
       .eq('id', id)
       .single();
     if (gErr) throw toQueryError(gErr);
     const parsed = billingPricingRuleUpsertSchema.parse({
       strategy: row.strategy as BillingPricingRuleUpsert['strategy'],
-      config: patch.config
+      config: patch.config,
+      pricing_basis: patch.pricing_basis ?? row.pricing_basis
     });
     update.strategy = parsed.strategy;
     update.config = parsed.config as BillingPricingRuleUpdate['config'];
+    update.pricing_basis = parsed.pricing_basis;
+  } else if (patch.pricing_basis !== undefined) {
+    update.pricing_basis = patch.pricing_basis;
   }
 
   const { error } = await supabase

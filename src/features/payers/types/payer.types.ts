@@ -92,6 +92,8 @@ export interface Payer {
   pdf_vorlage_id?: string | null;
   /** When true, invoice Step 3 shows per-trip KM input for this payer's trips. */
   manual_km_enabled?: boolean | null;
+  /** When true, Neue Fahrt and trip detail show the Reha-Schein trip switch. */
+  reha_schein_enabled: boolean;
 }
 
 export interface PayerWithBillingCount extends Payer {

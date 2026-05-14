@@ -56,9 +56,28 @@ const DownloadCsvButton = dynamic(
   }
 );
 
+const AnsichtenDropdown = dynamic(
+  async () => {
+    const { AnsichtenDropdown: Dropdown } = await import(
+      '@/features/trips/components/ansichten-dropdown'
+    );
+    return { default: Dropdown };
+  },
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className='border-border bg-muted/40 h-9 w-[104px] shrink-0 animate-pulse rounded-md border'
+        aria-hidden
+      />
+    )
+  }
+);
+
 /**
  * Client-only Radix toolbar actions: `dynamic(..., { ssr: false })` is not allowed
  * in Server Components; wrapping here avoids Popover/Dialog hydration mismatches.
+ * Ansichten uses the same pattern (nested DropdownMenu + Tooltip).
  */
 export function TripsPageHeaderActions() {
   return (
@@ -66,6 +85,7 @@ export function TripsPageHeaderActions() {
       <PrintTripsButton />
       <DownloadCsvButton />
       <BulkUploadDialog />
+      <AnsichtenDropdown />
     </div>
   );
 }

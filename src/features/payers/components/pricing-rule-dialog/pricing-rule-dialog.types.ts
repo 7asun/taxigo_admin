@@ -6,6 +6,7 @@ import type {
   BillingPricingRuleRow,
   PricingRuleScope
 } from '@/features/payers/api/billing-pricing-rules.api';
+import type { PricingBasis } from '@/features/invoices/types/pricing.types';
 
 export const WEEKDAY_ORDER: WeekdayKey[] = [
   'mon',
@@ -54,6 +55,8 @@ export type DaysForm = Record<WeekdayKey, DaySlotFormValue>;
 
 export interface PricingRuleFormValues {
   strategy: PricingStrategy;
+  /** Catalog config amounts (km, flat, time) — net vs gross; Anfahrt stays net regardless. */
+  pricing_basis: PricingBasis;
   /** Optional net Anfahrtspreis — merged into rule `config` for all strategies (resolver applies per cascade). */
   approach_fee_net: number | null;
   tiers: KmTierFormValue[];

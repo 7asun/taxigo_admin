@@ -70,6 +70,7 @@ export function resolvePricingRule(
           billing_variant_id: tag.billing_variant_id,
           strategy: 'client_price_tag',
           config: {},
+          pricing_basis: 'net',
           is_active: true,
           _price_gross: g
         };

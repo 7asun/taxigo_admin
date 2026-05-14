@@ -19,6 +19,8 @@ export const searchParams = {
   billing_variant_id: parseAsString,
   /** Effective invoice status for trips list (see trip-invoice-status-badge + RPC). */
   invoice_status: parseAsString,
+  /** KTS list filter: `kts` | `kts_fehler`; absent = all trips. */
+  kts_filter: parseAsString,
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
   view: parseAsString.withDefault('list')

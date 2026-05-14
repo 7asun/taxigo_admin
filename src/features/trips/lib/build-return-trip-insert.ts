@@ -94,6 +94,7 @@ export function buildReturnTripInsert(
     billing_calling_station: outbound.billing_calling_station,
     billing_betreuer: outbound.billing_betreuer,
     kts_document_applies: outbound.kts_document_applies,
+    reha_schein: !!outbound.reha_schein,
     kts_fehler: outbound.kts_fehler ?? false,
     kts_fehler_beschreibung: outbound.kts_fehler_beschreibung ?? null,
     kts_source: outbound.kts_source ?? 'manual',

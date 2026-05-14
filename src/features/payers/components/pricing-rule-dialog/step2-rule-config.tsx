@@ -28,7 +28,11 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-time-picker';
-import type { PricingStrategy } from '@/features/invoices/types/pricing.types';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import type {
+  PricingBasis,
+  PricingStrategy
+} from '@/features/invoices/types/pricing.types';
 import type { BillingPricingRuleRow } from '@/features/payers/api/billing-pricing-rules.api';
 import {
   WEEKDAY_LABEL,
@@ -68,8 +72,60 @@ export function Step2RuleConfig({
     ? holidayInput
     : '';
 
+  const pricingBasis = watch('pricing_basis') as PricingBasis;
+  const showPricingBasisControl =
+    strategy === 'tiered_km' ||
+    strategy === 'fixed_below_threshold_then_km' ||
+    strategy === 'time_based';
+  const kmRateLabel = pricingBasis === 'gross' ? '€/km brutto' : '€/km netto';
+  const fixedUnderThresholdLabel =
+    pricingBasis === 'gross'
+      ? 'Festpreis (brutto)'
+      : 'Festpreis unter Schwelle (netto)';
+  const timeBasedFeeLabel =
+    pricingBasis === 'gross'
+      ? 'Pauschale (brutto)'
+      : 'Festpreis außerhalb Arbeitszeit / Feiertag (netto)';
+
   return (
     <div className='space-y-4'>
+      {showPricingBasisControl && (
+        <div className='space-y-2'>
+          <Label className='text-sm font-medium'>Preisbasis</Label>
+          {/* WHY: Stored on `billing_pricing_rules.pricing_basis`; the resolver normalizes gross configs to net before tier math. */}
+          <Controller
+            control={control}
+            name='pricing_basis'
+            render={({ field }) => (
+              <RadioGroup
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={busy}
+                className='flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-6'
+              >
+                <div className='flex items-center gap-2'>
+                  <RadioGroupItem value='net' id='pricing-basis-net' />
+                  <Label
+                    htmlFor='pricing-basis-net'
+                    className='cursor-pointer font-normal'
+                  >
+                    Netto (zzgl. MwSt.)
+                  </Label>
+                </div>
+                <div className='flex items-center gap-2'>
+                  <RadioGroupItem value='gross' id='pricing-basis-gross' />
+                  <Label
+                    htmlFor='pricing-basis-gross'
+                    className='cursor-pointer font-normal'
+                  >
+                    Brutto (inkl. MwSt.)
+                  </Label>
+                </div>
+              </RadioGroup>
+            )}
+          />
+        </div>
+      )}
       {strategy === 'tiered_km' && (
         <div className='space-y-3'>
           <div className='flex items-center justify-between'>
@@ -126,7 +182,7 @@ export function Step2RuleConfig({
               </div>
               <div className='space-y-1'>
                 <Label className='text-muted-foreground text-xs'>
-                  €/km netto
+                  {kmRateLabel}
                 </Label>
                 <Controller
                   control={control}
@@ -183,9 +239,7 @@ export function Step2RuleConfig({
               />
             </div>
             <div className='space-y-1.5'>
-              <Label htmlFor='fixed_price'>
-                Festpreis unter Schwelle (netto)
-              </Label>
+              <Label htmlFor='fixed_price'>{fixedUnderThresholdLabel}</Label>
               <Input
                 id='fixed_price'
                 type='number'
@@ -260,7 +314,7 @@ export function Step2RuleConfig({
               </div>
               <div className='space-y-1'>
                 <Label className='text-muted-foreground text-xs'>
-                  €/km netto
+                  {kmRateLabel}
                 </Label>
                 <Controller
                   control={control}
@@ -307,9 +361,7 @@ export function Step2RuleConfig({
       {strategy === 'time_based' && (
         <div className='space-y-4'>
           <div className='space-y-1.5'>
-            <Label htmlFor='fixed_fee'>
-              Festpreis außerhalb Arbeitszeit / Feiertag (netto)
-            </Label>
+            <Label htmlFor='fixed_fee'>{timeBasedFeeLabel}</Label>
             <Input
               id='fixed_fee'
               type='number'
@@ -517,7 +569,8 @@ export function Step2RuleConfig({
           />
           <p className='text-muted-foreground text-xs'>
             Pro Fahrt netto; wird bei Staffeln, Fix+km und Zeit angewendet —
-            nicht bei Kunden-Preis (P-Tag) oder KTS.
+            nicht bei Kunden-Preis (P-Tag) oder KTS. Immer Netto, unabhängig von
+            der Preisbasis.
           </p>
         </div>
       )}

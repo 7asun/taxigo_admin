@@ -1,6 +1,6 @@
 # KTS (Krankentransportschein) — architecture
 
-**Last updated:** 2026-05-03
+**Last updated:** 2026-05-14
 
 > See [access-control.md](access-control.md) for the full role-based access control architecture.
 
@@ -118,6 +118,39 @@ Same mental model as **Verhalten** switches (e.g. Abholadresse sperren):
 
 ---
 
+## Reha-Schein (V1)
+
+**Separate from KTS.** Reha-Schein is a simple operational flag per trip (`trips.reha_schein`), not part of the KTS resolver or catalog cascade.
+
+| Storage | Purpose |
+| ------- | ------- |
+| `payers.reha_schein_enabled` | Kostenträger gate: nur wenn `true`, zeigen Neue Fahrt und Trip-Detail den Schalter für diese Fahrt. |
+| `trips.reha_schein` | Persistierte Fahrt-Stellung (`false` wenn kein Gate oder beim Speichern normalisiert). |
+| `recurring_rules.reha_schein` | Spiegelt wie bei KTS-Flags: beim Cron-Lauf wird der Wert auf generierte Fahrten übernommen. **Stand V1:** In der Admin-UI für Regelfahrten gibt es noch **keinen** eigenen Edit für dieses Feld — neue Regeln bleiben ohne UI-Eingabe bei `false`, bis nachgereicht. |
+
+### UI surfaces
+
+- **Kostenträger:** eigener Toggle im Kostenträger-Detailpanel (Analogon zu Manuelle KM: eigener Patch + Invalidation für `referenceKeys.payers()`, nicht nur `updatePayer`).
+- **Neue Fahrt / Trip-Detail:** Schalter unter der KTS-Gruppe nur bei gewähltem Kostenträger mit Gate. Wechsel des Kostenträgers setzt das Draft wie bei Neue Fahrt zurück (`false`; Rückwahl des gespeicherten Kostenträgers lädt wieder den DB-Zustand).
+
+### Verknüpfte Hin-/Rückfahrt (`linked_trip_id`)
+
+`reha_schein` liegt in `PAIRED_SYNC_COLUMN_KEYS`; bei „Trip aktualisieren“ mit **Diese Fahrt + Gegenfahrt** wird der gleiche Gespeicherte Wert wie für Kunde/Route auf das Partnerbein geschrieben (kein eigener Produkt-Lease-Swap wie bei Adressen).
+
+### Propagation (Code-Pfade)
+
+- Duplikat: `copyRouteAndPassengerFields` in `duplicate-trips.ts`
+- Rückfahrt: `buildReturnTripInsert` (übernahme vom Outbound wie KTS-Felder)
+- Regelfahrten-Cron: `buildTripPayload` in `generate-recurring-trips/route.ts`
+
+### Nicht-Ziele (V1)
+
+- Kein Fehler-Boolean / Freitext analog `kts_fehler`
+- Keine Preislogik / Invoice-Hooks
+- Keine CSV-/PDF-/Export-Spalte und keine eigene Clearing-Liste
+
+---
+
 ## 6. CSV import
 
 Optional Spalten **`kts_document_applies`**, **`kts`**, **`kts_document`** (gleiche Semantik). Werte: u. a. `true`/`false`, `1`/`0`, `ja`/`nein`, `yes`/`no`. Leer/fehlend → nach Abrechnungsauflösung `resolveKtsDefault()`; gesetzt → expliziter Wert und `kts_source = 'manual'`. Ungültige Zellen → `invalid_kts_cell`, Zeile wird nicht importiert. Wenn die Unterart erst im Wizard nachgetragen wird, wird KTS dort erneut aus der Kaskade berechnet (siehe `resolve-billing-variants-step.tsx`).
@@ -155,7 +188,7 @@ Collapsible **KTS-Status** on trip detail when `kts_document_applies = true`: ba
 
 ## 9. Implementation status (V1)
 
-Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver, Katalog-UI, Trip anlegen/bearbeiten, Duplikat/Rückfahrt, Regeln + Cron, CSV, Rechnungs-Hinweise, **Fahrten-Dashboard-Liste** mit KTS-Spalte/Badge). Bei Schema-Änderungen: `database.types.ts` und ggf. dieses Dokument anpassen.
+Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver, Katalog-UI, Trip anlegen/bearbeiten, Duplikat/Rückfahrt, Regeln + Cron, CSV, Rechnungs-Hinweise, **Fahrten-Dashboard-Liste** mit KTS-Spalte/Badge). Ergänzend: **Reha-Schein** (Kostenträger-Gate, Trip-Flag, Cron-Spiegelung, keine Regelfahrten-Formular-Spalte in V1) — Abschnitt *Reha-Schein (V1)*. Bei Schema-Änderungen: `database.types.ts` und ggf. dieses Dokument anpassen.
 
 ---
 
@@ -167,6 +200,8 @@ Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver,
 | Behavior JSON + dialog | `src/features/payers/components/billing-type-behavior-dialog.tsx`, `src/features/payers/types/payer.types.ts` |
 | Trip create | `src/features/trips/components/create-trip/*` |
 | Trip detail | `src/features/trips/trip-detail-sheet/*` |
+| Hin/Rück PATCH-Spiegel (Reha inkl.) | `src/features/trips/trip-detail-sheet/lib/paired-trip-sync.ts` |
+| Reha Kostenträger-Toggle | `src/features/payers/components/payer-details-sheet.tsx`, `src/features/payers/api/payers.service.ts` (`updatePayerRehaScheinEnabled`) |
 | Fahrten-Liste (Tabelle + Mobil) | `src/features/trips/components/trips-tables/columns.tsx` (u. a. **KTS**, **Fremdfirma**, **Abrechnung Fremdfirma**), `driver-select-cell.tsx`, `trips-mobile-card-list.tsx` — Fremdfirma-Spalten nur Desktop; Details [fremdfirma.md](fremdfirma.md) |
 | Fahrten list `?sort=` | `src/features/trips/trips-sort-map.ts` |
 | Bulk import | `src/features/trips/components/bulk-upload-dialog.tsx`, `bulk-upload/resolve-billing-variants-step.tsx` |
@@ -178,4 +213,4 @@ Add **short** comments at resolver entry points and where `kts_source` is assign
 
 ---
 
-*Last updated: 2026-04-24 — §3: `base_net_price` / `approach_fee_net` + `net_price` combined invariant (Option A Phase 1); 2026-04-04 — Fahrten-Tabelle: Verweis auf Fremdfirma-Spalten und `driver-select-cell` ergänzt (siehe `fremdfirma.md`).*
+*Changelog footer: 2026-05-14 — Reha-Schein (V1): Abschnitt + Code-Pfad-Hinweise. 2026-04-24 — Section 3: `base_net_price` / `approach_fee_net` + `net_price` combined invariant (Option A Phase 1); 2026-04-04 — Fahrten-Tabelle: Verweis auf Fremdfirma-Spalten und `driver-select-cell` ergänzt (siehe `fremdfirma.md`).*

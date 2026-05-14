@@ -29,7 +29,9 @@ export async function fetchPayers(): Promise<PayerOption[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('payers')
-    .select('id, name, kts_default, no_invoice_required_default')
+    .select(
+      'id, name, kts_default, no_invoice_required_default, reha_schein_enabled'
+    )
     .order('name');
 
   if (error) throw toQueryError(error);

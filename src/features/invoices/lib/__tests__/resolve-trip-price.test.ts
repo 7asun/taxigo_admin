@@ -15,6 +15,7 @@ function rule(
     billing_variant_id: partial.billing_variant_id ?? null,
     strategy: partial.strategy,
     config: partial.config,
+    pricing_basis: partial.pricing_basis ?? 'net',
     is_active: partial.is_active ?? true,
     _price_gross: partial._price_gross
   };
@@ -232,5 +233,73 @@ describe('resolveTripPrice', () => {
     });
     expect(r.source).toBe('unresolved');
     expect(r.net).toBeNull();
+  });
+
+  test('gross-basis tiered_km — 7%: gross €/km ÷ 1.07 then same line gross as net×1.07', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, driving_distance_km: 10 },
+      0.07,
+      rule({
+        strategy: 'tiered_km',
+        pricing_basis: 'gross',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 1.07 }]
+        }
+      })
+    );
+    expect(r.net).toBe(10);
+    expect(r.gross).toBe(10.7);
+  });
+
+  test('gross-basis tiered_km — 19%: scales km tiers to net before sum', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, driving_distance_km: 60 },
+      0.19,
+      rule({
+        strategy: 'tiered_km',
+        pricing_basis: 'gross',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 2.38 }]
+        }
+      })
+    );
+    expect(r.net).toBe(120);
+    expect(r.gross).toBe(142.8);
+  });
+
+  test('gross-basis fixed_below_threshold — approach_fee_net not VAT-adjusted', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, driving_distance_km: 4 },
+      0.07,
+      rule({
+        strategy: 'fixed_below_threshold_then_km',
+        pricing_basis: 'gross',
+        config: {
+          threshold_km: 5,
+          fixed_price: 10.7,
+          km_tiers: [{ from_km: 0, to_km: null, price_per_km: 99 }],
+          approach_fee_net: 3
+        }
+      })
+    );
+    expect(r.net).toBe(10);
+    expect(r.approach_fee_net).toBe(3);
+    expect(r.gross).toBe(10.7);
+  });
+
+  test('net-basis tiered_km — pricing_basis net is identity (no ÷ VAT)', () => {
+    const r = resolveTripPrice(
+      { ...baseTrip, driving_distance_km: 10 },
+      0.07,
+      rule({
+        strategy: 'tiered_km',
+        pricing_basis: 'net',
+        config: {
+          tiers: [{ from_km: 0, to_km: null, price_per_km: 1.07 }]
+        }
+      })
+    );
+    expect(r.net).toBe(10.7);
+    expect(r.gross).toBeCloseTo(11.45, 5);
   });
 });

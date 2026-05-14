@@ -22,6 +22,9 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTripFormSections } from '../trip-form-sections-context';
 
+/** Trip-level Reha-Schein label (German product term; DB `trips.reha_schein`). */
+const REHA_SCHEIN_TRIP_LABEL = 'Reha-Schein';
+
 export function CreateTripPayerSection() {
   // TODO: optionally replace the memoized blocks below with `useBillingUiForPayer` +
   // `computeBillingFamilies` from `@/features/trips/hooks/use-billing-ui-for-payer` to avoid drift.
@@ -42,6 +45,11 @@ export function CreateTripPayerSection() {
     markNoInvoiceUserTouched,
     catalogNoInvoiceApplies
   } = useTripFormSections();
+
+  const selectedPayer = React.useMemo(
+    () => payers.find((p) => p.id === watchedPayerId),
+    [payers, watchedPayerId]
+  );
 
   /** Multi-family Abrechnungsfamilie; single-family flows use `effectiveFamilyId` only. */
   const selectedFamilyId = billingFamilyId;
@@ -266,6 +274,30 @@ export function CreateTripPayerSection() {
           )}
         />
       )}
+
+      {watchedPayerId && selectedPayer?.reha_schein_enabled ? (
+        <FormField
+          control={form.control as any}
+          name='reha_schein'
+          render={({ field }) => (
+            <FormItem className='bg-muted/30 mt-3 rounded-lg border p-3'>
+              {/* why: Kostenträger gate avoids showing Reha UI for unrelated payers. */}
+              <div className='flex flex-row items-center justify-between gap-3'>
+                <FormLabel className='text-sm'>
+                  {REHA_SCHEIN_TRIP_LABEL}
+                </FormLabel>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </div>
+              <FormMessage className='text-xs' />
+            </FormItem>
+          )}
+        />
+      ) : null}
 
       {watchedPayerId && catalogNoInvoiceApplies ? (
         <FormField

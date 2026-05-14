@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
 import {
   computeTripPrice,
@@ -12,6 +14,50 @@ import type { Database } from '@/types/database.types';
 export type Trip = Database['public']['Tables']['trips']['Row'];
 export type InsertTrip = Database['public']['Tables']['trips']['Insert'];
 export type UpdateTrip = Database['public']['Tables']['trips']['Update'];
+
+/** Payer embed shape for trips list + kanban (`payers(name, reha_schein_enabled)`). */
+export type TripListPayerEmbed = {
+  name: string;
+  reha_schein_enabled: boolean;
+};
+
+export type TripListRow = Trip & { payer: TripListPayerEmbed | null };
+
+/** Row from `fetchTripInvoiceStatuses` — matches former list embed, for badge resolution. */
+export type TripInvoiceStatusLineRow = {
+  trip_id: string;
+  invoice_id: string;
+  invoices:
+    | {
+        status: string;
+        paid_at: string | null;
+        sent_at: string | null;
+      }
+    | {
+        status: string;
+        paid_at: string | null;
+        sent_at: string | null;
+      }[]
+    | null;
+};
+
+// Fetches invoice status data for a specific set of trip IDs only.
+// Separated from the main list query to avoid an expensive join on every
+// page load — invoice status is secondary UI, not required for row rendering.
+export async function fetchTripInvoiceStatuses(
+  tripIds: string[],
+  supabase: SupabaseClient
+): Promise<TripInvoiceStatusLineRow[]> {
+  if (tripIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('invoice_line_items')
+    .select('trip_id, invoice_id, invoices(status, paid_at, sent_at)')
+    .in('trip_id', tripIds)
+    .not('trip_id', 'is', null);
+
+  if (error) throw toQueryError(error);
+  return (data ?? []) as TripInvoiceStatusLineRow[];
+}
 
 export const tripsService = {
   async getTrips() {

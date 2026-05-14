@@ -167,6 +167,7 @@ export function PricingRuleDialog({
       const cfg = editing.config as Record<string, unknown>;
       const base = defaultFormValues();
       base.strategy = s;
+      base.pricing_basis = editing.pricing_basis ?? 'net';
       if (
         typeof cfg.approach_fee_net === 'number' &&
         !Number.isNaN(cfg.approach_fee_net)
@@ -219,7 +220,8 @@ export function PricingRuleDialog({
       if (editing) {
         await updatePricingRule(editing.id, {
           strategy: parsed.data.strategy,
-          config: parsed.data.config
+          config: parsed.data.config,
+          pricing_basis: parsed.data.pricing_basis
         });
         toast.success('Preisregel aktualisiert');
       } else {
@@ -245,6 +247,7 @@ export function PricingRuleDialog({
         await createPricingRule({
           strategy: parsed.data.strategy,
           config: parsed.data.config,
+          pricing_basis: parsed.data.pricing_basis,
           scope: ruleScope
         });
         toast.success('Preisregel angelegt');

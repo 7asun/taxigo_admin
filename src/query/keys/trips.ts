@@ -30,5 +30,18 @@ export const tripKeys = {
 
   /** Berlin `requested_date` window: today + tomorrow (`useTimelessRuleTrips`). */
   timelessRuleTrips: (todayYmd: string, tomorrowYmd: string) =>
-    ['trips', 'timeless-rules', todayYmd, tomorrowYmd] as const
+    ['trips', 'timeless-rules', todayYmd, tomorrowYmd] as const,
+
+  /**
+   * Deferred invoice badge data for the Fahrten list (sorted IDs → stable React Query key).
+   * Invalidated with `tripKeys.all` when RSC/list refreshes.
+   */
+  invoiceStatuses: (tripIds: string[]) =>
+    [...tripKeys.all, 'invoiceStatuses', tripIds.slice().sort()] as const,
+
+  /**
+   * Company-scoped Fahrten “Ansichten” presets (RLS). No company id in key —
+   * tenant is implicit from the session.
+   */
+  presets: () => [...tripKeys.all, 'presets'] as const
 };

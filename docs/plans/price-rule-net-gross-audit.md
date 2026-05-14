@@ -178,4 +178,17 @@ Kanban cards were **not** found to surface price fields in this repo snapshot.
 
 ---
 
-**No code changes were made in producing this audit.**
+## Implementation status
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| `billing_pricing_rules.pricing_basis` + migration | **Implemented** | `pricing_basis_enum`, default `net`; `supabase/migrations/20260513120000_pricing_basis.sql` |
+| Normalize gross catalog config to net before `executeStrategy` | **Implemented** | `src/lib/pricing/normalize-rule-config.ts` in `resolveTripPrice` P3 only |
+| Admin UI Preisbasis | **Implemented** | `step2-rule-config.tsx` for `tiered_km`, `fixed_below_threshold_then_km`, `time_based` |
+| Docs | **Updated** | `docs/price-calculation-engine.md`, `docs/pricing-engine.md`, this audit |
+
+**As of:** 2026-05-13
+
+---
+
+The sections **above** this implementation block describe the codebase **before** `pricing_basis` was added (read-only audit). The table **here** records the shipped implementation.
