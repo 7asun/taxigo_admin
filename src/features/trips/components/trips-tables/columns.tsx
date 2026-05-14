@@ -92,10 +92,18 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ cell }) => {
       const raw = cell.getValue<string>();
       if (raw == null || raw === '')
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       const date = new Date(raw);
       if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       }
       return (
         <span className='font-medium'>
@@ -118,10 +126,18 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ cell, row }) => {
       const raw = cell.getValue<string>();
       if (raw == null || raw === '')
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       const date = new Date(raw);
       if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       }
       const isRecurring = !!row.original.rule_id;
 
@@ -296,7 +312,11 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ row }) => {
       const value = row.original.gross_price as number | null | undefined;
       if (value == null) {
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       }
       return <span className='tabular-nums'>{EUR_DE.format(value)}</span>;
     },
@@ -451,7 +471,12 @@ export const columns: ColumnDef<any>[] = [
         | null
         | undefined;
       const t = v?.trim();
-      if (!t) return <span className='text-muted-foreground'>—</span>;
+      if (!t)
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       return (
         <span className='max-w-[140px] truncate text-sm' title={t}>
           {t}
@@ -470,7 +495,12 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ row }) => {
       const v = row.original.billing_betreuer as string | null | undefined;
       const t = v?.trim();
-      if (!t) return <span className='text-muted-foreground'>—</span>;
+      if (!t)
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       return (
         <span className='max-w-[140px] truncate text-sm' title={t}>
           {t}
@@ -541,7 +571,11 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ row }) => {
       const value = row.original.net_price as number | null | undefined;
       if (value == null) {
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       }
       return <span className='tabular-nums'>{EUR_DE.format(value)}</span>;
     },
@@ -556,7 +590,11 @@ export const columns: ColumnDef<any>[] = [
     cell: ({ row }) => {
       const value = row.original.tax_rate as number | null | undefined;
       if (value == null) {
-        return <span className='text-muted-foreground'>—</span>;
+        return (
+          <div className='flex justify-center px-1'>
+            <span className='text-muted-foreground'>—</span>
+          </div>
+        );
       }
       return (
         <span className='tabular-nums'>{TAX_DE_PERCENT.format(value)}</span>
