@@ -47,6 +47,10 @@ const HTML_PROSE = {
 
 /**
  * Stylesheet for `react-pdf-html` `<Html>` — intro/outro only (table uses `PDF_FONT_SIZES.sm`).
+ *
+ * ul / ol / li are intentionally absent: preprocessHtmlForPdf converts list nodes
+ * to <div>/<p> with inline hanging-indent styles before reaching react-pdf-html,
+ * because listStyleType on ul/ol renders markers inside the first character (library bug).
  */
 const ANGEBOT_HTML_STYLESHEET: HtmlStyles = {
   body: { ...HTML_PROSE, marginBottom: 0 },
@@ -56,12 +60,6 @@ const ANGEBOT_HTML_STYLESHEET: HtmlStyles = {
     marginTop: 0,
     marginBottom: 8
   },
-  li: {
-    ...HTML_PROSE,
-    marginBottom: 4
-  },
-  ul: { marginBottom: 8, paddingLeft: 10 },
-  ol: { marginBottom: 8, paddingLeft: 10 },
   strong: { ...HTML_PROSE, fontWeight: 'bold' },
   b: { ...HTML_PROSE, fontWeight: 'bold' },
   em: { ...HTML_PROSE, fontStyle: 'italic' },
@@ -269,6 +267,65 @@ export interface AngebotPdfCoverBodyProps {
   } | null;
 }
 
+/**
+ * react-pdf-html does not support CSS list-style markers reliably — listStyleType
+ * on ul/ol renders the bullet inside the first character. This function pre-processes
+ * the HTML string before it reaches the <Html> renderer: it injects a Unicode prefix
+ * ("• " for ul items, "N. " for ol items) directly into each <li> text node, then
+ * wraps each list in a <div> so react-pdf-html treats them as block paragraphs.
+ * The result is visually correct hanging-indent bullet/numbered lists in the PDF.
+ *
+ * Hanging-indent `style` on each synthetic paragraph: `padding-left: 14pt` reserves the
+ * gutter where wrapped lines align (marker column + body start); `text-indent: -10pt` pulls
+ * only the first line left so the prefix sits in the marker band while wrap lines stay inset.
+ *
+ * Tiptap emits `<li><p>…</p></li>`; the outer `<p>` is stripped per item so the injected
+ * hanging-indent `<p>` is not nested (react-pdf-html would split marker and body across nodes).
+ *
+ * Each list `<p>` sets `margin-bottom: 3pt` inline so spacing between items is tighter than
+ * body paragraphs (`ANGEBOT_HTML_STYLESHEET` `p` still uses marginBottom: 8), while a normal
+ * paragraph after a list keeps the full body gap on that following node.
+ */
+function preprocessHtmlForPdf(html: string): string {
+  let olCounter = 0;
+
+  return html
+    .replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, inner: string) => {
+      const items = inner.replace(
+        /<li[^>]*>([\s\S]*?)<\/li>/gi,
+        (_m: string, content: string) => {
+          // Tiptap wraps <li> content in <p>...</p>; strip that outer block wrapper
+          // so the marker and text land on the same react-pdf-html paragraph node.
+          // Inner inline tags (<strong>, <em>, <u>) are preserved by only removing
+          // the outermost <p> open/close tags, not all tags.
+          const inner = content
+            .trim()
+            .replace(/^<p[^>]*>([\s\S]*?)<\/p>$/i, '$1');
+          return `<p style="padding-left:14pt;text-indent:-10pt;margin-bottom:3pt;">• ${inner}</p>`;
+        }
+      );
+      return `<div>${items}</div>`;
+    })
+    .replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, inner: string) => {
+      olCounter = 0;
+      const items = inner.replace(
+        /<li[^>]*>([\s\S]*?)<\/li>/gi,
+        (_m: string, content: string) => {
+          olCounter += 1;
+          // Tiptap wraps <li> content in <p>...</p>; strip that outer block wrapper
+          // so the marker and text land on the same react-pdf-html paragraph node.
+          // Inner inline tags (<strong>, <em>, <u>) are preserved by only removing
+          // the outermost <p> open/close tags, not all tags.
+          const inner = content
+            .trim()
+            .replace(/^<p[^>]*>([\s\S]*?)<\/p>$/i, '$1');
+          return `<p style="padding-left:14pt;text-indent:-10pt;margin-bottom:3pt;">${olCounter}. ${inner}</p>`;
+        }
+      );
+      return `<div>${items}</div>`;
+    });
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AngebotPdfCoverBody({
@@ -329,7 +386,7 @@ export function AngebotPdfCoverBody({
         >
           {/* Matches invoice bodyText.marginBottom = 16 — consistent spacing before table */}
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
-            {introHtml}
+            {preprocessHtmlForPdf(introHtml)}
           </Html>
         </View>
       ) : null}
@@ -493,7 +550,7 @@ export function AngebotPdfCoverBody({
           ]}
         >
           <Html resetStyles stylesheet={ANGEBOT_HTML_STYLESHEET}>
-            {outroHtml}
+            {preprocessHtmlForPdf(outroHtml)}
           </Html>
         </View>
       ) : null}

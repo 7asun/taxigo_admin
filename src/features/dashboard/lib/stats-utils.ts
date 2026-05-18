@@ -7,6 +7,7 @@ import type { Trip } from '@/features/trips/api/trips.service';
 export function getTripsForDay(trips: Trip[], date: Date): Trip[] {
   return trips.filter((trip) => {
     if (!trip.scheduled_at) return false;
+    if (trip.status === 'cancelled') return false;
     try {
       return isSameDay(parseISO(trip.scheduled_at), date);
     } catch (e) {
@@ -20,6 +21,7 @@ export function getTripsForDay(trips: Trip[], date: Date): Trip[] {
  */
 export function calculateTotalRevenue(trips: Trip[]): number {
   return trips.reduce((total, trip) => {
+    if (trip.status === 'cancelled') return total;
     return total + (trip.net_price || 0);
   }, 0);
 }
