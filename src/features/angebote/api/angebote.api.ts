@@ -122,6 +122,12 @@ function mapAngebotHeaderFromDb(raw: Record<string, unknown>): AngebotRow {
       raw.totals_label_tax == null ? null : String(raw.totals_label_tax),
     totals_label_gross:
       raw.totals_label_gross == null ? null : String(raw.totals_label_gross),
+    default_tax_rate: (() => {
+      const x = raw.default_tax_rate;
+      if (x === null || x === undefined) return null;
+      const n = typeof x === 'number' ? x : Number(x);
+      return isFinite(n) ? n : null;
+    })(),
     recipient_company:
       raw.recipient_company == null ? null : String(raw.recipient_company),
     recipient_name:
@@ -285,6 +291,12 @@ export async function createAngebot(
       totals_label_net: payload.totalsLabelNet ?? null,
       totals_label_tax: payload.totalsLabelTax ?? null,
       totals_label_gross: payload.totalsLabelGross ?? null,
+      default_tax_rate:
+        payload.defaultTaxRate === undefined || payload.defaultTaxRate === null
+          ? null
+          : isFinite(payload.defaultTaxRate)
+            ? payload.defaultTaxRate
+            : null,
       recipient_company: payload.recipient_company ?? null,
       recipient_first_name: payload.recipient_first_name ?? null,
       recipient_last_name: payload.recipient_last_name ?? null,
@@ -363,7 +375,7 @@ export async function updateAngebot(
 ): Promise<AngebotRow> {
   const supabase = createClient();
 
-  // WHY: Supabase updates must never receive UI-only camelCase keys (e.g. showTotalsBlock),
+  // WHY: Supabase updates must never receive UI-only camelCase keys (e.g. showTotalsBlock, defaultTaxRate),
   // otherwise PostgREST tries to update a non-existent column and the request fails.
   const {
     showTotalsBlock,
@@ -371,6 +383,7 @@ export async function updateAngebot(
     totalsLabelNet,
     totalsLabelTax,
     totalsLabelGross,
+    defaultTaxRate,
     ...rest
   } = payload;
   const updatePayload = {
@@ -383,6 +396,12 @@ export async function updateAngebot(
     ...(totalsLabelTax !== undefined && { totals_label_tax: totalsLabelTax }),
     ...(totalsLabelGross !== undefined && {
       totals_label_gross: totalsLabelGross
+    }),
+    ...(defaultTaxRate !== undefined && {
+      default_tax_rate:
+        defaultTaxRate === null || !isFinite(defaultTaxRate)
+          ? null
+          : defaultTaxRate
     }),
     updated_at: new Date().toISOString()
   };

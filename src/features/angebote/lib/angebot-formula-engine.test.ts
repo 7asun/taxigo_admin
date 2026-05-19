@@ -382,4 +382,65 @@ describe('angebot-formula-engine', () => {
       expect(patch[SYNTHETIC_GROSS_KEY]).toBeCloseTo(119);
     });
   });
+
+  /**
+   * WHY: documents precedence — fallback applies only when the schema has no
+   * `tax_rate` column; per-row finite `tax_rate` always wins.
+   */
+  it('computeRow — fallbackTaxRate when schema has no tax_rate column', () => {
+    const columns: AngebotColumnDef[] = [
+      col('km', 'Km', 'betrag', 'distance_km'),
+      col('unit', 'Preis', 'betrag', 'unit_price')
+    ];
+    const row = { km: 10, unit: 2 };
+    const fallbackPercent = 10;
+    const patch = computeRow(row, columns, 'net', {
+      fallbackTaxRate: fallbackPercent
+    });
+    expect(patch[SYNTHETIC_NET_KEY]).toBe(20);
+    expect(patch[SYNTHETIC_TAX_KEY]).toBeCloseTo(2);
+    expect(patch[SYNTHETIC_GROSS_KEY]).toBeCloseTo(22);
+  });
+
+  it('computeRow — per-row tax_rate beats fallbackTaxRate', () => {
+    const columns: AngebotColumnDef[] = [
+      col('km', 'Km', 'betrag', 'distance_km'),
+      col('unit', 'Preis', 'betrag', 'unit_price'),
+      col('tax', 'MwSt', 'percent', 'tax_rate')
+    ];
+    const row = { km: 10, unit: 2, tax: 7 };
+    const higherFallbackPercent = 19;
+    const patch = computeRow(row, columns, 'net', {
+      fallbackTaxRate: higherFallbackPercent
+    });
+    expect(patch[SYNTHETIC_TAX_KEY]).toBeCloseTo(1.4);
+    expect(patch[SYNTHETIC_GROSS_KEY]).toBeCloseTo(21.4);
+  });
+
+  it('computeRow — fallbackTaxRate ignored when tax_rate column exists but cell empty', () => {
+    // WHY: documents scenario A — column present, cell null, fallback must not fire.
+    const columns: AngebotColumnDef[] = [
+      col('unit', 'Preis', 'betrag', 'unit_price'),
+      col('km', 'KM', 'anzahl', 'distance_km'),
+      col('tax', 'MwSt', 'betrag', 'tax_rate') // column exists
+    ];
+    const row = { unit: 2, km: 10, tax: null }; // cell empty
+    const result = computeRow(row, columns, 'net', { fallbackTaxRate: 19 });
+    // fallback must NOT apply — tax column exists, cell just empty
+    expect(result[SYNTHETIC_TAX_KEY]).toBeNull();
+    expect(result[SYNTHETIC_GROSS_KEY]).toBe(result[SYNTHETIC_NET_KEY]); // gross = net
+  });
+
+  it('computeRow — fallbackTaxRate still applies when no tax_rate column (scenario B)', () => {
+    // WHY: confirms scenario B is unaffected by the schema check fix.
+    const columns: AngebotColumnDef[] = [
+      col('unit', 'Preis', 'betrag', 'unit_price'),
+      col('km', 'KM', 'anzahl', 'distance_km')
+      // no tax_rate column
+    ];
+    const row = { unit: 2, km: 10 };
+    const result = computeRow(row, columns, 'net', { fallbackTaxRate: 19 });
+    expect(result[SYNTHETIC_TAX_KEY]).toBeCloseTo(20 * 0.19);
+    expect(result[SYNTHETIC_GROSS_KEY]).toBeCloseTo(20 * 1.19);
+  });
 });

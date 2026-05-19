@@ -114,8 +114,10 @@ Phase 3 introduces a role-based formula engine as a standalone pure-function mod
 - **Inputs**:
   - `row`: the current row’s `data` map keyed by `AngebotColumnDef.id`
   - `columns`: the active column schema (`AngebotColumnDef[]`) including optional roles
+  - `inputMode` (optional): `'net' | 'gross'` — default `'net'` (Phase 6 gross reinterpretation)
+  - `options` (optional): `{ fallbackTaxRate?: number | null }` — quote-level default MwSt percent (0–100); see **Quote-level default tax rate** below
 - **Output**:
-  - a **patch** object containing only keys for computed-role columns (`net_amount`, `tax_amount`, `gross_amount`)
+  - a **patch** object containing keys for computed-role columns (`net_amount`, `tax_amount`, `gross_amount`) **plus** synthetic totals keys `__net_amount__`, `__tax_amount__`, `__gross_amount__`
   - callers merge the patch onto existing row data; the engine never mutates the input row
 
 ### Live builder wiring
@@ -123,7 +125,7 @@ Phase 3 introduces a role-based formula engine as a standalone pure-function mod
 The builder wraps the existing row update path with `updateLineItemWithComputed` (see `src/features/angebote/components/angebot-builder/index.tsx`):
 
 - merges the dispatcher’s input patch into the row’s `data`
-- runs `computeRow(mergedData, columnSchema)`
+- runs `computeRow(mergedData, columnSchema, inputMode, { fallbackTaxRate: defaultTaxRate })` where `defaultTaxRate` is the quote-level value from builder state (`angebote.default_tax_rate`)
 - merges computed values on top so computed columns always reflect current inputs
 
 ### Read-only enforcement
@@ -151,9 +153,9 @@ Phase 4 adds an opt-in “Summenblock” (Netto / MwSt / Brutto) to the Angebot 
 ### Totals computation contract
 
 - `computeAngebotTotals(rows, columns)` lives in `src/features/angebote/lib/angebot-formula-engine.ts`.\n
-- It sums `net_amount`, `tax_amount`, and `gross_amount` across all rows.\n
-- Phase 4b makes totals **schema-independent** by introducing reserved synthetic totals keys written into each row’s `data` by `computeRow`, and having `computeAngebotTotals` prefer those keys with a role-column fallback for legacy rows.\n
-- It returns `null` for a total if no numeric values were present (so the PDF can suppress rows cleanly).
+- It sums synthetic keys (`__net_amount__`, `__tax_amount__`, `__gross_amount__`) across all rows, with a fallback to visible computed-role column IDs for legacy rows.\n
+- **PDF render path** (`AngebotPdfDocument`): before calling `computeAngebotTotals`, each line item is resolved via `resolveRowDataForEngine(item, columnSchema)` (same coercion + legacy fallback as `cellRawValue`), then materialised read-only via `computeRow(resolvedData, columnSchema, angebot.input_mode ?? 'net', { fallbackTaxRate: angebot.default_tax_rate })` so synthetic keys match the values the PDF table displays and quote-level default MwSt applies when the Vorlage has **no** `tax_rate` column.\n
+- It returns `null` for a total if no row has a finite numeric value for that key (e.g. no net inputs). If the Vorlage omits a `tax_rate` column but `angebote.default_tax_rate` is set, `computeRow`’s `fallbackTaxRate` can still populate tax synthetics for rows without a per-row rate. The PDF still renders all three label rows when the block is on; missing aggregates display as `—`.
 
 ### Render condition
 
@@ -165,9 +167,10 @@ The totals block renders only if:\n
 
 Phase 4b keeps the Phase 4 behavior, but adds two UX/data improvements:
 
-- **Schema-independent totals**: the engine writes 3 reserved synthetic keys into each line item `data` on every update:\n
+- **Schema-independent totals**: the engine writes 3 reserved synthetic keys into each line item `data` on every builder update:\n
   - `__net_amount__`, `__tax_amount__`, `__gross_amount__`\n
-  These values are then summed by `computeAngebotTotals` even when the active schema has no computed-role columns. For backwards compatibility, `computeAngebotTotals` falls back to role-column IDs when synthetic keys are absent (rows saved pre-Phase-4b).
+  These values are summed by `computeAngebotTotals` even when the active schema has no computed-role columns. For backwards compatibility, `computeAngebotTotals` falls back to role-column IDs when synthetic keys are absent on the row objects passed in.\n
+- **PDF materialisation (2026-05)**: `AngebotPdfDocument` resolves each row with `resolveRowDataForEngine` from `AngebotPdfCoverBody.tsx`, then merges with `computeRow(...)` before aggregation (no mutation of stored line items). This closes the gap where totals used raw `item.data` while the PDF table used legacy typed fields. The builder draft preview includes `input_mode` on the draft angebot so gross-mode totals match saved offers.
 - **Editable labels**: when `show_totals_block` is enabled, the builder shows 3 inputs
   to customize the label text for the PDF totals rows (Netto / MwSt / Brutto). The labels
   are stored **per quote** on `angebote` (not on the Vorlage).
@@ -208,9 +211,11 @@ Phase 6 adds a **quote-level** input mode toggle so dispatchers can choose wheth
 
 ### Engine contract
 
-`computeRow` gains an optional third argument:
+`computeRow` signature:
 
-- `computeRow(row, columns, inputMode = 'net')`
+- `computeRow(row, columns, inputMode = 'net', options?)`
+
+The optional fourth argument `options.fallbackTaxRate` is documented under **Quote-level default tax rate (`fallbackTaxRate`)** below.
 
 ### Gross-mode semantics (reinterpretation, not conversion on toggle)
 
@@ -227,7 +232,7 @@ In the Angebot builder Step 2, gross mode uses a dual-field input pattern for th
 
 The gross value is not persisted directly. On each change, the builder calls `onUpdate` with the typed gross number, and the engine overwrites `item.data[col.id]` with the computed net value so persistence + PDF always use net.
 
-Conversion rule (only when a usable `tax_rate` exists in the same row):
+Conversion rule (only when a usable effective tax rate exists after `resolveRoleValues` and optional **fallback** — see below):
 
 - `net_unit_price = unit_price / (1 + tax_rate / 100)`
 - `net_flat_rate  = flat_rate  / (1 + tax_rate / 100)`
@@ -240,14 +245,38 @@ Non-price roles are never converted:
 After this pre-conversion step, the downstream chain remains identical to net mode:
 
 - `net_amount` computed via `computeNetAmount`
-- `tax_amount` computed from net and `tax_rate`
-- `gross_amount` computed from net and `tax_rate`
+- `tax_amount` computed from net and the effective tax rate (row `tax_rate` or `fallbackTaxRate`)
+- `gross_amount` computed from net and the effective tax rate
 
 ### Missing/invalid tax rate + warning icon
 
-If `inputMode === 'gross'` but `tax_rate` is empty or non-numeric, the engine **skips conversion** and continues with unconverted values. The UI marks the affected **price input cells** (roles `unit_price`, `flat_rate`, `surcharge`) with a warning icon + tooltip:
+If `inputMode === 'gross'` but neither a usable per-row `tax_rate` nor `options.fallbackTaxRate` yields a finite rate, the engine **skips conversion** and continues with unconverted values. The UI marks the affected **price input cells** (roles `unit_price`, `flat_rate`, `surcharge`) with a warning icon + tooltip:
 
 > “Steuersatz fehlt – Brutto-Rückrechnung nicht möglich.”
 
 `tax_rate = 0` is valid (tax-exempt services) and must not trigger a warning.
 
+---
+
+## Quote-level default tax rate (`fallbackTaxRate`)
+
+When the Vorlage has **no** `tax_rate` column and `resolveRoleValues` yields no finite `tax_rate` for a row, `computeRow` may use **`options.fallbackTaxRate`**, which callers set from **`angebote.default_tax_rate`** (nullable numeric on the quote row — **never** a magic default like `19` in application code).
+
+- **Fallback is suppressed when `columnSchema` contains a column with `role === 'tax_rate'`, even if the cell is empty.** This ensures the admin's schema choice always governs — the fallback only applies when no tax rate column exists at all.
+
+### Rules
+
+- **Precedence:** If `resolveRoleValues` produces a **finite** `tax_rate` for the row (including **`0`**), that value is always used.
+- **When it applies:** Only when the schema has **no** `tax_rate` role column **and** `tax_rate` is absent after resolution (typically no key on `v`). Empty cells do **not** matter here — there is no `tax_rate` column to govern the row.
+- **Schema with `tax_rate` column:** If the column exists but the cell is empty or unparseable, `v.tax_rate` is non-finite but the fallback is **not** passed through — effective tax is undefined, `tax_amount` is null, `gross_amount` equals net (same as if no quote-level default existed).
+- **What it affects:** Gross-input divisor (`1 + rate/100`), `tax_amount`, `gross_amount`, and synthetic keys `__tax_amount__` / `__gross_amount__` — all use the same effective rate when the fallback is in play.
+- **Unchanged by design:** `effectiveTaxRatePercent`, `resolveRoleValues`, `computeAngebotTotals`, `cellRawValue`, `coerceLineItemData`, and `legacyFallback` — no changes to those functions; suppression is applied **only** in `computeRow` before calling `effectiveTaxRatePercent`.
+
+### Call sites
+
+- Builder: `src/features/angebote/components/angebot-builder/index.tsx` (`updateLineItemWithComputed` and the recomputation effect when `defaultTaxRate` changes).
+- PDF totals materialisation: `src/features/angebote/components/angebot-pdf/AngebotPdfDocument.tsx` (passes `angebot.default_tax_rate`).
+
+### UI
+
+- Step 2 exposes the quote-level field **only** when **Summenblock** is enabled (`show_totals_block`). See [`docs/angebote-module.md`](angebote-module.md).

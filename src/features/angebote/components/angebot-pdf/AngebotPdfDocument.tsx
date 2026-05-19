@@ -7,7 +7,8 @@
  * Firma when no Ansprechperson is set.
  *
  * The body is fully separate (AngebotPdfCoverBody) — offers have no trip line
- * items, no tax totals, and no SEPA QR block.
+ * items; totals use the Summenblock when enabled (`show_totals_block`), optional
+ * quote-level `default_tax_rate`, and `computeRow`; there is no SEPA QR block.
  *
  * WHY reuse the invoice header/footer: visual consistency across all PDF
  * documents sent to customers. When company branding changes (logo, slogan,
@@ -40,8 +41,14 @@ import type {
   AngebotWithLineItems
 } from '../../types/angebot.types';
 import { ANGEBOT_STANDARD_COLUMN_PROFILE } from '../../types/angebot.types';
-import { AngebotPdfCoverBody } from './AngebotPdfCoverBody';
-import { computeAngebotTotals } from '../../lib/angebot-formula-engine';
+import {
+  AngebotPdfCoverBody,
+  resolveRowDataForEngine
+} from './AngebotPdfCoverBody';
+import {
+  computeAngebotTotals,
+  computeRow
+} from '../../lib/angebot-formula-engine';
 import {
   DEFAULT_TOTALS_LABEL_GROSS,
   DEFAULT_TOTALS_LABEL_NET,
@@ -145,22 +152,41 @@ export function AngebotPdfDocument({
   const resolvedOutroText = outroText ?? angebot.outro_text ?? null;
 
   /**
-   * Only compute totals when show_totals_block is true — the formula engine
-   * writes schema-independent synthetic totals keys into row data, and
-   * computeAngebotTotals falls back to role-column IDs for legacy rows.
+   * Only compute totals when show_totals_block is true.
    *
    * WHY: totals must never appear unless explicitly enabled per quote.
+   * Rows are materialised via computeRow (read-only) before aggregation so
+   * synthetic keys exist even when persisted data was never edited in the builder.
    */
   const totalsData = angebot.show_totals_block
-    ? {
-        ...computeAngebotTotals(
-          angebot.line_items.map((item) => item.data),
-          columnSchema
-        ),
-        labelNet: angebot.totals_label_net ?? DEFAULT_TOTALS_LABEL_NET,
-        labelTax: angebot.totals_label_tax ?? DEFAULT_TOTALS_LABEL_TAX,
-        labelGross: angebot.totals_label_gross ?? DEFAULT_TOTALS_LABEL_GROSS
-      }
+    ? (() => {
+        // WHY: computeRow writes synthetic __net_amount__ / __tax_amount__ /
+        // __gross_amount__ keys unconditionally. Without this pass, persisted rows
+        // that were never touched in the builder lack those keys, and
+        // computeAngebotTotals falls back to role-column IDs — returning null for
+        // any total whose column is absent from the schema.
+        const inputMode = angebot.input_mode ?? 'net';
+        // WHY: `item.data` alone is insufficient — legacy offers store amounts on typed
+        // row fields (e.g. `item.anfahrtkosten`), not in `item.data`. `resolveRowDataForEngine`
+        // applies the same coercion + legacy fallback chain that the PDF table uses in
+        // `cellRawValue`, ensuring `computeRow` sees the same input values the table displays.
+        // WHY: `angebot.default_tax_rate` is passed as `fallbackTaxRate` only after resolution — per-row `tax_rate` always wins.
+        const rowsForTotals = angebot.line_items.map((item) => {
+          const resolvedData = resolveRowDataForEngine(item, columnSchema);
+          return {
+            ...resolvedData,
+            ...computeRow(resolvedData, columnSchema, inputMode, {
+              fallbackTaxRate: angebot.default_tax_rate
+            })
+          };
+        });
+        return {
+          ...computeAngebotTotals(rowsForTotals, columnSchema),
+          labelNet: angebot.totals_label_net ?? DEFAULT_TOTALS_LABEL_NET,
+          labelTax: angebot.totals_label_tax ?? DEFAULT_TOTALS_LABEL_TAX,
+          labelGross: angebot.totals_label_gross ?? DEFAULT_TOTALS_LABEL_GROSS
+        };
+      })()
     : null;
 
   return (

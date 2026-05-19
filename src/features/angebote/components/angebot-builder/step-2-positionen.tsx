@@ -515,6 +515,9 @@ export interface Step2PositionenProps {
   onTotalsLabelNetChange: (value: string) => void;
   onTotalsLabelTaxChange: (value: string) => void;
   onTotalsLabelGrossChange: (value: string) => void;
+  /** Quote-level default MwSt (percent). UI only when Summenblock is on — persisted as `angebote.default_tax_rate`. */
+  defaultTaxRate: number | null;
+  onDefaultTaxRateChange: (value: number | null) => void;
 }
 
 export function Step2Positionen({
@@ -538,7 +541,9 @@ export function Step2Positionen({
   totalsLabelGross,
   onTotalsLabelNetChange,
   onTotalsLabelTaxChange,
-  onTotalsLabelGrossChange
+  onTotalsLabelGrossChange,
+  defaultTaxRate,
+  onDefaultTaxRateChange
 }: Step2PositionenProps) {
   const { data: vorlagen = [], isLoading: vorlagenLoading } =
     useAngebotVorlagenList(companyId);
@@ -584,6 +589,11 @@ export function Step2Positionen({
     );
     onVorlageChange(id, safeCols);
   }
+
+  // WHY: when the schema already has a tax_rate role column, per-row values
+  // always drive MwSt — the quote-level default has no effect and must not
+  // be shown to avoid confusing dispatchers.
+  const hasTaxRateColumn = columnSchema.some((c) => c.role === 'tax_rate');
 
   return (
     <div className='space-y-4'>
@@ -824,6 +834,34 @@ export function Step2Positionen({
                 />
               </div>
             ))}
+            {showTotalsBlock && !hasTaxRateColumn ? (
+              <div className='flex flex-col gap-1 pt-3'>
+                {/* WHY: quote-level default rate is Summenblock-only — never visible when the toggle is off (product rule). */}
+                <p className='text-muted-foreground text-xs font-medium'>
+                  Standard-MwSt für Summenblock (%)
+                </p>
+                <Input
+                  value={defaultTaxRate === null ? '' : String(defaultTaxRate)}
+                  onChange={(e) => {
+                    const s = e.target.value.trim();
+                    if (s === '') {
+                      onDefaultTaxRateChange(null);
+                      return;
+                    }
+                    const n = parseFloat(s.replace(',', '.'));
+                    onDefaultTaxRateChange(isFinite(n) ? n : null);
+                  }}
+                  className='h-7 max-w-[120px] text-xs'
+                  inputMode='decimal'
+                  placeholder='Optional'
+                />
+                <p className='text-muted-foreground max-w-md text-[11px] leading-snug'>
+                  Gilt wenn die Vorlage keine MwSt-Spalte hat oder eine Zeile
+                  keinen Satz eingetragen hat. Werte in der Tabelle haben immer
+                  Vorrang.
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

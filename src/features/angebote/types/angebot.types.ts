@@ -126,6 +126,11 @@ export interface AngebotRow {
   totals_label_net: string | null;
   totals_label_tax: string | null;
   totals_label_gross: string | null;
+  /**
+   * Quote-level default MwSt-Satz (percent 0–100), nullable.
+   * Passed to `computeRow` as `options.fallbackTaxRate` when a row has no usable `tax_rate` after `resolveRoleValues`.
+   */
+  default_tax_rate: number | null;
   recipient_company: string | null;
   recipient_name: string | null;
   recipient_first_name: string | null;
@@ -234,6 +239,8 @@ export interface CreateAngebotPayload {
   totalsLabelNet?: string;
   totalsLabelTax?: string;
   totalsLabelGross?: string;
+  /** Nullable — persisted as `angebote.default_tax_rate`. */
+  defaultTaxRate?: number | null;
   line_items: AngebotLineItemPayload[];
 }
 
@@ -263,6 +270,8 @@ export type UpdateAngebotPayload = Partial<
   totalsLabelNet?: string;
   totalsLabelTax?: string;
   totalsLabelGross?: string;
+  /** Maps to DB `default_tax_rate`. Never send snake_case here — API strips camelCase before Supabase. */
+  defaultTaxRate?: number | null;
 };
 
 /**

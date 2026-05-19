@@ -37,6 +37,7 @@ import {
 } from '../../lib/angebot-auto-columns';
 import { ANGEBOT_LEGACY_COLUMN_IDS } from '../../lib/angebot-legacy-column-ids';
 import { angebotTextCellHtmlForPdf } from '../../lib/angebot-rich-text';
+import type { RowData } from '../../lib/angebot-formula-engine';
 
 /** Intro/outro prose — mirrors `styles.bodyText` (invoice PDF); does not affect the table. */
 const HTML_PROSE = {
@@ -517,35 +518,37 @@ export function AngebotPdfCoverBody({
           ]}
           wrap={false}
         >
-          {totalsData.netTotal !== null ? (
-            <View style={styles.totalsRow}>
-              <Text style={styles.totalsLabel}>{totalsData.labelNet}</Text>
-              <Text style={styles.totalsValue}>
-                {formatEur(totalsData.netTotal)}
-              </Text>
-            </View>
-          ) : null}
-          {totalsData.taxTotal !== null ? (
-            <View style={styles.totalsRow}>
-              <Text style={styles.totalsLabel}>{totalsData.labelTax}</Text>
-              <Text style={styles.totalsValue}>
-                {formatEur(totalsData.taxTotal)}
-              </Text>
-            </View>
-          ) : null}
-          {totalsData.grossTotal !== null ? (
-            <>
-              <View style={styles.totalsGrandSpacer} />
-              <View style={styles.totalsGrandRow} wrap={false}>
-                <Text style={styles.totalsGrandLabel}>
-                  {totalsData.labelGross}
-                </Text>
-                <Text style={styles.totalsGrandValue}>
-                  {formatEur(totalsData.grossTotal)}
-                </Text>
-              </View>
-            </>
-          ) : null}
+          <View style={styles.totalsRow}>
+            <Text style={styles.totalsLabel}>{totalsData.labelNet}</Text>
+            {/* WHY: Show em-dash instead of hiding the row entirely — user enabled the
+                block intentionally; a missing value should not silently collapse the line. */}
+            <Text style={styles.totalsValue}>
+              {totalsData.netTotal !== null
+                ? formatEur(totalsData.netTotal)
+                : '—'}
+            </Text>
+          </View>
+          <View style={styles.totalsRow}>
+            <Text style={styles.totalsLabel}>{totalsData.labelTax}</Text>
+            {/* WHY: Show em-dash instead of hiding the row entirely — user enabled the
+                block intentionally; a missing value should not silently collapse the line. */}
+            <Text style={styles.totalsValue}>
+              {totalsData.taxTotal !== null
+                ? formatEur(totalsData.taxTotal)
+                : '—'}
+            </Text>
+          </View>
+          <View style={styles.totalsGrandSpacer} />
+          <View style={styles.totalsGrandRow} wrap={false}>
+            <Text style={styles.totalsGrandLabel}>{totalsData.labelGross}</Text>
+            {/* WHY: Show em-dash instead of hiding the row entirely — user enabled the
+                block intentionally; a missing value should not silently collapse the line. */}
+            <Text style={styles.totalsGrandValue}>
+              {totalsData.grossTotal !== null
+                ? formatEur(totalsData.grossTotal)
+                : '—'}
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -568,4 +571,34 @@ export function AngebotPdfCoverBody({
       ) : null}
     </>
   );
+}
+
+/**
+ * WHY: `computeRow` requires the same fully-resolved row that `cellRawValue`
+ * reads from. Callers outside the cover body (e.g. totals materialisation in
+ * `AngebotPdfDocument`) must use this helper to avoid the asymmetry where the
+ * PDF table shows values that the formula engine never sees.
+ *
+ * Applies the same resolution chain as `cellRawValue`:
+ *   coerceLineItemData(item) → merge legacy typed fields via legacyFallback
+ */
+export function resolveRowDataForEngine(
+  item: AngebotLineItemRow,
+  columnSchema: AngebotColumnDef[]
+): RowData {
+  const base = coerceLineItemData(item);
+  const resolved: RowData = { ...base };
+  for (const col of columnSchema) {
+    if (
+      resolved[col.id] === undefined ||
+      resolved[col.id] === null ||
+      resolved[col.id] === ''
+    ) {
+      const fallback = legacyFallback(item, col.id);
+      if (fallback !== undefined && fallback !== null && fallback !== '') {
+        resolved[col.id] = fallback;
+      }
+    }
+  }
+  return resolved;
 }

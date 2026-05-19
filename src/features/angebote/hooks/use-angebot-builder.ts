@@ -83,6 +83,8 @@ export interface UseAngebotBuilderOptions {
   initialTotalsLabelNet?: string | null;
   initialTotalsLabelTax?: string | null;
   initialTotalsLabelGross?: string | null;
+  /** DB `default_tax_rate` — nullable quote-level MwSt fallback for `computeRow`. */
+  initialDefaultTaxRate?: number | null;
   /** Resolved template / snapshot columns — returned unchanged for Step 2 + payload builders. */
   columnSchema: AngebotColumnDef[];
   /**
@@ -102,6 +104,7 @@ export function useAngebotBuilder({
   initialTotalsLabelNet,
   initialTotalsLabelTax,
   initialTotalsLabelGross,
+  initialDefaultTaxRate,
   columnSchema,
   liveColumnSchema,
   onSuccess
@@ -142,6 +145,18 @@ export function useAngebotBuilder({
   );
   const [totalsLabelGross, setTotalsLabelGross] = useState(
     initialTotalsLabelGrossRef.current ?? DEFAULT_TOTALS_LABEL_GROSS
+  );
+
+  // WHY: quote-level Summenblock fallback — persisted as `angebote.default_tax_rate`; never hardcoded in the UI.
+  const initialDefaultTaxRateRef = useRef<number | null>(
+    initialDefaultTaxRate === undefined || initialDefaultTaxRate === null
+      ? null
+      : isFinite(initialDefaultTaxRate)
+        ? initialDefaultTaxRate
+        : null
+  );
+  const [defaultTaxRate, setDefaultTaxRate] = useState<number | null>(
+    initialDefaultTaxRateRef.current
   );
 
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>(() =>
@@ -217,13 +232,16 @@ export function useAngebotBuilder({
       const inputModeDirty = inputMode !== initialInputModeRef.current;
       // WHY: avoid accidentally resetting the flag on edits that didn't touch it.
       const dirty = showTotalsBlock !== initialShowTotalsBlockRef.current;
+      const defaultTaxRateDirty =
+        (defaultTaxRate ?? null) !== (initialDefaultTaxRateRef.current ?? null);
       await updateAngebot(
         angebotId,
-        dirty || inputModeDirty
+        dirty || inputModeDirty || defaultTaxRateDirty
           ? {
               ...header,
               ...(dirty && { showTotalsBlock }),
-              ...(inputModeDirty && { inputMode })
+              ...(inputModeDirty && { inputMode }),
+              ...(defaultTaxRateDirty && { defaultTaxRate })
             }
           : header
       );
@@ -262,6 +280,8 @@ export function useAngebotBuilder({
     setTotalsLabelTax,
     totalsLabelGross,
     setTotalsLabelGross,
+    defaultTaxRate,
+    setDefaultTaxRate,
     addLineItem,
     deleteLineItem,
     updateLineItem,
