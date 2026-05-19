@@ -6,7 +6,7 @@ Full template / snapshot spec: [angebote-vorlagen.md](angebote-vorlagen.md).
 
 ## Architecture overview
 
-The Angebote (Offers) feature is scoped under `src/features/angebote/` and mirrors the invoice builder architecture. Offers are **free-text pricing documents** — they have no link to trips, no tax totals, and no SEPA QR block.
+The Angebote (Offers) feature is scoped under `src/features/angebote/` and mirrors the invoice builder architecture. Offers are **free-text pricing documents** — they have no link to trips, opt-in Summenblock (show_totals_block) with configurable labels and optional quote-level default MwSt rate (default_tax_rate), and no SEPA QR block.
 
 ### Folder layout
 
@@ -81,6 +81,7 @@ app/dashboard/angebote/new
 | `angebot_vorlage_id` | `uuid?` | FK → `angebot_vorlagen`; set at create; Phase 2a immutable on edit |
 | `table_schema_snapshot` | `jsonb?` | Frozen `AngebotColumnDef[]` at create; Phase 2a immutable on edit |
 | `pdf_column_override` | `jsonb?` | **Deprecated** — legacy `AngebotColumnProfile` for pre–Phase 2a rows; new creates set `null` |
+| `default_tax_rate` | `numeric?` | Quote-level MwSt percent (0–100). Used as `computeRow` `fallbackTaxRate` when rows have no usable `tax_rate` after resolution. |
 | `created_at` / `updated_at` | `timestamptz` | |
 
 ### `public.angebot_vorlagen`
@@ -104,6 +105,7 @@ Company-scoped templates. See [angebote-vorlagen.md](angebote-vorlagen.md).
 ### Migrations
 
 - `20260413120000_angebot_flexible_table.sql` — `angebot_vorlagen`, snapshot + FK on `angebote`, `data` on line items, backfill, seed per company, RLS.
+- `20260519103000_angebot_default_tax_rate.sql` — nullable `angebote.default_tax_rate` for Summenblock / `computeRow` fallback.
 
 ---
 
@@ -132,6 +134,14 @@ Unchanged: `draft → sent → accepted | declined` (see detail page actions).
 **Percent:** stored 0–100 in `data`; rendered as `X %` in PDF and detail view.
 
 **JSONB:** `data` may arrive as a string from PostgREST — `coerceLineItemData` in `AngebotPdfCoverBody` mirrors the invoice `pdf-column-layout` / `parseJsonbField` approach.
+
+### Summenblock — quote-level default MwSt (`default_tax_rate`)
+
+- **Persisted column:** `angebote.default_tax_rate` (nullable `numeric`, percent 0–100).
+- **Builder state:** camelCase `defaultTaxRate` in `useAngebotBuilder` ([`src/features/angebote/hooks/use-angebot-builder.ts`](src/features/angebote/hooks/use-angebot-builder.ts)), initialised from the loaded Angebot row; included in create/update payloads via [`src/features/angebote/api/angebote.api.ts`](src/features/angebote/api/angebote.api.ts) (`defaultTaxRate` → `default_tax_rate`).
+- **UI:** Step 2 ([`step-2-positionen.tsx`](src/features/angebote/components/angebot-builder/step-2-positionen.tsx)) — the input is rendered **only inside** the `showTotalsBlock` branch (never when Summenblock is off).
+- Input hidden when `columnSchema` contains a column with `role === 'tax_rate'` (per-row values always win; global default has no effect in that case).
+- **PDF / engine:** Live preview and export pass `angebot.default_tax_rate` into `computeRow(..., { fallbackTaxRate })` on the totals materialisation path ([`AngebotPdfDocument.tsx`](src/features/angebote/components/angebot-pdf/AngebotPdfDocument.tsx)); the builder merge path does the same ([`angebot-builder/index.tsx`](src/features/angebote/components/angebot-builder/index.tsx)). Per-row `tax_rate` column values always take precedence — see [`docs/angebot-formula-engine.md`](angebot-formula-engine.md).
 
 ---
 

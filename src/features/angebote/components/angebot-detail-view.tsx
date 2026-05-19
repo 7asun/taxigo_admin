@@ -99,6 +99,14 @@ function formatEurPerKm(v: number | null | undefined): string {
   }).format(v)} €/km`;
 }
 
+function formatDecimalDe(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(v);
+}
+
 function coerceLineItemDataRecord(
   item: AngebotLineItemRow
 ): Record<string, string | number | null> {
@@ -174,6 +182,10 @@ function formatDetailCell(
       if (raw == null || raw === '') return '—';
       const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
       return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'decimal': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatDecimalDe(Number.isFinite(n) ? n : null);
     }
     case 'currency': {
       const n = typeof raw === 'number' ? raw : parseFloat(String(raw));

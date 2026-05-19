@@ -20,6 +20,7 @@ export interface AngebotColumnLayoutSpec {
   pdfRenderType:
     | 'text'
     | 'integer'
+    | 'decimal'
     | 'currency'
     | 'currency_per_km'
     | 'percent';
@@ -243,7 +244,22 @@ export function resolveColumnLayout(
   col: AngebotColumnDef
 ): AngebotColumnLayoutSpec {
   // All callers must use this function — never switch on col.preset directly for layout or formatting.
-  return COLUMN_PRESET_SPECS[col.preset];
+  const base = COLUMN_PRESET_SPECS[col.preset];
+
+  if (col.role === 'distance_km') {
+    return {
+      ...base,
+      pdfRenderType: 'decimal',
+      inputStep: 0.01,
+      inputMin: 0,
+      width:
+        base.width.mode === 'fixed' && base.width.pt < 40
+          ? { mode: 'fixed', pt: 52 }
+          : base.width
+    };
+  }
+
+  return base;
 }
 
 export const LEGACY_TYPE_TO_PRESET: Record<string, AngebotColumnPreset> = {

@@ -33,6 +33,40 @@ export type ResolvedRoleValues = Partial<
 export type InputMode = 'net' | 'gross';
 
 /**
+ * Optional overrides for {@link computeRow}.
+ */
+export interface ComputeRowOptions {
+  /**
+   * Quote-level default MwSt percent (0–100). Applied only when the schema has **no**
+   * `tax_rate` column and `resolveRoleValues` yields no finite `tax_rate` for the row.
+   * If a `tax_rate` column exists, the column governs — empty/unparseable cells do **not**
+   * fall back to this value (see `computeRow` guard before `effectiveTaxRatePercent`).
+   * Per-row values including `0` always win — never overridden by this fallback.
+   */
+  fallbackTaxRate?: number | null;
+}
+
+/**
+ * Effective VAT percent for tax/gross math after applying quote-level fallback.
+ * WHY: keep precedence in one place — `resolveRoleValues` stays untouched per product rule.
+ */
+function effectiveTaxRatePercent(
+  v: ResolvedRoleValues,
+  fallbackTaxRate: number | null | undefined
+): number | undefined {
+  const r = v.tax_rate;
+  if (r !== null && r !== undefined && isFinite(r)) return r;
+  if (
+    fallbackTaxRate !== null &&
+    fallbackTaxRate !== undefined &&
+    isFinite(fallbackTaxRate)
+  ) {
+    return fallbackTaxRate;
+  }
+  return undefined;
+}
+
+/**
  * Reserved keys written into item.data by computeRow on every update.
  * These are NOT column IDs — they are synthetic slots that always carry
  * the engine-computed net/tax/gross values regardless of whether those
@@ -107,12 +141,24 @@ export function computeNetAmount(v: ResolvedRoleValues): number | null {
 export function computeRow(
   row: RowData,
   columns: AngebotColumnDef[],
-  inputMode: InputMode = 'net'
+  inputMode: InputMode = 'net',
+  options?: ComputeRowOptions
 ): RowData {
   const v = resolveRoleValues(row, columns);
   const patch: RowData = {};
 
-  const taxRate = v.tax_rate;
+  // WHY: fallbackTaxRate must only apply when the schema has no tax_rate column
+  // at all. If the admin added a tax_rate column, that column governs — even if
+  // the dispatcher left the cell empty. Passing null suppresses the fallback
+  // without changing effectiveTaxRatePercent's own logic.
+  const schemaHasTaxRateColumn = columns.some((c) => c.role === 'tax_rate');
+  const resolvedFallback = schemaHasTaxRateColumn
+    ? null
+    : (options?.fallbackTaxRate ?? null);
+
+  const effectiveTax = effectiveTaxRatePercent(v, resolvedFallback);
+
+  const taxRate = effectiveTax;
   const canConvertGrossInputs =
     inputMode === 'gross' &&
     taxRate !== null &&
@@ -159,11 +205,11 @@ export function computeRow(
 
   const netAmount = computeNetAmount(convertedV);
   const taxAmount =
-    netAmount === null || v.tax_rate === null || v.tax_rate === undefined
+    netAmount === null || effectiveTax === undefined
       ? null
-      : netAmount * (v.tax_rate / 100);
+      : netAmount * (effectiveTax / 100);
   const grossAmount =
-    netAmount === null ? null : netAmount * (1 + (v.tax_rate ?? 0) / 100);
+    netAmount === null ? null : netAmount * (1 + (effectiveTax ?? 0) / 100);
 
   for (const col of columns) {
     switch (col.role) {

@@ -201,6 +201,8 @@ export function AngebotBuilder({
     setTotalsLabelTax,
     totalsLabelGross,
     setTotalsLabelGross,
+    defaultTaxRate,
+    setDefaultTaxRate,
     addLineItem,
     deleteLineItem,
     updateLineItem,
@@ -220,6 +222,7 @@ export function AngebotBuilder({
     initialTotalsLabelNet: initialAngebot?.totals_label_net ?? null,
     initialTotalsLabelTax: initialAngebot?.totals_label_tax ?? null,
     initialTotalsLabelGross: initialAngebot?.totals_label_gross ?? null,
+    initialDefaultTaxRate: initialAngebot?.default_tax_rate ?? null,
     columnSchema,
     // Draft edit only: tell the hook what live schema to persist back to the snapshot on save.
     liveColumnSchema: liveEditColumnSchema ?? undefined,
@@ -243,7 +246,9 @@ export function AngebotBuilder({
       if (!currentItem) return;
       // Merge the incoming patch first, then run the engine on the full row.
       const mergedData = { ...currentItem.data, ...(patch.data ?? {}) };
-      const computedPatch = computeRow(mergedData, columnSchema, inputMode);
+      const computedPatch = computeRow(mergedData, columnSchema, inputMode, {
+        fallbackTaxRate: defaultTaxRate
+      });
       // Merge computed values on top — input values always win over computed
       // for non-computed columns; computed columns are overwritten by engine.
       updateLineItem(index, {
@@ -251,7 +256,7 @@ export function AngebotBuilder({
         data: { ...mergedData, ...computedPatch }
       });
     },
-    [lineItems, columnSchema, updateLineItem, inputMode]
+    [lineItems, columnSchema, updateLineItem, inputMode, defaultTaxRate]
   );
 
   // Keep the latest row state available to the reconciliation effect without depending on lineItems,
@@ -262,6 +267,28 @@ export function AngebotBuilder({
     lineItemsRef.current = lineItems;
     updateLineItemRef.current = updateLineItem;
   }, [lineItems, updateLineItem]);
+
+  const defaultTaxRateRef = useRef(defaultTaxRate);
+  useEffect(() => {
+    defaultTaxRateRef.current = defaultTaxRate;
+  }, [defaultTaxRate]);
+
+  /**
+   * WHY: quote-level `defaultTaxRate` participates in `computeRow` — changing it must re-materialise
+   * synthetic keys on every row without requiring an interactive cell edit (same idea as schema/inputMode).
+   */
+  useEffect(() => {
+    const items = lineItemsRef.current;
+    items.forEach((item, idx) => {
+      const mergedData = item.data;
+      const computedPatch = computeRow(mergedData, columnSchema, inputMode, {
+        fallbackTaxRate: defaultTaxRateRef.current
+      });
+      updateLineItemRef.current(idx, {
+        data: { ...mergedData, ...computedPatch }
+      });
+    });
+  }, [defaultTaxRate, inputMode, columnSchema]);
 
   /**
    * Once the live schema has loaded in draft edit mode, patch each existing row's data to include
@@ -375,12 +402,17 @@ export function AngebotBuilder({
       angebot_number:
         base?.angebot_number ?? `AG-${format(new Date(), 'yyyy-MM')}-XXXX`,
       status: base?.status ?? 'draft',
+      // WHY: Fix 1 reads angebot.input_mode; without this the live preview always
+      // falls back to 'net' even when the dispatcher is in Brutto-Eingabe mode.
+      input_mode: inputMode,
       // WHY: draft preview must reflect the per-quote opt-in setting.
       show_totals_block: showTotalsBlock,
       // WHY: draft preview should reflect the current editable label inputs, even before persistence.
       totals_label_net: totalsLabelNet,
       totals_label_tax: totalsLabelTax,
       totals_label_gross: totalsLabelGross,
+      // WHY: PDF totals materialisation reads `angebot.default_tax_rate` as `computeRow` fallback.
+      default_tax_rate: defaultTaxRate,
       recipient_company: empfaengerValues.recipient_company || null,
       recipient_first_name: empfaengerValues.recipient_first_name || null,
       recipient_last_name: empfaengerValues.recipient_last_name || null,
@@ -442,10 +474,12 @@ export function AngebotBuilder({
     columnSchema,
     isEdit,
     selectedVorlageId,
+    inputMode,
     showTotalsBlock,
     totalsLabelNet,
     totalsLabelTax,
-    totalsLabelGross
+    totalsLabelGross,
+    defaultTaxRate
   ]);
 
   const { pdf, livePreviewActive } = useAngebotBuilderPdfPreview({
@@ -554,6 +588,7 @@ export function AngebotBuilder({
       totalsLabelNet: totalsLabelNetPayload,
       totalsLabelTax: totalsLabelTaxPayload,
       totalsLabelGross: totalsLabelGrossPayload,
+      defaultTaxRate,
       line_items: lineItemsPayload()
     });
   }, [
@@ -570,6 +605,7 @@ export function AngebotBuilder({
     totalsLabelTax,
     totalsLabelGross,
     inputMode,
+    defaultTaxRate,
     saveEditMutation,
     createAngebotMutation
   ]);
@@ -648,6 +684,8 @@ export function AngebotBuilder({
               onTotalsLabelNetChange={setTotalsLabelNet}
               onTotalsLabelTaxChange={setTotalsLabelTax}
               onTotalsLabelGrossChange={setTotalsLabelGross}
+              defaultTaxRate={defaultTaxRate}
+              onDefaultTaxRateChange={setDefaultTaxRate}
             />
           </BuilderSectionCard>
 
