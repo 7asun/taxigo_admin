@@ -119,6 +119,14 @@ function formatEurPerKm(value: number | null | undefined): string {
   }).format(value)} €/km`;
 }
 
+function formatDecimalDe(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 /**
  * PostgREST may return JSONB `data` as a stringified object — same rationale as
  * `coerceLineItemJsonbSnapshots` / `parseJsonbField` in pdf-column-layout.ts (L90–113).
@@ -202,6 +210,10 @@ function renderCell(
       if (raw == null || raw === '') return '—';
       const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
       return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'decimal': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return formatDecimalDe(Number.isFinite(n) ? n : null);
     }
     case 'currency': {
       const n = typeof raw === 'number' ? raw : parseFloat(String(raw));

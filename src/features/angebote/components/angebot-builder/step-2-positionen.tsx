@@ -93,6 +93,15 @@ function formatEurPerKm(value: number | null | undefined): string {
   }).format(value)} €/km`;
 }
 
+/** de-DE km / Stückzahlen mit Dezimalen (z. B. 12,5) — parity mit PDF-Zelle. */
+function formatDecimalDe(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 function renderComputedDisplay(col: AngebotColumnDef, raw: unknown): string {
   const layout = resolveColumnLayout(col);
   switch (layout.pdfRenderType) {
@@ -104,6 +113,10 @@ function renderComputedDisplay(col: AngebotColumnDef, raw: unknown): string {
       if (raw == null || raw === '') return '—';
       const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
       return Number.isFinite(n) ? String(n) : '—';
+    }
+    case 'decimal': {
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      return Number.isFinite(n) ? formatDecimalDe(n) : '—';
     }
     case 'currency': {
       const n = typeof raw === 'number' ? raw : parseFloat(String(raw));
@@ -282,6 +295,30 @@ function SortableCard({
                               data: {
                                 ...item.data,
                                 [col.id]: t === '' ? null : parseInt(t, 10)
+                              }
+                            });
+                          }}
+                        />
+                      ) : null}
+                      {layout.pdfRenderType === 'decimal' ? (
+                        <Input
+                          className='h-8 text-sm'
+                          type='number'
+                          step={layout.inputStep ?? 0.01}
+                          min={layout.inputMin}
+                          value={
+                            raw != null &&
+                            raw !== '' &&
+                            !Number.isNaN(Number(raw))
+                              ? String(raw)
+                              : ''
+                          }
+                          onChange={(e) => {
+                            const t = e.target.value;
+                            onUpdate({
+                              data: {
+                                ...item.data,
+                                [col.id]: t === '' ? null : parseFloat(t)
                               }
                             });
                           }}
