@@ -12,7 +12,7 @@ There is no separate dispatcher role — dispatchers use the `admin` role.
 | --- | --- | --- |
 | 1 | `src/proxy.ts` | Middleware: reads `accounts.role`, redirects drivers away from `/dashboard`, admins away from `/driver` |
 | 2 | `src/app/dashboard/layout.tsx` | Server layout guard: blocks non-admin from rendering any dashboard page |
-| 3 | `src/lib/api/require-admin.ts` | API helper: returns 403 for any non-admin calling admin API routes |
+| 3 | `src/lib/api/require-admin.ts` | API helper: returns 403 for any non-admin calling admin API routes. **`assertAdminOrRedirect()`** (same file) redirects non-admins from RSC pages — use `redirect()`, not `NextResponse`. |
 | 4 | `supabase/migrations/20260409170000_add_missing_rls.sql` | Database: RLS policies ensure data never leaks even if layers 1–3 fail |
 | 5 | `src/hooks/use-nav.ts` | UI: drivers see empty nav (no dashboard menu items) |
 
@@ -24,12 +24,19 @@ There is no separate dispatcher role — dispatchers use the `admin` role.
 | `/driver/*` | `driver` only | Layer 1 + `src/app/driver/layout.tsx` |
 | `/auth/*` | unauthenticated | Proxy redirects authenticated users by role |
 
+## Privileged Supabase client (service role)
+
+[`src/lib/supabase/admin.ts`](../src/lib/supabase/admin.ts) exports **`createAdminClient()`** — reads `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS. **Server-only:** import only from `src/app/api/**` or `scripts/**`, never from client components or feature UI modules.
+
 ## API route protection
 
 All mutating/sensitive API routes require `admin` role via `requireAdmin()`:
 
 - `POST /api/drivers/create` — creates users, requires admin
-- `PATCH /api/drivers/[id]` — modifies driver data, requires admin
+- `PATCH /api/drivers/[id]` — modifies driver data, requires admin (tenant guard: target `accounts.company_id` must match caller)
+- `GET /api/users` — list company users + live Auth email, requires admin
+- `PATCH /api/users/[id]/credentials` — Auth email/password + cache sync, requires admin + tenant guard
+- `PATCH /api/users/[id]/status` — `is_active` + ban/unban, requires admin + tenant guard (no self-deactivate)
 - `POST /api/trips/bulk-delete` — destructive, requires admin
 - `POST /api/trips/duplicate` — requires admin
 - `POST /api/trips/export` + `GET /api/trips/export/preview` — exports PII, requires admin
@@ -67,14 +74,15 @@ Cron route (`GET /api/cron/generate-recurring-trips`) requires `Authorization: B
 1. Import `requireAdmin` from `@/lib/api/require-admin`
 2. Add as first line in handler: `const auth = await requireAdmin(); if ('error' in auth) return auth.error`
 3. Use `auth.companyId` for all tenant-scoped queries
-4. Update the table above in this doc
+4. **Tenant guard on mutations:** before `auth.admin.*`, `SECURITY DEFINER` RPCs, or service-role writes keyed by user id, load the target `accounts` row with the **session** client and assert `company_id === auth.companyId` (404/403). RLS alone is not enough for DEFINER functions or service role.
+5. Update the route list in this doc
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `CRON_SECRET` | Yes (production) | Sent by Vercel Cron as `Authorization: Bearer …`; also accepted as `x-cron-secret` for manual runs |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes (cron) | Required for the recurring-trips cron to insert trips (RLS bypass) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes (cron, user management, exports) | Service-role Supabase client: RLS bypass — [`createAdminClient()`](../src/lib/supabase/admin.ts), same variable as cron |
 
 ## RLS design rules — lessons from the 2026-04-09 incident
 

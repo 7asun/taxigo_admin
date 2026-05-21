@@ -35,6 +35,15 @@ const INVOICE_STATUS_FILTER_VALUES = new Set([
   'paid'
 ]);
 
+/** URL `kts_filter` tokens that map to PostgREST branches; unknown entries are ignored (symmetry with client strip). */
+const TRIPS_KTS_FILTER_QUERY_VALUES = new Set([
+  'kts',
+  'kts_fehler',
+  'no_kts',
+  'no_reha',
+  'reha'
+]);
+
 type TripsListingPageProps = {
   /** Same Promise as `page.tsx` — must be parsed in this async tree so filters match the URL. */
   searchParams: Promise<SearchParams>;
@@ -52,12 +61,14 @@ export default async function TripsListingPage({
   // Trip filters
   const status = searchParamsCache.get('status');
   const driverId = searchParamsCache.get('driver_id');
-  const payerId = searchParamsCache.get('payer_id');
-  const billingVariantId = searchParamsCache.get('billing_variant_id');
+  const payerIds = searchParamsCache.get('payer_id');
+  const billingVariantIds = searchParamsCache.get('billing_variant_id');
   const search = searchParamsCache.get('search');
   const scheduledAt = searchParamsCache.get('scheduled_at');
   const invoiceStatus = searchParamsCache.get('invoice_status');
-  const ktsFilter = searchParamsCache.get('kts_filter') ?? 'all';
+  const ktsFilterValues = (searchParamsCache.get('kts_filter') ?? []).filter(
+    (v) => TRIPS_KTS_FILTER_QUERY_VALUES.has(v)
+  );
 
   const supabase = await createClient();
 
@@ -127,19 +138,57 @@ export default async function TripsListingPage({
         query = query.eq('driver_id', driverId);
       }
     }
-    if (payerId && payerId !== 'all') {
-      query = query.eq('payer_id', payerId);
+    if (payerIds?.length) {
+      query = query.in('payer_id', payerIds);
     }
-    if (billingVariantId && billingVariantId !== 'all') {
-      query = query.eq('billing_variant_id', billingVariantId);
+    if (billingVariantIds?.length) {
+      query = query.in('billing_variant_id', billingVariantIds);
     }
-    // KTS filter — narrows trips by KTS document state.
-    // 'kts_fehler' implies kts_document_applies so both conditions are applied.
-    // 'all' (default) applies no condition.
-    if (ktsFilter === 'kts') {
-      query = query.eq('kts_document_applies', true);
-    } else if (ktsFilter === 'kts_fehler') {
-      query = query.eq('kts_document_applies', true).eq('kts_fehler', true);
+    // KTS filter — comma-separated modes; invalid tokens stripped above (client parity).
+    if (ktsFilterValues.length > 0) {
+      const ktsTokens = [...new Set(ktsFilterValues)];
+
+      // Each URL token maps to one PostgREST filter expression.
+      const ktsConditions: string[] = [];
+      if (ktsFilterValues.includes('kts')) {
+        ktsConditions.push('kts_document_applies.eq.true');
+      }
+      if (ktsFilterValues.includes('kts_fehler')) {
+        ktsConditions.push(
+          'and(kts_document_applies.eq.true,kts_fehler.eq.true)'
+        );
+      }
+      if (ktsFilterValues.includes('no_kts')) {
+        ktsConditions.push('kts_document_applies.eq.false');
+      }
+      if (ktsFilterValues.includes('no_reha')) {
+        ktsConditions.push('reha_schein.eq.false');
+      }
+      if (ktsFilterValues.includes('reha')) {
+        ktsConditions.push('reha_schein.eq.true');
+      }
+
+      const uniqueKtsConditions = [...new Set(ktsConditions)];
+
+      if (uniqueKtsConditions.length === 1 && ktsTokens.length === 1) {
+        // Single mode: keep the same `.eq` / chained `.eq` shape as the pre–multi-select listing so
+        // PostgREST emits identical filters for one active KTS option (no `or(...)` wrapper).
+        const only = ktsTokens[0];
+        if (only === 'kts') {
+          query = query.eq('kts_document_applies', true);
+        } else if (only === 'kts_fehler') {
+          query = query.eq('kts_document_applies', true).eq('kts_fehler', true);
+        } else if (only === 'no_kts') {
+          query = query.eq('kts_document_applies', false);
+        } else if (only === 'no_reha') {
+          query = query.eq('reha_schein', false);
+        } else if (only === 'reha') {
+          query = query.eq('reha_schein', true);
+        }
+      } else if (uniqueKtsConditions.length > 1) {
+        // Multiple modes: OR — user wants trips matching *any* selected state (e.g. no KTS OR no Reha).
+        query = query.or(uniqueKtsConditions.join(','));
+      }
     }
     if (
       invoiceTripFilter?.kind === 'in' &&
@@ -293,10 +342,10 @@ export default async function TripsListingPage({
     view,
     scheduledAt ?? '',
     driverId ?? '',
-    payerId ?? '',
+    payerIds?.join(',') ?? '',
     status ?? '',
     search ?? '',
-    billingVariantId ?? '',
+    billingVariantIds?.join(',') ?? '',
     invoiceStatus ?? ''
   ].join('|');
 

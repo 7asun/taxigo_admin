@@ -7,6 +7,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { redirect } from 'next/navigation';
 
 export type RequireAdminResult =
   | { error: NextResponse }
@@ -45,6 +46,44 @@ export async function requireAdmin(): Promise<RequireAdminResult> {
     return {
       error: NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     };
+  }
+
+  return { companyId: account.company_id, userId: user.id };
+}
+
+/**
+ * Server Component / RSC helper — enforces admin session with `redirect()`, not `NextResponse`.
+ * Do not use in Route Handlers; use `requireAdmin()` there.
+ */
+export async function assertAdminOrRedirect(): Promise<{
+  companyId: string;
+  userId: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect('/auth/sign-in');
+  }
+
+  const { data: account } = await supabase
+    .from('accounts')
+    .select('role, company_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (!account?.role) {
+    redirect('/auth/sign-in');
+  }
+
+  if (
+    account.role !== 'admin' ||
+    account.company_id == null ||
+    account.company_id === ''
+  ) {
+    redirect('/driver/shift');
   }
 
   return { companyId: account.company_id, userId: user.id };

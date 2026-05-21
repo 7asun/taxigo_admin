@@ -82,6 +82,8 @@ export const Icons = {
   check: IconCheck,
   workspace: IconFolder,
   teams: IconUsers,
+  /** Account — Benutzerverwaltung (distinct from teams / Fahrgäste). */
+  users: IconUsers,
   pro: IconCrown,
   exclusive: IconStar,
   account: IconUserCircle,

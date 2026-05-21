@@ -105,6 +105,12 @@ export const navItems: NavItem[] = [
         shortcut: ['f', 'a']
       },
       {
+        title: 'Benutzer',
+        url: '/dashboard/users',
+        icon: 'users',
+        shortcut: ['b', 'n']
+      },
+      {
         title: 'Schichtzettel-Abgleich',
         url: '/dashboard/shift-reconciliations',
         icon: 'shiftReconciliation',

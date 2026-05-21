@@ -11,15 +11,24 @@
  * - This component **never** owns trip rows locally; it only updates the URL and calls
  *   `refreshTripsPage()` so Next.js refetches the RSC payload and TanStack trip caches invalidate.
  * - Reference lists (Fahrer, Kostenträger, Abrechnung) come from `useTripFormData` → TanStack Query
- *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing variants** load only when `payer_id` is a
- *   real UUID — never treat the string `'all'` as a payer id (the hook disables that query).
+ *   (`referenceKeys` in `src/query/keys/reference.ts`). **Billing variants** load only when exactly one
+ *   payer is selected in the URL (`payer_id` comma-separated) — never treat the string `'all'` as a payer id
+ *   (the hook disables that query).
+ *
+ * TODO: csv-export-dialog.tsx still uses single payer_id / billing_variant_id — align when export supports multi-filter.
  *
  * Layout: below `md`, compact row + collapsible “more filters”; from `md` up, one horizontal row.
  */
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { de } from 'date-fns/locale';
-import { ChevronDown, ListFilter, RotateCcw, Settings2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ListFilter,
+  PlusCircle,
+  RotateCcw,
+  Settings2,
+  XCircle
+} from 'lucide-react';
 import { CheckIcon, CaretSortIcon } from '@radix-ui/react-icons';
 
 import { Button } from '@/components/ui/button';
@@ -42,7 +51,8 @@ import {
   CommandGroup,
   CommandInput,
   CommandItem,
-  CommandList
+  CommandList,
+  CommandSeparator
 } from '@/components/ui/command';
 import { DateRangePicker } from '@/components/ui/date-time-picker';
 import {
@@ -62,6 +72,29 @@ interface TripsFiltersBarProps {
   totalItems: number;
 }
 
+/** Allowed `kts_filter` URL tokens (comma-joined); absence of param = no KTS filter. */
+const KTS_FILTER_VALUES = [
+  'kts',
+  'kts_fehler',
+  'no_kts',
+  'no_reha',
+  'reha'
+] as const;
+type KtsFilterValue = (typeof KTS_FILTER_VALUES)[number];
+
+const KTS_FILTER_OPTION_ROWS: { value: KtsFilterValue; label: string }[] = [
+  { value: 'kts', label: 'Nur KTS' },
+  { value: 'kts_fehler', label: 'Nur KTS-Fehler' },
+  { value: 'reha', label: 'Nur Reha-Schein' },
+  { value: 'no_kts', label: 'Kein KTS' },
+  { value: 'no_reha', label: 'Kein Reha-Schein' }
+];
+
+/** Absent param → []; present but empty "" → []. */
+function parseCommaSeparatedIds(param: string | null): string[] {
+  return param?.split(',').filter(Boolean) ?? [];
+}
+
 export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -75,18 +108,28 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const search = searchParams.get('search') ?? '';
   const driverId = searchParams.get('driver_id') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
-  const payerId = searchParams.get('payer_id') ?? 'all';
-  const billingVariantId = searchParams.get('billing_variant_id') ?? 'all';
+  const payerParam = searchParams.get('payer_id');
+  const selectedPayerIds = useMemo(
+    () => parseCommaSeparatedIds(payerParam),
+    [payerParam]
+  );
+  const billingVariantParam = searchParams.get('billing_variant_id');
+  const selectedBillingVariantIds = useMemo(
+    () => parseCommaSeparatedIds(billingVariantParam),
+    [billingVariantParam]
+  );
   const invoiceStatus = searchParams.get('invoice_status') ?? 'all';
   const scheduledAt = searchParams.get('scheduled_at') ?? '';
   const currentView = searchParams.get('view') ?? 'list';
-  const ktsFilterRaw = searchParams.get('kts_filter') ?? 'all';
-  const ktsFilter =
-    ktsFilterRaw === 'kts' ||
-    ktsFilterRaw === 'kts_fehler' ||
-    ktsFilterRaw === 'all'
-      ? ktsFilterRaw
-      : 'all';
+  const ktsParam = searchParams.get('kts_filter');
+  const selectedKtsFilterValues = useMemo(
+    () =>
+      parseCommaSeparatedIds(ktsParam).filter((v): v is KtsFilterValue =>
+        // Drop crafted/legacy tokens so the bar matches the RSC allowlist — avoids “filter stuck on” when URL is invalid.
+        KTS_FILTER_VALUES.includes(v as KtsFilterValue)
+      ),
+    [ktsParam]
+  );
 
   const table = useTripsTableStore((s) => s.table);
   const columnVisibility = useTripsTableStore((s) => s.columnVisibility);
@@ -130,23 +173,37 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   }, []);
 
   /**
-   * Drivers/payers: shared TanStack cache (`referenceKeys`). Billing types: only when `payerId` is a
-   * concrete id (not `'all'`) — see `useBillingVariantsForPayerQuery`.
+   * Single concrete payer UUID only (billing variant query). Comma-joined `payer_id` must not be passed.
    */
-  const { drivers, payers, billingVariants } = useTripFormData(payerId ?? null);
+  const singlePayerIdForBilling =
+    selectedPayerIds.length === 1 ? selectedPayerIds[0]! : null;
 
+  const { drivers, payers, billingVariants } = useTripFormData(
+    singlePayerIdForBilling
+  );
+
+  const [payerPickerOpen, setPayerPickerOpen] = useState(false);
+  const [billingPickerOpen, setBillingPickerOpen] = useState(false);
+  const [ktsPickerOpen, setKtsPickerOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const hasAdvancedFilters = useMemo((): boolean => {
     return (
       driverId !== 'all' ||
       status !== 'all' ||
-      payerId !== 'all' ||
-      (Boolean(billingVariantId) && billingVariantId !== 'all') ||
+      selectedPayerIds.length > 0 ||
+      selectedBillingVariantIds.length > 0 ||
       invoiceStatus !== 'all' ||
-      ktsFilter !== 'all'
+      selectedKtsFilterValues.length > 0
     );
-  }, [driverId, status, payerId, billingVariantId, invoiceStatus, ktsFilter]);
+  }, [
+    driverId,
+    status,
+    selectedPayerIds,
+    selectedBillingVariantIds,
+    invoiceStatus,
+    selectedKtsFilterValues
+  ]);
 
   const prevAdvancedRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -216,17 +273,36 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     { label: 'Bezahlt', value: 'paid' }
   ];
 
+  const payerTriggerLabel = useMemo(() => {
+    const n = selectedPayerIds.length;
+    if (n === 0) return 'Alle Kostenträger';
+    if (n === 1) {
+      const p = payers.find((x) => x.id === selectedPayerIds[0]);
+      return p?.name ?? '1 Kostenträger';
+    }
+    return `${n} Kostenträger gewählt`;
+  }, [selectedPayerIds, payers]);
+
   /**
    * Writes filter deltas to the URL (always resets `page` to 1) and triggers a server refresh.
    * Do not skip `refreshTripsPage()` — `router.replace` alone can briefly show a stale RSC tree for the
    * previous params; the helper also invalidates trip-related TanStack caches (see `TripsRscRefreshProvider`).
    */
-  const updateFilters = (updates: Record<string, string | null>) => {
+  const updateFilters = (
+    updates: Record<string, string | string[] | null | undefined>
+  ) => {
     const params = new URLSearchParams(searchParams.toString());
 
     Object.entries(updates).forEach(([key, value]) => {
+      if (value === undefined) return;
       if (value === null || value === '') {
         params.delete(key);
+      } else if (Array.isArray(value)) {
+        if (value.length > 0) {
+          params.set(key, value.join(','));
+        } else {
+          params.delete(key);
+        }
       } else {
         params.set(key, value);
       }
@@ -239,6 +315,84 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       router.replace(next, { scroll: false });
     });
     void refreshTripsPage();
+  };
+
+  const togglePayerId = (id: string) => {
+    const next = new Set(selectedPayerIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    const arr = [...next];
+    updateFilters({
+      payer_id: arr,
+      billing_variant_id: arr.length === 1 ? undefined : null
+    });
+  };
+
+  const clearPayerFilter = () => {
+    updateFilters({ payer_id: null, billing_variant_id: null });
+  };
+
+  const payerSelection = useMemo(
+    () => new Set(selectedPayerIds),
+    [selectedPayerIds]
+  );
+
+  const billingTriggerLabel = useMemo(() => {
+    const n = selectedBillingVariantIds.length;
+    if (n === 0) return 'Alle Abrechnungen';
+    if (n === 1) {
+      const v = billingVariants.find(
+        (x) => x.id === selectedBillingVariantIds[0]
+      );
+      return v ? `${v.billing_type_name} · ${v.name}` : '1 Abrechnung';
+    }
+    return `${n} Abrechnungen gewählt`;
+  }, [selectedBillingVariantIds, billingVariants]);
+
+  const billingSelection = useMemo(
+    () => new Set(selectedBillingVariantIds),
+    [selectedBillingVariantIds]
+  );
+
+  const toggleBillingVariantId = (id: string) => {
+    const next = new Set(selectedBillingVariantIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    updateFilters({ billing_variant_id: [...next] });
+  };
+
+  const clearBillingFilter = () => {
+    updateFilters({ billing_variant_id: null });
+  };
+
+  const ktsTriggerLabel = useMemo(() => {
+    const n = selectedKtsFilterValues.length;
+    if (n === 0) return 'KTS: Kein Filter';
+    if (n === 1) {
+      return (
+        KTS_FILTER_OPTION_ROWS.find(
+          (o) => o.value === selectedKtsFilterValues[0]
+        )?.label ?? 'KTS'
+      );
+    }
+    return `${n} KTS-Filter`;
+  }, [selectedKtsFilterValues]);
+
+  const ktsSelection = useMemo(
+    () => new Set(selectedKtsFilterValues),
+    [selectedKtsFilterValues]
+  );
+
+  const toggleKtsFilterValue = (value: KtsFilterValue) => {
+    const next = new Set(selectedKtsFilterValues);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    const arr = [...next] as KtsFilterValue[];
+    updateFilters({ kts_filter: arr.length > 0 ? arr : null });
+  };
+
+  const clearKtsFilter = () => {
+    updateFilters({ kts_filter: null });
   };
 
   // Handle date range selection from DateRangePicker
@@ -389,85 +543,282 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         </SelectContent>
       </Select>
 
-      <Select
-        value={ktsFilter}
-        onValueChange={(val) => {
-          updateFilters({ kts_filter: val === 'all' ? null : val });
-        }}
-      >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[110px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
-          <SelectValue placeholder='KTS' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value='all' className='text-xs'>
-            KTS: Kein Filter
-          </SelectItem>
-          <SelectItem value='kts' className='text-xs'>
-            KTS: Nur KTS
-          </SelectItem>
-          <SelectItem value='kts_fehler' className='text-xs'>
-            KTS: Nur Fehler
-          </SelectItem>
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={payerId}
-        onValueChange={(val) => {
-          if (val === 'all') {
-            updateFilters({ payer_id: null, billing_variant_id: null });
-          } else {
-            updateFilters({ payer_id: val, billing_variant_id: null });
-          }
-        }}
-      >
-        <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
-          <SelectValue placeholder='Kostenträger' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value='all' className='text-xs'>
-            Alle Kostenträger
-          </SelectItem>
-          {payers.map((payer) => (
-            <SelectItem key={payer.id} value={payer.id} className='text-xs'>
-              {payer.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {payerId !== 'all' && billingVariants.length > 0 && (
-        <Select
-          value={billingVariantId}
-          onValueChange={(val) => {
-            if (val === 'all') {
-              updateFilters({ billing_variant_id: null });
-            } else {
-              updateFilters({ billing_variant_id: val });
-            }
-          }}
+      <Popover open={ktsPickerOpen} onOpenChange={setKtsPickerOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type='button'
+            variant='outline'
+            className='h-10 min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal sm:min-w-[110px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'
+          >
+            {selectedKtsFilterValues.length > 0 ? (
+              <span
+                role='button'
+                tabIndex={0}
+                className='focus-visible:ring-ring mr-1 inline-flex shrink-0 rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+                aria-label='KTS-Filter zurücksetzen'
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearKtsFilter();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearKtsFilter();
+                  }
+                }}
+              >
+                <XCircle className='size-4' />
+              </span>
+            ) : (
+              <PlusCircle className='mr-1 size-4 shrink-0' />
+            )}
+            <span className='min-w-0 flex-1 truncate text-left'>
+              {ktsTriggerLabel}
+            </span>
+            <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className='w-[min(calc(100vw-2rem),18rem)] p-0'
+          align='start'
         >
-          <SelectTrigger className='h-10 min-h-10 w-full min-w-0 text-xs sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'>
-            <SelectValue placeholder='Abrechnung' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all' className='text-xs'>
-              Alle Abrechnungen
-            </SelectItem>
-            {billingVariants.map((bv) => (
-              <SelectItem key={bv.id} value={bv.id} className='text-xs'>
-                <span className='flex flex-col gap-0 leading-tight'>
-                  <span>
-                    {bv.billing_type_name} · {bv.name}
-                  </span>
-                  <span className='text-muted-foreground font-mono text-[10px]'>
-                    {bv.code}
-                  </span>
+          <Command>
+            <CommandInput
+              placeholder='KTS-Option suchen…'
+              className='h-8 text-xs'
+            />
+            <CommandList>
+              <CommandEmpty className='py-2 text-center text-xs'>
+                Keine Option gefunden.
+              </CommandEmpty>
+              <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+                {KTS_FILTER_OPTION_ROWS.map((row) => {
+                  const isSelected = ktsSelection.has(row.value);
+                  return (
+                    <CommandItem
+                      key={row.value}
+                      value={`${row.label} ${row.value}`}
+                      onSelect={() => toggleKtsFilterValue(row.value)}
+                      className='text-xs'
+                    >
+                      <div
+                        className={cn(
+                          'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                          isSelected
+                            ? 'bg-primary text-primary-foreground'
+                            : 'opacity-50 [&_svg]:invisible'
+                        )}
+                      >
+                        <CheckIcon className='size-3' />
+                      </div>
+                      <span className='truncate'>{row.label}</span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+              {selectedKtsFilterValues.length > 0 ? (
+                <>
+                  <CommandSeparator />
+                  <CommandGroup>
+                    <CommandItem
+                      onSelect={() => clearKtsFilter()}
+                      className='justify-center text-center text-xs'
+                    >
+                      × Auswahl löschen
+                    </CommandItem>
+                  </CommandGroup>
+                </>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      <Popover open={payerPickerOpen} onOpenChange={setPayerPickerOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type='button'
+            variant='outline'
+            className='h-10 min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'
+          >
+            {selectedPayerIds.length > 0 ? (
+              <span
+                role='button'
+                tabIndex={0}
+                className='focus-visible:ring-ring mr-1 inline-flex shrink-0 rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+                aria-label='Kostenträgerfilter zurücksetzen'
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearPayerFilter();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearPayerFilter();
+                  }
+                }}
+              >
+                <XCircle className='size-4' />
+              </span>
+            ) : (
+              <PlusCircle className='mr-1 size-4 shrink-0' />
+            )}
+            <span className='min-w-0 truncate'>{payerTriggerLabel}</span>
+            <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className='w-[min(calc(100vw-2rem),18rem)] p-0'
+          align='start'
+        >
+          <Command>
+            <CommandInput
+              placeholder='Kostenträger suchen…'
+              className='h-8 text-xs'
+            />
+            <CommandList>
+              <CommandEmpty className='py-2 text-center text-xs'>
+                Kein Kostenträger gefunden.
+              </CommandEmpty>
+              <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+                {payers.map((payer) => {
+                  const isSelected = payerSelection.has(payer.id);
+                  return (
+                    <CommandItem
+                      key={payer.id}
+                      value={`${payer.name} ${payer.id}`}
+                      onSelect={() => togglePayerId(payer.id)}
+                      className='text-xs'
+                    >
+                      <div
+                        className={cn(
+                          'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                          isSelected
+                            ? 'bg-primary text-primary-foreground'
+                            : 'opacity-50 [&_svg]:invisible'
+                        )}
+                      >
+                        <CheckIcon className='size-3' />
+                      </div>
+                      <span className='truncate'>{payer.name}</span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+              {selectedPayerIds.length > 0 ? (
+                <>
+                  <CommandSeparator />
+                  <CommandGroup>
+                    <CommandItem
+                      onSelect={() => clearPayerFilter()}
+                      className='justify-center text-center text-xs'
+                    >
+                      Auswahl löschen
+                    </CommandItem>
+                  </CommandGroup>
+                </>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      {selectedPayerIds.length === 1 && billingVariants.length > 0 && (
+        <Popover open={billingPickerOpen} onOpenChange={setBillingPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type='button'
+              variant='outline'
+              className='h-10 min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'
+            >
+              {selectedBillingVariantIds.length > 0 ? (
+                <span
+                  role='button'
+                  tabIndex={0}
+                  className='focus-visible:ring-ring mr-1 inline-flex shrink-0 rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+                  aria-label='Abrechnungsfilter zurücksetzen'
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearBillingFilter();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      clearBillingFilter();
+                    }
+                  }}
+                >
+                  <XCircle className='size-4' />
                 </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              ) : (
+                <PlusCircle className='mr-1 size-4 shrink-0' />
+              )}
+              <span className='min-w-0 flex-1 truncate text-left'>
+                {billingTriggerLabel}
+              </span>
+              <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className='w-[min(calc(100vw-2rem),20rem)] p-0'
+            align='start'
+          >
+            <Command>
+              <CommandInput
+                placeholder='Abrechnung suchen…'
+                className='h-8 text-xs'
+              />
+              <CommandList>
+                <CommandEmpty className='py-2 text-center text-xs'>
+                  Keine Abrechnung gefunden.
+                </CommandEmpty>
+                <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+                  {billingVariants.map((bv) => {
+                    const isSelected = billingSelection.has(bv.id);
+                    return (
+                      <CommandItem
+                        key={bv.id}
+                        value={`${bv.billing_type_name} ${bv.name} ${bv.code} ${bv.id}`}
+                        onSelect={() => toggleBillingVariantId(bv.id)}
+                        className='text-xs'
+                      >
+                        <div
+                          className={cn(
+                            'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                            isSelected
+                              ? 'bg-primary text-primary-foreground'
+                              : 'opacity-50 [&_svg]:invisible'
+                          )}
+                        >
+                          <CheckIcon className='size-3' />
+                        </div>
+                        <span className='truncate'>
+                          {bv.billing_type_name} · {bv.name}
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+                {selectedBillingVariantIds.length > 0 ? (
+                  <>
+                    <CommandSeparator />
+                    <CommandGroup>
+                      <CommandItem
+                        onSelect={() => clearBillingFilter()}
+                        className='justify-center text-center text-xs'
+                      >
+                        Auswahl löschen
+                      </CommandItem>
+                    </CommandGroup>
+                  </>
+                ) : null}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       )}
     </>
   );
