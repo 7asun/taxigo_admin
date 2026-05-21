@@ -3,8 +3,8 @@
 /**
  * Leaflet fleet map — client-only (no SSR).
  *
- * Why icon URLs are overridden: Next.js asset pipeline breaks Leaflet default
- * marker image paths bundled with the package.
+ * Why DivIcon: coloured pin with driver initial (grey / green / red)
+ * for offline / free / busy; busy state updates via trips realtime, not GPS.
  */
 
 import { useEffect, useRef } from 'react';
@@ -12,43 +12,46 @@ import type { DriverPosition } from '@/lib/tracking/use-fleet-map';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })
-  ._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
-});
-
 const OLDENBURG_CENTER: L.LatLngExpression = [53.1435, 8.2146];
 const OLDENBURG_ZOOM = 13;
 
-const onlineIcon = new L.Icon({
-  iconUrl:
-    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
+// Why: DivIcon allows inline SVG pin with dynamic fill and driver initial
+function createDriverIcon(
+  isOnline: boolean,
+  isBusy: boolean,
+  name: string
+): L.DivIcon {
+  const color = !isOnline ? '#9ca3af' : isBusy ? '#ef4444' : '#22c55e';
+  const initial = name.trim().charAt(0).toUpperCase() || '?';
 
-const offlineIcon = new L.Icon({
-  iconUrl:
-    'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="36" height="44" viewBox="0 0 36 44">
+      <circle cx="18" cy="18" r="16"
+              fill="${color}" stroke="white" stroke-width="2.5"/>
+      <text x="18" y="23"
+            text-anchor="middle"
+            font-family="-apple-system, BlinkMacSystemFont, sans-serif"
+            font-size="15"
+            font-weight="700"
+            fill="white">${initial}</text>
+      <polygon points="12,32 18,43 24,32"
+               fill="${color}" stroke="white" stroke-width="1.5"
+               stroke-linejoin="round"/>
+    </svg>`;
 
-function formatLastSeen(iso: string): string {
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize: [36, 44],
+    iconAnchor: [18, 43],
+    popupAnchor: [0, -44]
+  });
+}
+
+function formatLastSeenTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
+    return new Date(iso).toLocaleTimeString('de-DE', {
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -58,8 +61,9 @@ function formatLastSeen(iso: string): string {
 }
 
 function popupHtml(driver: DriverPosition): string {
+  const statusLine = driver.is_busy ? '🔴 Tour aktiv' : '🟢 Frei';
   const speed = driver.speed_kmh != null ? `${driver.speed_kmh} km/h` : '—';
-  return `<strong>${driver.name}</strong><br/>${speed}<br/>Zuletzt: ${formatLastSeen(driver.updated_at)}`;
+  return `<strong>${driver.name}</strong><br/>${statusLine}<br/>${speed}<br/>Zuletzt: ${formatLastSeenTime(driver.updated_at)}`;
 }
 
 export type FleetMapProps = {
@@ -105,7 +109,11 @@ export default function FleetMap({ drivers }: FleetMapProps) {
     for (const driver of drivers) {
       seen.add(driver.driver_id);
       const latLng: L.LatLngExpression = [driver.lat, driver.lng];
-      const icon = driver.is_online ? onlineIcon : offlineIcon;
+      const icon = createDriverIcon(
+        driver.is_online,
+        driver.is_busy,
+        driver.name
+      );
       const existing = markers.get(driver.driver_id);
 
       if (existing) {

@@ -8,7 +8,7 @@ Phase 1 provides continuous GPS tracking for drivers and a dispatcher fleet map:
 
 - **Drivers:** `watchPosition` runs in the **driver layout** (`DriverTrackingRoot` / `TrackingContext`) on all `/driver/*` routes after consent
 - **Drivers:** `/driver/tracking` — **control screen only** (consent, start/stop, speed/accuracy display); navigating away does not stop GPS
-- **Admins:** `/dashboard/fleet` — Leaflet map with `postgres_changes` on `live_locations`
+- **Admins:** `/dashboard/fleet` — Leaflet map with SVG car markers (grey / green / red) and `postgres_changes` on `live_locations` + `trips`
 
 ## Phase roadmap
 
@@ -26,9 +26,23 @@ Driver taps "Tracking starten" on /driver/tracking
   → useDriverTracking (single mount in TrackingProvider)
   → watchPosition (browser) on any /driver/* page
   → throttle 5 s → upsert live_locations (driver_id PK)
-  → Supabase Realtime postgres_changes
-  → useFleetMap (admin) → FleetMap markers
+  → Supabase Realtime postgres_changes (live_locations)
+  → useFleetMap (admin) → FleetMap car markers
+
+Driver taps Tour starten / Tour beenden
+  → trips.status UPDATE (in_progress / completed)
+  → Supabase Realtime postgres_changes (trips, company filter)
+  → useFleetMap updates is_busy immediately (no GPS tick required)
 ```
+
+### `DriverPosition` (fleet map)
+
+| Field | Meaning |
+| --- | --- |
+| `is_online` | `updated_at` within `TRACKING_OFFLINE_AFTER_MS` (60 s) |
+| `is_busy` | Driver has an active tour: `trips.status` in `TRACKING_BUSY_TRIP_STATUSES` (`in_progress`, `driving`). Offline drivers always show `is_busy: false` on the map (grey icon). |
+
+Busy state is loaded from a company-scoped `trips` query on init and kept in sync via a second realtime channel (`TRACKING_TRIPS_REALTIME_CHANNEL`). If the `company_id=eq.{id}` filter does not deliver events in your environment, remove the filter and rely on the handler guard (`trip.company_id !== companyId`).
 
 ```mermaid
 flowchart TB
@@ -78,21 +92,21 @@ One row per driver: `upsert(..., { onConflict: 'driver_id' })`. History is impli
 
 | Path | Role |
 | --- | --- |
-| `src/lib/tracking/constants.ts` | Tunables, table/channel names, FK embed hint |
+| `src/lib/tracking/constants.ts` | Tunables, table/channel names, `TRACKING_BUSY_TRIP_STATUSES`, FK embed hint |
 | `src/lib/tracking/use-driver-tracking.ts` | `watchPosition` + upsert + NoSleep (called only from `TrackingProvider`) |
 | `src/lib/tracking/tracking-context.tsx` | `DriverTrackingRoot`, `TrackingProvider`, `useTracking()` |
 | `src/app/driver/layout.tsx` | Server: metadata + role guard; renders `DriverLayoutClient` |
 | `src/app/driver/driver-layout-client.tsx` | Client shell: header + `DriverTrackingRoot` |
-| `src/lib/tracking/use-fleet-map.ts` | Initial fetch + realtime + `DriverPosition` |
+| `src/lib/tracking/use-fleet-map.ts` | Initial fetch + dual realtime (`live_locations`, `trips`) + `DriverPosition` |
 | `src/app/driver/tracking/page.tsx` | Consent + start/stop + status UI (no direct hook) |
-| `src/components/fleet/fleet-map.tsx` | Leaflet (client-only) |
+| `src/components/fleet/fleet-map.tsx` | Leaflet car `DivIcon` markers (client-only) |
 | `src/app/dashboard/fleet/page.tsx` | Admin fleet page |
 
 PostgREST embed for driver names: `accounts!live_locations_driver_id_fkey` (see `TRACKING_ACCOUNTS_FK` in constants).
 
 ## Known Phase 1 limitations
 
-1. **Update latency ~5 s** — driven by upsert throttle, not Broadcast.
+1. **Position update latency ~5 s** — driven by GPS upsert throttle, not Broadcast. **Busy icon color** updates on `trips` UPDATE (Tour starten / Tour beenden), typically immediate.
 2. **Foreground tracking** — tab must stay active; no service worker / background GPS. Tracking persists across `/driver/*` navigation but stops when the layout unmounts (leave driver app).
 3. **sessionStorage consent** — not stored in DB. **iOS Safari** may clear `sessionStorage` after the tab is backgrounded for a long time; the driver may need to tap **"Tracking starten"** again (GPS permission usually remains).
 4. **Offline detection** — no disconnect event in DB; admins see drivers as offline when `updated_at` is older than 60 s (`TRACKING_OFFLINE_AFTER_MS`).

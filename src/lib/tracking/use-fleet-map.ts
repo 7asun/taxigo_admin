@@ -1,19 +1,23 @@
 'use client';
 
 /**
- * Admin fleet map data: initial load + postgres_changes on live_locations.
+ * Admin fleet map data: initial load + postgres_changes on live_locations and trips.
  *
  * Why postgres_changes (not Broadcast) for Phase 1: matches trips-realtime-sync pattern;
- * ~5s driver upsert cadence is acceptable for dispatch overview.
+ * ~5s driver upsert cadence is acceptable for dispatch overview; trips UPDATE updates
+ * is_busy immediately on Tour starten / Tour beenden without waiting for GPS.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
+  isTrackingBusyStatus,
   TRACKING_ACCOUNTS_FK,
+  TRACKING_BUSY_TRIP_STATUSES,
   TRACKING_OFFLINE_AFTER_MS,
   TRACKING_REALTIME_CHANNEL,
-  TRACKING_TABLE
+  TRACKING_TABLE,
+  TRACKING_TRIPS_REALTIME_CHANNEL
 } from '@/lib/tracking/constants';
 
 export type DriverPosition = {
@@ -25,6 +29,7 @@ export type DriverPosition = {
   accuracy_m: number | null;
   updated_at: string;
   is_online: boolean;
+  is_busy: boolean;
 };
 
 type LiveLocationRow = {
@@ -47,6 +52,12 @@ type LiveLocationRow = {
     | null;
 };
 
+type TripUpdatePayload = {
+  driver_id: string | null;
+  status: string;
+  company_id: string | null;
+};
+
 function formatDriverName(accounts: LiveLocationRow['accounts']): string {
   const row = Array.isArray(accounts) ? accounts[0] : accounts;
   if (!row) return 'Unbekannt';
@@ -55,7 +66,11 @@ function formatDriverName(accounts: LiveLocationRow['accounts']): string {
   return first_name?.trim() || accountName?.trim() || 'Unbekannt';
 }
 
-function rowToPosition(row: LiveLocationRow, now: number): DriverPosition {
+function rowToPosition(
+  row: LiveLocationRow,
+  now: number,
+  isBusy: boolean
+): DriverPosition {
   const updatedAt = row.updated_at;
   const is_online =
     now - new Date(updatedAt).getTime() <= TRACKING_OFFLINE_AFTER_MS;
@@ -67,7 +82,8 @@ function rowToPosition(row: LiveLocationRow, now: number): DriverPosition {
     speed_kmh: row.speed_kmh,
     accuracy_m: row.accuracy_m,
     updated_at: updatedAt,
-    is_online
+    is_online,
+    is_busy: is_online && isBusy
   };
 }
 
@@ -87,7 +103,8 @@ function payloadToPosition(
     speed_kmh: payload.speed_kmh != null ? Number(payload.speed_kmh) : null,
     accuracy_m: payload.accuracy_m != null ? Number(payload.accuracy_m) : null,
     updated_at: updatedAt,
-    is_online
+    is_online,
+    is_busy: existing?.is_busy ?? false
   };
 }
 
@@ -109,37 +126,94 @@ export function useFleetMap() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [companyId, setCompanyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const init = async () => {
+      const supabase = createClient();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setError('Nicht angemeldet.');
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: account } = await supabase
+        .from('accounts')
+        .select('company_id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (account?.company_id) {
+        setCompanyId(account.company_id);
+      } else {
+        setError('Kein Unternehmen für diesen Benutzer.');
+        setIsLoading(false);
+      }
+    };
+    void init();
+  }, []);
 
   const loadInitial = useCallback(async () => {
-    const supabase = createClient();
-    const { data, error: fetchError } = await supabase
-      .from(TRACKING_TABLE)
-      .select(SELECT_QUERY);
+    if (!companyId) return;
 
-    if (fetchError) {
-      setError(fetchError.message);
+    const supabase = createClient();
+
+    const [locationsResult, busyTripsResult] = await Promise.all([
+      supabase.from(TRACKING_TABLE).select(SELECT_QUERY),
+      supabase
+        .from('trips')
+        .select('driver_id')
+        .eq('company_id', companyId)
+        .in('status', [...TRACKING_BUSY_TRIP_STATUSES])
+    ]);
+
+    if (locationsResult.error) {
+      setError(locationsResult.error.message);
       setIsLoading(false);
       return;
     }
 
+    if (busyTripsResult.error) {
+      setError(busyTripsResult.error.message);
+      setIsLoading(false);
+      return;
+    }
+
+    const busySet = new Set(
+      (busyTripsResult.data ?? [])
+        .map((t) => t.driver_id)
+        .filter((id): id is string => id != null)
+    );
+
     const ts = Date.now();
     const next = new Map<string, DriverPosition>();
-    for (const row of (data ?? []) as unknown as LiveLocationRow[]) {
-      next.set(row.driver_id, rowToPosition(row, ts));
+    for (const row of (locationsResult.data ??
+      []) as unknown as LiveLocationRow[]) {
+      next.set(
+        row.driver_id,
+        rowToPosition(row, ts, busySet.has(row.driver_id))
+      );
     }
     setDriversMap(next);
     setError(null);
     setIsLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
+    if (!companyId) return;
+    setIsLoading(true);
     void loadInitial();
-  }, [loadInitial]);
+  }, [companyId, loadInitial]);
 
   useEffect(() => {
+    if (!companyId) return;
+
     const supabase = createClient();
 
-    const channel = supabase
+    const locationsChannel = supabase
       .channel(TRACKING_REALTIME_CHANNEL)
       .on(
         'postgres_changes',
@@ -171,10 +245,38 @@ export function useFleetMap() {
       )
       .subscribe();
 
+    const tripsChannel = supabase
+      .channel(TRACKING_TRIPS_REALTIME_CHANNEL)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'trips',
+          filter: `company_id=eq.${companyId}`
+        },
+        (payload) => {
+          const trip = payload.new as TripUpdatePayload;
+          if (trip.company_id !== companyId) return;
+          if (!trip.driver_id) return;
+          const isBusy = isTrackingBusyStatus(trip.status);
+          setDriversMap((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(trip.driver_id!);
+            if (existing) {
+              next.set(trip.driver_id!, { ...existing, is_busy: isBusy });
+            }
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
     return () => {
-      void supabase.removeChannel(channel);
+      void supabase.removeChannel(locationsChannel);
+      void supabase.removeChannel(tripsChannel);
     };
-  }, [loadInitial]);
+  }, [companyId]);
 
   // Why a slow tick: DB has no disconnect event — offline is derived from updated_at age
   useEffect(() => {
@@ -184,11 +286,15 @@ export function useFleetMap() {
 
   const drivers = useMemo(() => {
     const list = Array.from(driversMap.values());
-    return list.map((d) => ({
-      ...d,
-      is_online:
-        now - new Date(d.updated_at).getTime() <= TRACKING_OFFLINE_AFTER_MS
-    }));
+    return list.map((d) => {
+      const is_online =
+        now - new Date(d.updated_at).getTime() <= TRACKING_OFFLINE_AFTER_MS;
+      return {
+        ...d,
+        is_online,
+        is_busy: is_online ? d.is_busy : false
+      };
+    });
   }, [driversMap, now]);
 
   return { drivers, isLoading, error };
