@@ -2,7 +2,7 @@
 
 /**
  * TanStack Table column definitions for the drivers listing.
- * Used by DriverTable in table view at /dashboard/drivers.
+ * Used by DriverTable in table view at /dashboard/users.
  */
 
 import { DataTableColumnHeader } from '@/components/ui/table/data-table-column-header';

@@ -49,7 +49,7 @@
  *   const nav = useColumnNavigation(['vehicleId', 'inspectionId'] as const);
  *
  *   The param names appear directly in the URL:
- *   /dashboard/drivers?driverId=abc-123&vehicleId=xyz-456
+ *   /dashboard/users?driverId=abc-123&vehicleId=xyz-456
  *
  *   Ensure each page uses unique param names to avoid collisions if multiple
  *   column views are ever mounted simultaneously.

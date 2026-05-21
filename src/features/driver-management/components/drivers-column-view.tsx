@@ -4,7 +4,7 @@
  * DriversColumnView — Orchestrator for the Fahrer Miller Columns layout.
  *
  * Two columns: list + detail. Columns view is the primary layout per
- * panel-layout-system. Used at /dashboard/drivers when view=columns.
+ * panel-layout-system. Used at /dashboard/users when view=columns.
  */
 
 import {
@@ -13,6 +13,7 @@ import {
   ResizableHandle
 } from '@/components/ui/resizable';
 import { useColumnNavigation } from '@/hooks/use-column-navigation';
+import { useRef } from 'react';
 import { DriverListPanel } from './driver-list-panel';
 import { DriverDetailPanel } from './driver-detail-panel';
 
@@ -21,6 +22,7 @@ const COLUMN_KEYS = ['driverId'] as const;
 export function DriversColumnView() {
   const nav = useColumnNavigation(COLUMN_KEYS);
   const { driverId } = nav.values;
+  const listRefreshRef = useRef<(() => void) | null>(null);
 
   const showDetail = !!driverId;
 
@@ -42,6 +44,9 @@ export function DriversColumnView() {
             selectedDriverId={driverId}
             onSelectDriver={(id) => nav.set({ driverId: id })}
             onNewDriver={() => nav.set({ driverId: 'new' })}
+            onRegisterRefresh={(fn) => {
+              listRefreshRef.current = fn;
+            }}
           />
         </ResizablePanel>
 
@@ -58,6 +63,7 @@ export function DriversColumnView() {
                 key={driverId}
                 driverId={driverId}
                 onClose={() => nav.clearAll()}
+                onRefresh={() => listRefreshRef.current?.()}
               />
             </ResizablePanel>
           </>

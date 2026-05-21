@@ -2,10 +2,11 @@
  * Driver app layout — mobile-first, no sidebar, no KBar.
  * Uses safe-area-inset for notched devices.
  * Redirects admins to dashboard (driver routes are for drivers only).
+ * GPS tracking runs in DriverLayoutClient via TrackingContext (all /driver/* routes).
  * Complements Layer 1 proxy; see docs/access-control.md.
  */
 
-import { DriverHeader } from '@/features/driver-portal/components/driver-header';
+import { DriverLayoutClient } from '@/app/driver/driver-layout-client';
 import { createClient } from '@/lib/supabase/server';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
@@ -38,12 +39,5 @@ export default async function DriverLayout({
     }
   }
 
-  return (
-    <div className='bg-background min-h-dvh min-h-screen pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]'>
-      <main className='mx-auto flex min-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-w-lg flex-col'>
-        <DriverHeader />
-        {children}
-      </main>
-    </div>
-  );
+  return <DriverLayoutClient>{children}</DriverLayoutClient>;
 }

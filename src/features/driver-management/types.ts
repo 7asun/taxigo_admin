@@ -18,3 +18,7 @@ export type DriverProfile =
 export interface DriverWithProfile extends User {
   driver_profiles?: DriverProfile | DriverProfile[] | null;
 }
+
+export const ACCOUNT_ROLES = ['driver', 'admin'] as const;
+export type AccountRole = (typeof ACCOUNT_ROLES)[number];
+export type RosterRoleFilter = AccountRole | 'all';

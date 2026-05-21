@@ -191,6 +191,7 @@ export const DriverFormBody = forwardRef<
     }
   }, [mode, initialData, form]);
 
+  const watchedRole = form.watch('role');
   const isDirty = form.formState.isDirty;
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
@@ -422,120 +423,125 @@ export const DriverFormBody = forwardRef<
             </FormItem>
           )}
         />
-        <FormField
-          control={form.control}
-          name='license_number'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Führerscheinnummer (optional)</FormLabel>
-              <FormControl>
-                <Input placeholder='B12345678901234' {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name='default_vehicle_id'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Standard-Fahrzeug (optional)</FormLabel>
-              <Select
-                onValueChange={(v) =>
-                  field.onChange(v === '__none__' ? null : v)
-                }
-                value={field.value ?? '__none__'}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder='Kein Fahrzeug' />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value='__none__'>Kein Fahrzeug</SelectItem>
-                  {vehicles.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.name} ({v.license_plate})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {watchedRole !== 'admin' && (
+          <>
+            <FormField
+              control={form.control}
+              name='license_number'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Führerscheinnummer (optional)</FormLabel>
+                  <FormControl>
+                    <Input placeholder='B12345678901234' {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='default_vehicle_id'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Standard-Fahrzeug (optional)</FormLabel>
+                  <Select
+                    onValueChange={(v) =>
+                      field.onChange(v === '__none__' ? null : v)
+                    }
+                    value={field.value ?? '__none__'}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Kein Fahrzeug' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value='__none__'>Kein Fahrzeug</SelectItem>
+                      {vehicles.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>
+                          {v.name} ({v.license_plate})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        )}
       </div>
 
-      {/* Address section — same scheme as clients */}
-      <div className='space-y-4'>
-        <h4 className='text-sm font-medium'>Adresse (optional)</h4>
-        <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
-          <FormField
-            control={form.control}
-            name='street'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Straße</FormLabel>
-                <FormControl>
-                  <AddressAutocomplete
-                    value={field.value ?? ''}
-                    onChange={(result: AddressResult | string) => {
-                      if (typeof result === 'string') {
-                        field.onChange(result);
-                      } else {
-                        handleAddressSelect('street', result);
-                      }
-                    }}
-                    placeholder='Straße eingeben'
-                    className='h-8 text-[11px]'
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='street_number'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Hausnummer</FormLabel>
-                <FormControl>
-                  <Input placeholder='10' {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='zip_code'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>PLZ</FormLabel>
-                <FormControl>
-                  <Input placeholder='26122' {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='city'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Stadt</FormLabel>
-                <FormControl>
-                  <Input placeholder='Oldenburg' {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+      {watchedRole !== 'admin' && (
+        <div className='space-y-4'>
+          <h4 className='text-sm font-medium'>Adresse (optional)</h4>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
+            <FormField
+              control={form.control}
+              name='street'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Straße</FormLabel>
+                  <FormControl>
+                    <AddressAutocomplete
+                      value={field.value ?? ''}
+                      onChange={(result: AddressResult | string) => {
+                        if (typeof result === 'string') {
+                          field.onChange(result);
+                        } else {
+                          handleAddressSelect('street', result);
+                        }
+                      }}
+                      placeholder='Straße eingeben'
+                      className='h-8 text-[11px]'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='street_number'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Hausnummer</FormLabel>
+                  <FormControl>
+                    <Input placeholder='10' {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='zip_code'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>PLZ</FormLabel>
+                  <FormControl>
+                    <Input placeholder='26122' {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='city'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Stadt</FormLabel>
+                  <FormControl>
+                    <Input placeholder='Oldenburg' {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
         </div>
-      </div>
+      )}
     </Form>
   );
 });

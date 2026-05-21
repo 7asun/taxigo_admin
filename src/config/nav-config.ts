@@ -99,16 +99,22 @@ export const navItems: NavItem[] = [
         shortcut: ['f', 'f']
       },
       {
-        title: 'Fahrer',
-        url: '/dashboard/drivers',
-        icon: 'user',
-        shortcut: ['f', 'a']
+        title: 'Benutzer',
+        url: '/dashboard/users',
+        icon: 'users',
+        shortcut: ['b', 'n']
       },
       {
         title: 'Schichtzettel-Abgleich',
         url: '/dashboard/shift-reconciliations',
         icon: 'shiftReconciliation',
         shortcut: ['s', 'z']
+      },
+      {
+        title: 'Flottenübersicht',
+        url: '/dashboard/fleet',
+        icon: 'trips',
+        shortcut: ['f', 'l']
       },
       {
         title: 'Kostenträger',

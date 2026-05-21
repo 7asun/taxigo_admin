@@ -47,6 +47,24 @@ export async function PATCH(
       );
     }
 
+    // Tenant guard: update_driver() is SECURITY DEFINER and bypasses RLS — without this,
+    // any tenant admin could mutate another company's accounts (see user-management audit).
+    const { data: targetAccount, error: targetError } = await serverSupabase
+      .from('accounts')
+      .select('company_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (targetError) {
+      return NextResponse.json({ error: targetError.message }, { status: 500 });
+    }
+    if (!targetAccount) {
+      return NextResponse.json({ error: 'Nicht gefunden' }, { status: 404 });
+    }
+    if (targetAccount.company_id !== auth.companyId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = (await request.json()) as UpdateDriverBody;
 
     const { data, error } = await serverSupabase.rpc('update_driver', {
