@@ -409,3 +409,22 @@ Call sites use **untyped** `.rpc('update_driver', { ... })` in the PATCH handler
 
 - [`docs/plans/approach-b-audit.md`](approach-b-audit.md) §8 / §9 — **`update_driver` creating profiles for admins** and sequencing with unified roster work.
 - [`docs/access-control.md`](../../docs/access-control.md) — Layer 3–4, tenant guard expectation for `SECURITY DEFINER` RPCs.
+
+---
+
+## Plan Status
+
+**Applied:** `20260521224017_make_update_driver_role_aware.sql`
+
+**Production pre-flight counts (run before db push):**
+
+- Admin accounts with `driver_profiles` rows: **0** (no orphans — DELETE was no-op)
+- Driver accounts with `driver_profiles` rows: **2** (baseline)
+
+**Post-deploy verification (production):**
+
+- `prosrc` contains `v_effective_role`: ✅
+- Admin/profile join count: **0** ✅
+- Driver profile count: **2** ✅
+
+**Plan A:** ✅ Complete — 2026-05-21

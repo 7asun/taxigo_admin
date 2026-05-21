@@ -3,8 +3,8 @@
 /**
  * DriverListPanel — Column 1 of the Fahrer Miller Columns view.
  *
- * Fetches drivers, renders list with search. Exposes __refreshDriverList
- * for sibling panels (DriverDetailPanel) to trigger refetch after create.
+ * Fetches drivers (role=driver only), renders list with search.
+ * Registers refresh callback for sibling DriverDetailPanel.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -19,12 +19,14 @@ interface DriverListPanelProps {
   selectedDriverId: string | null;
   onSelectDriver: (id: string) => void;
   onNewDriver: () => void;
+  onRegisterRefresh?: (refresh: () => void) => void;
 }
 
 export function DriverListPanel({
   selectedDriverId,
   onSelectDriver,
-  onNewDriver
+  onNewDriver,
+  onRegisterRefresh
 }: DriverListPanelProps) {
   const [drivers, setDrivers] = useState<DriverWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,8 @@ export function DriverListPanel({
       const { drivers: data } = await driversService.getDrivers({
         search: search || undefined,
         includeInactive: true,
-        limit: 200
+        limit: 200,
+        role: 'driver'
       });
       setDrivers(data);
     } catch (err: unknown) {
@@ -67,11 +70,8 @@ export function DriverListPanel({
   }, [drivers, loading, selectedDriverId, onSelectDriver]);
 
   useEffect(() => {
-    (window as any).__refreshDriverList = () => fetchDrivers(debouncedSearch);
-    return () => {
-      delete (window as any).__refreshDriverList;
-    };
-  }, [fetchDrivers, debouncedSearch]);
+    onRegisterRefresh?.(() => fetchDrivers(debouncedSearch));
+  }, [fetchDrivers, debouncedSearch, onRegisterRefresh]);
 
   return (
     <PanelList<DriverWithProfile>
@@ -138,7 +138,9 @@ function DriverListItem({
           {name}
         </p>
         <p className='text-muted-foreground mt-0.5 truncate text-xs'>
-          {(driver as { email?: string | null }).email ?? driver.role}{' '}
+          {driver.role === 'admin'
+            ? 'Admin'
+            : ((driver as { email?: string | null }).email ?? 'Fahrer')}{' '}
           {!driver.is_active && '• Inaktiv'}
         </p>
       </div>

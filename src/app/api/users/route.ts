@@ -1,56 +1,73 @@
 /** SECURITY: Layer 3 — requireAdmin(); see docs/access-control.md */
 
 /**
- * GET /api/users — all accounts in the admin's company merged with live auth emails.
+ * GET /api/users — company accounts merged with live auth emails.
+ *
+ * Legacy (no page/perPage): flat CompanyUser[] for /dashboard/users.
+ * Paginated (both page and perPage): { data, totalItems } for driver roster table.
  */
 import { requireAdmin } from '@/lib/api/require-admin';
-import { createAdminClient } from '@/lib/supabase/admin';
+import {
+  getRoster,
+  mergeLiveEmails
+} from '@/features/driver-management/api/get-roster';
 import { createClient } from '@/lib/supabase/server';
-import type { CompanyUser } from '@/features/user-management/types';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requireAdmin();
   if ('error' in auth) {
     return auth.error;
   }
 
-  const sessionSupabase = await createClient();
-  const { data: rows, error: rowsError } = await sessionSupabase
-    .from('accounts')
-    .select(
-      'id, name, first_name, last_name, role, is_active, created_at, phone'
-    )
-    .eq('company_id', auth.companyId)
-    .order('name', { ascending: true });
+  const { searchParams } = request.nextUrl;
+  const pageParam = searchParams.get('page');
+  const perPageParam = searchParams.get('perPage');
+  const isPaginated = pageParam != null && perPageParam != null;
 
-  if (rowsError) {
-    return NextResponse.json({ error: rowsError.message }, { status: 500 });
+  const sessionSupabase = await createClient();
+
+  if (!isPaginated) {
+    const { data: rows, error: rowsError } = await sessionSupabase
+      .from('accounts')
+      .select(
+        'id, name, first_name, last_name, role, is_active, created_at, phone'
+      )
+      .eq('company_id', auth.companyId)
+      .order('name', { ascending: true });
+
+    if (rowsError) {
+      return NextResponse.json({ error: rowsError.message }, { status: 500 });
+    }
+
+    const merged = await mergeLiveEmails(rows ?? []);
+    return NextResponse.json(merged);
   }
 
-  const admin = createAdminClient();
+  const page = Math.max(1, parseInt(pageParam, 10) || 1);
+  const perPage = Math.max(1, parseInt(perPageParam, 10) || 10);
+  const role = searchParams.get('role') ?? undefined;
+  const search =
+    searchParams.get('search') ?? searchParams.get('name') ?? undefined;
+  const sortParam = searchParams.get('sort');
 
-  const merged: CompanyUser[] = await Promise.all(
-    (rows ?? []).map(async (row) => {
-      const { data: authUserResult } = await admin.auth.admin.getUserById(
-        row.id
-      );
-      const email = authUserResult?.user?.email ?? null;
-      return {
-        id: row.id,
-        name: row.name,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        email,
-        role: row.role,
-        is_active: row.is_active,
-        created_at: row.created_at,
-        phone: row.phone
-      };
-    })
-  );
-
-  return NextResponse.json(merged);
+  try {
+    const result = await getRoster({
+      page,
+      perPage,
+      role:
+        role === 'driver' || role === 'admin' || role === 'all'
+          ? role
+          : undefined,
+      search: search ?? undefined,
+      sort: sortParam,
+      companyId: auth.companyId
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

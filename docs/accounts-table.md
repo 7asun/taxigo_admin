@@ -81,6 +81,10 @@ type UpdateUser = Database['public']['Tables']['accounts']['Update'];
 
 ---
 
+## Phase 2 (planned)
+
+- `tracking_consented` (boolean on `accounts`) — persistent GDPR consent for GPS tracking; Phase 1 uses `sessionStorage` only. See [modules/driver-tracking.md](modules/driver-tracking.md).
+
 ## Migration Reference
 
 - **Migration:** `supabase/migrations/20260318130000_rename_users_to_accounts.sql`

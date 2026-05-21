@@ -57,6 +57,7 @@ Cron route (`GET /api/cron/generate-recurring-trips`) requires `Authorization: B
 | `accounts` | SELECT/UPDATE own row | SELECT/UPDATE accounts in same company |
 | `driver_profiles` | SELECT/UPDATE own | Full CRUD in company |
 | `shifts` / `shift_events` | Full CRUD own | SELECT in company |
+| `live_locations` | ALL own row | SELECT in company |
 | `invoices` / `invoice_line_items` | none | Full CRUD, company-scoped |
 | `angebote` / `angebot_line_items` | none | Full CRUD, company-scoped |
 | `clients` / `payers` | none | Full CRUD, company-scoped |

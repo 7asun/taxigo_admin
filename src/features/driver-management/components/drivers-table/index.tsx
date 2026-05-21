@@ -2,7 +2,7 @@
 
 /**
  * Driver table wrapper — uses TanStack Table and DataTable.
- * Renders the drivers table in table view at /dashboard/drivers.
+ * Renders the drivers table in table view at /dashboard/users.
  */
 
 import { DataTable } from '@/components/ui/table/data-table';
@@ -12,6 +12,7 @@ import type { DriverWithProfile } from '@/features/driver-management/types';
 import { type ColumnDef } from '@tanstack/react-table';
 import { parseAsInteger, useQueryState } from 'nuqs';
 import { columns } from './columns';
+import { RosterRoleFilter } from './roster-role-filter';
 
 interface DriverTableProps {
   data: DriverWithProfile[];
@@ -32,7 +33,9 @@ export function DriverTable({ data, totalItems }: DriverTableProps) {
 
   return (
     <DataTable table={table}>
-      <DataTableToolbar table={table} />
+      <DataTableToolbar table={table}>
+        <RosterRoleFilter />
+      </DataTableToolbar>
     </DataTable>
   );
 }

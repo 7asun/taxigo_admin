@@ -24,7 +24,9 @@ export const searchParams = {
   kts_filter: parseAsArrayOf(parseAsString, ','),
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
-  view: parseAsString.withDefault('list')
+  view: parseAsString.withDefault('list'),
+  /** Roster filter: all | driver | admin (driver-management table). */
+  role: parseAsString.withDefault('all')
 };
 
 export const searchParamsCache = createSearchParamsCache(searchParams);

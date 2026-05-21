@@ -1,4 +1,10 @@
 /**
+ * @deprecated Use DriverWithProfile from
+ * src/features/driver-management/types.ts for roster rows, or
+ * AccountRole / RosterRoleFilter for role types.
+ * This type is kept for the EditCredentialsDialog bridge and will
+ * be removed in a future cleanup pass.
+ *
  * Company user row for Benutzerverwaltung — email from live Supabase Auth, not cached `accounts.email`.
  */
 export type CompanyUser = {

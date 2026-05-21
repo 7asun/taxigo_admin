@@ -576,30 +576,36 @@ export type Database = {
       };
       live_locations: {
         Row: {
-          company_id: string | null;
+          accuracy_m: number | null;
+          company_id: string;
           driver_id: string;
-          lat: number | null;
-          lng: number | null;
-          status: string;
-          updated_at: string | null;
-          vehicle_id: string | null;
+          lat: number;
+          lng: number;
+          speed_kmh: number | null;
+          updated_at: string;
+          status?: string | null;
+          vehicle_id?: string | null;
         };
         Insert: {
-          company_id?: string | null;
+          accuracy_m?: number | null;
+          company_id: string;
           driver_id: string;
-          lat?: number | null;
-          lng?: number | null;
-          status: string;
-          updated_at?: string | null;
+          lat: number;
+          lng: number;
+          speed_kmh?: number | null;
+          updated_at?: string;
+          status?: string | null;
           vehicle_id?: string | null;
         };
         Update: {
-          company_id?: string | null;
+          accuracy_m?: number | null;
+          company_id?: string;
           driver_id?: string;
-          lat?: number | null;
-          lng?: number | null;
-          status?: string;
-          updated_at?: string | null;
+          lat?: number;
+          lng?: number;
+          speed_kmh?: number | null;
+          updated_at?: string;
+          status?: string | null;
           vehicle_id?: string | null;
         };
         Relationships: [

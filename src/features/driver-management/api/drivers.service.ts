@@ -1,14 +1,14 @@
 /**
- * Drivers service — CRUD for accounts with role='driver'.
+ * Drivers service — CRUD for company accounts (all roles when unfiltered).
  *
- * Used by driver-management (admin Fahrer page). Driver creation
+ * Used by driver-management (admin roster). Driver creation
  * (auth + accounts + driver_profiles) is handled by POST /api/drivers/create
  * using Supabase service role.
  */
 
 import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/database.types';
-import type { DriverWithProfile } from '../types';
+import type { DriverWithProfile, RosterRoleFilter } from '../types';
 
 export type InsertUser = Database['public']['Tables']['accounts']['Insert'];
 export type UpdateUser = Database['public']['Tables']['accounts']['Update'];
@@ -18,11 +18,12 @@ type GetDriversFilters = {
   limit?: number;
   search?: string;
   includeInactive?: boolean;
+  role?: RosterRoleFilter;
 };
 
 export const driversService = {
   /**
-   * Fetch drivers (accounts with role='driver'), optionally with driver_profiles.
+   * Fetch company accounts, optionally filtered by role.
    * For list view, omit driver_profiles join to avoid RLS/join issues.
    */
   async getDrivers(filters?: GetDriversFilters): Promise<{
@@ -35,8 +36,11 @@ export const driversService = {
       .select(
         'id, name, first_name, last_name, email, role, phone, company_id, is_active',
         { count: 'exact' }
-      )
-      .eq('role', 'driver');
+      );
+
+    if (filters?.role && filters.role !== 'all') {
+      query = query.eq('role', filters.role);
+    }
 
     if (!filters?.includeInactive) {
       query = query.eq('is_active', true);
@@ -184,12 +188,5 @@ export const driversService = {
         throw new Error(`Fahrerprofil konnte nicht angelegt werden: ${msg}`);
       }
     }
-  },
-
-  /**
-   * Soft-deactivate a driver (is_active = false). Use instead of hard delete.
-   */
-  async deactivateDriver(id: string): Promise<void> {
-    await this.updateDriver(id, { is_active: false });
   }
 };

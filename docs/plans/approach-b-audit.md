@@ -416,7 +416,33 @@ Phase 1 can ship on `/dashboard/drivers` to limit route churn; Phase 2 is mostly
 | Columns / actions | `src/features/driver-management/components/drivers-table/columns.tsx`, `cell-action.tsx` |
 | Form | `src/features/driver-management/components/driver-form-body.tsx` |
 | Users API | `src/app/api/users/route.ts`, `[id]/credentials/route.ts`, `[id]/status/route.ts` |
-| Credentials UI | `src/features/user-management/components/edit-credentials-dialog.tsx` |
+| Credentials UI | `src/features/driver-management/components/edit-credentials-dialog.tsx` |
 | Query keys | `src/query/keys/users.ts`, `reference.ts` |
 | Prior inventory | `docs/plans/drivers-page-audit.md` |
 | RPC | `supabase/migrations/20260318130000_rename_users_to_accounts.sql` (`update_driver`) |
+
+---
+
+## Plan Status
+
+**Plan A (role-aware `update_driver`):** ✅ Complete — 2026-05-21. See [update-driver-rpc-audit.md](update-driver-rpc-audit.md).
+
+**Plan B Phase 1 (unified roster data layer on `/dashboard/drivers`):** ✅ Complete — 2026-05-21.
+
+- Paginated `GET /api/users` with live email; `DriverTableListing` via cookie-forwarded RSC fetch
+- Role toolbar (Alle / Fahrer / Admins); admin form field gating
+- `CellAction`: credentials, ban-aware status, reactivate, self-guard
+- Column view refresh callback; `deactivateDriver` deprecated then removed in Phase 2
+
+**Plan B Phase 2 (route merge, nav, retire user-management UI):** ✅ Complete — 2026-05-21.
+
+| Check | Done |
+| --- | --- |
+| `/dashboard/users` hosts full `driver-management` roster | ✅ |
+| `/dashboard/drivers` permanent redirect | ✅ |
+| Nav: “Fahrer” removed; “Benutzer” only | ✅ |
+| `EditCredentialsDialog` + `user-actions.service.ts` in driver-management | ✅ |
+| `UsersTable` deleted; `user-management` bridges retained | ✅ |
+| Docs: `user-management.md`, `driver-system.md`, this file | ✅ |
+
+**Deferred (post–Phase 2):** copy pass (“Neuer Benutzer”), delete `user-management` bridges, column view all-roles + live email.

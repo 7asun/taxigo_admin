@@ -17,6 +17,7 @@ A mobile-first driver interface at `/driver/*`. Drivers see only their own data;
 | `/driver/startseite` | `startseite/page.tsx` | Home: personalised greeting + shift widget + today's trips |
 | `/driver/touren`     | `touren/page.tsx`     | Browse, search, and filter all assigned trips              |
 | `/driver/shift`      | `shift/page.tsx`      | Manual time-entry form + shift history (Schichtenzettel)   |
+| `/driver/tracking`   | `tracking/page.tsx`   | Continuous GPS tracking for dispatch (consent + live_locations) |
 
 ---
 
@@ -87,8 +88,11 @@ StartseitePageContent
 | Startseite      | `/driver/startseite` |
 | Touren          | `/driver/touren`     |
 | Schichtenzettel | `/driver/shift`      |
+| Standort        | `/driver/tracking`   |
 
 The header title updates dynamically based on the current route using `getPageTitle(pathname)`. Tapping the title returns to `/driver/startseite`.
+
+See [modules/driver-tracking.md](modules/driver-tracking.md) for GPS tracking architecture and limitations.
 
 ---
 

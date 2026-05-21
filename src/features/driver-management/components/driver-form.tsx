@@ -31,13 +31,20 @@ export function DriverForm() {
     router.refresh();
   };
 
+  const entityLabel =
+    mode === 'create'
+      ? 'Fahrer'
+      : driver?.role === 'admin'
+        ? 'Admin'
+        : 'Fahrer';
+  const sheetTitle =
+    mode === 'create' ? 'Neuer Fahrer' : `${entityLabel} bearbeiten`;
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
       <SheetContent side='right' className='overflow-y-auto sm:max-w-lg'>
         <SheetHeader>
-          <SheetTitle>
-            {mode === 'create' ? 'Neuer Fahrer' : 'Fahrer bearbeiten'}
-          </SheetTitle>
+          <SheetTitle>{sheetTitle}</SheetTitle>
         </SheetHeader>
         <div className='mt-6'>
           <DriverFormBody
