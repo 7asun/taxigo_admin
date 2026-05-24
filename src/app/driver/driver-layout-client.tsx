@@ -3,8 +3,8 @@
 /**
  * Client shell for /driver/* — header + layout-wide GPS tracking via context.
  *
- * Why client: watchPosition and sessionStorage require the browser; server
- * layout keeps metadata and role redirect only.
+ * Why client: watchPosition requires the browser; server layout keeps
+ * metadata and role redirect only.
  */
 
 import { DriverHeader } from '@/features/driver-portal/components/driver-header';

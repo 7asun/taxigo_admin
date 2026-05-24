@@ -41,6 +41,7 @@ import {
   shouldOfferPairedSyncForNotesOnlySave
 } from '@/features/trips/trip-detail-sheet/lib/paired-trip-sync';
 import { TripSheetTopCallouts } from '@/features/trips/trip-detail-sheet/components/trip-sheet-top-callouts';
+import { TripPriceTooltip } from '@/features/trips/trip-detail-sheet/components/trip-price-tooltip';
 import { RecurringTripEditScopeDialog } from '@/features/trips/trip-detail-sheet/dialogs/recurring-trip-edit-scope-dialog';
 import { PairedTripSyncDialog } from '@/features/trips/trip-detail-sheet/dialogs/paired-trip-sync-dialog';
 import {
@@ -1309,15 +1310,23 @@ export function TripDetailSheet({
                           ? `${trip.driving_distance_km.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`
                           : 'Geplant'}
                       </Badge>
-                      <Badge
-                        variant='outline'
-                        className='h-5 px-2 py-0 text-[10px] font-semibold'
+                      <TripPriceTooltip
+                        baseNetPrice={trip.base_net_price}
+                        approachFeeNet={trip.approach_fee_net}
+                        netPrice={trip.net_price}
+                        taxRate={trip.tax_rate}
+                        grossPrice={trip.gross_price}
                       >
-                        {trip.gross_price !== null &&
-                        trip.gross_price !== undefined
-                          ? `${trip.gross_price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
-                          : '-'}
-                      </Badge>
+                        <Badge
+                          variant='outline'
+                          className='h-5 px-2 py-0 text-[10px] font-semibold'
+                        >
+                          {trip.gross_price !== null &&
+                          trip.gross_price !== undefined
+                            ? `${trip.gross_price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+                            : '-'}
+                        </Badge>
+                      </TripPriceTooltip>
                     </div>
                   </div>
 

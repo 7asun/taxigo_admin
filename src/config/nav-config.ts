@@ -105,6 +105,12 @@ export const navItems: NavItem[] = [
         shortcut: ['b', 'n']
       },
       {
+        title: 'Fahrerschichtplanung',
+        url: '/dashboard/fahrerschichtplanung',
+        icon: 'kanban',
+        shortcut: ['f', 'p']
+      },
+      {
         title: 'Schichtzettel-Abgleich',
         url: '/dashboard/shift-reconciliations',
         icon: 'shiftReconciliation',
