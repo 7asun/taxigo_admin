@@ -83,7 +83,7 @@ export async function assertAdminOrRedirect(): Promise<{
     account.company_id == null ||
     account.company_id === ''
   ) {
-    redirect('/driver/shift');
+    redirect('/driver/startseite');
   }
 
   return { companyId: account.company_id, userId: user.id };

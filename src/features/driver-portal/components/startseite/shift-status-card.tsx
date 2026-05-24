@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/client';
 import { shiftsService } from '@/features/driver-portal/api/shifts.service';
 import { SHIFT_STATUSES } from '@/features/driver-portal/types';
 import type { Shift } from '@/features/driver-portal/types';
+import { useTracking } from '@/lib/tracking/tracking-context';
 import { cn } from '@/lib/utils';
 import {
   IconPlayerPause,
@@ -85,6 +86,7 @@ interface ShiftStatusCardProps {
 }
 
 export function ShiftStatusCard({ onShiftStateChange }: ShiftStatusCardProps) {
+  const { setTrackingEnabled, setShiftStatus } = useTracking();
   const [state, setState] = useState<TrackerState>('loading');
   const [shift, setShift] = useState<Shift | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
@@ -177,6 +179,10 @@ export function ShiftStatusCard({ onShiftStateChange }: ShiftStatusCardProps) {
       setShift(newShift);
       setState('active');
       setElapsedMs(0);
+      // Why here (not layout): shift DB writes only happen in this component;
+      // GPS must not start if the mutation fails.
+      setTrackingEnabled(true);
+      setShiftStatus(SHIFT_STATUSES.ACTIVE);
       toast.success('Schicht gestartet.');
     } catch {
       toast.error('Fehler beim Starten der Schicht.');
@@ -197,6 +203,7 @@ export function ShiftStatusCard({ onShiftStateChange }: ShiftStatusCardProps) {
       });
       setState('on_break');
       setBreakStartedAt(Date.now());
+      setShiftStatus(SHIFT_STATUSES.ON_BREAK);
       toast.success('Pause gestartet.');
     } catch (err) {
       const msg =
@@ -223,6 +230,8 @@ export function ShiftStatusCard({ onShiftStateChange }: ShiftStatusCardProps) {
       setState('active');
       setBreakStartedAt(null);
       setElapsedMs(Date.now() - new Date(shift.started_at).getTime());
+      setTrackingEnabled(true);
+      setShiftStatus(SHIFT_STATUSES.ACTIVE);
       toast.success('Pause beendet.');
     } catch {
       toast.error('Fehler beim Beenden der Pause.');
@@ -248,6 +257,8 @@ export function ShiftStatusCard({ onShiftStateChange }: ShiftStatusCardProps) {
         ? new Date(ended.ended_at).getTime()
         : Date.now();
       setElapsedMs(end - start);
+      setTrackingEnabled(false);
+      setShiftStatus(SHIFT_STATUSES.ENDED);
       toast.success('Schicht beendet.');
     } catch {
       toast.error('Fehler beim Beenden der Schicht.');

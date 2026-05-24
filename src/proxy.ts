@@ -69,7 +69,7 @@ export async function proxy(request: NextRequest) {
 
   if (isDashboardRoute && user && userRole === 'driver') {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/driver/shift';
+    redirectUrl.pathname = '/driver/startseite';
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -82,7 +82,7 @@ export async function proxy(request: NextRequest) {
   if (isAuthRoute && user) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname =
-      userRole === 'driver' ? '/driver/shift' : '/dashboard/overview';
+      userRole === 'driver' ? '/driver/startseite' : '/dashboard/overview';
     return NextResponse.redirect(redirectUrl);
   }
 

@@ -1,7 +1,7 @@
 /**
  * Google Maps Directions API (server-side only).
  *
- * Exports two functions:
+ * Exports:
  *   - `getDrivingMetrics`            — raw Google Directions call, use only when you explicitly
  *                                       want to bypass the cache (e.g. forced refresh).
  *   - `resolveDrivingMetricsWithCache` — preferred entry point for all callers. Checks
@@ -10,11 +10,11 @@
  *                                       before hitting Google, then writes the result back
  *                                       immediately so concurrent callers on the same route
  *                                       find it in the DB.
+ *   - `getRoutePolyline`             — fleet map routing: duration + decoded overview polyline.
  *
  * `GOOGLE_MAPS_API_KEY` is not exposed to the browser. Do **not** import this module from
  * `'use client'` components — use `@/features/trips/lib/fetch-driving-metrics` (POST
- * `/api/trips/driving-metrics`) instead. Route Handlers, cron jobs, and Node scripts may
- * import directly from this module.
+ * `/api/trips/driving-metrics`) or `POST /api/fleet/routes` for fleet polylines instead.
  *
  * @see docs/driving-metrics-api.md
  */
@@ -60,6 +60,7 @@ interface DirectionsLeg {
 
 interface DirectionsRoute {
   legs?: DirectionsLeg[];
+  overview_polyline?: { points?: string };
 }
 
 interface DirectionsResponse {
@@ -67,10 +68,45 @@ interface DirectionsResponse {
   routes?: DirectionsRoute[];
 }
 
+function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
+  const points: Array<{ lat: number; lng: number }> = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    let shift = 0;
+    let result = 0;
+    let byte: number;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0;
+    result = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
 /** Driving distance and duration as returned by the Google Directions API. */
 export interface DrivingMetrics {
   distanceKm: number;
   durationSeconds: number;
+}
+
+/** Decoded route geometry + duration + distance for fleet map polylines. */
+export interface RouteResult {
+  durationSeconds: number;
+  distanceMeters: number;
+  polylinePoints: Array<{ lat: number; lng: number }>;
 }
 
 /**
@@ -140,6 +176,79 @@ export async function getDrivingMetrics(
     };
   } catch (error) {
     console.error('Error calling Directions API', error);
+    return null;
+  }
+}
+
+/**
+ * Makes a live Directions call and returns decoded overview polyline + duration.
+ * Used by fleet map routing (`POST /api/fleet/routes`). No DB cache.
+ */
+export async function getRoutePolyline(
+  originLat: number,
+  originLng: number,
+  destLat: number,
+  destLng: number
+): Promise<RouteResult | null> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+  if (!apiKey) {
+    console.error('GOOGLE_MAPS_API_KEY is not set');
+    return null;
+  }
+
+  const origin = `${originLat},${originLng}`;
+  const destination = `${destLat},${destLng}`;
+
+  const url = new URL(DIRECTIONS_ENDPOINT);
+  url.searchParams.set('origin', origin);
+  url.searchParams.set('destination', destination);
+  url.searchParams.set('mode', 'driving');
+  url.searchParams.set('units', 'metric');
+  url.searchParams.set('key', apiKey);
+
+  try {
+    const res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!res.ok) {
+      console.error('Directions API HTTP error', res.status, res.statusText);
+      return null;
+    }
+
+    const data = (await res.json()) as DirectionsResponse;
+
+    if (data.status && data.status !== 'OK') {
+      console.error('Directions API status error', data.status);
+      return null;
+    }
+
+    const firstRoute = data.routes?.[0];
+    const firstLeg = firstRoute?.legs?.[0];
+    const durationSeconds = firstLeg?.duration?.value;
+    const distanceMeters = firstLeg?.distance?.value;
+    const encoded = firstRoute?.overview_polyline?.points;
+
+    if (
+      typeof durationSeconds !== 'number' ||
+      typeof distanceMeters !== 'number' ||
+      !encoded
+    ) {
+      console.error(
+        'Directions API missing duration, distance, or overview polyline'
+      );
+      return null;
+    }
+
+    const polylinePoints = decodePolyline(encoded);
+    if (polylinePoints.length === 0) {
+      console.error('Directions API decoded empty polyline');
+      return null;
+    }
+
+    return { durationSeconds, distanceMeters, polylinePoints };
+  } catch (error) {
+    console.error('Error calling Directions API for polyline', error);
     return null;
   }
 }

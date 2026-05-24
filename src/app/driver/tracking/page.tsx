@@ -1,50 +1,26 @@
 'use client';
 
 /**
- * Standort-Tracking — control screen only (consent, status, start/stop).
- * GPS runs in DriverTrackingRoot (driver layout), not on this page.
+ * Standort & Tempo — read-only speed/accuracy display.
+ * GPS runs in DriverTrackingRoot (auto on active/on_break shift), not on this page.
  */
 
 import { Button } from '@/components/ui/button';
-import { TRACKING_CONSENT_STORAGE_KEY } from '@/lib/tracking/constants';
+import { isShiftTrackable } from '@/lib/tracking/constants';
 import { useTracking } from '@/lib/tracking/tracking-context';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
-
-function hasSessionConsent(): boolean {
-  if (typeof window === 'undefined') return false;
-  return sessionStorage.getItem(TRACKING_CONSENT_STORAGE_KEY) === '1';
-}
 
 export default function DriverTrackingPage() {
   const {
     trackingEnabled,
-    setTrackingEnabled,
     status,
     error: trackingError,
     lastPosition,
     profileLoading,
-    profileError
+    profileError,
+    shiftStatus
   } = useTracking();
-
-  const [consented, setConsented] = useState(false);
-
-  useEffect(() => {
-    setConsented(hasSessionConsent());
-  }, []);
-
-  const handleStartConsent = useCallback(() => {
-    sessionStorage.setItem(TRACKING_CONSENT_STORAGE_KEY, '1');
-    setConsented(true);
-    setTrackingEnabled(true);
-  }, [setTrackingEnabled]);
-
-  const handleStopTracking = useCallback(() => {
-    sessionStorage.removeItem(TRACKING_CONSENT_STORAGE_KEY);
-    setConsented(false);
-    setTrackingEnabled(false);
-  }, [setTrackingEnabled]);
 
   if (profileLoading) {
     return (
@@ -65,36 +41,19 @@ export default function DriverTrackingPage() {
     );
   }
 
-  if (!consented) {
-    return (
-      <div className='flex flex-1 flex-col justify-center gap-6 p-6'>
-        <h1 className='text-xl font-semibold'>Standort-Tracking</h1>
-        <p className='text-muted-foreground text-sm leading-relaxed'>
-          Während des Trackings werden Ihre Position, Geschwindigkeit und die
-          GPS-Genauigkeit etwa alle 5 Sekunden an die Zentrale übermittelt.
-          Disponenten sehen Sie auf der Flottenkarte. Sie können das Tracking
-          jederzeit beenden.
-        </p>
-        <p className='text-muted-foreground text-xs'>
-          Hinweis: Nach längerem Wechsel in andere Apps (besonders iOS Safari)
-          kann erneut „Tracking starten“ nötig sein. Tracking läuft in allen
-          Fahrer-Bereichen, sobald es gestartet wurde.
-        </p>
-        <Button size='lg' className='w-full' onClick={handleStartConsent}>
-          Tracking starten
-        </Button>
-        <Button asChild variant='ghost' className='w-full'>
-          <Link href='/driver/startseite'>Ablehnen</Link>
-        </Button>
-      </div>
-    );
-  }
-
   const isActive = trackingEnabled && status === 'tracking';
   const displayError = status === 'error' ? trackingError : null;
+  const hasActiveShift = isShiftTrackable(shiftStatus);
 
   return (
     <div className='flex flex-1 flex-col gap-6 p-6'>
+      <div>
+        <h1 className='text-xl font-semibold'>Standort & Tempo</h1>
+        <p className='text-muted-foreground mt-1 text-sm'>
+          Tracking läuft automatisch während deines Dienstes.
+        </p>
+      </div>
+
       <div className='flex items-center gap-3'>
         <span className='relative flex h-4 w-4'>
           {isActive && (
@@ -108,7 +67,11 @@ export default function DriverTrackingPage() {
           />
         </span>
         <span className='text-sm font-medium'>
-          {isActive ? 'Tracking aktiv' : 'Tracking inaktiv'}
+          {isActive
+            ? 'Tracking aktiv'
+            : hasActiveShift
+              ? 'Tracking startet…'
+              : 'Kein aktiver Dienst'}
         </span>
       </div>
 
@@ -129,29 +92,6 @@ export default function DriverTrackingPage() {
 
       {displayError && (
         <p className='text-destructive text-center text-sm'>{displayError}</p>
-      )}
-
-      {trackingEnabled ? (
-        <Button
-          variant='outline'
-          size='lg'
-          className='w-full'
-          onClick={handleStopTracking}
-        >
-          Tracking beenden
-        </Button>
-      ) : (
-        <Button
-          size='lg'
-          className='w-full'
-          onClick={() => {
-            sessionStorage.setItem(TRACKING_CONSENT_STORAGE_KEY, '1');
-            setConsented(true);
-            setTrackingEnabled(true);
-          }}
-        >
-          Tracking fortsetzen
-        </Button>
       )}
     </div>
   );

@@ -12,7 +12,8 @@ This document describes the driver (Fahrer) subsystem: admin management, mobile 
 ## Overview
 
 - **Admin (company roster)**: Create accounts, set passwords, assign roles (driver/admin), edit details, credentials, deactivate/reactivate. Located under Account → Benutzer at `/dashboard/users`.
-- **Driver app**: Mobile-first shift tracker at `/driver/shift` — Start / Pause / End shift.
+- **Admin (driver planning)**: Week schedule planner at `/dashboard/fahrerschichtplanung` — see [driver-planning.md](driver-planning.md).
+- **Driver app**: Mobile-first portal at `/driver/*`. Live shift control on `/driver/startseite`; manual Schichtenzettel (time entry + history) on `/driver/shift`.
 - **Auth**: Role-based redirect after sign-in — drivers → `/driver/shift`, admins → `/dashboard/overview`.
 
 ---
@@ -23,6 +24,7 @@ This document describes the driver (Fahrer) subsystem: admin management, mobile 
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `accounts`        | User profiles with `role` (`driver` \| `admin`), `company_id`, `is_active`. Renamed from `users` to avoid confusion with `auth.users`. |
 | `driver_profiles` | Driver-specific data: `license_number`, `default_vehicle_id`, address fields. **Only `role = 'driver'` accounts** should have rows; admins do not. |
+| `driver_day_plans` | Admin schedule plan per driver per calendar day — see [driver-planning.md](driver-planning.md) |
 | `shifts`          | Shift records: `driver_id`, `vehicle_id`, `started_at`, `ended_at`, `status`                                                           |
 | `shift_events`    | Event log: `shift_id`, `event_type`, `lat`, `lng`, `metadata`, `timestamp`                                                             |
 | `vehicles`        | Company vehicles for shift assignment                                                                                                  |
@@ -33,7 +35,7 @@ This document describes the driver (Fahrer) subsystem: admin management, mobile 
 - **shifts.status**: `active` \| `on_break` \| `ended`
 - **shift_events.event_type**: `shift_start` \| `break_start` \| `break_end` \| `shift_end`
 
-Defined in `src/features/drivers/types.ts`.
+Defined in `src/features/driver-portal/types.ts`.
 
 ---
 
@@ -76,18 +78,33 @@ As of migration [`20260521224017_make_update_driver_role_aware.sql`](../supabase
 
 ## Driver App
 
-- **Route**: `/driver/shift`
-- **Layout**: Mobile-first, no sidebar, safe-area aware
-- **Shift states**: idle → active → on_break → active → ended
+| Route | Purpose |
+| --- | --- |
+| `/driver/startseite` | Home: live shift widget (start / pause / end) + today's trips |
+| `/driver/shift` | Schichtenzettel: manual time entry + read-only shift history |
+| `/driver/touren` | Trip list |
+| `/driver/tracking` | GPS consent + live location |
 
-### Shift Tracker
+### Live shift (Startseite)
 
-- **Idle**: "Schicht starten" + optional vehicle selector
+- **Idle**: "Schicht starten"
 - **Active**: Elapsed timer, "Pause", "Schicht beenden"
 - **On break**: Break timer, "Pause beenden"
 - **Ended**: Total duration summary
 
 Each action writes to `shift_events` and updates `shifts.status`. Optional GPS via `navigator.geolocation`.
+
+### Schichtenzettel (`/driver/shift`)
+
+Manual Zeiterfassung form (date, start, end, optional breaks) plus read-only history. Does **not** include the live shift tracker.
+
+---
+
+## Admin: Fahrerschichtplanung
+
+- **Route**: `/dashboard/fahrerschichtplanung`
+- **Nav**: Account → Fahrerschichtplanung
+- **Docs**: [driver-planning.md](driver-planning.md)
 
 ---
 
@@ -116,17 +133,17 @@ Drivers are split into two features by audience. See [feature-folder-structure.m
 src/
 ├── app/
 │   ├── api/drivers/create/route.ts
+│   ├── dashboard/fahrerschichtplanung/page.tsx
 │   ├── dashboard/drivers/page.tsx
 │   └── driver/
 │       ├── layout.tsx
 │       ├── page.tsx
 │       └── shift/page.tsx
 ├── features/
-│   ├── driver-management/     # Admin: /dashboard/drivers
-│   │   ├── api/drivers.service.ts
-│   │   ├── components/       # driver-form, drivers-column-view, drivers-table, etc.
-│   │   ├── stores/use-driver-form-store.ts
-│   │   └── types.ts
+│   ├── driver-management/     # Admin: /dashboard/users
+│   ├── driver-planning/       # Admin: /dashboard/fahrerschichtplanung
+│   │   ├── api/driver-planning.service.ts
+│   │   └── components/
 │   └── driver-portal/         # Driver: /driver/*
 │       ├── api/shifts.service.ts
 │       ├── components/       # driver-header, shift-tracker

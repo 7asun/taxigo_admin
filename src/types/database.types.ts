@@ -514,6 +514,81 @@ export type Database = {
           }
         ];
       };
+      // TODO: regenerate with `supabase gen types` after migration (entire table)
+      driver_day_plans: {
+        Row: {
+          id: string;
+          company_id: string;
+          driver_id: string;
+          plan_date: string;
+          status: string;
+          planned_start: string | null;
+          planned_end: string | null;
+          vehicle_id: string | null;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          driver_id: string;
+          plan_date: string;
+          status: string;
+          planned_start?: string | null;
+          planned_end?: string | null;
+          vehicle_id?: string | null;
+          notes?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          driver_id?: string;
+          plan_date?: string;
+          status?: string;
+          planned_start?: string | null;
+          planned_end?: string | null;
+          vehicle_id?: string | null;
+          notes?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'driver_day_plans_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'driver_day_plans_driver_id_fkey';
+            columns: ['driver_id'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'driver_day_plans_vehicle_id_fkey';
+            columns: ['vehicle_id'];
+            isOneToOne: false;
+            referencedRelation: 'vehicles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'driver_day_plans_created_by_fkey';
+            columns: ['created_by'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       driver_profiles: {
         Row: {
           created_at: string | null;

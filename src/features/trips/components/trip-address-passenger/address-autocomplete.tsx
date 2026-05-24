@@ -50,6 +50,7 @@ interface AddressAutocompleteProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  popoverClassName?: string;
 }
 
 export function AddressAutocomplete({
@@ -58,7 +59,8 @@ export function AddressAutocomplete({
   onSelectCallback,
   placeholder = 'Adresse suchen...',
   disabled = false,
-  className
+  className,
+  popoverClassName
 }: AddressAutocompleteProps) {
   const [open, setOpen] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<AddressResult[]>([]);
@@ -300,7 +302,10 @@ export function AddressAutocomplete({
         </div>
       </PopoverTrigger>
       <PopoverContent
-        className='w-[var(--radix-popover-trigger-width)] p-0'
+        className={cn(
+          'w-[var(--radix-popover-trigger-width)] p-0',
+          popoverClassName
+        )}
         align='start'
         onOpenAutoFocus={(e) => e.preventDefault()}
       >

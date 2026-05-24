@@ -43,7 +43,7 @@ export default async function DashboardLayout({
     redirect('/auth/sign-in');
   }
   if (account.role !== 'admin') {
-    redirect('/driver/shift');
+    redirect('/driver/startseite');
   }
 
   // Persisting the sidebar state in the cookie.

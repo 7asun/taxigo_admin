@@ -11,11 +11,7 @@ export default async function FleetPage() {
   await assertAdminOrRedirect();
 
   return (
-    <PageContainer
-      scrollable={false}
-      pageTitle='Flottenübersicht'
-      pageDescription='Aktuelle Positionen Ihrer Fahrer (ca. 5 Sekunden Aktualisierung).'
-    >
+    <PageContainer scrollable={false} pageTitle='Flottenübersicht'>
       <FleetPageContent />
     </PageContainer>
   );

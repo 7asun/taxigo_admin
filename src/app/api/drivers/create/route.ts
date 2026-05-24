@@ -26,9 +26,49 @@ type CreateDriverBody = {
   default_vehicle_id?: string | null;
 };
 
+type StepError = {
+  message?: string;
+  code?: string;
+  details?: string;
+};
+
+function logStepError(step: string, error: unknown): void {
+  const err = error as StepError;
+  console.error(`[drivers/create] ${step}`, {
+    step,
+    message: err.message,
+    code: err.code,
+    details: err.details
+  });
+}
+
+function stepErrorResponse(
+  step: string,
+  error: unknown,
+  status: number
+): NextResponse {
+  logStepError(step, error);
+  const err = error as StepError;
+  return NextResponse.json(
+    {
+      error: err.message ?? 'Unknown error',
+      step,
+      code: err.code ?? null,
+      details: err.details ?? null
+    },
+    { status }
+  );
+}
+
 export async function POST(request: Request) {
   try {
-    const auth = await requireAdmin();
+    let auth: Awaited<ReturnType<typeof requireAdmin>>;
+    try {
+      auth = await requireAdmin();
+    } catch (err: unknown) {
+      return stepErrorResponse('requireAdmin', err, 500);
+    }
+
     if ('error' in auth) {
       return auth.error;
     }
@@ -39,12 +79,18 @@ export async function POST(request: Request) {
 
     if (!supabaseUrl || !serviceRoleKey) {
       return NextResponse.json(
-        { error: 'Missing Supabase configuration' },
+        { error: 'Missing Supabase configuration', step: 'config' },
         { status: 500 }
       );
     }
 
-    const body = (await request.json()) as CreateDriverBody;
+    let body: CreateDriverBody;
+    try {
+      body = (await request.json()) as CreateDriverBody;
+    } catch (err: unknown) {
+      return stepErrorResponse('parseBody', err, 400);
+    }
+
     const {
       email,
       password,
@@ -75,63 +121,104 @@ export async function POST(request: Request) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
-    const { data: newAuthUser, error: createError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true
-      });
+    let newAuthUser: Awaited<
+      ReturnType<typeof supabaseAdmin.auth.admin.createUser>
+    >['data'];
+    try {
+      const { data, error: createError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true
+        });
 
-    if (createError) {
-      return NextResponse.json({ error: createError.message }, { status: 400 });
+      if (createError) {
+        return stepErrorResponse('auth.admin.createUser', createError, 400);
+      }
+
+      newAuthUser = data;
+    } catch (err: unknown) {
+      return stepErrorResponse('auth.admin.createUser', err, 500);
     }
 
     if (!newAuthUser.user) {
       return NextResponse.json(
-        { error: 'Failed to create user' },
+        { error: 'Failed to create user', step: 'auth.admin.createUser' },
         { status: 500 }
       );
     }
 
-    const { error: userError } = await supabaseAdmin.from('accounts').insert({
-      id: newAuthUser.user.id,
-      name: displayName ?? [first_name, last_name].filter(Boolean).join(' '),
-      first_name: first_name ?? null,
-      last_name: last_name ?? null,
-      email: newAuthUser.user.email ?? null,
-      phone: phone ?? null,
-      role,
-      company_id: companyId,
-      is_active: true
-    });
+    try {
+      const { error: userError } = await supabaseAdmin.from('accounts').insert({
+        id: newAuthUser.user.id,
+        name: displayName ?? [first_name, last_name].filter(Boolean).join(' '),
+        first_name: first_name ?? null,
+        last_name: last_name ?? null,
+        email: newAuthUser.user.email ?? null,
+        phone: phone ?? null,
+        role,
+        company_id: companyId,
+        is_active: true
+      });
 
-    if (userError) {
-      await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
-      return NextResponse.json(
-        { error: `Failed to create user profile: ${userError.message}` },
-        { status: 500 }
-      );
+      if (userError) {
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
+        } catch (rollbackErr: unknown) {
+          logStepError('rollback.auth.admin.deleteUser', rollbackErr);
+        }
+        return stepErrorResponse('accounts.insert', userError, 500);
+      }
+    } catch (err: unknown) {
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
+      } catch (rollbackErr: unknown) {
+        logStepError('rollback.auth.admin.deleteUser', rollbackErr);
+      }
+      return stepErrorResponse('accounts.insert', err, 500);
     }
 
     if (role === 'driver') {
-      const { error: profileError } = await supabaseAdmin
-        .from('driver_profiles')
-        .insert({
-          user_id: newAuthUser.user.id,
-          license_number: body.license_number ?? null,
-          default_vehicle_id: body.default_vehicle_id ?? null
-        });
+      try {
+        const { error: profileError } = await supabaseAdmin
+          .from('driver_profiles')
+          .insert({
+            user_id: newAuthUser.user.id,
+            license_number: body.license_number ?? null,
+            default_vehicle_id: body.default_vehicle_id ?? null
+          });
 
-      if (profileError) {
-        await supabaseAdmin
-          .from('accounts')
-          .delete()
-          .eq('id', newAuthUser.user.id);
-        await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
-        return NextResponse.json(
-          { error: `Failed to create driver profile: ${profileError.message}` },
-          { status: 500 }
-        );
+        if (profileError) {
+          try {
+            await supabaseAdmin
+              .from('accounts')
+              .delete()
+              .eq('id', newAuthUser.user.id);
+          } catch (rollbackErr: unknown) {
+            logStepError('rollback.accounts.delete', rollbackErr);
+          }
+          try {
+            await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
+          } catch (rollbackErr: unknown) {
+            logStepError('rollback.auth.admin.deleteUser', rollbackErr);
+          }
+          return stepErrorResponse('driver_profiles.insert', profileError, 500);
+        }
+      } catch (err: unknown) {
+        try {
+          await supabaseAdmin
+            .from('accounts')
+            .delete()
+            .eq('id', newAuthUser.user.id);
+        } catch (rollbackErr: unknown) {
+          logStepError('rollback.accounts.delete', rollbackErr);
+        }
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id);
+        } catch (rollbackErr: unknown) {
+          logStepError('rollback.auth.admin.deleteUser', rollbackErr);
+        }
+        return stepErrorResponse('driver_profiles.insert', err, 500);
       }
     }
 
@@ -144,7 +231,11 @@ export async function POST(request: Request) {
       role
     });
   } catch (err: unknown) {
+    logStepError('unexpected', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: message, step: 'unexpected' },
+      { status: 500 }
+    );
   }
 }

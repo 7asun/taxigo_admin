@@ -3,8 +3,9 @@
 /**
  * Driver layout tracking context — single mount point for useDriverTracking.
  *
- * Why context: GPS must keep running across all /driver/* routes; only the
- * /driver/tracking page controls start/stop and shows status.
+ * Why context: GPS must keep running across all /driver/* routes while shift
+ * is active or on break. Tracking toggles on shift bootstrap and ShiftStatusCard
+ * mutations; /driver/tracking is read-only status only.
  */
 
 import {
@@ -15,8 +16,9 @@ import {
   useState,
   type ReactNode
 } from 'react';
+import { shiftsService } from '@/features/driver-portal/api/shifts.service';
 import { createClient } from '@/lib/supabase/client';
-import { TRACKING_CONSENT_STORAGE_KEY } from '@/lib/tracking/constants';
+import { isShiftTrackable } from '@/lib/tracking/constants';
 import {
   useDriverTracking,
   type LastPosition,
@@ -31,33 +33,46 @@ export type TrackingContextValue = {
   lastPosition: LastPosition | null;
   profileLoading: boolean;
   profileError: string | null;
+  shiftStatus: string | null;
+  setShiftStatus: (status: string | null) => void;
 };
 
 const TrackingContext = createContext<TrackingContextValue | null>(null);
 
-function hasSessionConsent(): boolean {
-  if (typeof window === 'undefined') return false;
-  return sessionStorage.getItem(TRACKING_CONSENT_STORAGE_KEY) === '1';
-}
+const stubContext = (
+  overrides: Partial<TrackingContextValue>
+): TrackingContextValue => ({
+  trackingEnabled: false,
+  setTrackingEnabled: () => {},
+  status: 'idle',
+  error: null,
+  lastPosition: null,
+  profileLoading: false,
+  profileError: null,
+  shiftStatus: null,
+  setShiftStatus: () => {},
+  ...overrides
+});
 
 type TrackingProviderProps = {
   driverId: string;
   companyId: string;
+  initialTrackingEnabled: boolean;
+  initialShiftStatus: string | null;
   children: ReactNode;
 };
 
 export function TrackingProvider({
   driverId,
   companyId,
+  initialTrackingEnabled,
+  initialShiftStatus,
   children
 }: TrackingProviderProps) {
-  const [trackingEnabled, setTrackingEnabled] = useState(false);
-
-  useEffect(() => {
-    if (hasSessionConsent()) {
-      setTrackingEnabled(true);
-    }
-  }, []);
+  const [trackingEnabled, setTrackingEnabled] = useState(
+    initialTrackingEnabled
+  );
+  const [shiftStatus, setShiftStatus] = useState(initialShiftStatus);
 
   const { status, error, lastPosition } = useDriverTracking({
     driverId,
@@ -73,9 +88,11 @@ export function TrackingProvider({
       error,
       lastPosition,
       profileLoading: false,
-      profileError: null
+      profileError: null,
+      shiftStatus,
+      setShiftStatus
     }),
-    [trackingEnabled, status, error, lastPosition]
+    [trackingEnabled, status, error, lastPosition, shiftStatus]
   );
 
   return (
@@ -90,12 +107,16 @@ type DriverTrackingRootProps = {
 };
 
 /**
- * Loads driver profile, restores consent from sessionStorage, mounts tracking.
+ * Loads driver profile + active shift, sets initial tracking state, mounts GPS.
  * Used by the driver app layout shell.
  */
 export function DriverTrackingRoot({ children }: DriverTrackingRootProps) {
   const [driverId, setDriverId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [initialShiftStatus, setInitialShiftStatus] = useState<string | null>(
+    null
+  );
+  const [initialTrackingEnabled, setInitialTrackingEnabled] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
 
@@ -123,8 +144,13 @@ export function DriverTrackingRoot({ children }: DriverTrackingRootProps) {
         return;
       }
 
+      const shift = await shiftsService.getActiveShift(profile.id);
+      const shiftStatus = shift?.status ?? null;
+
       setDriverId(profile.id);
       setCompanyId(profile.company_id);
+      setInitialShiftStatus(shiftStatus);
+      setInitialTrackingEnabled(isShiftTrackable(shiftStatus));
       setProfileLoading(false);
     };
     void init();
@@ -132,17 +158,7 @@ export function DriverTrackingRoot({ children }: DriverTrackingRootProps) {
 
   if (profileLoading) {
     return (
-      <TrackingContext.Provider
-        value={{
-          trackingEnabled: false,
-          setTrackingEnabled: () => {},
-          status: 'idle',
-          error: null,
-          lastPosition: null,
-          profileLoading: true,
-          profileError: null
-        }}
-      >
+      <TrackingContext.Provider value={stubContext({ profileLoading: true })}>
         {children}
       </TrackingContext.Provider>
     );
@@ -151,15 +167,7 @@ export function DriverTrackingRoot({ children }: DriverTrackingRootProps) {
   if (profileError || !driverId || !companyId) {
     return (
       <TrackingContext.Provider
-        value={{
-          trackingEnabled: false,
-          setTrackingEnabled: () => {},
-          status: 'idle',
-          error: null,
-          lastPosition: null,
-          profileLoading: false,
-          profileError
-        }}
+        value={stubContext({ profileLoading: false, profileError })}
       >
         {children}
       </TrackingContext.Provider>
@@ -167,7 +175,12 @@ export function DriverTrackingRoot({ children }: DriverTrackingRootProps) {
   }
 
   return (
-    <TrackingProvider driverId={driverId} companyId={companyId}>
+    <TrackingProvider
+      driverId={driverId}
+      companyId={companyId}
+      initialTrackingEnabled={initialTrackingEnabled}
+      initialShiftStatus={initialShiftStatus}
+    >
       {children}
     </TrackingProvider>
   );

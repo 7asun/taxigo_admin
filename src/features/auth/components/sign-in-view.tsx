@@ -45,7 +45,7 @@ export default function SignInView() {
         .eq('id', userId)
         .single();
       if (profile?.role === 'driver') {
-        targetUrl = '/driver/shift';
+        targetUrl = '/driver/startseite';
       }
     }
 

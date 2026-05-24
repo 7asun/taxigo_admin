@@ -19,8 +19,15 @@ export function isTrackingBusyStatus(status: string): boolean {
   return (TRACKING_BUSY_TRIP_STATUSES as readonly string[]).includes(status);
 }
 
-/** sessionStorage key for Phase 1 GDPR consent (not persisted to DB until Phase 2). */
-export const TRACKING_CONSENT_STORAGE_KEY = 'taxigo_tracking_consent_v1';
+// Why: tracking runs during active and on_break — dispatcher needs
+// to see driver location during breaks (proximity to next trip)
+export const TRACKING_ACTIVE_SHIFT_STATUSES = ['active', 'on_break'] as const;
+
+export function isShiftTrackable(status: string | null | undefined): boolean {
+  return (TRACKING_ACTIVE_SHIFT_STATUSES as readonly string[]).includes(
+    status ?? ''
+  );
+}
 
 /** PostgREST embed hint — verify against database.types Relationships after migration. */
 export const TRACKING_ACCOUNTS_FK = 'live_locations_driver_id_fkey' as const;

@@ -13,6 +13,9 @@
  *  - Touren     (/driver/touren)
  *  - Schichtenzettel (/driver/shift)
  *
+ * /driver/tracking exists for direct URL access (read-only speed display) but
+ * is not listed in the drawer nav.
+ *
  * Active route is highlighted using usePathname().
  * Each nav item has a 48 px minimum tap-target for comfortable thumb use.
  */
@@ -31,7 +34,6 @@ import {
   IconHome,
   IconList,
   IconLogout,
-  IconMapPin,
   IconMenu2
 } from '@tabler/icons-react';
 import Link from 'next/link';
@@ -63,11 +65,6 @@ const NAV_ITEMS: NavItem[] = [
     href: '/driver/shift',
     label: 'Schichtenzettel',
     icon: IconCalendarEvent
-  },
-  {
-    href: '/driver/tracking',
-    label: 'Standort',
-    icon: IconMapPin
   }
 ];
 
@@ -79,7 +76,7 @@ const NAV_ITEMS: NavItem[] = [
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/driver/touren')) return 'Touren';
   if (pathname.startsWith('/driver/shift')) return 'Schichtenzettel';
-  if (pathname.startsWith('/driver/tracking')) return 'Standort';
+  if (pathname.startsWith('/driver/tracking')) return 'Standort & Tempo';
   return 'Startseite';
 }
 
