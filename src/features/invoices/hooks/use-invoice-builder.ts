@@ -499,7 +499,10 @@ export function useInvoiceBuilder(
             trip.resolved_rule && trip.includeApproachFee === false
               ? {
                   ...trip.resolved_rule,
-                  config: { ...trip.resolved_rule.config, approach_fee_net: 0 }
+                  config: {
+                    ...(trip.resolved_rule.config as Record<string, unknown>),
+                    approach_fee_net: 0
+                  }
                 }
               : (trip.resolved_rule ?? null);
 
@@ -558,7 +561,10 @@ export function useInvoiceBuilder(
             !include && baseRule
               ? {
                   ...baseRule,
-                  config: { ...baseRule.config, approach_fee_net: 0 }
+                  config: {
+                    ...(baseRule.config as Record<string, unknown>),
+                    approach_fee_net: 0
+                  }
                 }
               : baseRule;
           const { rate: taxRate } = resolveTaxRate(

@@ -16,7 +16,7 @@
  * Must not perform network I/O.
  */
 
-import { Document, Page, View } from '@react-pdf/renderer';
+import { Document, Page, Text, View } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type {
@@ -54,7 +54,7 @@ import {
 import { InvoicePdfCoverHeaderBrief } from './invoice-pdf-cover-header-brief';
 import { InvoicePdfReferenceBar } from './invoice-pdf-reference-bar';
 import { InvoicePdfFooter } from './invoice-pdf-footer';
-import { PDF_COLORS, styles } from './pdf-styles';
+import { PDF_COLORS, PDF_DRAFT_WATERMARK, styles } from './pdf-styles';
 import type { PdfRenderMode } from '@/features/invoices/lib/pdf-layout-constants';
 import {
   PDF_DIN5008,
@@ -95,6 +95,25 @@ export interface InvoicePdfDocumentProps {
    * Builder preview only.
    */
   excludedTrips?: ExcludedTripRow[];
+  /**
+   * When true, stamps a diagonal "ENTWURF" watermark on every page so a draft PDF
+   * can never be mistaken for an issued invoice. Defaults to false so all existing
+   * (non-draft) callers render byte-identically to before.
+   */
+  showDraftWatermark?: boolean;
+}
+
+/**
+ * Full-page diagonal "ENTWURF" stamp. `fixed` makes @react-pdf repeat it on every
+ * wrapped page of the Page it lives in, so multi-page covers/appendices are all
+ * watermarked. Rendered first inside each Page so it paints under the content.
+ */
+function DraftWatermark() {
+  return (
+    <View style={styles.draftWatermark} fixed>
+      <Text style={styles.draftWatermarkText}>{PDF_DRAFT_WATERMARK.label}</Text>
+    </View>
+  );
 }
 
 function priceResolutionFromLineItem(
@@ -155,7 +174,8 @@ export function InvoicePdfDocument({
   renderMode = 'digital',
   columnProfile: columnProfileProp = null,
   cancelledTrips = [],
-  excludedTrips = []
+  excludedTrips = [],
+  showDraftWatermark = false
 }: InvoicePdfDocumentProps) {
   // Two render paths: 'digital' keeps the existing flow-based header; 'brief' pins the recipient window at 127pt and adds fold marks (Path C: separate Brief header + page-level address window).
   const effectiveProfile =
@@ -422,6 +442,7 @@ export function InvoicePdfDocument({
       author={cp?.legal_name ?? 'Taxigo'}
     >
       <Page size='A4' style={styles.page} wrap>
+        {showDraftWatermark ? <DraftWatermark /> : null}
         {renderMode === 'brief' ? (
           <>
             <View
@@ -566,6 +587,7 @@ export function InvoicePdfDocument({
               }
               wrap
             >
+              {showDraftWatermark ? <DraftWatermark /> : null}
               <InvoicePdfAppendix
                 invoiceNumber={invoice.invoice_number}
                 invoiceCreatedAtIso={invoice.created_at}
@@ -591,6 +613,7 @@ export function InvoicePdfDocument({
           }
           wrap
         >
+          {showDraftWatermark ? <DraftWatermark /> : null}
           <InvoicePdfAppendix
             invoiceNumber={invoice.invoice_number}
             invoiceCreatedAtIso={invoice.created_at}
@@ -619,6 +642,7 @@ export function InvoicePdfDocument({
           }
           wrap
         >
+          {showDraftWatermark ? <DraftWatermark /> : null}
           <InvoicePdfAppendix
             invoiceNumber={invoice.invoice_number}
             invoiceCreatedAtIso={invoice.created_at}
@@ -647,6 +671,7 @@ export function InvoicePdfDocument({
           }
           wrap
         >
+          {showDraftWatermark ? <DraftWatermark /> : null}
           <InvoicePdfAppendix
             invoiceNumber={invoice.invoice_number}
             invoiceCreatedAtIso={invoice.created_at}

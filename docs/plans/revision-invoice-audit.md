@@ -439,4 +439,37 @@ When mapping `InvoiceLineItemRow` → `BuilderLineItem`:
 
 ---
 
+## 9. Implementation status — Step 1 (Phase A) — DONE (2026-05-29)
+
+Migration: [`20260529080000_draft_invoice_editing_foundation.sql`](../../supabase/migrations/20260529080000_draft_invoice_editing_foundation.sql).
+
+| Item | Status |
+|------|--------|
+| `payers.revision_invoices_enabled BOOLEAN NOT NULL DEFAULT false` | Done |
+| `replace_draft_invoice_line_items(uuid, jsonb)` SECURITY DEFINER RPC (admin + company + `status='draft'` guards; atomic delete+insert; server-side totals) | Done |
+| Reusable `ENTWURF` draft watermark (`showDraftWatermark` prop, `PDF_DRAFT_WATERMARK` constants) | Done |
+| Watermark wired: detail downloads + preview route (`status==='draft'`), builder live preview (unconditional) | Done |
+
+### Server-side totals vs. create flow (confirmed)
+
+The create flow **computes totals client-side** and passes them as insert values: [`use-invoice-builder.ts`](../../src/features/invoices/hooks/use-invoice-builder.ts) L605-621 calls `calculateInvoiceTotals`, then `createInvoice({ subtotal, taxAmount, total })` writes them directly to the `invoices` row (L673-681). The DB never verifies them. The new RPC closes that gap by recomputing the header from the persisted line items (faithful port of `calculateInvoiceTotals`, `billing_included = true` only). This is the safer authoritative pattern; the save path (later phase) must route draft edits through the RPC.
+
+## Deferred items (read before planning Step 3)
+
+These are concrete, intentionally-deferred follow-ups — not passing remarks.
+
+### D1 — Persisted `is_manual_gross_override` marker (exact totals parity)
+
+**Why deferred:** `calculateInvoiceTotals` treats admin gross-overrides (`applyGrossOverrideToResolution`, [resolve-trip-price.ts](../../src/features/invoices/lib/resolve-trip-price.ts) L549-575) as **gross-fixed**, driven by the builder-only `manualGrossTotal` flag. That flag is **not persisted** — `lineItemToInsertRow` ([invoice-line-items.api.ts](../../src/features/invoices/api/invoice-line-items.api.ts) L882-935) never stores it, and the only persisted signal is the German note string `'Manuell überschrieben (Bruttoeingabe)'`. Keying legal totals on a human-readable string is too fragile, and adding a persisted column was forbidden in Step 1 by the hard rule "No changes to create flow yet".
+
+**What Step 1 does instead:** the RPC special-cases **only** the cleanly-detectable `client_price_tag` gross-anchor branch; manual-gross-override lines flow through the net-anchor path. This yields a **bit-identical `subtotal`** (the line net is `gross/(1+rate)` either way) and differs from the TS only in **`total`/`tax_amount` by ≤1 cent per tax-rate bucket**, and only when an override line is mixed with other lines at the same rate.
+
+**Concrete fix when the save path lands:** persist an explicit `is_manual_gross_override BOOLEAN` (a column on `invoice_line_items`, or a stable boolean field inside `price_resolution_snapshot`) in the regenerated insert path, and extend `replace_draft_invoice_line_items` to route flagged lines through the gross-fixed branch (`grossFixed += gross`; `priceTagNet += gross/(1+rate)`). That restores bit-exact `total` parity with `calculateInvoiceTotals`. Add a parity unit test (TS `calculateInvoiceTotals` vs. RPC) covering a mixed override + net-anchor invoice.
+
+### D2 — Regenerate `database.types.ts` before Step 3 (HARD PREREQUISITE)
+
+The Step 3 "Bearbeiten" button must read `payers.revision_invoices_enabled`. The generated [`src/types/database.types.ts`](../../src/types/database.types.ts) does **not** yet include this column (Step 1 deliberately skipped the regen since no TS reads it). **Regenerate the Supabase types before wiring the flag**, otherwise TypeScript silently infers `any` for the payer object and the flag check passes/fails at runtime with no compile-time signal. Run the project's Supabase type-gen and verify `revision_invoices_enabled: boolean` appears on the `payers` row type.
+
+---
+
 *End of audit.*

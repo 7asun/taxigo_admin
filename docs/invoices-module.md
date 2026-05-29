@@ -54,6 +54,20 @@ The **Fahrten** list ([`trips-listing.tsx`](../src/features/trips/components/tri
 - **Storno:** After a Storno, the original invoice is `corrected` (ignored) and the Stornorechnung exists as **`draft`** until sent or paid, so the trip correctly shows **Entwurf** for the open Storno invoice.
 - **List filter:** URL param `invoice_status` (`trips-filters-bar.tsx`) restricts rows to trips whose effective status matches. The RSC prefers Postgres RPC **`trip_ids_matching_invoice_effective_status`** (migration `20260411140000_trip_ids_matching_invoice_effective_status.sql`). If the RPC is not deployed yet (**PGRST202**), [`resolveInvoiceStatusTripFilter`](../src/features/trips/lib/resolve-invoice-status-trip-filter.ts) falls back to a paginated read of `invoice_line_items` + the same effective-status rules (`paid` / `sent` / `draft` use `.in('id', …)`; **uninvoiced** uses `.not('id', 'in', …)` for trips that have any draft/sent/paid line). Apply the migration for better performance on large datasets.
 
+### 1.6 Draft invoice editing foundation (Phase A)
+
+Drafts may be re-opened and edited; **sent / paid / cancelled / corrected stay immutable** (Storno only). Migration: [`20260529080000_draft_invoice_editing_foundation.sql`](../supabase/migrations/20260529080000_draft_invoice_editing_foundation.sql).
+
+- **Per-payer flag `payers.revision_invoices_enabled`** (`BOOLEAN NOT NULL DEFAULT false`): gates whether a Kostenträger's draft invoices may be re-opened. Follows the existing per-payer feature-flag pattern (`manual_km_enabled`, `reha_schein_enabled`). No TypeScript reads it yet (gate UI is a later phase).
+- **RPC `replace_draft_invoice_line_items(p_invoice_id UUID, p_line_items JSONB)`** — `SECURITY DEFINER`, mirrors the [`create_storno_invoice`](../supabase/migrations/20260411120000_storno_atomic_rpc.sql) pattern rather than broadening RLS:
+  - Guards: `current_user_is_admin()`, invoice belongs to `current_user_company_id()`, and **`status = 'draft'`** (the immutability guard — non-drafts raise `23514`). `invoice_line_items` still has no client UPDATE/DELETE policies; the RPC is the only mutation path.
+  - Atomically deletes the existing line items, inserts the replacement rows from the JSONB array (same column shape as the Storno insert, incl. `billing_included` / `is_cancelled_trip`), and recomputes header totals.
+  - **Server-side totals (authoritative).** Unlike `createInvoice`, which computes `subtotal`/`tax_amount`/`total` **client-side** in [`use-invoice-builder.ts`](../src/features/invoices/hooks/use-invoice-builder.ts) and passes them as insert values (the DB never verifies them today), this RPC recomputes the header from the persisted line items so the stored total can never desync from the stored lines. The recompute is a faithful port of [`calculateInvoiceTotals`](../src/features/invoices/api/invoice-line-items.api.ts): only `billing_included = true` rows count; `client_price_tag` gross-anchor lines sum `gross × qty` (+ grossed-up Anfahrt) while net-anchor lines accumulate net per tax-rate bucket and round VAT once per bucket; `tax_amount = total − subtotal`.
+  - **Manual gross overrides:** intentionally **not** special-cased (see [revision-invoice-audit.md](plans/revision-invoice-audit.md) §"Deferred"). They are routed through the net-anchor path, which yields a bit-identical `subtotal` and differs from the TS only by ≤1 cent of `total`/`tax_amount` in mixed-rate invoices. The exact fix (a persisted `is_manual_gross_override` marker) is a deferred item for when the save path is wired.
+- **Draft watermark:** see the PDF Layout System section below.
+
+> **NOTE (out of scope this phase):** builder hydration from an `invoiceId`, the edit route, the "Bearbeiten" button, and the save path that actually calls `replace_draft_invoice_line_items` are deferred to later phases. The RPC is therefore not invoked from the app yet.
+
 ---
 
 ## PDF Layout System
@@ -68,6 +82,14 @@ Single source of truth (shared with Angebote): `src/features/invoices/lib/pdf-la
 Rule: **All PDF spacing values must come from `pdf-layout-constants.ts`. No magic numbers in any PDF component.**
 
 Cross-reference: **Shared with Angebote module — both import from `src/features/invoices/lib/pdf-layout-constants.ts`.**
+
+### Draft watermark (`ENTWURF`)
+
+[`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) accepts an optional `showDraftWatermark?: boolean` prop (**default `false`** — non-draft output stays byte-identical). When `true`, a diagonal light-gray `ENTWURF` stamp is rendered as the first child of **every** `Page` (cover + each appendix variant) using `fixed` so it repeats on wrapped pages and sits under the content. Size / colour / opacity / rotation live in `PDF_DRAFT_WATERMARK` in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (no magic numbers).
+
+Wiring:
+- **Detail downloads** ([`invoice-detail/index.tsx`](../src/features/invoices/components/invoice-detail/index.tsx), both Digital + Brief) and **preview route** ([`invoice-pdf-preview.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-preview.tsx)): `showDraftWatermark={invoice.status === 'draft'}`.
+- **Builder live preview** ([`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx)): `showDraftWatermark={true}` unconditionally — the builder only ever previews a draft (unsaved or saved-draft), and that preview is the most likely to be screenshotted/printed before saving, so it must never look final.
 
 Brief mode implementation note (Path C):
 

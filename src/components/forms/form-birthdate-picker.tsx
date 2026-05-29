@@ -141,7 +141,7 @@ function formatBirthdateForInput(date: Date | null | undefined): string {
 interface FormBirthdatePickerProps<
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
-> extends BaseFormFieldProps<TFieldValues, TName> {
+> extends Omit<BaseFormFieldProps<TFieldValues, TName>, 'control'> {
   form: UseFormReturn<TFieldValues>;
 }
 
@@ -167,7 +167,7 @@ export function FormBirthdatePicker<
       render={({ field }) => {
         // Sync local text input value when the underlying form field value changes
         React.useEffect(() => {
-          if (field.value instanceof Date) {
+          if ((field.value as unknown) instanceof Date) {
             setInputValue(formatBirthdateForInput(field.value));
           } else {
             setInputValue('');

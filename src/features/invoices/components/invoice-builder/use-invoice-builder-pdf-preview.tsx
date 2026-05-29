@@ -271,6 +271,10 @@ export function useInvoiceBuilderPdfPreview(
           columnProfile={columnProfile}
           cancelledTrips={passiveCancelledTrips}
           excludedTrips={excludedTrips}
+          // why: the builder only ever previews a draft (unsaved or saved-draft),
+          // and this preview is the most likely to be screenshotted/printed before
+          // saving — always stamp ENTWURF, no status check needed here.
+          showDraftWatermark={true}
         />
       );
     }, delayMs);

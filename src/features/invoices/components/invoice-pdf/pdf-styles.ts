@@ -47,6 +47,22 @@ export const PDF_FONT_SIZES = {
   xxl: 20
 } as const;
 
+/**
+ * Draft watermark ("ENTWURF") configuration. Centralised here (no magic numbers)
+ * so the diagonal stamp on draft PDFs is tuned in one place.
+ *
+ * Visible but non-obstructive: a large, low-opacity light-gray word rotated
+ * across the page so a draft can never be mistaken for an issued invoice, while
+ * the underlying text stays legible.
+ */
+export const PDF_DRAFT_WATERMARK = {
+  label: 'ENTWURF',
+  fontSize: 110, // large enough to read across the page diagonal
+  color: '#94a3b8', // slate-400 — light gray, readable but clearly secondary
+  opacity: 0.18, // low so body text below stays fully legible
+  rotationDeg: -45 // classic diagonal stamp orientation
+} as const;
+
 export const styles = StyleSheet.create({
   // ── Document / Page ────────────────────────────────────────────────────────
   // DIN 5008: ~20 mm oberer Rand; Empfängeranschrift erste Zeile ~50 mm vom Blattanfang
@@ -546,6 +562,30 @@ export const styles = StyleSheet.create({
 
   appendixHeaderFixed: {
     marginBottom: 8
+  },
+
+  // ── Draft watermark ──────────────────────────────────────────────────────
+  /**
+   * Full-page diagonal "ENTWURF" stamp. Absolutely positioned and stretched to
+   * the whole page so the rotated, centered text sits over the content; the
+   * caller adds `fixed` so it repeats on every wrapped page. Colour/size/opacity
+   * come from PDF_DRAFT_WATERMARK to avoid magic numbers.
+   */
+  draftWatermark: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  draftWatermarkText: {
+    fontFamily: 'Helvetica-Bold',
+    fontSize: PDF_DRAFT_WATERMARK.fontSize,
+    color: PDF_DRAFT_WATERMARK.color,
+    opacity: PDF_DRAFT_WATERMARK.opacity,
+    transform: `rotate(${PDF_DRAFT_WATERMARK.rotationDeg}deg)`
   },
 
   // ── Header Top Right ───────────────────────────────────────────────────────
