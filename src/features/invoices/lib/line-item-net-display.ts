@@ -3,7 +3,10 @@
  * `fixed_below_threshold_then_km`): `BuilderLineItem.unit_price` is **net per km**
  * (so `unit_price × quantity` = line net), but the UI must show the **line net total**.
  */
-import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
+import type {
+  BuilderCancelledTripRow,
+  BuilderLineItem
+} from '@/features/invoices/types/invoice.types';
 
 /** Line net (€) to show in the price column; null if price still missing. */
 export function lineItemNetAmountForDisplay(
@@ -50,6 +53,30 @@ export function lineItemGrossTotalForDisplay(
   return (
     Math.round((transportNet + approach) * (1 + item.tax_rate) * 100) / 100
   );
+}
+
+/**
+ * Total gross for display on opted-in cancelled trip rows (Bruttopreis column).
+ * Same rules as {@link lineItemGrossTotalForDisplay}: transport net + approach net,
+ * then VAT — `price_resolution.gross` alone omits Anfahrt.
+ */
+export function cancelledTripGrossTotalForDisplay(
+  trip: BuilderCancelledTripRow
+): number | null {
+  if (trip.manualGrossTotal !== null && trip.manualGrossTotal !== undefined) {
+    return trip.manualGrossTotal;
+  }
+  if (trip.unit_price === null || trip.unit_price === undefined) {
+    return null;
+  }
+  const pr = trip.price_resolution;
+  if (!pr) return null;
+  const q = trip.quantity ?? 1;
+  const approach = trip.approach_fee_net ?? 0;
+  const taxRate = trip.tax_rate ?? 0;
+  const transportNet =
+    pr.net !== null && pr.net !== undefined ? pr.net : trip.unit_price * q;
+  return Math.round((transportNet + approach) * (1 + taxRate) * 100) / 100;
 }
 
 /**

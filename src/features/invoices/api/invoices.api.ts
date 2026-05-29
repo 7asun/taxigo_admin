@@ -26,6 +26,7 @@ import {
   rechnungsempfaengerRowToSnapshot
 } from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
 import { parseClientReferenceFieldsFromDb } from '@/features/clients/lib/client-reference-fields.schema';
+import type { Json } from '@/types/database.types';
 import type {
   InvoiceRow,
   InvoiceWithPayer,
@@ -147,7 +148,7 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       payer:payers(
         id, name, number,
         street, street_number, zip_code, city, contact_person, email,
-        pdf_vorlage_id
+        pdf_vorlage_id, revision_invoices_enabled
       ),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,
@@ -315,6 +316,93 @@ export async function createInvoice(
   if (!data) throw new Error('Rechnung konnte nicht erstellt werden');
 
   return data as unknown as InvoiceRow;
+}
+
+// ─── Update draft invoice (re-open & edit) ──────────────────────────────────
+
+export interface UpdateDraftInvoicePayload {
+  invoiceId: string;
+  /** Draft-safe meta header fields (resolved 'none' -> null by the caller). */
+  introBlockId: string | null;
+  outroBlockId: string | null;
+  paymentDueDays: number;
+  rechnungsempfaengerId: string | null;
+  pdfColumnOverride?: Record<string, unknown> | null;
+  /**
+   * Line items already serialized into the invoice_line_items column shape
+   * (same array `create_storno_invoice` / `insertLineItems` produce). Serialized
+   * by the caller (the builder hook) via lineItemToInsertRow /
+   * cancelledTripToInsertRow so this API layer stays free of builder logic.
+   */
+  lineItemRows: Record<string, unknown>[];
+}
+
+/**
+ * Saves edits to an existing DRAFT invoice (re-open workflow, Phase C).
+ *
+ * Only mutates draft-safe fields. The invoice number, payer, company, mode,
+ * billing scope, period, client, and status are NEVER touched here — drafts keep
+ * their identity through the edit lifecycle (legal rule: issued invoices stay
+ * immutable and are corrected via Storno, not edited).
+ *
+ * Totals are NOT accepted from the client: the RPC recomputes
+ * subtotal/tax_amount/total server-side from the persisted lines, so the stored
+ * header can never desync from the stored lines.
+ *
+ * @throws If the RPC rejects (e.g. invoice is no longer a draft) or the meta
+ *         update fails. The RPC runs its delete+insert+totals atomically.
+ */
+export async function updateDraftInvoice(
+  payload: UpdateDraftInvoicePayload
+): Promise<void> {
+  const supabase = createClient();
+
+  // Step A: atomic line-item replacement + authoritative server-side totals.
+  // why: the RPC owns the status='draft' + company-ownership guard and the totals
+  // recompute; calling it first means a non-draft invoice is rejected before any
+  // meta field is touched.
+  const { error: rpcError } = await supabase.rpc(
+    'replace_draft_invoice_line_items',
+    {
+      p_invoice_id: payload.invoiceId,
+      p_line_items: payload.lineItemRows as unknown as Json
+    }
+  );
+  if (rpcError) throw toQueryError(rpcError);
+
+  // Step B: re-freeze the recipient snapshot from the live recipient row.
+  // why: a draft is not yet an issued §14 UStG document, so the snapshot should
+  // reflect the latest draft state (payer is locked in edit mode, so the recipient
+  // stays within the same payer's catalog).
+  let rechnungsempfaenger_snapshot: Record<string, unknown> | null = null;
+  if (payload.rechnungsempfaengerId) {
+    const row = await RechnungsempfaengerService.getById(
+      payload.rechnungsempfaengerId
+    );
+    if (row) {
+      rechnungsempfaenger_snapshot = rechnungsempfaengerRowToSnapshot(row);
+    }
+  }
+
+  // Step C: update ONLY draft-safe meta fields. The `.eq('status', 'draft')`
+  // mirrors the RPC guard as defence-in-depth — admins can update own-company
+  // invoices via RLS, so this prevents mutating a non-draft even if it slipped
+  // past the route guard. Totals/number/payer/status are intentionally absent.
+  const { error: updError } = await supabase
+    .from('invoices')
+    .update({
+      intro_block_id: payload.introBlockId,
+      outro_block_id: payload.outroBlockId,
+      payment_due_days: payload.paymentDueDays,
+      rechnungsempfaenger_id: payload.rechnungsempfaengerId,
+      rechnungsempfaenger_snapshot,
+      pdf_column_override: payload.pdfColumnOverride ?? null,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', payload.invoiceId)
+    .eq('status', 'draft');
+
+  if (updError) throw toQueryError(updError);
 }
 
 // ─── Update invoice status ─────────────────────────────────────────────────────

@@ -41,9 +41,11 @@ import type { PriceResolution } from '../types/pricing.types';
 import type {
   TripForInvoice,
   CancelledTripRow,
+  BuilderCancelledTripRow,
   BuilderLineItem,
   InvoiceLineItemRow,
-  TaxBreakdown
+  TaxBreakdown,
+  TotalsLineShape
 } from '../types/invoice.types';
 
 /**
@@ -351,32 +353,64 @@ export async function fetchTripsForBuilder(
 }
 
 /**
- * Cancelled trips for the same scope as {@link fetchTripsForBuilder} — display-only (PDF), no pricing fields.
- * Parallel fetch with the billing query keeps intent explicit and avoids mixing rows into line items.
+ * Cancelled trips for the same scope as {@link fetchTripsForBuilder}.
+ *
+ * The extended select includes all pricing fields needed for billing opt-in
+ * (`buildCancelledTripBillingState`). The narrow passive-appendix path still
+ * works — unused pricing fields are simply ignored there.
+ *
+ * Also returns `clientPriceTags` and `clientKmOverrides` for the cancelled trip
+ * clients — necessary because some clients may have zero normal trips in the
+ * period and their entries would otherwise be absent from the cache seeded by
+ * `fetchTripsForBuilder`. Without this, `buildCancelledTripBillingState` would
+ * resolve the wrong pricing rule for those clients.
  */
 export async function fetchCancelledTripsForBuilder(
   params: FetchTripsForBuilderParams
-): Promise<CancelledTripRow[]> {
+): Promise<{
+  trips: CancelledTripRow[];
+  clientPriceTags: ClientPriceTagLike[];
+  clientKmOverrides: ClientKmOverrideLike[];
+}> {
   const supabase = createClient();
 
   const { variantId, variantIdsForType, abortEmpty } =
     await resolveBillingVariantFilters(params);
   if (abortEmpty) {
-    return [];
+    return { trips: [], clientPriceTags: [], clientKmOverrides: [] };
   }
 
-  // Always fetched for cancelled appendix page — displayed as informational note per row, not used in billing.
+  // why: select mirrors fetchTripsForBuilder — pricing fields are needed when the
+  // admin opts a cancelled trip into billing; unused for passive €0 display.
   let query = supabase
     .from('trips')
     .select(
       `
       id,
+      payer_id,
       scheduled_at,
       pickup_address,
       dropoff_address,
       canceled_reason_notes,
+      client_name,
+      net_price,
+      base_net_price,
+      approach_fee_net,
+      manual_gross_price,
+      driving_distance_km,
+      manual_distance_km,
+      billing_variant_id,
+      kts_document_applies,
+      no_invoice_required,
+      link_type,
+      linked_trip_id,
       driver:accounts!trips_driver_id_fkey(name),
-      client:clients(id, first_name, last_name)
+      payer:payers(rechnungsempfaenger_id, manual_km_enabled),
+      billing_variant:billing_variants(
+        id, code, name, billing_type_id, rechnungsempfaenger_id,
+        billing_type:billing_types(name, rechnungsempfaenger_id)
+      ),
+      client:clients(id, first_name, last_name, price_tag, reference_fields)
     `
     )
     .eq('payer_id', params.payer_id)
@@ -397,7 +431,101 @@ export async function fetchCancelledTripsForBuilder(
 
   const { data, error } = await query;
   if (error) throw toQueryError(error);
-  return (data ?? []) as unknown as CancelledTripRow[];
+  const trips = (data ?? []) as unknown as CancelledTripRow[];
+  const clientIds = [
+    ...new Set(
+      trips
+        .map((t) => t.client?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  ];
+  const [clientPriceTags, clientKmOverrides] = await Promise.all([
+    listClientPriceTagsForClientIds(clientIds),
+    listClientKmOverridesForClientIds(clientIds)
+  ]);
+  return { trips, clientPriceTags, clientKmOverrides };
+}
+
+/**
+ * Prices a single cancelled trip for billing opt-in — runs the same cascade as
+ * `buildLineItemsFromTrips` for one row. Returns the pricing state to merge into
+ * the `BuilderCancelledTripRow` in the hook.
+ *
+ * Requires the trip to have been fetched with the extended pricing fields from
+ * `fetchCancelledTripsForBuilder`.
+ */
+export function buildCancelledTripBillingState(
+  trip: CancelledTripRow,
+  rules: BillingPricingRuleLike[],
+  clientPriceTags: ClientPriceTagLike[] = [],
+  clientKmOverrides: ClientKmOverrideLike[] = []
+): Partial<BuilderCancelledTripRow> {
+  const effectiveDistanceKm = resolveEffectiveDistanceKm({
+    manualDistanceKm: trip.manual_distance_km ?? null,
+    drivingDistanceKm: trip.driving_distance_km ?? null,
+    clientId: trip.client?.id ?? null,
+    payerId: trip.payer_id ?? null,
+    billingVariantId: trip.billing_variant_id ?? null,
+    clientKmOverrides
+  });
+
+  const { rate: taxRate } = resolveTaxRate(effectiveDistanceKm);
+
+  const rule = resolvePricingRule({
+    rules,
+    // why: payer_id may be null on old cancelled trips; empty string falls through to default rule
+    payerId: trip.payer_id ?? '',
+    billingTypeId: trip.billing_variant?.billing_type_id ?? null,
+    billingVariantId: trip.billing_variant_id ?? null,
+    clientId: trip.client?.id ?? null,
+    clientPriceTags
+  });
+
+  const priceResolution = resolveTripPricePure(
+    {
+      kts_document_applies: trip.kts_document_applies === true,
+      net_price: trip.net_price ?? null,
+      base_net_price: trip.base_net_price ?? null,
+      manual_gross_price: trip.manual_gross_price ?? null,
+      driving_distance_km: effectiveDistanceKm,
+      scheduled_at: trip.scheduled_at,
+      // why: narrow client to only price_tag which is what resolveTripPricePure expects
+      client: trip.client ? { price_tag: trip.client.price_tag ?? null } : null
+    },
+    taxRate,
+    rule
+  );
+
+  const clientName = trip.client
+    ? [trip.client.first_name, trip.client.last_name].filter(Boolean).join(' ')
+    : trip.client_name?.trim() || null;
+  void clientName;
+
+  return {
+    price_resolution: priceResolution,
+    resolved_rule: rule ?? null,
+    unit_price: priceResolution.unit_price_net,
+    tax_rate: taxRate,
+    quantity: priceResolution.quantity,
+    approach_fee_net: priceResolution.approach_fee_net ?? null,
+    approach_fee_gross:
+      priceResolution.approach_fee_net != null
+        ? Math.round(priceResolution.approach_fee_net * (1 + taxRate) * 100) /
+          100
+        : null,
+    effective_distance_km: effectiveDistanceKm,
+    original_distance_km: trip.driving_distance_km ?? null,
+    kts_override: priceResolution.strategy_used === 'kts_override',
+    originalPriceResolution: priceResolution,
+    manualGrossTotal: null,
+    manualApproachFeeGross: null,
+    isManualOverride: false,
+    manualDistanceKm: null,
+    isManualKmOverride: false,
+    billing_variant_code: trip.billing_variant?.code ?? null,
+    billing_variant_name: trip.billing_variant?.name ?? null,
+    billing_type_name: trip.billing_variant?.billing_type?.name ?? null
+  };
 }
 
 /** Maps DB pricing rule rows to the shape expected by pure resolvers. */
@@ -557,6 +685,8 @@ export function buildLineItemsFromTrips(
       manualGrossTotal: null,
       manualApproachFeeGross: null,
       isManualOverride: false,
+      // why: normal trips are always included in billing by default; admin can opt out in Step 3.
+      billingInclusion: { included: true, reason: '' },
       trip_meta: buildTripMetaFromTrip(trip),
       price_source: legacyPriceSource(priceResolution.source),
       // why: When net is set, value is line net (transport + approach_fee_net) rounded to
@@ -584,7 +714,7 @@ export function buildLineItemsFromTrips(
 }
 
 export function frozenPriceResolutionForInsert(
-  item: BuilderLineItem
+  item: TotalsLineShape
 ): PriceResolution {
   const u = item.unit_price;
   const pr = item.price_resolution;
@@ -593,7 +723,29 @@ export function frozenPriceResolutionForInsert(
   }
   const prev = pr.unit_price_net;
   if (prev === null || prev === undefined || Math.abs(prev - u) > 0.0001) {
-    return applyManualUnitNetToResolution(item, u);
+    // why: apply manual unit net using the minimal fields available on TotalsLineShape
+    const qty = item.quantity;
+    const tr = item.tax_rate;
+    const netTotal = Math.round(u * qty * 100) / 100;
+    const grossTotal = Math.round(netTotal * (1 + tr) * 100) / 100;
+    const prevNote = pr.note;
+    const manualNote = 'Manuell angepasst';
+    const note =
+      prevNote && !prevNote.includes(manualNote)
+        ? `${prevNote} · ${manualNote}`
+        : prevNote && prevNote.includes(manualNote)
+          ? prevNote
+          : manualNote;
+    return {
+      ...pr,
+      unit_price_net: u,
+      net: netTotal,
+      gross: grossTotal,
+      tax_rate: tr,
+      strategy_used: 'manual_trip_price',
+      source: 'trip_price',
+      note
+    };
   }
   return pr;
 }
@@ -616,7 +768,7 @@ export function frozenPriceResolutionForInsert(
  * implied net into the same rate buckets (display; per-bucket `tax` may differ
  * slightly from the header).
  */
-export function calculateInvoiceTotals(items: BuilderLineItem[]): {
+export function calculateInvoiceTotals(items: TotalsLineShape[]): {
   subtotal: number;
   taxAmount: number;
   total: number;
@@ -724,79 +876,170 @@ export function calculateInvoiceTotals(items: BuilderLineItem[]): {
 // ─── Persist line items ───────────────────────────────────────────────────────
 
 /**
+ * Maps a BuilderLineItem to an invoice_line_items insert row.
+ *
+ * Exported so the draft re-open round-trip tests can assert that
+ * `mapLineItemRowToBuilderLineItem` → this function reproduces the persisted
+ * financial fields exactly. Behavior is unchanged.
+ */
+export function lineItemToInsertRow(
+  invoiceId: string,
+  item: BuilderLineItem
+): Record<string, unknown> {
+  const frozen = frozenPriceResolutionForInsert(item);
+  let total_price: number;
+  if (isGrossAnchorClientPriceTag(frozen)) {
+    total_price =
+      frozen.gross! * item.quantity +
+      (item.approach_fee_net ?? 0) * (1 + item.tax_rate);
+  } else {
+    const transportNet =
+      frozen.net !== null && frozen.net !== undefined
+        ? frozen.net
+        : (item.unit_price ?? 0) * item.quantity;
+    total_price =
+      (transportNet + (item.approach_fee_net ?? 0)) * (1 + item.tax_rate);
+  }
+  return {
+    invoice_id: invoiceId,
+    trip_id: item.trip_id,
+    position: item.position,
+    line_date: item.line_date,
+    description: item.description,
+    client_name: item.client_name,
+    pickup_address: item.pickup_address,
+    dropoff_address: item.dropoff_address,
+    distance_km: item.distance_km,
+    effective_distance_km: item.effective_distance_km ?? null,
+    original_distance_km: item.original_distance_km ?? null,
+    unit_price: item.unit_price ?? 0,
+    quantity: item.quantity,
+    total_price,
+    approach_fee_net: item.approach_fee_net ?? null,
+    tax_rate: item.tax_rate,
+    billing_variant_code: item.billing_variant_code,
+    billing_variant_name: item.billing_variant_name,
+    billing_type_name: item.billing_type_name,
+    pricing_strategy_used: frozen.strategy_used,
+    pricing_source: frozen.source,
+    kts_override: item.kts_override,
+    price_resolution_snapshot: frozen as unknown as Record<string, unknown>,
+    trip_meta_snapshot: item.trip_meta
+      ? (item.trip_meta as unknown as Record<string, unknown>)
+      : null,
+    // why: billing inclusion snapshot — opted-out rows persist for audit + appendix
+    billing_included: item.billingInclusion.included,
+    billing_exclusion_reason: item.billingInclusion.included
+      ? null
+      : item.billingInclusion.reason || null,
+    is_cancelled_trip: false,
+    cancelled_billing_reason: null
+  };
+}
+
+/**
+ * Maps an opted-in BuilderCancelledTripRow to an invoice_line_items insert row.
+ *
+ * Exported for the draft re-open round-trip tests (inverse of
+ * `mapLineItemRowToBuilderCancelledTrip`). Behavior is unchanged.
+ */
+export function cancelledTripToInsertRow(
+  invoiceId: string,
+  trip: BuilderCancelledTripRow,
+  position: number
+): Record<string, unknown> {
+  const frozen = trip.price_resolution
+    ? frozenPriceResolutionForInsert({
+        price_resolution: trip.price_resolution,
+        tax_rate: trip.tax_rate ?? 0,
+        quantity: trip.quantity ?? 1,
+        approach_fee_net: trip.approach_fee_net ?? null,
+        unit_price: trip.unit_price ?? null,
+        manualGrossTotal: trip.manualGrossTotal ?? null
+      })
+    : null;
+
+  const pr = frozen ?? trip.price_resolution;
+  const taxRate = trip.tax_rate ?? 0;
+  const qty = trip.quantity ?? 1;
+  let total_price = 0;
+  if (pr) {
+    if (isGrossAnchorClientPriceTag(pr)) {
+      total_price =
+        pr.gross! * qty + (trip.approach_fee_net ?? 0) * (1 + taxRate);
+    } else {
+      const transportNet =
+        pr.net !== null && pr.net !== undefined
+          ? pr.net
+          : (trip.unit_price ?? 0) * qty;
+      total_price =
+        (transportNet + (trip.approach_fee_net ?? 0)) * (1 + taxRate);
+    }
+  }
+
+  const clientName = trip.client
+    ? [trip.client.first_name, trip.client.last_name].filter(Boolean).join(' ')
+    : trip.client_name?.trim() || null;
+
+  return {
+    invoice_id: invoiceId,
+    trip_id: trip.id,
+    // why: opted-in cancelled rows append after max normal position; position column not shown in PDF for these rows
+    position,
+    line_date: trip.scheduled_at,
+    description: `Storno-Fahrt: ${clientName ?? ''}`,
+    client_name: clientName,
+    pickup_address: trip.pickup_address,
+    dropoff_address: trip.dropoff_address,
+    distance_km: trip.driving_distance_km ?? null,
+    effective_distance_km: trip.effective_distance_km ?? null,
+    original_distance_km: trip.original_distance_km ?? null,
+    unit_price: trip.unit_price ?? 0,
+    quantity: qty,
+    total_price,
+    approach_fee_net: trip.approach_fee_net ?? null,
+    tax_rate: taxRate,
+    billing_variant_code: trip.billing_variant_code ?? null,
+    billing_variant_name: trip.billing_variant_name ?? null,
+    billing_type_name: trip.billing_type_name ?? null,
+    pricing_strategy_used: pr?.strategy_used ?? null,
+    pricing_source: pr?.source ?? null,
+    kts_override: trip.kts_override ?? false,
+    price_resolution_snapshot: pr
+      ? (pr as unknown as Record<string, unknown>)
+      : null,
+    trip_meta_snapshot: null,
+    billing_included: true,
+    billing_exclusion_reason: null,
+    is_cancelled_trip: true,
+    cancelled_billing_reason: trip.billingInclusion.reason || null
+  };
+}
+
+/**
  * Inserts line items for a newly created invoice into the DB.
+ *
+ * @param items - All normal BuilderLineItems (included + excluded — excluded rows persist for audit).
+ * @param optedInCancelledTrips - Cancelled trips the admin opted in for billing.
  */
 export async function insertLineItems(
   invoiceId: string,
-  items: BuilderLineItem[]
+  items: BuilderLineItem[],
+  optedInCancelledTrips: BuilderCancelledTripRow[] = []
 ): Promise<InvoiceLineItemRow[]> {
   const supabase = createClient();
 
   // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
-  const rows = items.map((item) => {
-    const frozen = frozenPriceResolutionForInsert(item);
-    // total_price persisted to invoice_line_items.
-    //
-    // For `client_price_tag` lines, the gross is the anchor (set in resolveTripPrice
-    // P1 branch). We use price_resolution.gross × quantity so that the stored line
-    // gross matches the negotiated tag exactly — no float drift from round(net) × qty.
-    //
-    // For all other strategies (net-anchored), gross is
-    // (transport_net + approach_fee_net) × (1 + tax_rate). Transport net must come
-    // from frozen.net (tieredNetTotal / resolver), not unit_price × quantity — display
-    // per-km unit is round(totalNet / dist), so reconstructing net from unit × qty drifts.
-    //
-    // approach_fee_net is always net-anchored and follows the net-anchor path
-    // regardless of the base transport strategy.
-    let total_price: number;
-    if (isGrossAnchorClientPriceTag(frozen)) {
-      total_price =
-        frozen.gross! * item.quantity +
-        (item.approach_fee_net ?? 0) * (1 + item.tax_rate);
-    } else {
-      const transportNet =
-        frozen.net !== null && frozen.net !== undefined
-          ? frozen.net
-          : (item.unit_price ?? 0) * item.quantity;
-      // why: frozen.net is authoritative tiered (or fallback) transport net; unit × qty
-      // loses precision when unit_price_net is a rounded per-km display rate.
-      total_price =
-        (transportNet + (item.approach_fee_net ?? 0)) * (1 + item.tax_rate);
-      // note: Net-anchor total_price stays an unrounded float here. Draft PDF preview uses
-      // Math.round on line gross — slight insert-vs-preview gap predates this PR; not a
-      // regression from using frozen.net (see build-draft-invoice-detail-for-pdf).
-    }
-    return {
-      invoice_id: invoiceId,
-      trip_id: item.trip_id,
-      position: item.position,
-      line_date: item.line_date,
-      description: item.description,
-      client_name: item.client_name,
-      pickup_address: item.pickup_address,
-      dropoff_address: item.dropoff_address,
-      distance_km: item.distance_km,
-      // why: frozen audit trail — which km was billed vs what Google returned.
-      effective_distance_km: item.effective_distance_km ?? null,
-      original_distance_km: item.original_distance_km ?? null,
-      unit_price: item.unit_price ?? 0,
-      quantity: item.quantity,
-      total_price,
-      approach_fee_net: item.approach_fee_net ?? null,
-      tax_rate: item.tax_rate,
-      billing_variant_code: item.billing_variant_code,
-      billing_variant_name: item.billing_variant_name,
-      billing_type_name: item.billing_type_name,
-      pricing_strategy_used: frozen.strategy_used,
-      pricing_source: frozen.source,
-      kts_override: item.kts_override,
-      // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
-      price_resolution_snapshot: frozen as unknown as Record<string, unknown>,
-      trip_meta_snapshot: item.trip_meta
-        ? (item.trip_meta as unknown as Record<string, unknown>)
-        : null
-    };
-  });
+  const normalRows = items.map((item) => lineItemToInsertRow(invoiceId, item));
+
+  // why: opted-in cancelled trips append after max normal position so they don't
+  // disrupt the position sort order of normal line items in the main PDF table
+  const maxPosition = items.length;
+  const cancelledRows = optedInCancelledTrips.map((trip, i) =>
+    cancelledTripToInsertRow(invoiceId, trip, maxPosition + i + 1)
+  );
+
+  const rows = [...normalRows, ...cancelledRows];
 
   const { data, error } = await supabase
     .from('invoice_line_items')

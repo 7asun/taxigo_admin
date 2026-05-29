@@ -31,6 +31,19 @@ import type { TripStatus } from '@/lib/trip-status';
 // ─── 1. Enums / Union Types ────────────────────────────────────────────────────
 
 /**
+ * Per-trip billing inclusion state tracked in the invoice builder.
+ *
+ * For normal trips: included = true (default); set to false when admin opts out.
+ *   reason = exclusion reason (required when included = false).
+ * For cancelled trips: included = false (default); set to true when admin opts in.
+ *   reason = billing reason (required when included = true).
+ */
+export type BillingInclusionState = {
+  included: boolean;
+  reason: string;
+};
+
+/**
  * Invoice lifecycle states.
  *
  * State machine:
@@ -143,6 +156,24 @@ export interface InvoiceLineItemRow {
   price_resolution_snapshot: Record<string, unknown> | null;
   /** Frozen trip PDF fields (driver, direction) — §14 UStG; separate from pricing snapshot. */
   trip_meta_snapshot?: TripMetaSnapshot | Record<string, unknown> | null;
+  /**
+   * When false this line item is excluded from invoice totals.
+   * Persisted for audit trail and PDF appendix — never deleted.
+   * Default true (DB DEFAULT TRUE). Normal trips only; opted-in cancelled trips
+   * always have billing_included = true with is_cancelled_trip = true.
+   * Optional because pre-migration rows from the DB won't have this column yet.
+   */
+  billing_included?: boolean;
+  /** Mandatory exclusion reason when billing_included = false. Null for included rows. */
+  billing_exclusion_reason?: string | null;
+  /**
+   * True when this row was sourced from a cancelled trip that the admin opted in for billing.
+   * These rows render only in the Stornierte Fahrten billed block — not in the Haupttabelle.
+   * Optional because pre-migration rows from the DB won't have this column yet.
+   */
+  is_cancelled_trip?: boolean;
+  /** Mandatory billing reason when is_cancelled_trip = true and billing_included = true. */
+  cancelled_billing_reason?: string | null;
 }
 
 // ─── 3. Enriched / Joined Types (for UI) ──────────────────────────────────────
@@ -186,6 +217,11 @@ export interface InvoiceDetail extends InvoiceRow {
     email: string | null;
     /** payers.pdf_vorlage_id — PDF column Vorlage; null = use company default / system */
     pdf_vorlage_id?: string | null;
+    /**
+     * payers.revision_invoices_enabled — gates whether this Kostenträger's DRAFT
+     * invoices may be re-opened/edited. Drives the detail-page "Bearbeiten" entry.
+     */
+    revision_invoices_enabled?: boolean;
   } | null;
   client: {
     id: string;
@@ -303,22 +339,114 @@ export interface TripForInvoice {
 }
 
 /**
- * Narrow trip shape for cancelled rows loaded only for optional PDF appendix on the Hauptrechnung.
- * Never pass to pricing or `invoice_line_items` — intentionally incompatible with TripForInvoice.
+ * Narrow trip shape for cancelled rows used in the invoice builder and PDF appendix.
+ *
+ * The base shape covers passive €0 appendix rows (narrow DB fetch).
+ * The extended shape — used when the builder fetches pricing fields for opt-in billing
+ * — additionally carries TripForInvoice-compatible pricing fields (all optional so
+ * narrow fetches remain valid).
  */
 export interface CancelledTripRow {
   id: string;
+  payer_id?: string;
   scheduled_at: string | null;
   pickup_address: string | null;
   dropoff_address: string | null;
-  /** DB `trips.canceled_reason_notes`; appendix sub-line only, never billing. */
+  /** DB `trips.canceled_reason_notes`; passive appendix sub-line only. */
   canceled_reason_notes: string | null;
   client?: {
     id: string;
     first_name: string | null;
     last_name: string | null;
+    /** Client price tag — populated for billing opt-in pricing resolution only. */
+    price_tag?: number | null;
+    reference_fields?: ClientReferenceField[] | null;
   } | null;
   driver?: { name: string | null } | null;
+  /** Denormalized name on the trip row (fallback when client join is absent). */
+  client_name?: string | null;
+
+  // ── Extended pricing fields — populated by billing-opt-in fetch only ─────────
+  // All optional; narrow (passive) fetches leave these undefined.
+  net_price?: number | null;
+  base_net_price?: number | null;
+  approach_fee_net?: number | null;
+  manual_gross_price?: number | null;
+  manual_distance_km?: number | null;
+  driving_distance_km?: number | null;
+  billing_variant_id?: string | null;
+  kts_document_applies?: boolean;
+  no_invoice_required?: boolean;
+  link_type?: string | null;
+  linked_trip_id?: string | null;
+  payer?: {
+    rechnungsempfaenger_id: string | null;
+    manual_km_enabled: boolean;
+  } | null;
+  billing_variant?: {
+    id: string;
+    code: string;
+    name: string;
+    billing_type_id: string;
+    rechnungsempfaenger_id: string | null;
+    billing_type?: {
+      name: string | null;
+      rechnungsempfaenger_id: string | null;
+    } | null;
+  } | null;
+}
+
+/**
+ * Builder-layer enrichment of `CancelledTripRow`.
+ * The hook holds `BuilderCancelledTripRow[]` internally; Step 3 and PDF preview receive this type.
+ *
+ * - `billingInclusion` is always set at fetch-time: `{ included: false, reason: '' }` by default.
+ * - Pricing fields are populated when the admin opts a trip in (via `handleCancelledTripInclusionChange`).
+ */
+export interface BuilderCancelledTripRow extends CancelledTripRow {
+  /** why: runtime inclusion state — not persisted until createInvoice; default opted-out. */
+  billingInclusion: BillingInclusionState;
+
+  // ── Pricing state (populated on opt-in, cleared on opt-out) ─────────────────
+  price_resolution?: PriceResolution | null;
+  resolved_rule?: BillingPricingRuleLike | null;
+  unit_price?: number | null;
+  tax_rate?: number;
+  quantity?: number;
+  approach_fee_gross?: number | null;
+  effective_distance_km?: number | null;
+  original_distance_km?: number | null;
+  kts_override?: boolean;
+  trip_meta?: TripMetaSnapshot | null;
+  billing_variant_code?: string | null;
+  billing_variant_name?: string | null;
+  billing_type_name?: string | null;
+
+  // ── Override state (mirrors BuilderLineItem) ─────────────────────────────────
+  manualGrossTotal?: number | null;
+  manualApproachFeeGross?: number | null;
+  isManualOverride?: boolean;
+  manualDistanceKm?: number | null;
+  isManualKmOverride?: boolean;
+  originalPriceResolution?: PriceResolution;
+  /**
+   * When true (default), approach fee from the pricing rule is included in the
+   * calculated gross. Flag-only when isManualOverride is true — no reprice.
+   * Defaults to true on opt-in.
+   */
+  includeApproachFee?: boolean;
+}
+
+/**
+ * Minimal PDF-only shape for opted-out normal trips shown in the
+ * "Ausgeschlossene Fahrten" appendix section.
+ */
+export interface ExcludedTripRow {
+  line_date: string | null;
+  client_name: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  billing_exclusion_reason: string;
 }
 
 // ─── 4. Zod Schemas (Invoice Builder Form) ────────────────────────────────────
@@ -518,6 +646,14 @@ export interface BuilderLineItem {
    */
   warnings: LineItemWarning[];
 
+  /**
+   * Billing inclusion state for this trip.
+   * Default: `{ included: true, reason: '' }` (all normal trips are included by default).
+   * When the admin opts out, `included` becomes false and `reason` is the required text.
+   * Opted-out rows stay in the array — they are never spliced; they are excluded from totals only.
+   */
+  billingInclusion: BillingInclusionState;
+
   // ── Gross override fields (set by admin in Step 3) ──────────────────────────
 
   /**
@@ -565,6 +701,19 @@ export type LineItemWarning =
   | 'missing_distance'
   | 'zero_price'
   | 'no_invoice_trip';
+
+/**
+ * Minimal shape required for `calculateInvoiceTotals`.
+ * Both `BuilderLineItem` and opted-in `BuilderCancelledTripRow` satisfy this structurally.
+ */
+export interface TotalsLineShape {
+  price_resolution: PriceResolution;
+  tax_rate: number;
+  quantity: number;
+  approach_fee_net: number | null;
+  unit_price: number | null;
+  manualGrossTotal?: number | null;
+}
 
 /** Tax breakdown grouped by rate — used in the totals block of the PDF. */
 export interface TaxBreakdown {

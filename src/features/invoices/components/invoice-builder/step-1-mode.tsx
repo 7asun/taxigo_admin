@@ -54,12 +54,18 @@ interface Step1ModeProps {
   /** Currently selected mode (highlighted card). */
   selectedMode: InvoiceMode | null;
   onSelect: (mode: InvoiceMode) => void;
+  /** Edit mode (draft re-open): mode is frozen — changing it would invalidate snapshots. */
+  locked?: boolean;
 }
 
 /**
  * Step 1 of the invoice builder: mode selection via clickable cards.
  */
-export function Step1Mode({ selectedMode, onSelect }: Step1ModeProps) {
+export function Step1Mode({
+  selectedMode,
+  onSelect,
+  locked = false
+}: Step1ModeProps) {
   return (
     <div className='space-y-6'>
       <div className='grid grid-cols-1 gap-3'>
@@ -67,13 +73,18 @@ export function Step1Mode({ selectedMode, onSelect }: Step1ModeProps) {
           <button
             key={mode}
             type='button'
-            onClick={() => onSelect(mode)}
+            disabled={locked}
+            onClick={() => {
+              if (locked) return;
+              onSelect(mode);
+            }}
             className={cn(
               'bg-card border-border flex min-w-0 flex-row items-center gap-3 rounded-xl border p-3 text-left transition-all',
-              'hover:bg-muted',
+              !locked && 'hover:bg-muted',
+              locked && 'cursor-not-allowed opacity-60',
               selectedMode === mode
                 ? 'border-primary bg-primary/5 ring-primary ring-1'
-                : 'cursor-pointer'
+                : !locked && 'cursor-pointer'
             )}
           >
             <div

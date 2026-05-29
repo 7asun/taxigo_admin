@@ -418,6 +418,8 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
                     invoice={pdfInvoice}
                     paymentQrDataUrl={paymentQrDataUrl}
                     renderMode='digital'
+                    // why: ENTWURF stamp only on draft downloads; issued invoices stay unmarked.
+                    showDraftWatermark={invoice.status === 'draft'}
                   />
                 }
                 fileName={`${invoice.invoice_number ?? 'rechnung'}-digital.pdf`}
@@ -440,6 +442,8 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
                     invoice={pdfInvoice}
                     paymentQrDataUrl={paymentQrDataUrl}
                     renderMode='brief'
+                    // why: ENTWURF stamp only on draft downloads; issued invoices stay unmarked.
+                    showDraftWatermark={invoice.status === 'draft'}
                   />
                 }
                 fileName={`${invoice.invoice_number ?? 'rechnung'}-brief.pdf`}

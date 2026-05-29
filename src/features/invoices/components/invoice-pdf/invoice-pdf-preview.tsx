@@ -111,6 +111,9 @@ export function InvoicePdfPreview({ invoiceId }: InvoicePdfPreviewProps) {
           <InvoicePdfDocument
             invoice={pdfInvoice}
             paymentQrDataUrl={paymentQrDataUrl}
+            // why: stamp ENTWURF only while the invoice is still a draft so a
+            // previewed draft is never mistaken for an issued invoice.
+            showDraftWatermark={invoice.status === 'draft'}
           />
         </PDFViewer>
       </div>

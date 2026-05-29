@@ -73,8 +73,10 @@ export const pdfColumnOverrideSchema = z.object({
   main_columns: pdfColumnKeyArraySchema,
   appendix_columns: pdfColumnKeyArraySchema,
   main_layout: mainLayoutSchema.optional(),
-  /** Haupttabelle: optional €0 listing of cancelled trips at PDF time — legacy payloads omit ⇒ false */
-  show_cancelled_trips: z.boolean().optional().default(false)
+  /** Passive €0 listing of opted-out cancelled trips in appendix — legacy payloads omit ⇒ false. */
+  show_cancelled_trips: z.boolean().optional().default(false),
+  /** Ausgeschlossene Fahrten appendix section — only shown when ≥1 normal trip was opted out. */
+  show_excluded_trips: z.boolean().optional().default(false)
 });
 
 export type PdfColumnOverridePayload = z.infer<typeof pdfColumnOverrideSchema>;
@@ -89,8 +91,13 @@ export interface PdfColumnProfile {
   appendix_is_landscape: boolean;
   /** Which step in the 4-level chain supplied the columns */
   source: 'invoice_override' | 'payer_vorlage' | 'company_default' | 'system';
-  /** When true, render cancelled trips as informational €0 Haupttabelle rows (builder / future detail fetch only). */
+  /** When true, render passive €0 cancelled trips in the Stornierte Fahrten appendix block. */
   show_cancelled_trips: boolean;
+  /**
+   * When true, render the Ausgeschlossene Fahrten appendix block for opted-out normal trips.
+   * Only relevant when ≥1 normal trip was opted out of billing in Step 3.
+   */
+  show_excluded_trips: boolean;
 }
 
 export interface PdfVorlageCreatePayload {

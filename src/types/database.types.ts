@@ -188,6 +188,7 @@ export type Database = {
       };
       clients: {
         Row: {
+          birthdate: string | null;
           city: string;
           company_id: string;
           company_name: string | null;
@@ -218,6 +219,7 @@ export type Database = {
           lng: number | null;
         };
         Insert: {
+          birthdate?: string | null;
           city: string;
           company_id: string;
           company_name?: string | null;
@@ -247,6 +249,7 @@ export type Database = {
           lng?: number | null;
         };
         Update: {
+          birthdate?: string | null;
           city?: string;
           company_id?: string;
           company_name?: string | null;
@@ -762,6 +765,7 @@ export type Database = {
           kts_default: boolean | null;
           manual_km_enabled: boolean;
           reha_schein_enabled: boolean;
+          revision_invoices_enabled: boolean;
           name: string;
           no_invoice_required_default: boolean | null;
           number: string;
@@ -775,6 +779,7 @@ export type Database = {
           kts_default?: boolean | null;
           manual_km_enabled?: boolean;
           reha_schein_enabled?: boolean;
+          revision_invoices_enabled?: boolean;
           name: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -788,6 +793,7 @@ export type Database = {
           kts_default?: boolean | null;
           manual_km_enabled?: boolean;
           reha_schein_enabled?: boolean;
+          revision_invoices_enabled?: boolean;
           name?: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -1940,6 +1946,14 @@ export type Database = {
       invoice_numbers_max_for_prefix: {
         Args: { p_prefix: string };
         Returns: string | null;
+      };
+      // TODO: regenerate with `supabase gen types` after migration (draft invoice editing)
+      replace_draft_invoice_line_items: {
+        Args: {
+          p_invoice_id: string;
+          p_line_items: Json;
+        };
+        Returns: undefined;
       };
       trip_ids_matching_invoice_effective_status: {
         Args: { p_effective: string };

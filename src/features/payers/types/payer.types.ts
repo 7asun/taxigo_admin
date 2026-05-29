@@ -94,6 +94,8 @@ export interface Payer {
   manual_km_enabled?: boolean | null;
   /** When true, Neue Fahrt and trip detail show the Reha-Schein trip switch. */
   reha_schein_enabled: boolean;
+  /** When true, DRAFT invoices for this payer can be re-opened/edited in the builder. */
+  revision_invoices_enabled: boolean;
 }
 
 export interface PayerWithBillingCount extends Payer {

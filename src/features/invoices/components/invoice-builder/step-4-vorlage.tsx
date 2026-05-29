@@ -79,7 +79,7 @@ interface Step4VorlageProps {
    * Called whenever the resolved column profile changes (Vorlage or customize).
    * Parent feeds this into the live PDF preview hook — must stay synchronous.
    *
-   * @param profile — columns from {@link resolvePdfColumnProfile}, plus **`show_cancelled_trips`** from this step
+   * @param profile — columns from {@link resolvePdfColumnProfile}, plus show_cancelled_trips / show_excluded_trips from this step
    */
   onColumnProfileChange: (profile: PdfColumnProfile) => void;
   /**
@@ -97,6 +97,11 @@ interface Step4VorlageProps {
    * on Bestätigung). Fired whenever that row changes.
    */
   onResolvedVorlageRowChange?: (row: PdfVorlageRow | null) => void;
+  /**
+   * Number of normal trips the admin has opted out of billing in Step 3.
+   * When > 0 the "Ausgeschlossene Fahrten anzeigen" checkbox is rendered.
+   */
+  excludedTripCount?: number;
 }
 
 /**
@@ -113,7 +118,8 @@ export function Step4Vorlage({
   onColumnProfileChange,
   onPdfOverrideChange,
   onPdfColumnsReordered,
-  onResolvedVorlageRowChange
+  onResolvedVorlageRowChange,
+  excludedTripCount = 0
 }: Step4VorlageProps) {
   const { data: vorlagen = [] } = usePdfVorlagenList(companyId);
   const { data: companyDefaultVorlage = null } = useQuery({
@@ -134,6 +140,8 @@ export function Step4Vorlage({
   const [colsOpen, setColsOpen] = useState(true);
   /** Haupttabelle: optional €0 “Storniert” appendix rows — does not gate customize; keyed by payer in shell. */
   const [showCancelledTrips, setShowCancelledTrips] = useState(false);
+  /** Ausgeschlossene Fahrten appendix block — only relevant when excludedTripCount > 0. */
+  const [showExcludedTrips, setShowExcludedTrips] = useState(false);
 
   // Reacts to payer’s pdf_vorlage_id or company default Vorlage id: sync dropdown selection.
   useEffect(() => {
@@ -191,16 +199,18 @@ export function Step4Vorlage({
             main_columns: customColumns.main_columns,
             appendix_columns: customColumns.appendix_columns,
             main_layout: inheritedMainLayout,
-            show_cancelled_trips: showCancelledTrips
+            show_cancelled_trips: showCancelledTrips,
+            show_excluded_trips: showExcludedTrips
           }
         : null,
       selectedVorlage,
       companyDefaultVorlage
     );
-    // When customize is off, resolver has no tier-1 override JSON — overlay checkbox so preview matches submit snapshot.
+    // When customize is off, resolver has no tier-1 override JSON — overlay checkboxes so preview matches submit snapshot.
     onColumnProfileChange({
       ...resolved,
-      show_cancelled_trips: showCancelledTrips
+      show_cancelled_trips: showCancelledTrips,
+      show_excluded_trips: showExcludedTrips
     });
   }, [
     selectedVorlageId,
@@ -210,6 +220,7 @@ export function Step4Vorlage({
     companyDefaultVorlage,
     inheritedMainLayout,
     showCancelledTrips,
+    showExcludedTrips,
     onColumnProfileChange
   ]);
 
@@ -222,7 +233,8 @@ export function Step4Vorlage({
             main_columns: customColumns.main_columns,
             appendix_columns: customColumns.appendix_columns,
             main_layout: inheritedMainLayout,
-            show_cancelled_trips: showCancelledTrips
+            show_cancelled_trips: showCancelledTrips,
+            show_excluded_trips: showExcludedTrips
           }
         : null
     );
@@ -231,6 +243,7 @@ export function Step4Vorlage({
     customColumns,
     inheritedMainLayout,
     showCancelledTrips,
+    showExcludedTrips,
     onPdfOverrideChange
   ]);
 
@@ -382,12 +395,14 @@ export function Step4Vorlage({
                         main_columns: nextMain,
                         appendix_columns: customColumns.appendix_columns,
                         main_layout: inheritedMainLayout,
-                        show_cancelled_trips: showCancelledTrips
+                        show_cancelled_trips: showCancelledTrips,
+                        show_excluded_trips: showExcludedTrips
                       },
                       selectedVorlage,
                       companyDefaultVorlage
                     ),
-                    show_cancelled_trips: showCancelledTrips
+                    show_cancelled_trips: showCancelledTrips,
+                    show_excluded_trips: showExcludedTrips
                   });
                   onPdfColumnsReordered?.();
                 }}
@@ -445,12 +460,14 @@ export function Step4Vorlage({
                         main_columns: customColumns.main_columns,
                         appendix_columns: nextAppendix,
                         main_layout: inheritedMainLayout,
-                        show_cancelled_trips: showCancelledTrips
+                        show_cancelled_trips: showCancelledTrips,
+                        show_excluded_trips: showExcludedTrips
                       },
                       selectedVorlage,
                       companyDefaultVorlage
                     ),
-                    show_cancelled_trips: showCancelledTrips
+                    show_cancelled_trips: showCancelledTrips,
+                    show_excluded_trips: showExcludedTrips
                   });
                   onPdfColumnsReordered?.();
                 }}
@@ -472,7 +489,7 @@ export function Step4Vorlage({
         </Collapsible>
       ) : null}
 
-      {/* Live PDF iframe is in invoice-builder/index — this checkbox only drives builderColumnProfile + snapshot. */}
+      {/* Live PDF iframe is in invoice-builder/index — these checkboxes only drive builderColumnProfile + snapshot. */}
       <div className='space-y-2 border-t pt-4'>
         <div className='flex items-center gap-2'>
           <Checkbox
@@ -490,6 +507,27 @@ export function Step4Vorlage({
           beeinflussen den Rechnungsbetrag nicht.
         </p>
       </div>
+
+      {/* why: only shown when the admin has excluded ≥1 normal trip in Step 3 */}
+      {excludedTripCount > 0 ? (
+        <div className='space-y-2 border-t pt-4'>
+          <div className='flex items-center gap-2'>
+            <Checkbox
+              id='pdf-show-excluded'
+              checked={showExcludedTrips}
+              disabled={!unlocked}
+              onCheckedChange={(v) => setShowExcludedTrips(v === true)}
+            />
+            <Label htmlFor='pdf-show-excluded' className='font-normal'>
+              Ausgeschlossene Fahrten anzeigen ({excludedTripCount})
+            </Label>
+          </div>
+          <p className='text-muted-foreground text-xs'>
+            Ausgeschlossene Fahrten werden mit Begründung im Anhang aufgeführt
+            und beeinflussen den Rechnungsbetrag nicht.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

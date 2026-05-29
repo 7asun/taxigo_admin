@@ -70,7 +70,11 @@ import {
   useInvoiceBuilderPdfPreview,
   type InvoiceBuilderStep4PdfOverlay
 } from './use-invoice-builder-pdf-preview';
-import type { InvoiceDetail, InvoiceMode } from '../../types/invoice.types';
+import type {
+  ExcludedTripRow,
+  InvoiceDetail,
+  InvoiceMode
+} from '../../types/invoice.types';
 import type { InvoiceBuilderStep2Snapshot } from '../invoice-pdf/build-draft-invoice-detail-for-pdf';
 
 type Payer = NonNullable<InvoiceDetail['payer']> & {
@@ -96,6 +100,12 @@ interface InvoiceBuilderProps {
   defaultPaymentDays: number;
   companyProfile: InvoiceDetail['company_profile'] | null;
   companyProfileMissing?: boolean;
+  /**
+   * When set, the builder re-opens this existing DRAFT invoice for editing
+   * (hydrates from the persisted invoice, locks payer/mode). Undefined = create
+   * mode (unchanged). No live route passes this yet — the edit route is deferred.
+   */
+  invoiceId?: string;
 }
 
 const SECTION_SCROLL_IDS: Record<SectionNum, string> = {
@@ -141,7 +151,8 @@ export function InvoiceBuilder({
   clients,
   defaultPaymentDays,
   companyProfile,
-  companyProfileMissing
+  companyProfileMissing,
+  invoiceId
 }: InvoiceBuilderProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -203,10 +214,29 @@ export function InvoiceBuilder({
     resetKmOverride,
     createInvoice,
     isCreating,
-    catalogRecipientId
-  } = useInvoiceBuilder(companyId, (newId) => {
-    router.push(`/dashboard/invoices/${newId}`);
-  });
+    catalogRecipientId,
+    excludedTripCount,
+    hasInclusionErrors,
+    handleLineItemInclusionChange,
+    handleCancelledTripInclusionChange,
+    handleCancelledTripGrossOverride,
+    handleCancelledTripKmOverride,
+    handleCancelledTripApproachFeeChange,
+    isEditMode,
+    editInvoiceNumber,
+    updateInvoice,
+    isSaving
+  } = useInvoiceBuilder(
+    companyId,
+    (newId) => {
+      router.push(`/dashboard/invoices/${newId}`);
+    },
+    invoiceId
+  );
+
+  // why: edit mode submits via updateInvoice, create via createInvoice — a single
+  // flag drives the shared submit button's loading + disabled state.
+  const isSubmitting = isCreating || isSaving;
 
   const selectedPayer = step2Values?.payer_id
     ? payers.find((p) => p.id === step2Values.payer_id)
@@ -354,12 +384,43 @@ export function InvoiceBuilder({
   const applyStep4PdfOverlay =
     section4Unlocked && pdfStepAcknowledged && sectionOpen[5];
 
+  // why: useMemo so the derived array keeps a stable reference between renders —
+  // an inline .filter().map() produces a new array every render, firing the
+  // preview hook's useEffect dependency comparison and causing an infinite reload loop.
+  const excludedTripsForPdf: ExcludedTripRow[] = useMemo(
+    () =>
+      lineItems
+        .filter((li) => !li.billingInclusion.included)
+        .map((li) => ({
+          line_date: li.line_date,
+          client_name: li.client_name,
+          pickup_address: li.pickup_address,
+          dropoff_address: li.dropoff_address,
+          billing_exclusion_reason: li.billingInclusion.reason
+        })),
+    [lineItems]
+  );
+
+  // why: pre-split here with useMemo so the preview hook receives stable arrays —
+  // filtering inside the hook's useEffect/render path would also re-fire on every render.
+  const billedCancelledTripsForPdf = useMemo(
+    () => cancelledTrips.filter((t) => t.billingInclusion.included),
+    [cancelledTrips]
+  );
+
+  const passiveCancelledTripsForPdf = useMemo(
+    () => cancelledTrips.filter((t) => !t.billingInclusion.included),
+    [cancelledTrips]
+  );
+
   const { pdf, draftInvoice } = useInvoiceBuilderPdfPreview({
     companyId,
     companyProfile,
     step2Values: step2Snapshot,
     lineItems,
-    cancelledTrips,
+    passiveCancelledTrips: passiveCancelledTripsForPdf,
+    billedCancelledTrips: billedCancelledTripsForPdf,
+    excludedTrips: excludedTripsForPdf,
     payers,
     clients,
     defaultPaymentDays,
@@ -483,7 +544,16 @@ export function InvoiceBuilder({
       <div className='border-border flex h-full w-[480px] shrink-0 flex-col overflow-hidden border-r'>
         {/* Page title / breadcrumb row */}
         <div className='border-border shrink-0 border-b px-6 py-4'>
-          <h1 className='text-lg font-semibold'>Neue Rechnung</h1>
+          <h1 className='text-lg font-semibold'>
+            {isEditMode ? 'Rechnung bearbeiten' : 'Neue Rechnung'}
+          </h1>
+          {/* why: visible edit-mode indicator so the admin always knows they are
+              editing an existing draft (same invoice number is preserved). */}
+          {isEditMode && editInvoiceNumber ? (
+            <p className='text-muted-foreground mt-1 text-xs font-medium'>
+              Bearbeitung — Rechnung {editInvoiceNumber}
+            </p>
+          ) : null}
         </div>
         {/* Scrollable area containing all five BuilderSectionCards */}
         <div
@@ -535,6 +605,7 @@ export function InvoiceBuilder({
             <Step1Mode
               selectedMode={selectedMode}
               onSelect={handleStep1Complete}
+              locked={isEditMode}
             />
           </BuilderSectionCard>
 
@@ -554,6 +625,7 @@ export function InvoiceBuilder({
               payers={payers}
               clients={clients}
               isLoadingTrips={isLoadingTrips}
+              locked={isEditMode}
               onNext={handleStep2Complete}
             />
           </BuilderSectionCard>
@@ -591,16 +663,27 @@ export function InvoiceBuilder({
           >
             <Step3LineItems
               lineItems={lineItems}
+              cancelledTrips={cancelledTrips}
               subtotal={totals.subtotal}
               taxAmount={totals.taxAmount}
               total={totals.total}
               missingPrices={missingPrices}
+              hasInclusionErrors={hasInclusionErrors}
               isLoadingTrips={isLoadingTrips}
               onConfirm={confirmSection3}
               onApplyGrossOverride={applyGrossOverride}
               onResetOverride={resetLineItemOverride}
               onApplyKmOverride={applyKmOverride}
               onResetKmOverride={resetKmOverride}
+              onLineItemInclusionChange={handleLineItemInclusionChange}
+              onCancelledTripInclusionChange={
+                handleCancelledTripInclusionChange
+              }
+              onCancelledTripGrossOverride={handleCancelledTripGrossOverride}
+              onCancelledTripKmOverride={handleCancelledTripKmOverride}
+              onCancelledTripApproachFeeChange={
+                handleCancelledTripApproachFeeChange
+              }
             />
           </BuilderSectionCard>
 
@@ -634,6 +717,7 @@ export function InvoiceBuilder({
               companyId={companyId}
               payerPdfVorlageId={selectedPayer?.pdf_vorlage_id}
               unlocked={section4Unlocked}
+              excludedTripCount={excludedTripCount}
               onColumnProfileChange={setBuilderColumnProfile}
               onPdfOverrideChange={handlePdfOverridePersist}
               onPdfColumnsReordered={() =>
@@ -659,9 +743,17 @@ export function InvoiceBuilder({
                   <Button
                     type='submit'
                     form='invoice-step4-form'
-                    disabled={isCreating || !section4Unlocked}
+                    disabled={isSubmitting || !section4Unlocked}
                   >
-                    {isCreating ? 'Erstelle Rechnung…' : 'Rechnung erstellen'}
+                    {/* why: edit mode saves an existing draft; create mode issues a
+                        new one. Loading labels are verb-first to match each other. */}
+                    {isEditMode
+                      ? isSaving
+                        ? 'Speichere Änderungen…'
+                        : 'Änderungen speichern'
+                      : isCreating
+                        ? 'Erstelle Rechnung…'
+                        : 'Rechnung erstellen'}
                   </Button>
                 </div>
               ) : null
@@ -674,8 +766,8 @@ export function InvoiceBuilder({
               lineItemCount={lineItems.length}
               defaultPaymentDays={defaultPaymentDays}
               missingPrices={missingPrices}
-              isCreating={isCreating}
-              submitDisabled={isCreating || !section4Unlocked}
+              isCreating={isSubmitting}
+              submitDisabled={isSubmitting || !section4Unlocked}
               hideSubmitButton
               onConfirm={(step4Values) => {
                 // Phase 9c — layout snapshot: always write the full resolved profile
@@ -694,9 +786,18 @@ export function InvoiceBuilder({
                     builderColumnProfile.appendix_columns,
                   main_layout: builderColumnProfile.main_layout,
                   show_cancelled_trips:
-                    builderColumnProfile.show_cancelled_trips ?? false
+                    builderColumnProfile.show_cancelled_trips ?? false,
+                  // why: carry Step 4 admin intent for excluded trips appendix into persisted snapshot
+                  show_excluded_trips:
+                    builderColumnProfile.show_excluded_trips ?? false
                 };
-                createInvoice(step4Values, snapshotOverride);
+                // why: same confirm UI for both flows; edit mode persists changes to
+                // the existing draft (RPC + meta), create mode issues a new invoice.
+                if (isEditMode) {
+                  updateInvoice(step4Values, snapshotOverride);
+                } else {
+                  createInvoice(step4Values, snapshotOverride);
+                }
               }}
               resolvedIntroBlockId={resolvedIntroBlockId}
               resolvedOutroBlockId={resolvedOutroBlockId}

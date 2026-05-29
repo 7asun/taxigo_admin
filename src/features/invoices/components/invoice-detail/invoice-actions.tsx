@@ -18,7 +18,8 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Send, CheckCircle, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Loader2, Send, CheckCircle, XCircle, Pencil } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -46,10 +47,19 @@ interface InvoiceActionsProps {
  * Renders contextual action buttons based on the current invoice status.
  */
 export function InvoiceActions({ invoice }: InvoiceActionsProps) {
+  const router = useRouter();
   const [stornoStep, setStornoStep] = useState<'idle' | 'creating'>('idle');
 
   const updateStatus = useUpdateInvoiceStatus(invoice.id);
   const createStorno = useCreateStornorechnung(invoice.id);
+
+  // why: the "Bearbeiten" entry is gated by the per-payer revision flag AND draft
+  // status. Non-draft invoices never reach here (terminal-state guard returns null
+  // for paid/cancelled/corrected; sent never shows it because of the draft check),
+  // mirroring the route + RPC server-side guards exactly — no client-only access.
+  const canEditDraft =
+    invoice.status === 'draft' &&
+    invoice.payer?.revision_invoices_enabled === true;
 
   const isWorking =
     updateStatus.isPending || createStorno.isPending || stornoStep !== 'idle';
@@ -77,6 +87,19 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
 
   return (
     <div className='space-y-2'>
+      {/* Bearbeiten — draft + payer revision flag only */}
+      {canEditDraft && (
+        <Button
+          variant='outline'
+          className='w-full gap-2'
+          onClick={() => router.push(`/dashboard/invoices/${invoice.id}/edit`)}
+          disabled={isWorking}
+        >
+          <Pencil className='h-4 w-4' />
+          Bearbeiten
+        </Button>
+      )}
+
       {/* Mark as sent (draft only) */}
       {invoice.status === 'draft' && (
         <Button

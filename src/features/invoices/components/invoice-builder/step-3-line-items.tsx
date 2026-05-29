@@ -22,11 +22,21 @@
 import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AlertTriangle, ChevronDown, Info, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Info, Map, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import {
   Collapsible,
   CollapsibleContent,
@@ -42,8 +52,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import { getWarningLabel } from '../../lib/invoice-validators';
-import { lineItemGrossTotalForDisplay } from '../../lib/line-item-net-display';
-import type { BuilderLineItem } from '../../types/invoice.types';
+import {
+  lineItemGrossTotalForDisplay,
+  cancelledTripGrossTotalForDisplay
+} from '../../lib/line-item-net-display';
+import type {
+  BuilderLineItem,
+  BuilderCancelledTripRow
+} from '../../types/invoice.types';
 
 type EditingState = {
   position: number;
@@ -140,10 +156,14 @@ function formatEurInput(value: number): string {
 
 interface Step3LineItemsProps {
   lineItems: BuilderLineItem[];
+  /** Cancelled trips — shown in the Stornierte Fahrten section below normal rows. */
+  cancelledTrips: BuilderCancelledTripRow[];
   subtotal: number;
   taxAmount: number;
   total: number;
   missingPrices: boolean;
+  /** True when any inclusion reason is missing — gates "Weiter zu PDF-Vorlage". */
+  hasInclusionErrors: boolean;
   isLoadingTrips: boolean;
   /** Advances to PDF-Vorlage after review; sets `section3Confirmed` in the builder hook. */
   onConfirm: () => void;
@@ -157,6 +177,23 @@ interface Step3LineItemsProps {
   onResetOverride: (position: number) => void;
   onApplyKmOverride: (position: number, km: number) => void;
   onResetKmOverride: (position: number) => void;
+  onLineItemInclusionChange: (
+    position: number,
+    included: boolean,
+    reason: string
+  ) => void;
+  onCancelledTripInclusionChange: (
+    tripId: string,
+    included: boolean,
+    reason: string
+  ) => void;
+  onCancelledTripGrossOverride: (
+    tripId: string,
+    grossTotal: number,
+    approachFeeGross: number
+  ) => void;
+  onCancelledTripKmOverride: (tripId: string, km: number) => void;
+  onCancelledTripApproachFeeChange: (tripId: string, include: boolean) => void;
 }
 
 /**
@@ -164,19 +201,38 @@ interface Step3LineItemsProps {
  */
 export function Step3LineItems({
   lineItems,
+  cancelledTrips,
   subtotal,
   taxAmount,
   total,
   missingPrices,
+  hasInclusionErrors,
   isLoadingTrips,
   onConfirm,
   onApplyGrossOverride,
   onResetOverride,
   onApplyKmOverride,
-  onResetKmOverride
+  onResetKmOverride,
+  onLineItemInclusionChange,
+  onCancelledTripInclusionChange,
+  onCancelledTripGrossOverride,
+  onCancelledTripKmOverride,
+  onCancelledTripApproachFeeChange
 }: Step3LineItemsProps) {
   const [editing, setEditing] = useState<EditingState>(null);
   const [kmEditing, setKmEditing] = useState<KmEditingState>(null);
+  /** Controlled editing state for gross input on opted-in cancelled trip rows. */
+  const [cancelledGrossEditing, setCancelledGrossEditing] = useState<{
+    tripId: string;
+    value: string;
+  } | null>(null);
+  /** Opt-out dialog state for normal trips. */
+  const [optOutDialog, setOptOutDialog] = useState<{
+    item: BuilderLineItem;
+    reason: string;
+  } | null>(null);
+  /** Cancelled trips section open/close state. */
+  const [cancelledOpen, setCancelledOpen] = useState(false);
   // Per-row `Collapsible` + `Set`: multiple rows may stay open so the admin
   // can compare two trips side-by-side. Accordion `type="single"` would close
   // the other row and is intentionally avoided.
@@ -452,6 +508,8 @@ export function Step3LineItems({
                       ? 'border-amber-400'
                       : 'border-transparent';
 
+                const isOptedOut = !item.billingInclusion.included;
+
                 return (
                   <Collapsible
                     key={item.position}
@@ -462,7 +520,9 @@ export function Step3LineItems({
                       className={cn(
                         'relative',
                         item.warnings.includes('missing_price') &&
+                          !isOptedOut &&
                           'bg-amber-500/5',
+                        isOptedOut && 'opacity-60',
                         // Always reserve border width so toggling override does not shift layout.
                         'border-l-2',
                         leftBorderClass
@@ -470,13 +530,66 @@ export function Step3LineItems({
                     >
                       <div
                         className={cn(
-                          'grid grid-cols-[1fr_auto_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
+                          'grid grid-cols-[auto_1fr_auto_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
                         )}
                       >
+                        {/* Opt-out checkbox — leftmost column */}
+                        <div className='flex items-center pt-0.5'>
+                          <Checkbox
+                            checked={item.billingInclusion.included}
+                            aria-label={
+                              isOptedOut
+                                ? 'Fahrt wieder einschließen'
+                                : 'Fahrt aus Rechnung ausschließen'
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                // Re-include immediately — no dialog
+                                onLineItemInclusionChange(
+                                  item.position,
+                                  true,
+                                  ''
+                                );
+                              } else {
+                                // Open dialog for mandatory reason
+                                setOptOutDialog({ item, reason: '' });
+                              }
+                            }}
+                          />
+                        </div>
+
                         <div className='flex min-w-0 flex-col'>
-                          <span className='text-foreground text-sm font-medium tabular-nums'>
-                            #{item.position}
-                          </span>
+                          <div className='flex items-center gap-1.5'>
+                            <span className='text-foreground text-sm font-medium tabular-nums'>
+                              #{item.position}
+                            </span>
+                            {item.pickup_address != null &&
+                            item.pickup_address !== '' &&
+                            item.dropoff_address != null &&
+                            item.dropoff_address !== '' ? (
+                              // why: client-side Google Maps directions URL — no API key; only when both addresses exist
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(item.pickup_address)}&destination=${encodeURIComponent(item.dropoff_address)}`}
+                                    target='_blank'
+                                    rel='noopener noreferrer'
+                                    aria-label='Route in Google Maps öffnen'
+                                    className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors'
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Map className='h-3.5 w-3.5' />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className='text-xs'>
+                                    Route in Google Maps öffnen
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </div>
                           <span className='text-muted-foreground truncate text-xs'>
                             {item.client_name ?? '—'}
                           </span>
@@ -489,6 +602,21 @@ export function Step3LineItems({
                                 )
                               : '—'}
                           </span>
+                          {isOptedOut && (
+                            <div className='mt-0.5 flex items-center gap-1'>
+                              <Badge
+                                variant='outline'
+                                className='h-4 border-amber-400 px-1 text-[10px] text-amber-700'
+                              >
+                                Ausgeschlossen
+                              </Badge>
+                              {item.billingInclusion.reason && (
+                                <span className='truncate text-[10px] text-amber-600'>
+                                  {item.billingInclusion.reason}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div className='flex min-w-24 flex-col items-end gap-1'>
@@ -942,26 +1070,414 @@ export function Step3LineItems({
               <span
                 className={cn(
                   'mt-3 block w-full',
-                  missingPrices && 'cursor-not-allowed'
+                  (missingPrices || hasInclusionErrors) && 'cursor-not-allowed'
                 )}
               >
                 <Button
                   type='button'
                   onClick={onConfirm}
                   className='w-full'
-                  disabled={missingPrices || lineItems.length === 0}
+                  disabled={
+                    missingPrices ||
+                    hasInclusionErrors ||
+                    lineItems.length === 0
+                  }
                 >
                   Weiter zu PDF-Vorlage
                 </Button>
               </span>
             </TooltipTrigger>
-            {missingPrices && (
+            {hasInclusionErrors ? (
+              <TooltipContent>
+                Bitte Begründung für alle ausgeschlossenen / stornierten Fahrten
+                eintragen.
+              </TooltipContent>
+            ) : missingPrices ? (
               <TooltipContent>
                 Bitte alle fehlenden Preise eintragen, bevor Sie fortfahren.
               </TooltipContent>
-            )}
+            ) : null}
           </Tooltip>
         </div>
+
+        {/* ── Stornierte Fahrten section ─────────────────────────────────── */}
+        {cancelledTrips.length > 0 && (
+          <Collapsible open={cancelledOpen} onOpenChange={setCancelledOpen}>
+            <div className='rounded-md border'>
+              <CollapsibleTrigger asChild>
+                <button
+                  type='button'
+                  className='flex w-full items-center justify-between px-4 py-2.5 text-sm font-medium'
+                >
+                  <span>Stornierte Fahrten ({cancelledTrips.length})</span>
+                  <ChevronDown
+                    className={cn(
+                      'h-4 w-4 transition-transform',
+                      cancelledOpen && 'rotate-180'
+                    )}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className='divide-border divide-y border-t'>
+                  {cancelledTrips.map((trip) => {
+                    const isOptedIn = trip.billingInclusion.included;
+                    const clientName = trip.client
+                      ? [trip.client.first_name, trip.client.last_name]
+                          .filter(Boolean)
+                          .join(' ')
+                      : trip.client_name?.trim() || null;
+
+                    return (
+                      <div key={trip.id} className='space-y-2 px-4 py-2.5'>
+                        <div className='flex items-start gap-3'>
+                          <Checkbox
+                            checked={isOptedIn}
+                            aria-label={
+                              isOptedIn
+                                ? 'Fahrt nicht mehr abrechnen'
+                                : 'Stornierte Fahrt abrechnen'
+                            }
+                            onCheckedChange={(checked) => {
+                              onCancelledTripInclusionChange(
+                                trip.id,
+                                checked === true,
+                                ''
+                              );
+                            }}
+                            className='mt-0.5 shrink-0'
+                          />
+                          <div className='min-w-0 flex-1 space-y-0.5'>
+                            <p className='text-sm font-medium'>
+                              {clientName ?? '—'}
+                            </p>
+                            <p className='text-muted-foreground text-xs'>
+                              {trip.scheduled_at
+                                ? format(
+                                    new Date(trip.scheduled_at),
+                                    'EEE, dd.MM.yyyy',
+                                    { locale: de }
+                                  )
+                                : '—'}
+                            </p>
+                            {(trip.pickup_address || trip.dropoff_address) && (
+                              <p className='text-muted-foreground truncate text-xs'>
+                                {trip.pickup_address ?? '—'} →{' '}
+                                {trip.dropoff_address ?? '—'}
+                              </p>
+                            )}
+                            {trip.canceled_reason_notes && (
+                              <p className='text-muted-foreground text-xs italic'>
+                                {trip.canceled_reason_notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {isOptedIn && (
+                          <div className='space-y-2 pl-7'>
+                            {/* Billing reason — amber styling, required */}
+                            <div className='space-y-1'>
+                              <Label className='text-xs font-normal text-amber-700'>
+                                Begründung für Abrechnung (Pflichtfeld)
+                              </Label>
+                              <Textarea
+                                className='min-h-[60px] border-amber-400 text-xs text-amber-900 placeholder:text-amber-400 focus-visible:ring-amber-400'
+                                placeholder='Warum wird diese stornierte Fahrt abgerechnet?'
+                                value={trip.billingInclusion.reason}
+                                onChange={(e) => {
+                                  onCancelledTripInclusionChange(
+                                    trip.id,
+                                    true,
+                                    e.target.value
+                                  );
+                                }}
+                              />
+                            </div>
+
+                            {/* Gross price input — controlled so km / approach-fee reprices
+                                reflect immediately when the admin is not actively typing. */}
+                            {(() => {
+                              const isCancelledGrossEditing =
+                                cancelledGrossEditing?.tripId === trip.id;
+                              const cancelledGrossDisplay =
+                                cancelledTripGrossTotalForDisplay(trip);
+                              const cancelledGrossValue =
+                                isCancelledGrossEditing
+                                  ? cancelledGrossEditing.value
+                                  : cancelledGrossDisplay != null
+                                    ? formatEurInput(cancelledGrossDisplay)
+                                    : '';
+                              return (
+                                <div className='flex items-center gap-2'>
+                                  <span className='text-muted-foreground w-36 shrink-0 text-xs'>
+                                    Bruttopreis
+                                  </span>
+                                  <Input
+                                    type='text'
+                                    inputMode='decimal'
+                                    aria-label='Bruttopreis stornierte Fahrt'
+                                    className='h-7 w-24 text-right text-sm tabular-nums'
+                                    placeholder='0,00'
+                                    value={cancelledGrossValue}
+                                    onFocus={() => {
+                                      if (!isCancelledGrossEditing) {
+                                        setCancelledGrossEditing({
+                                          tripId: trip.id,
+                                          value:
+                                            cancelledGrossDisplay != null
+                                              ? formatEurInput(
+                                                  cancelledGrossDisplay
+                                                )
+                                              : ''
+                                        });
+                                      }
+                                    }}
+                                    onChange={(e) => {
+                                      setCancelledGrossEditing((prev) =>
+                                        prev?.tripId === trip.id
+                                          ? { ...prev, value: e.target.value }
+                                          : prev
+                                      );
+                                    }}
+                                    onBlur={(e) => {
+                                      const gross = parseFloat(
+                                        e.target.value.replace(',', '.')
+                                      );
+                                      if (!isNaN(gross)) {
+                                        onCancelledTripGrossOverride(
+                                          trip.id,
+                                          gross,
+                                          0
+                                        );
+                                      }
+                                      setCancelledGrossEditing(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        (e.target as HTMLInputElement).blur();
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })()}
+
+                            {/* Approach fee checkbox */}
+                            <div className='flex items-center gap-2'>
+                              {trip.isManualOverride ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className='inline-flex items-center gap-2'>
+                                      <Checkbox
+                                        checked={
+                                          trip.includeApproachFee !== false
+                                        }
+                                        disabled
+                                        aria-label='Anfahrtskosten berechnen'
+                                      />
+                                      <Label className='text-muted-foreground cursor-not-allowed text-xs font-normal'>
+                                        Anfahrtskosten berechnen
+                                      </Label>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className='text-xs'>
+                                      Manueller Preis aktiv — Anfahrtskosten
+                                      haben keinen Einfluss
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <>
+                                  <Checkbox
+                                    id={`approach-fee-${trip.id}`}
+                                    checked={trip.includeApproachFee !== false}
+                                    onCheckedChange={(checked) => {
+                                      onCancelledTripApproachFeeChange(
+                                        trip.id,
+                                        checked === true
+                                      );
+                                    }}
+                                    aria-label='Anfahrtskosten berechnen'
+                                  />
+                                  <Label
+                                    htmlFor={`approach-fee-${trip.id}`}
+                                    className='cursor-pointer text-xs font-normal'
+                                  >
+                                    Anfahrtskosten berechnen
+                                    {trip.approach_fee_gross != null &&
+                                    trip.approach_fee_gross !== undefined ? (
+                                      <span className='text-muted-foreground ml-1'>
+                                        (
+                                        {formatEurInput(
+                                          trip.approach_fee_gross
+                                        )}
+                                        )
+                                      </span>
+                                    ) : trip.price_resolution
+                                        ?.approach_fee_net != null ? (
+                                      <span className='text-muted-foreground ml-1'>
+                                        (
+                                        {formatEurInput(
+                                          Math.round(
+                                            trip.price_resolution
+                                              .approach_fee_net *
+                                              (1 + (trip.tax_rate ?? 0)) *
+                                              100
+                                          ) / 100
+                                        )}
+                                        )
+                                      </span>
+                                    ) : null}
+                                  </Label>
+                                </>
+                              )}
+                            </div>
+
+                            {/* KM input — only when payer.manual_km_enabled */}
+                            {trip.payer?.manual_km_enabled && (
+                              <div className='flex items-center gap-2'>
+                                <span className='text-muted-foreground w-36 shrink-0 text-xs'>
+                                  Distanz (km)
+                                </span>
+                                <Input
+                                  type='text'
+                                  inputMode='decimal'
+                                  aria-label='Distanz stornierte Fahrt'
+                                  className='h-7 w-24 text-right text-sm tabular-nums'
+                                  placeholder='km'
+                                  defaultValue={
+                                    trip.effective_distance_km != null
+                                      ? String(trip.effective_distance_km)
+                                      : ''
+                                  }
+                                  onBlur={(e) => {
+                                    const km = parseFloat(
+                                      e.target.value.replace(',', '.')
+                                    );
+                                    if (!isNaN(km) && km > 0) {
+                                      onCancelledTripKmOverride(trip.id, km);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      (e.target as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                />
+                                <span className='text-muted-foreground text-xs'>
+                                  km
+                                </span>
+                              </div>
+                            )}
+
+                            {(() => {
+                              const resolvedGross =
+                                cancelledTripGrossTotalForDisplay(trip);
+                              if (resolvedGross == null) return null;
+                              return (
+                                <p className='text-muted-foreground text-xs'>
+                                  Aufgelöster Preis:{' '}
+                                  <span className='font-medium tabular-nums'>
+                                    {formatEur(resolvedGross)}
+                                  </span>
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </div>
+          </Collapsible>
+        )}
+
+        {/* ── Opt-out dialog ──────────────────────────────────────────────── */}
+        <Dialog
+          open={optOutDialog !== null}
+          onOpenChange={(open) => {
+            if (!open) setOptOutDialog(null);
+          }}
+        >
+          <DialogContent
+            onInteractOutside={(e) => {
+              // why: prevent accidental close when the admin has typed a reason
+              if (
+                optOutDialog?.reason &&
+                optOutDialog.reason.trim().length > 0
+              ) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Fahrt ausschließen</DialogTitle>
+            </DialogHeader>
+            {optOutDialog && (
+              <div className='space-y-3 py-2 text-sm'>
+                <p className='text-muted-foreground'>
+                  {optOutDialog.item.client_name ?? '—'} ·{' '}
+                  {optOutDialog.item.line_date
+                    ? format(
+                        new Date(optOutDialog.item.line_date),
+                        'dd.MM.yyyy',
+                        { locale: de }
+                      )
+                    : '—'}
+                </p>
+                <div className='space-y-1.5'>
+                  <Label htmlFor='opt-out-reason'>
+                    Begründung (Pflichtfeld)
+                  </Label>
+                  <Textarea
+                    id='opt-out-reason'
+                    autoFocus
+                    placeholder='Warum wird diese Fahrt ausgeschlossen?'
+                    value={optOutDialog.reason}
+                    onChange={(e) =>
+                      setOptOutDialog((prev) =>
+                        prev ? { ...prev, reason: e.target.value } : prev
+                      )
+                    }
+                    className='min-h-[80px]'
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                type='button'
+                variant='ghost'
+                onClick={() => setOptOutDialog(null)}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                type='button'
+                variant='destructive'
+                disabled={
+                  !optOutDialog?.reason ||
+                  optOutDialog.reason.trim().length === 0
+                }
+                onClick={() => {
+                  if (!optOutDialog) return;
+                  onLineItemInclusionChange(
+                    optOutDialog.item.position,
+                    false,
+                    optOutDialog.reason.trim()
+                  );
+                  setOptOutDialog(null);
+                }}
+              >
+                Fahrt ausschließen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );
