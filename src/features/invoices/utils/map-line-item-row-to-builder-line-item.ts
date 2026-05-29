@@ -23,13 +23,18 @@
  *   - Manual gross override is intentionally NOT reconstructed (no note-string
  *     detection — see the inline rationale) so manual overrides flow through the
  *     same net-anchor totals path the storno/draft RPC uses (deferred item D1).
- *   - `resolved_rule` is null (cannot be reconstructed for monthly invoices),
- *     so live re-pricing of edited lines is deferred to the save-path phase.
+ *   - `resolved_rule` is reconstructed at hydration time from a live per-payer
+ *     pricing-rules fetch (passed via `ctx.rules` + `ctx.payerId`) so Step 3 KM
+ *     overrides reprice in edit mode, matching create mode. It falls back to null
+ *     when no rules context is supplied (see the inline rationale at the field).
  */
 
 import type { TripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { validateLineItem } from '@/features/invoices/lib/invoice-validators';
+import { resolvePricingRule } from '@/features/invoices/lib/resolve-pricing-rule';
 import type {
+  BillingPricingRuleLike,
+  ClientPriceTagLike,
   PriceResolution,
   PriceResolutionSource,
   PriceStrategyUsed
@@ -50,6 +55,20 @@ export interface MapLineItemContext {
    * shows the KM input. Same payer for all rows in an edit session.
    */
   manualKmEnabled?: boolean;
+  /**
+   * Live pricing rules for the invoice's payer (fetched at edit-mode hydration).
+   * When provided, resolved_rule is reconstructed so Step 3 KM overrides reprice
+   * correctly. Absent for callers without rules context → resolved_rule stays null.
+   */
+  rules?: BillingPricingRuleLike[];
+  /**
+   * Client price tags for resolver STEP 0. Currently always empty in edit mode
+   * because `client_id` is not snapshotted on invoice_line_items — kept for API
+   * parity with the create-mode resolver inputs.
+   */
+  clientPriceTags?: ClientPriceTagLike[];
+  /** `payers.id` for the invoice — needed for the payer-wide rule (resolver STEP 3). */
+  payerId?: string;
 }
 
 /** Legacy subset of `PriceResolution.source` — mirrors the builder hook helper. */
@@ -134,11 +153,24 @@ export function mapLineItemRowToBuilderLineItem(
     // why: no_invoice_required is a trip-level advisory not snapshotted on the line.
     no_invoice_warning: false,
     price_resolution: pr,
-    // why: per-line rule (with billing_variant_id/client_id) is not stored, so it
-    // cannot be reliably reconstructed for monthly invoices. Null means a KM edit
-    // in edit mode falls back to tax-rate-only adjustment; live reprice of edited
-    // lines is deferred to the save-path phase (no silent recalculation on load).
-    resolved_rule: null,
+    // why: resolved_rule is reconstructed from live pricing rules so KM overrides in
+    // edit mode reprice correctly, matching create-mode behaviour. Falls back to null
+    // if rules are not provided.
+    // NOTE: invoice_line_items does not snapshot billing_variant_id / billing_type_id /
+    // client_id (only their display names/codes), so only payerId is available here.
+    // resolvePricingRule therefore resolves the Kostenträger-wide rule (STEP 3) or null;
+    // variant/type/client-specific rules degrade to null, which the resolver handles.
+    resolved_rule:
+      ctx.rules && ctx.payerId
+        ? (resolvePricingRule({
+            rules: ctx.rules,
+            payerId: ctx.payerId,
+            billingTypeId: null,
+            billingVariantId: null,
+            clientId: null,
+            clientPriceTags: ctx.clientPriceTags ?? []
+          }) ?? null)
+        : null,
     kts_override: row.kts_override,
     trip_meta: (row.trip_meta_snapshot as TripMetaSnapshot | null) ?? null,
     price_source: legacyPriceSourceFromResolution(pr.source),

@@ -16,7 +16,7 @@
  * Must not perform network I/O.
  */
 
-import { Document, Page, Text, View } from '@react-pdf/renderer';
+import { Document, Page, Text, View, Font } from '@react-pdf/renderer';
 
 import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type {
@@ -68,6 +68,14 @@ import { parseClientReferenceFieldsSnapshot } from '@/features/clients/lib/clien
 
 /** Avoid spamming console when the same invoice PDF re-renders. */
 const legacyMissingRecipientSnapshotWarned = new Set<string>();
+
+// why: hyphenationCallback disables react-pdf automatic hyphenation globally — without it,
+// long words like compound names break mid-word across lines. Document does not accept
+// hyphenationCallback in @react-pdf/renderer 4.x; Font.registerHyphenationCallback is
+// the supported global registration API (see react-pdf.org/fonts#registerhyphenationcallback).
+if (Font.getHyphenationCallback() === null) {
+  Font.registerHyphenationCallback((word) => [word]);
+}
 
 export interface InvoicePdfDocumentProps {
   invoice: InvoiceDetail;
@@ -634,9 +642,13 @@ export function InvoicePdfDocument({
        */}
       {cancelledRowsForPdf.length > 0 ? (
         <Page
-          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
+          size={
+            (effectiveProfile.appendix_is_landscape ?? false)
+              ? A4_LANDSCAPE
+              : 'A4'
+          }
           style={
-            effectiveProfile.appendix_is_landscape
+            (effectiveProfile.appendix_is_landscape ?? false)
               ? styles.appendixPageLandscape
               : styles.appendixPage
           }
@@ -650,6 +662,9 @@ export function InvoicePdfDocument({
             columnProfile={effectiveProfile}
             cancelledTrips={cancelledRowsForPdf}
             groupLabel='Stornierte Fahrten'
+            // why: Cancelled section follows the same orientation as the main appendix —
+            // controlled by the payer's PDF Vorlage, not hardcoded.
+            cancelledLandscape={effectiveProfile.appendix_is_landscape ?? false}
           />
 
           <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

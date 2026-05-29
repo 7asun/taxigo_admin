@@ -222,6 +222,11 @@ export interface InvoiceDetail extends InvoiceRow {
      * invoices may be re-opened/edited. Drives the detail-page "Bearbeiten" entry.
      */
     revision_invoices_enabled?: boolean;
+    /**
+     * payers.manual_km_enabled — gates the Step 3 per-trip KM input. Needed on the
+     * detail payer join so edit-mode hydration can show the KM override correctly.
+     */
+    manual_km_enabled?: boolean;
   } | null;
   client: {
     id: string;
