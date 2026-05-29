@@ -148,7 +148,7 @@ export async function getInvoiceDetail(id: string): Promise<InvoiceDetail> {
       payer:payers(
         id, name, number,
         street, street_number, zip_code, city, contact_person, email,
-        pdf_vorlage_id, revision_invoices_enabled
+        pdf_vorlage_id, revision_invoices_enabled, manual_km_enabled
       ),
       client:clients(
         id, first_name, last_name, company_name, greeting_style, customer_number,

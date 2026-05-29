@@ -100,6 +100,11 @@ export interface PdfColumnDef {
    * (per-trip fields).
    */
   flatOnly?: boolean;
+  /**
+   * When true, column is only used by the Stornierte Fahrten appendix subsection —
+   * excluded from Vorlage appendix/main pickers.
+   */
+  cancelledOnly?: boolean;
 }
 
 /** ValueSource for grouped Route/Leistung column — used by cover body for two-line cell. */
@@ -402,6 +407,67 @@ export const PDF_COLUMN_CATALOG: PdfColumnDef[] = [
     align: 'right',
     format: 'currency',
     flatOnly: true
+  },
+  // ── Stornierte Fahrten appendix (passive cancelled trips) ─────────────────
+  {
+    key: 'datum',
+    label: 'Datum',
+    uiLabel: 'Datum (Stornierte Fahrten)',
+    description: 'Fahrtdatum für stornierte, nicht abgerechnete Fahrten',
+    dataField: '',
+    defaultWidthPt: 58,
+    minWidthPt: 50,
+    align: 'left',
+    format: 'date',
+    cancelledOnly: true
+  },
+  {
+    key: 'fahrgast',
+    label: 'Fahrgast',
+    uiLabel: 'Fahrgast (Stornierte Fahrten)',
+    description: 'Fahrgastname — wrapt statt zu clipen',
+    dataField: '',
+    defaultWidthPt: 85,
+    minWidthPt: 70,
+    align: 'left',
+    format: 'text',
+    cancelledOnly: true
+  },
+  {
+    key: 'von',
+    label: 'Von',
+    uiLabel: 'Abholadresse (Stornierte Fahrten)',
+    description: 'Abholadresse — clippt an fester Breite',
+    dataField: '',
+    defaultWidthPt: 110,
+    minWidthPt: 80,
+    align: 'left',
+    format: 'text',
+    cancelledOnly: true
+  },
+  {
+    key: 'nach',
+    label: 'Nach',
+    uiLabel: 'Zieladresse (Stornierte Fahrten)',
+    description: 'Zieladresse — clippt an fester Breite',
+    dataField: '',
+    defaultWidthPt: 110,
+    minWidthPt: 80,
+    align: 'left',
+    format: 'text',
+    cancelledOnly: true
+  },
+  {
+    key: 'stornierungsgrund',
+    label: 'Stornierungsgrund',
+    uiLabel: 'Stornierungsgrund',
+    description: 'Freitext-Stornierungsgrund — elastische Spalte',
+    dataField: '',
+    defaultWidthPt: 180,
+    minWidthPt: 120,
+    align: 'left',
+    format: 'text',
+    cancelledOnly: true
   }
 ];
 
@@ -432,9 +498,9 @@ export const MAIN_FLAT_COLUMNS = PDF_COLUMN_CATALOG.filter(
   (c) => !c.appendixOnly && !c.groupedOnly
 );
 
-/** Appendix picker: all columns except grouped-only (no route_leistung / quantity aggregates). */
+/** Appendix picker: all columns except grouped-only and cancelled-only subsections. */
 export const APPENDIX_COLUMNS = PDF_COLUMN_CATALOG.filter(
-  (c) => !c.groupedOnly
+  (c) => !c.groupedOnly && !c.cancelledOnly
 );
 
 /** System fallback when no Vorlage applies — matches legacy 5-column grouped cover. */
@@ -454,6 +520,25 @@ export const SYSTEM_DEFAULT_APPENDIX_COLUMNS: PdfColumnKey[] = [
   'dropoff_address',
   'distance_km',
   'net_price'
+];
+
+/**
+ * Column keys for the passive Stornierte Fahrten appendix table.
+ * why: cancelled columns use proportional scaling via calcColumnWidths — same system as
+ * normal appendix columns — so widths adapt correctly to portrait and landscape rather
+ * than using portrait-tuned fixed values.
+ */
+export const CANCELLED_APPENDIX_COLUMN_KEYS = [
+  'datum',
+  'fahrgast',
+  'von',
+  'nach',
+  'stornierungsgrund'
+] as const satisfies readonly PdfColumnKey[];
+
+/** Keys passed to calcColumnWidths for the cancelled subsection. */
+export const CANCELLED_COLUMNS_CONFIG: PdfColumnKey[] = [
+  ...CANCELLED_APPENDIX_COLUMN_KEYS
 ];
 
 /**

@@ -20,7 +20,11 @@ import type {
   ExcludedTripRow
 } from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
-import { PDF_COLUMN_MAP } from '../../lib/pdf-column-catalog';
+import {
+  CANCELLED_APPENDIX_COLUMN_KEYS,
+  CANCELLED_COLUMNS_CONFIG,
+  PDF_COLUMN_MAP
+} from '../../lib/pdf-column-catalog';
 import {
   calcColumnWidths,
   coerceLineItemJsonbSnapshots,
@@ -41,6 +45,11 @@ export interface InvoicePdfAppendixProps {
   cancelledTrips?: CancelledTripRow[];
   /** Opted-out normal trips with exclusion reasons — gated by show_excluded_trips in parent. */
   excludedTrips?: ExcludedTripRow[];
+  /**
+   * When true, Stornierte Fahrten column widths scale to landscape usable width (~754 pt).
+   * Set by InvoicePdfDocument on the dedicated cancelled page (always landscape).
+   */
+  cancelledLandscape?: boolean;
 }
 
 const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
@@ -56,7 +65,8 @@ export function InvoicePdfAppendix({
   mainLayout,
   groupLabel,
   cancelledTrips = [],
-  excludedTrips = []
+  excludedTrips = [],
+  cancelledLandscape = false
 }: InvoicePdfAppendixProps) {
   void mainLayout;
   // Drives calcColumnWidths only. Page dimensions live on InvoicePdfDocument (A4 vs A4_LANDSCAPE).
@@ -121,7 +131,9 @@ export function InvoicePdfAppendix({
         <View
           style={[
             styles.tableRow,
-            hasBillingReason ? { borderBottomWidth: 0 } : {}
+            // why: suppress the row bottom border when a KTS note follows — the border
+            // otherwise reads as a divider between the trip data and its own note.
+            hasBillingReason || kts ? { borderBottomWidth: 0 } : {}
           ]}
         >
           {columnProfile.appendix_columns.map((key, colIdx) => {
@@ -306,8 +318,11 @@ export function InvoicePdfAppendix({
                       width: col.widthPt ?? undefined,
                       flexGrow: col.widthPt == null ? 1 : 0,
                       minWidth: 0,
-                      overflow: 'hidden',
-                      flexWrap: 'nowrap',
+                      // why: overflow:hidden + flexWrap:nowrap clips multi-line reason text in
+                      // react-pdf; elastic cells with flexGrow:1 wrap correctly without them.
+                      ...(isReason
+                        ? {}
+                        : { overflow: 'hidden', flexWrap: 'nowrap' as const }),
                       paddingRight: 4,
                       justifyContent: 'center'
                     }}
@@ -335,22 +350,20 @@ export function InvoicePdfAppendix({
   }
 
   /** Flowing block only — not `fixed` (unlike billed header). Caller passes non-empty trips only where needed. */
-  function renderCancelledSection() {
+  function renderCancelledSection(landscape = false) {
     if (cancelledTrips.length === 0) {
       return null;
     }
 
     const EM_DASH = '—';
-    const CANCELLED_COLUMNS = [
-      { key: 'datum', label: 'Datum', widthPt: 52 },
-      { key: 'fahrgast', label: 'Fahrgast', widthPt: 100 },
-      { key: 'von', label: 'Von', widthPt: 130 },
-      { key: 'nach', label: 'Nach', widthPt: 130 },
-      { key: 'stornierungsgrund', label: 'Stornierungsgrund', widthPt: null }
-    ] as const;
+    // why: proportional scaling via calcColumnWidths — same system as normal appendix columns.
+    const cancelledColWidths = calcColumnWidths(
+      CANCELLED_COLUMNS_CONFIG,
+      landscape
+    );
 
     function cellValue(
-      key: (typeof CANCELLED_COLUMNS)[number]['key'],
+      key: (typeof CANCELLED_APPENDIX_COLUMN_KEYS)[number],
       row: CancelledTripRow
     ): string {
       switch (key) {
@@ -360,10 +373,12 @@ export function InvoicePdfAppendix({
             : EM_DASH;
         case 'fahrgast': {
           const c = row.client;
-          const name = c
+          const joinedName = c
             ? [c.first_name, c.last_name].filter(Boolean).join(' ').trim()
             : '';
-          return name || EM_DASH;
+          // why: fall back to the denormalized client_name snapshot when the client join
+          // is absent — mirrors how normal appendix rows resolve the Fahrgast column.
+          return joinedName || row.client_name?.trim() || EM_DASH;
         }
         case 'von':
           return row.pickup_address?.trim() || EM_DASH;
@@ -393,34 +408,41 @@ export function InvoicePdfAppendix({
         </Text>
 
         <View style={styles.tableHeader}>
-          {CANCELLED_COLUMNS.map((colDef, idx) => (
-            <View
-              key={`cx-h-${colDef.key}-${idx}`}
-              style={{
-                width: colDef.widthPt ?? undefined,
-                flexGrow: colDef.widthPt == null ? 1 : 0,
-                minWidth: 0,
-                overflow: 'hidden',
-                flexWrap: 'nowrap',
-                paddingRight: 4,
-                justifyContent: 'center'
-              }}
-            >
-              <Text
-                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
-                numberOfLines={1}
-                style={[
-                  styles.tableHeaderText,
-                  {
-                    textAlign: 'left',
-                    fontSize: PDF_FONT_SIZES.xs
-                  }
-                ]}
+          {CANCELLED_APPENDIX_COLUMN_KEYS.map((colKey, idx) => {
+            const colDef = PDF_COLUMN_MAP[colKey];
+            if (!colDef) return null;
+            const w = cancelledColWidths[colKey] ?? colDef.defaultWidthPt;
+            const isReasonCol = colKey === 'stornierungsgrund';
+            return (
+              <View
+                key={`cx-h-${colKey}-${idx}`}
+                style={{
+                  // why: Stornierungsgrund expands to fill remaining row width after fixed cols.
+                  ...(isReasonCol
+                    ? { minWidth: w, flexGrow: 1, width: undefined }
+                    : { width: w, flexGrow: 0, minWidth: 0 }),
+                  overflow: 'hidden',
+                  flexWrap: 'nowrap',
+                  paddingRight: 4,
+                  justifyContent: 'center'
+                }}
               >
-                {colDef.label}
-              </Text>
-            </View>
-          ))}
+                <Text
+                  // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                  numberOfLines={1}
+                  style={[
+                    styles.tableHeaderText,
+                    {
+                      textAlign: 'left',
+                      fontSize: PDF_FONT_SIZES.xs
+                    }
+                  ]}
+                >
+                  {colDef.label}
+                </Text>
+              </View>
+            );
+          })}
         </View>
 
         {cancelledTrips.map((cxRow, idx) => {
@@ -435,10 +457,14 @@ export function InvoicePdfAppendix({
               wrap={false}
             >
               <View style={styles.tableRow}>
-                {CANCELLED_COLUMNS.map((colDef, colIdx) => {
-                  const raw = cellValue(colDef.key, cxRow);
+                {CANCELLED_APPENDIX_COLUMN_KEYS.map((colKey, colIdx) => {
+                  const colDef = PDF_COLUMN_MAP[colKey];
+                  if (!colDef) return null;
+                  const w = cancelledColWidths[colKey] ?? colDef.defaultWidthPt;
+                  const raw = cellValue(colKey, cxRow);
                   const hasNl = raw.includes('\n');
-                  const isReasonCol = colDef.key === 'stornierungsgrund';
+                  const isReasonCol = colKey === 'stornierungsgrund';
+                  const isFahrgastCol = colKey === 'fahrgast';
                   const reasonEmpty = isReasonCol && raw === EM_DASH;
                   const baseText = {
                     fontSize: PDF_FONT_SIZES.xs,
@@ -449,27 +475,75 @@ export function InvoicePdfAppendix({
 
                   return (
                     <View
-                      key={`cx-${cxRow.id}-${colDef.key}-${colIdx}`}
+                      key={`cx-${cxRow.id}-${colKey}-${colIdx}`}
                       style={{
-                        width: colDef.widthPt ?? undefined,
-                        flexGrow: colDef.widthPt == null ? 1 : 0,
-                        minWidth: 0,
-                        overflow: 'hidden',
-                        flexWrap: 'nowrap',
+                        // why: Stornierungsgrund uses computed width as minWidth + flexGrow so it
+                        // expands; fixed cols get explicit width from calcColumnWidths.
+                        ...(isReasonCol
+                          ? { minWidth: w, flexGrow: 1 }
+                          : { width: w, flexGrow: 0, minWidth: 0 }),
+                        // why: overflow:hidden + flexWrap:nowrap clips multi-line reason text in
+                        // react-pdf; elastic cells with flexGrow:1 wrap correctly without them.
+                        // why: Fahrgast column wraps instead of clipping — names must be fully
+                        // visible even if two lines are needed.
+                        ...(isReasonCol || isFahrgastCol
+                          ? {}
+                          : {
+                              overflow: 'hidden',
+                              flexWrap: 'nowrap' as const
+                            }),
                         paddingRight: 4,
-                        justifyContent: 'center'
+                        // why: justifyContent:center causes react-pdf to render overflowing wrapped
+                        // text above the cell boundary into the preceding row — flex-start anchors
+                        // the text to the top of the cell and wraps downward correctly.
+                        justifyContent: isReasonCol
+                          ? ('flex-start' as const)
+                          : ('center' as const)
                       }}
                     >
                       {hasNl ? (
-                        <View style={{ minWidth: 0, width: '100%' }}>
+                        <View
+                          style={
+                            isReasonCol || isFahrgastCol
+                              ? { width: w }
+                              : { minWidth: 0, width: '100%' }
+                          }
+                        >
                           {raw.split('\n').map((line, li) => (
-                            <Text key={li} style={baseText}>
+                            <Text
+                              key={li}
+                              style={
+                                isReasonCol || isFahrgastCol
+                                  ? {
+                                      ...baseText,
+                                      // why: react-pdf cannot resolve percentage widths against
+                                      // flex-computed parent widths — explicit pixel width on Text
+                                      // is required to constrain wrapping.
+                                      width: w
+                                    }
+                                  : baseText
+                              }
+                            >
                               {line}
                             </Text>
                           ))}
                         </View>
                       ) : (
-                        <Text style={baseText}>{raw}</Text>
+                        <Text
+                          style={
+                            isReasonCol || isFahrgastCol
+                              ? {
+                                  ...baseText,
+                                  // why: react-pdf cannot resolve percentage widths against
+                                  // flex-computed parent widths — explicit pixel width on Text
+                                  // is required to constrain wrapping.
+                                  width: w
+                                }
+                              : baseText
+                          }
+                        >
+                          {raw}
+                        </Text>
                       )}
                     </View>
                   );
@@ -498,7 +572,7 @@ export function InvoicePdfAppendix({
       {coercedLineItems.map((item, idx) => renderLineItemRow(item, idx))}
 
       {/* Passive cancelled: gated by show_cancelled_trips in parent; €0 informational only. */}
-      {renderCancelledSection()}
+      {renderCancelledSection(cancelledLandscape)}
 
       {/* Excluded: gated by show_excluded_trips in parent; no amount. */}
       {renderExcludedSection()}

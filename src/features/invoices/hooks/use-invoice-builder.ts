@@ -183,12 +183,34 @@ export function useInvoiceBuilder(
     refetchOnMount: false
   });
 
+  // ── Edit-mode pricing rules (for resolved_rule reconstruction) ─────────────
+  // why: the invoice's payer pricing rules are fetched live at hydration so each
+  // hydrated line can reconstruct resolved_rule (rules are NOT snapshotted on
+  // invoice_line_items) — this is what lets Step 3 KM overrides reprice in edit
+  // mode, matching create mode. Kept as a SEPARATE query (not folded into the
+  // hydration query) because invoiceKeys.full is shared with the detail page,
+  // which expects a plain InvoiceDetail; bundling rules into that cache entry
+  // would poison it. Reuses the same reference cache key + staleTime as create.
+  const hydrationPayerId = hydrationQuery.data?.payer?.id ?? null;
+  const editRulesQuery = useQuery({
+    queryKey: hydrationPayerId
+      ? referenceKeys.billingPricingRules(hydrationPayerId)
+      : ['reference', 'billing-pricing-rules', 'idle'],
+    queryFn: () => listPricingRulesForPayer(hydrationPayerId!),
+    enabled: isEditMode && !!hydrationPayerId,
+    staleTime: 30_000
+  });
+
   useEffect(() => {
     if (!isEditMode) return;
     // why: seed exactly once; never overwrite in-progress edits on any re-emit.
     if (hasHydratedRef.current) return;
     const detail = hydrationQuery.data;
     if (!detail) return;
+    // why: wait for the payer pricing rules to settle before the single seed so
+    // resolved_rule is reconstructed on first hydration — hasHydratedRef blocks
+    // any later re-seed, so seeding early with no rules would permanently lose it.
+    if (detail.payer?.id && editRulesQuery.isLoading) return;
     hasHydratedRef.current = true;
 
     const rows = detail.line_items ?? [];
@@ -196,10 +218,19 @@ export function useInvoiceBuilder(
     // normal lines into the main positions list.
     const normalRows = rows.filter((r) => r.is_cancelled_trip !== true);
     const cancelledRows = rows.filter((r) => r.is_cancelled_trip === true);
-    // why: payers.manual_km_enabled is not on the invoice detail join; default
-    // false here (KM-input visibility is UI-only). Refined when the edit route
-    // threads payer context — deferred to the save-path phase.
-    const mapCtx = { manualKmEnabled: false };
+    // why: manual_km_enabled must come from the invoice detail payer join (not a
+    // prop) so the Step 3 KM override input shows correctly in edit mode — the
+    // builder shell never receives the payer flag directly in this flow.
+    // why: rules + payerId let the mapper reconstruct resolved_rule so KM overrides
+    // reprice in edit mode. clientPriceTags is empty because client_id is not
+    // snapshotted on invoice_line_items (resolver STEP 0 can't run) — passed for
+    // API parity / forward-compat only.
+    const mapCtx = {
+      manualKmEnabled: detail.payer?.manual_km_enabled ?? false,
+      rules: mapBillingPricingRuleRowsToLike(editRulesQuery.data ?? []),
+      clientPriceTags: [],
+      payerId: detail.payer_id
+    };
 
     setLineItems(
       normalRows.map((r) => mapLineItemRowToBuilderLineItem(r, mapCtx))
@@ -225,7 +256,12 @@ export function useInvoiceBuilder(
     // navigable instead of forcing the admin to re-confirm Section 3.
     setSection3Confirmed(true);
     setEditInvoiceNumber(detail.invoice_number);
-  }, [isEditMode, hydrationQuery.data]);
+  }, [
+    isEditMode,
+    hydrationQuery.data,
+    editRulesQuery.isLoading,
+    editRulesQuery.data
+  ]);
 
   const tripsQuery = useQuery({
     queryKey: step2Values
