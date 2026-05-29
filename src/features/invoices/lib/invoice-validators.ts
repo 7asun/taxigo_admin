@@ -18,7 +18,11 @@
  * ──────────────────────────────────────────────────────────────────────────
  */
 
-import type { BuilderLineItem, LineItemWarning } from '../types/invoice.types';
+import type {
+  BuilderLineItem,
+  BuilderCancelledTripRow,
+  LineItemWarning
+} from '../types/invoice.types';
 
 /**
  * Validates a single builder line item and returns an array of warning codes.
@@ -92,4 +96,46 @@ export function getWarningLabel(warning: LineItemWarning): string {
  */
 export function hasMissingPrices(items: BuilderLineItem[]): boolean {
   return items.some((item) => item.warnings.includes('missing_price'));
+}
+
+/**
+ * Returns true if any normal trip has been opted out without supplying a reason.
+ * Gates the "Weiter zu PDF-Vorlage" button in Step 3.
+ */
+export function hasOptedOutTripWithoutReason(
+  items: BuilderLineItem[]
+): boolean {
+  return items.some(
+    (item) =>
+      !item.billingInclusion.included &&
+      item.billingInclusion.reason.trim().length === 0
+  );
+}
+
+/**
+ * Returns true if any cancelled trip has been opted in for billing without a billing reason.
+ * Gates the "Weiter zu PDF-Vorlage" button in Step 3.
+ */
+export function hasOptedInCancelledWithoutReason(
+  cancelledTrips: BuilderCancelledTripRow[]
+): boolean {
+  return cancelledTrips.some(
+    (c) =>
+      c.billingInclusion.included &&
+      c.billingInclusion.reason.trim().length === 0
+  );
+}
+
+/**
+ * Combined guard: true when any inclusion reason is missing (opt-out without reason, or opt-in cancelled without reason).
+ * Single call site for the Step 3 "Weiter" button gate.
+ */
+export function hasInclusionReasonErrors(
+  items: BuilderLineItem[],
+  cancelledTrips: BuilderCancelledTripRow[]
+): boolean {
+  return (
+    hasOptedOutTripWithoutReason(items) ||
+    hasOptedInCancelledWithoutReason(cancelledTrips)
+  );
 }

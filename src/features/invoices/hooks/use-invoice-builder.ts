@@ -22,6 +22,7 @@ import {
   fetchCancelledTripsForBuilder,
   mapBillingPricingRuleRowsToLike,
   buildLineItemsFromTrips,
+  buildCancelledTripBillingState,
   calculateInvoiceTotals,
   insertLineItems
 } from '../api/invoice-line-items.api';
@@ -33,17 +34,26 @@ import {
 import { createInvoice } from '../api/invoices.api';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
-import { hasMissingPrices, validateLineItem } from '../lib/invoice-validators';
+import {
+  hasMissingPrices,
+  hasInclusionReasonErrors,
+  validateLineItem
+} from '../lib/invoice-validators';
 import { resolveTaxRate } from '../lib/tax-calculator';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
   InvoiceBuilderFormValues,
   BuilderLineItem,
-  CancelledTripRow
+  BuilderCancelledTripRow
 } from '../types/invoice.types';
 import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
 import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
 import { tripsBuilderParamsFromStep2 } from '../lib/trips-builder-params';
+import type {
+  BillingPricingRuleLike,
+  ClientPriceTagLike
+} from '../types/pricing.types';
+import type { ClientKmOverrideLike } from '../lib/resolve-effective-distance';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
 type Step2Values = Pick<
@@ -98,8 +108,18 @@ export function useInvoiceBuilder(
 
   const [step2Values, setStep2Values] = useState<Step2Values | null>(null);
   const [lineItems, setLineItems] = useState<BuilderLineItem[]>([]);
-  /** PDF-only cancelled rows — never folded into totals or invoice_line_items. */
-  const [cancelledTrips, setCancelledTrips] = useState<CancelledTripRow[]>([]);
+  /** Cancelled rows with per-trip billing inclusion state. Default opted-out. */
+  const [cancelledTrips, setCancelledTrips] = useState<
+    BuilderCancelledTripRow[]
+  >([]);
+  /** Pricing rules cached from last fetch — needed for cancelled trip opt-in repricing. */
+  const [cachedRules, setCachedRules] = useState<BillingPricingRuleLike[]>([]);
+  const [cachedClientPriceTags, setCachedClientPriceTags] = useState<
+    ClientPriceTagLike[]
+  >([]);
+  const [cachedClientKmOverrides, setCachedClientKmOverrides] = useState<
+    ClientKmOverrideLike[]
+  >([]);
   const [section3Confirmed, setSection3Confirmed] = useState(false);
   /** Catalog cascade (variant → type → payer) from the first fetched trip. */
   const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
@@ -130,19 +150,45 @@ export function useInvoiceBuilder(
       });
       const rules = mapBillingPricingRuleRowsToLike(rulesRows);
       const tripsParams = tripsBuilderParamsFromStep2(step2Values!);
-      const [{ trips, clientPriceTags, clientKmOverrides }, cancelled] =
-        await Promise.all([
-          fetchTripsForBuilder(tripsParams),
-          fetchCancelledTripsForBuilder(tripsParams)
-        ]);
+      const [
+        { trips, clientPriceTags, clientKmOverrides },
+        {
+          trips: cancelled,
+          clientPriceTags: cancelledClientPriceTags,
+          clientKmOverrides: cancelledClientKmOverrides
+        }
+      ] = await Promise.all([
+        fetchTripsForBuilder(tripsParams),
+        fetchCancelledTripsForBuilder(tripsParams)
+      ]);
+      // why: merge cancelled-trip client pricing data with normal-trip data so that
+      // buildCancelledTripBillingState sees rules for clients whose only trips in
+      // this period are cancelled (they would otherwise be missing from the cache).
+      // Duplicate entries for shared clients are harmless — resolvePricingRule uses
+      // .filter().find() and returns the first match.
+      const allClientPriceTags = [
+        ...clientPriceTags,
+        ...cancelledClientPriceTags
+      ];
+      const allClientKmOverrides = [
+        ...clientKmOverrides,
+        ...cancelledClientKmOverrides
+      ];
       const items = buildLineItemsFromTrips(
         trips,
         rules,
         clientPriceTags,
         clientKmOverrides
       );
-      setCancelledTrips(cancelled);
-      // Billing uses `trips` only; cancelled rows are display-only — never totals or INSERT.
+      // why: default opted-out; billingInclusion is set at fetch-time so the hook
+      // never holds CancelledTripRow without billingInclusion.
+      const cancelledWithInclusion: BuilderCancelledTripRow[] = cancelled.map(
+        (t) => ({ ...t, billingInclusion: { included: false, reason: '' } })
+      );
+      setCancelledTrips(cancelledWithInclusion);
+      setCachedRules(rules);
+      setCachedClientPriceTags(allClientPriceTags);
+      setCachedClientKmOverrides(allClientKmOverrides);
       setLineItems(items);
 
       const t0 = trips[0];
@@ -316,6 +362,243 @@ export function useInvoiceBuilder(
     );
   }, []);
 
+  // ── Billing inclusion handlers ────────────────────────────────────────────────
+
+  /** why: admin opts a normal trip out of (or back into) billing in Step 3. */
+  const handleLineItemInclusionChange = useCallback(
+    (position: number, included: boolean, reason: string) => {
+      setLineItems((prev) =>
+        prev.map((item) =>
+          item.position === position
+            ? { ...item, billingInclusion: { included, reason } }
+            : item
+        )
+      );
+    },
+    []
+  );
+
+  /** why: admin opts a cancelled trip in or out of billing in Step 3. */
+  const handleCancelledTripInclusionChange = useCallback(
+    (tripId: string, included: boolean, reason: string) => {
+      setCancelledTrips((prev) =>
+        prev.map((trip) => {
+          if (trip.id !== tripId) return trip;
+          if (included) {
+            // Run pricing cascade same as normal trips
+            const billingState = buildCancelledTripBillingState(
+              trip,
+              cachedRules,
+              cachedClientPriceTags,
+              cachedClientKmOverrides
+            );
+            return {
+              ...trip,
+              ...billingState,
+              includeApproachFee: true,
+              billingInclusion: { included: true, reason }
+            };
+          }
+          // Opt out: clear all pricing state
+          return {
+            ...trip,
+            price_resolution: undefined,
+            resolved_rule: undefined,
+            unit_price: undefined,
+            tax_rate: undefined,
+            quantity: undefined,
+            approach_fee_net: undefined,
+            approach_fee_gross: undefined,
+            effective_distance_km: undefined,
+            original_distance_km: undefined,
+            kts_override: undefined,
+            manualGrossTotal: undefined,
+            manualApproachFeeGross: undefined,
+            isManualOverride: undefined,
+            manualDistanceKm: undefined,
+            isManualKmOverride: undefined,
+            includeApproachFee: undefined,
+            billingInclusion: { included: false, reason: '' }
+          };
+        })
+      );
+    },
+    [cachedRules, cachedClientPriceTags, cachedClientKmOverrides]
+  );
+
+  /** why: mirrors applyGrossOverride for opted-in cancelled trips. */
+  const handleCancelledTripGrossOverride = useCallback(
+    (tripId: string, grossTotal: number, approachFeeGross: number) => {
+      setCancelledTrips((prev) =>
+        prev.map((trip) => {
+          if (trip.id !== tripId || !trip.price_resolution || !trip.tax_rate) {
+            return trip;
+          }
+          const nextRes = applyGrossOverrideToResolution(
+            trip.price_resolution,
+            grossTotal,
+            approachFeeGross,
+            trip.tax_rate
+          );
+          return {
+            ...trip,
+            unit_price: nextRes.unit_price_net,
+            approach_fee_net: nextRes.approach_fee_net ?? null,
+            approach_fee_gross: approachFeeGross,
+            price_resolution: nextRes,
+            kts_override: false,
+            manualGrossTotal: grossTotal,
+            manualApproachFeeGross: approachFeeGross,
+            isManualOverride: true
+          };
+        })
+      );
+    },
+    []
+  );
+
+  /** why: mirrors applyKmOverride for opted-in cancelled trips. */
+  const handleCancelledTripKmOverride = useCallback(
+    (tripId: string, km: number) => {
+      setCancelledTrips((prev) =>
+        prev.map((trip) => {
+          if (
+            trip.id !== tripId ||
+            !trip.price_resolution ||
+            !Number.isFinite(km) ||
+            km <= 0
+          ) {
+            return trip;
+          }
+          const { rate: newTaxRate } = resolveTaxRate(km);
+          const approachNet = trip.approach_fee_net ?? null;
+
+          // why: preserve gross when Taxameter-originated or admin typed a gross override
+          if (
+            trip.price_resolution.source === 'manual_gross_price' ||
+            trip.isManualOverride === true
+          ) {
+            return {
+              ...trip,
+              effective_distance_km: km,
+              manualDistanceKm: km,
+              isManualKmOverride: true,
+              tax_rate: newTaxRate,
+              approach_fee_gross:
+                approachNet != null
+                  ? Math.round(approachNet * (1 + newTaxRate) * 100) / 100
+                  : null,
+              price_resolution: {
+                ...trip.price_resolution,
+                tax_rate: newTaxRate
+              }
+            };
+          }
+
+          const kmRule =
+            trip.resolved_rule && trip.includeApproachFee === false
+              ? {
+                  ...trip.resolved_rule,
+                  config: { ...trip.resolved_rule.config, approach_fee_net: 0 }
+                }
+              : (trip.resolved_rule ?? null);
+
+          const newPriceResolution = kmRule
+            ? resolveTripPricePure(
+                {
+                  kts_document_applies: trip.kts_document_applies ?? false,
+                  net_price: null,
+                  base_net_price: null,
+                  manual_gross_price: null,
+                  driving_distance_km: km,
+                  scheduled_at: trip.scheduled_at,
+                  client: undefined
+                },
+                newTaxRate,
+                kmRule
+              )
+            : { ...trip.price_resolution, tax_rate: newTaxRate };
+
+          const nextApproachNet = newPriceResolution.approach_fee_net ?? null;
+          return {
+            ...trip,
+            effective_distance_km: km,
+            manualDistanceKm: km,
+            isManualKmOverride: true,
+            tax_rate: newTaxRate,
+            unit_price: newPriceResolution.unit_price_net ?? trip.unit_price,
+            quantity: newPriceResolution.quantity,
+            approach_fee_net: nextApproachNet,
+            approach_fee_gross:
+              nextApproachNet != null
+                ? Math.round(nextApproachNet * (1 + newTaxRate) * 100) / 100
+                : null,
+            price_resolution: newPriceResolution,
+            kts_override: newPriceResolution.strategy_used === 'kts_override'
+          };
+        })
+      );
+    },
+    []
+  );
+
+  /** Toggle approach fee inclusion on an opted-in cancelled trip. */
+  const handleCancelledTripApproachFeeChange = useCallback(
+    (tripId: string, include: boolean) => {
+      setCancelledTrips((prev) =>
+        prev.map((trip) => {
+          if (trip.id !== tripId || !trip.price_resolution || !trip.tax_rate) {
+            return trip;
+          }
+          if (trip.isManualOverride) {
+            return { ...trip, includeApproachFee: include };
+          }
+          const baseRule = trip.resolved_rule ?? null;
+          const effectiveRule =
+            !include && baseRule
+              ? {
+                  ...baseRule,
+                  config: { ...baseRule.config, approach_fee_net: 0 }
+                }
+              : baseRule;
+          const { rate: taxRate } = resolveTaxRate(
+            trip.effective_distance_km ?? 0
+          );
+          const newPriceResolution = resolveTripPricePure(
+            {
+              kts_document_applies: trip.kts_document_applies ?? false,
+              net_price: null,
+              base_net_price: null,
+              manual_gross_price: null,
+              driving_distance_km: trip.effective_distance_km ?? null,
+              scheduled_at: trip.scheduled_at,
+              client: trip.client
+                ? { price_tag: trip.client.price_tag ?? null }
+                : null
+            },
+            taxRate,
+            effectiveRule
+          );
+          const nextApproachNet = newPriceResolution.approach_fee_net ?? null;
+          return {
+            ...trip,
+            price_resolution: newPriceResolution,
+            unit_price: newPriceResolution.unit_price_net,
+            approach_fee_net: nextApproachNet,
+            approach_fee_gross:
+              nextApproachNet != null
+                ? Math.round(nextApproachNet * (1 + taxRate) * 100) / 100
+                : null,
+            quantity: newPriceResolution.quantity,
+            kts_override: newPriceResolution.strategy_used === 'kts_override',
+            includeApproachFee: include
+          };
+        })
+      );
+    },
+    []
+  );
+
   const handleStep1Complete = useCallback(
     (mode: InvoiceBuilderFormValues['mode']) => {
       setStep2Values((prev) => {
@@ -333,8 +616,31 @@ export function useInvoiceBuilder(
     setStep2Values(values);
   }, []);
 
-  const totals = calculateInvoiceTotals(lineItems);
+  // why: totals must reflect only billing-included rows; opted-out normal trips and
+  // opted-out cancelled trips are excluded from subtotal/tax/total.
+  const includedNormal = lineItems.filter((i) => i.billingInclusion.included);
+  const includedCancelled = cancelledTrips.filter(
+    (c) => c.billingInclusion.included && c.price_resolution != null
+  );
+  const totals = calculateInvoiceTotals([
+    ...includedNormal,
+    ...includedCancelled.map((c) => ({
+      price_resolution: c.price_resolution!,
+      tax_rate: c.tax_rate ?? 0,
+      quantity: c.quantity ?? 1,
+      approach_fee_net: c.approach_fee_net ?? null,
+      unit_price: c.unit_price ?? null,
+      manualGrossTotal: c.manualGrossTotal ?? null
+    }))
+  ]);
   const missingPrices = hasMissingPrices(lineItems);
+  const excludedTripCount = lineItems.filter(
+    (i) => !i.billingInclusion.included
+  ).length;
+  const hasInclusionErrors = hasInclusionReasonErrors(
+    lineItems,
+    cancelledTrips
+  );
 
   const createMutation = useMutation({
     mutationFn: async (args: {
@@ -391,7 +697,10 @@ export function useInvoiceBuilder(
         pdfColumnOverride: pdfPayload
       });
 
-      await insertLineItems(invoice.id, lineItems);
+      const optedInCancelled = cancelledTrips.filter(
+        (c) => c.billingInclusion.included && c.price_resolution != null
+      );
+      await insertLineItems(invoice.id, lineItems, optedInCancelled);
 
       // Fire-and-forget: failed writeback must never block the invoice.
       // price_resolution.net is transport-only; Anfahrt on approach_fee_net.
@@ -446,6 +755,8 @@ export function useInvoiceBuilder(
     catalogRecipientId,
     totals,
     missingPrices,
+    excludedTripCount,
+    hasInclusionErrors,
 
     isLoadingTrips: tripsQuery.isLoading,
     isTripsError: tripsQuery.isError,
@@ -458,6 +769,11 @@ export function useInvoiceBuilder(
     resetLineItemOverride,
     applyKmOverride,
     resetKmOverride,
+    handleLineItemInclusionChange,
+    handleCancelledTripInclusionChange,
+    handleCancelledTripGrossOverride,
+    handleCancelledTripKmOverride,
+    handleCancelledTripApproachFeeChange,
 
     createInvoice: (
       step4Values: Pick<

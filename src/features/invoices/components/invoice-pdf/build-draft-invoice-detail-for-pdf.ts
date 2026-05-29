@@ -25,10 +25,12 @@ import {
   isGrossAnchorClientPriceTag
 } from '@/features/invoices/api/invoice-line-items.api';
 import type {
+  BuilderCancelledTripRow,
   BuilderLineItem,
   InvoiceDetail,
   InvoiceLineItemRow,
-  InvoiceMode
+  InvoiceMode,
+  TotalsLineShape
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 import { parseClientReferenceFieldsFromDb } from '@/features/clients/lib/client-reference-fields.schema';
@@ -93,7 +95,94 @@ function builderItemToDraftLineItem(item: BuilderLineItem): InvoiceLineItemRow {
     price_resolution_snapshot: frozen as unknown as Record<string, unknown>,
     trip_meta_snapshot: item.trip_meta
       ? (item.trip_meta as unknown as Record<string, unknown>)
-      : null
+      : null,
+    // why: draft PDF shape mirrors DB snapshot — use billingInclusion from builder state.
+    billing_included: item.billingInclusion?.included ?? true,
+    billing_exclusion_reason: null,
+    is_cancelled_trip: false,
+    cancelled_billing_reason: null
+  };
+}
+
+/**
+ * Converts an opted-in BuilderCancelledTripRow to a draft InvoiceLineItemRow.
+ * Mirrors `builderItemToDraftLineItem` but sources fields from CancelledTripRow shape.
+ * Position is assigned after the merged sort in `buildDraftInvoiceDetailForPdf`.
+ */
+function cancelledItemToDraftLineItem(
+  trip: BuilderCancelledTripRow,
+  position: number
+): InvoiceLineItemRow {
+  const u = trip.unit_price ?? 0;
+  const q = trip.quantity ?? 1;
+  const taxRate = trip.tax_rate ?? 0;
+  const approachNet = trip.approach_fee_net ?? 0;
+  const pr = trip.price_resolution;
+
+  let total_price: number;
+  if (pr && isGrossAnchorClientPriceTag(pr)) {
+    total_price = pr.gross! * q + approachNet * (1 + taxRate);
+  } else {
+    const transportNet =
+      pr?.net !== null && pr?.net !== undefined ? pr.net : u * q;
+    total_price =
+      Math.round((transportNet + approachNet) * (1 + taxRate) * 100) / 100;
+  }
+
+  const clientName = trip.client
+    ? [trip.client.first_name, trip.client.last_name]
+        .filter(Boolean)
+        .join(' ') || null
+    : trip.client_name?.trim() || null;
+
+  const dateStr = trip.scheduled_at
+    ? new Date(trip.scheduled_at).toLocaleDateString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      })
+    : null;
+
+  const description = [
+    dateStr ? `Fahrt vom ${dateStr}` : 'Fahrt (kein Datum)',
+    clientName
+  ]
+    .filter(Boolean)
+    .join(' \u2013 ');
+
+  return {
+    id: `draft-cancelled-${trip.id}`,
+    invoice_id: '__draft__',
+    trip_id: trip.id,
+    position,
+    line_date: trip.scheduled_at,
+    description,
+    client_name: clientName,
+    pickup_address: trip.pickup_address ?? null,
+    dropoff_address: trip.dropoff_address ?? null,
+    distance_km: trip.driving_distance_km ?? null,
+    effective_distance_km: trip.effective_distance_km ?? null,
+    original_distance_km: trip.original_distance_km ?? null,
+    unit_price: u,
+    quantity: q,
+    approach_fee_net: trip.approach_fee_net ?? null,
+    total_price,
+    tax_rate: taxRate,
+    billing_variant_code: trip.billing_variant?.code ?? null,
+    billing_variant_name: trip.billing_variant?.name ?? null,
+    billing_type_name: trip.billing_variant?.billing_type?.name ?? null,
+    created_at: new Date().toISOString(),
+    pricing_strategy_used: pr?.strategy_used ?? null,
+    pricing_source: pr?.source ?? null,
+    kts_override: trip.kts_override ?? false,
+    price_resolution_snapshot: pr
+      ? (pr as unknown as Record<string, unknown>)
+      : null,
+    trip_meta_snapshot: null,
+    billing_included: true,
+    billing_exclusion_reason: null,
+    is_cancelled_trip: true,
+    cancelled_billing_reason: trip.billingInclusion.reason || null
   };
 }
 
@@ -109,6 +198,8 @@ export function buildDraftInvoiceDetailForPdf(params: {
   companyProfile: InvoiceDetail['company_profile'];
   step2: InvoiceBuilderStep2Snapshot;
   lineItems: BuilderLineItem[];
+  /** Opted-in cancelled trips — merged into Fahrtendetails sorted by date. */
+  billedCancelledTrips?: BuilderCancelledTripRow[];
   payers: NonNullable<InvoiceDetail['payer']>[];
   clients: NonNullable<InvoiceDetail['client']>[];
   paymentDueDays: number;
@@ -127,6 +218,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     companyProfile,
     step2,
     lineItems,
+    billedCancelledTrips = [],
     payers,
     clients,
     paymentDueDays,
@@ -137,7 +229,22 @@ export function buildDraftInvoiceDetailForPdf(params: {
     columnProfile
   } = params;
 
-  const { subtotal, taxAmount, total } = calculateInvoiceTotals(lineItems);
+  // Include opted-in cancelled trips in totals — they are billed items.
+  const cancelledForTotals: TotalsLineShape[] = billedCancelledTrips
+    .filter((t) => t.price_resolution != null && t.tax_rate != null)
+    .map((t) => ({
+      price_resolution: t.price_resolution!,
+      tax_rate: t.tax_rate!,
+      quantity: t.quantity ?? 1,
+      approach_fee_net: t.approach_fee_net ?? null,
+      unit_price: t.unit_price ?? null,
+      manualGrossTotal: t.manualGrossTotal ?? null
+    }));
+
+  const { subtotal, taxAmount, total } = calculateInvoiceTotals([
+    ...lineItems,
+    ...cancelledForTotals
+  ] as TotalsLineShape[]);
   const now = new Date().toISOString();
 
   const payer =
@@ -182,7 +289,19 @@ export function buildDraftInvoiceDetailForPdf(params: {
       ? parseClientReferenceFieldsFromDb(client.reference_fields ?? null)
       : null;
 
-  const draftLineItems = lineItems.map(builderItemToDraftLineItem);
+  // Merge opted-in cancelled trip rows with normal line items, sort by date ascending,
+  // then re-number positions so the appendix renders them in chronological order.
+  const draftLineItems = [
+    ...lineItems.map(builderItemToDraftLineItem),
+    ...billedCancelledTrips.map((t) => cancelledItemToDraftLineItem(t, 0))
+  ]
+    .sort((a, b) => {
+      if (!a.line_date && !b.line_date) return 0;
+      if (!a.line_date) return 1;
+      if (!b.line_date) return -1;
+      return a.line_date.localeCompare(b.line_date);
+    })
+    .map((item, idx) => ({ ...item, position: idx + 1 }));
 
   const base = {
     id: '__pdf_preview__',

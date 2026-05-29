@@ -188,6 +188,7 @@ export type Database = {
       };
       clients: {
         Row: {
+          birthdate: string | null;
           city: string;
           company_id: string;
           company_name: string | null;
@@ -218,6 +219,7 @@ export type Database = {
           lng: number | null;
         };
         Insert: {
+          birthdate?: string | null;
           city: string;
           company_id: string;
           company_name?: string | null;
@@ -247,6 +249,7 @@ export type Database = {
           lng?: number | null;
         };
         Update: {
+          birthdate?: string | null;
           city?: string;
           company_id?: string;
           company_name?: string | null;

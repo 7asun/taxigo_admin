@@ -16,7 +16,8 @@ import { View, Text } from '@react-pdf/renderer';
 
 import type {
   InvoiceDetail,
-  CancelledTripRow
+  CancelledTripRow,
+  ExcludedTripRow
 } from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
 import { PDF_COLUMN_MAP } from '../../lib/pdf-column-catalog';
@@ -36,8 +37,10 @@ export interface InvoicePdfAppendixProps {
   mainLayout?: string;
   /** When set, shown in fixed header: "Anhang: Fahrtendetails — {groupLabel}" */
   groupLabel?: string;
-  /** Display-only canceled trips; empty on billed appendix pages — see InvoicePdfDocument. */
+  /** Passive cancelled trips (opted-out, €0) — gated by show_cancelled_trips in parent. */
   cancelledTrips?: CancelledTripRow[];
+  /** Opted-out normal trips with exclusion reasons — gated by show_excluded_trips in parent. */
+  excludedTrips?: ExcludedTripRow[];
 }
 
 const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
@@ -52,7 +55,8 @@ export function InvoicePdfAppendix({
   columnProfile,
   mainLayout,
   groupLabel,
-  cancelledTrips = []
+  cancelledTrips = [],
+  excludedTrips = []
 }: InvoicePdfAppendixProps) {
   void mainLayout;
   // Drives calcColumnWidths only. Page dimensions live on InvoicePdfDocument (A4 vs A4_LANDSCAPE).
@@ -105,6 +109,8 @@ export function InvoicePdfAppendix({
     idx: number
   ) {
     const kts = item.kts_override === true;
+    const hasBillingReason =
+      item.is_cancelled_trip === true && !!item.cancelled_billing_reason;
 
     return (
       <View
@@ -112,7 +118,12 @@ export function InvoicePdfAppendix({
         style={[{ width: '100%' }, idx % 2 === 1 ? styles.tableRowAlt : {}]}
         wrap={false}
       >
-        <View style={styles.tableRow}>
+        <View
+          style={[
+            styles.tableRow,
+            hasBillingReason ? { borderBottomWidth: 0 } : {}
+          ]}
+        >
           {columnProfile.appendix_columns.map((key, colIdx) => {
             const col = PDF_COLUMN_MAP[key];
             if (!col) return null;
@@ -172,6 +183,153 @@ export function InvoicePdfAppendix({
             <Text style={styles.appendixKtsNote}>Abgerechnet über KTS</Text>
           </View>
         ) : null}
+        {hasBillingReason ? (
+          <View
+            style={{ paddingHorizontal: 8, paddingTop: 0, paddingBottom: 4 }}
+          >
+            <Text
+              style={{
+                fontSize: PDF_FONT_SIZES.xs,
+                color: PDF_COLORS.billingReason
+              }}
+            >
+              <Text style={{ fontWeight: 'bold' }}>
+                {'Abgerechnet trotz Stornierung: '}
+              </Text>
+              <Text>{item.cancelled_billing_reason}</Text>
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  /**
+   * Excluded normal trips — gated by show_excluded_trips in parent.
+   * Shows exclusion reason in amber; no amount column (these are €0 impact).
+   */
+  function renderExcludedSection() {
+    if (excludedTrips.length === 0) return null;
+
+    const EM_DASH = '—';
+    const EXCLUDED_COLUMNS = [
+      { key: 'datum', label: 'Datum', widthPt: 52 },
+      { key: 'fahrgast', label: 'Fahrgast', widthPt: 110 },
+      { key: 'von', label: 'Von', widthPt: 110 },
+      { key: 'nach', label: 'Nach', widthPt: 110 },
+      { key: 'begruendung', label: 'Begründung', widthPt: null }
+    ] as const;
+
+    function excludedCellValue(
+      key: (typeof EXCLUDED_COLUMNS)[number]['key'],
+      row: ExcludedTripRow
+    ): string {
+      switch (key) {
+        case 'datum':
+          return row.line_date ? formatInvoicePdfDate(row.line_date) : EM_DASH;
+        case 'fahrgast':
+          return row.client_name?.trim() || EM_DASH;
+        case 'von':
+          return row.pickup_address?.trim() || EM_DASH;
+        case 'nach':
+          return row.dropoff_address?.trim() || EM_DASH;
+        case 'begruendung':
+          return row.billing_exclusion_reason?.trim() || EM_DASH;
+      }
+    }
+
+    return (
+      <View style={{ marginTop: 14 }}>
+        <Text
+          style={{
+            fontSize: PDF_FONT_SIZES.sm,
+            fontWeight: 'bold',
+            color: PDF_COLORS.text,
+            marginBottom: 4
+          }}
+        >
+          Ausgeschlossene Fahrten
+        </Text>
+        <Text
+          style={{
+            fontSize: PDF_FONT_SIZES.xs,
+            color: PDF_COLORS.muted,
+            marginBottom: 8
+          }}
+        >
+          Diese Fahrten wurden manuell ausgeschlossen und sind nicht im
+          Rechnungsbetrag enthalten.
+        </Text>
+
+        <View style={styles.tableHeader}>
+          {EXCLUDED_COLUMNS.map((col, idx) => (
+            <View
+              key={`ex-h-${col.key}-${idx}`}
+              style={{
+                width: col.widthPt ?? undefined,
+                flexGrow: col.widthPt == null ? 1 : 0,
+                minWidth: 0,
+                overflow: 'hidden',
+                flexWrap: 'nowrap',
+                paddingRight: 4,
+                justifyContent: 'center'
+              }}
+            >
+              <Text
+                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                numberOfLines={1}
+                style={[
+                  styles.tableHeaderText,
+                  { textAlign: 'left', fontSize: PDF_FONT_SIZES.xs }
+                ]}
+              >
+                {col.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {excludedTrips.map((row, idx) => (
+          <View
+            key={`ex-${idx}`}
+            style={[{ width: '100%' }, idx % 2 === 1 ? styles.tableRowAlt : {}]}
+            wrap={false}
+          >
+            <View style={styles.tableRow}>
+              {EXCLUDED_COLUMNS.map((col, colIdx) => {
+                const raw = excludedCellValue(col.key, row);
+                const isReason = col.key === 'begruendung';
+                return (
+                  <View
+                    key={`ex-${idx}-${col.key}-${colIdx}`}
+                    style={{
+                      width: col.widthPt ?? undefined,
+                      flexGrow: col.widthPt == null ? 1 : 0,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      flexWrap: 'nowrap',
+                      paddingRight: 4,
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: PDF_FONT_SIZES.xs,
+                        textAlign: 'left',
+                        // why: exclusion reason in amber per plan invariant (PDF_COLORS.billingReason)
+                        color: isReason
+                          ? PDF_COLORS.billingReason
+                          : PDF_COLORS.text
+                      }}
+                    >
+                      {raw}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ))}
       </View>
     );
   }
@@ -339,8 +497,11 @@ export function InvoicePdfAppendix({
 
       {coercedLineItems.map((item, idx) => renderLineItemRow(item, idx))}
 
-      {/* Cancelled block: length-only here; document parent enforces show_cancelled_trips + passes [] on billed appendix pages. */}
+      {/* Passive cancelled: gated by show_cancelled_trips in parent; €0 informational only. */}
       {renderCancelledSection()}
+
+      {/* Excluded: gated by show_excluded_trips in parent; no amount. */}
+      {renderExcludedSection()}
     </>
   );
 }

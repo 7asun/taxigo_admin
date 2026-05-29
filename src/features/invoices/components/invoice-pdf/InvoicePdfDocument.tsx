@@ -22,6 +22,7 @@ import { calculateInvoiceTotals } from '../../api/invoice-line-items.api';
 import type {
   BuilderLineItem,
   CancelledTripRow,
+  ExcludedTripRow,
   InvoiceDetail
 } from '../../types/invoice.types';
 import type { PdfColumnProfile } from '../../types/pdf-vorlage.types';
@@ -84,10 +85,16 @@ export interface InvoicePdfDocumentProps {
    */
   columnProfile?: PdfColumnProfile | null;
   /**
-   * Builder preview: stornierte Fahrten for the optional dedicated appendix page (`show_cancelled_trips`).
-   * **TODO(issued-cancelled-rows):** Re-download PDF — populate from scoped trips fetch when enriching issued invoices (today always `[]` on detail/email).
+   * Passive cancelled trips (opted-out, €0) for the Stornierte Fahrten appendix block.
+   * Gated by `show_cancelled_trips` profile flag.
+   * TODO(issued-cancelled-rows): populate from scoped trips fetch for issued invoices.
    */
   cancelledTrips?: CancelledTripRow[];
+  /**
+   * Opted-out normal trips with exclusion reasons — gated by `show_excluded_trips` profile flag.
+   * Builder preview only.
+   */
+  excludedTrips?: ExcludedTripRow[];
 }
 
 function priceResolutionFromLineItem(
@@ -147,7 +154,8 @@ export function InvoicePdfDocument({
   outroText = null,
   renderMode = 'digital',
   columnProfile: columnProfileProp = null,
-  cancelledTrips = []
+  cancelledTrips = [],
+  excludedTrips = []
 }: InvoicePdfDocumentProps) {
   // Two render paths: 'digital' keeps the existing flow-based header; 'brief' pins the recipient window at 127pt and adds fold marks (Path C: separate Brief header + page-level address window).
   const effectiveProfile =
@@ -155,9 +163,15 @@ export function InvoicePdfDocument({
     invoice.column_profile ??
     resolvePdfColumnProfile(null, null, null);
 
+  // why: passive €0 list is still gated by show_cancelled_trips (unchanged semantics)
   const cancelledRowsForPdf: CancelledTripRow[] =
     effectiveProfile.show_cancelled_trips && cancelledTrips.length > 0
       ? cancelledTrips
+      : [];
+  // why: excluded trips appendix gated by show_excluded_trips
+  const excludedRowsForPdf: ExcludedTripRow[] =
+    effectiveProfile.show_excluded_trips && excludedTrips.length > 0
+      ? excludedTrips
       : [];
 
   const cp = invoice.company_profile;
@@ -302,6 +316,25 @@ export function InvoicePdfDocument({
     coverRecipient = snapshotWindowRecipient ?? payerWindowRecipient;
   }
 
+  // why: opted-in cancelled trips (is_cancelled_trip=true) render in the Stornierte billed
+  // appendix block only — not in the Haupttabelle cover table. Pre-new invoices have is_cancelled_trip
+  // undefined (defaults to false per DB migration), so ?? false is safe.
+  const mainLineItems = invoice.line_items.filter(
+    (li) => !(li.is_cancelled_trip ?? false)
+  );
+
+  // Fahrtendetails appendix: all billing-included rows (normal + opted-in cancelled), sorted by date.
+  // Opted-in cancelled trips (is_cancelled_trip = true, billing_included = true) slot in by their
+  // trip date alongside normal trips — renderLineItemRow adds the amber billing-reason sub-row.
+  const appendixLineItems = invoice.line_items
+    .filter((li) => li.billing_included !== false)
+    .sort((a, b) => {
+      if (!a.line_date && !b.line_date) return 0;
+      if (!a.line_date) return 1;
+      if (!b.line_date) return -1;
+      return a.line_date.localeCompare(b.line_date);
+    });
+
   const lineItemsForCalc: BuilderLineItem[] = invoice.line_items.map((li) => ({
     trip_id: li.trip_id,
     position: li.position,
@@ -329,7 +362,12 @@ export function InvoicePdfDocument({
       li.trip_meta_snapshot as Record<string, unknown> | null | undefined
     ),
     price_source: null,
-    warnings: []
+    warnings: [],
+    // why: InvoicePdfDocument operates on persisted data where all items are already included in totals
+    billingInclusion: {
+      included: li.billing_included ?? true,
+      reason: li.billing_exclusion_reason ?? ''
+    }
   }));
 
   const { subtotal, total, breakdown } =
@@ -342,7 +380,7 @@ export function InvoicePdfDocument({
     effectiveProfile.main_layout === 'single_row'
       ? [
           buildInvoicePdfSingleRow(
-            invoice.line_items,
+            mainLineItems,
             [
               invoice.payer?.name ?? 'Abrechnung',
               `${formatInvoicePdfDate(invoice.period_from)} – ${formatInvoicePdfDate(invoice.period_to)}`
@@ -350,8 +388,9 @@ export function InvoicePdfDocument({
           )
         ]
       : effectiveProfile.main_layout === 'grouped_by_billing_type'
-        ? buildInvoicePdfGroupedByBillingType(invoice.line_items)
-        : buildInvoicePdfSummary(invoice).summaryItems;
+        ? buildInvoicePdfGroupedByBillingType(mainLineItems)
+        : buildInvoicePdfSummary({ ...invoice, line_items: mainLineItems })
+            .summaryItems;
 
   const dueDateMs =
     new Date(invoice.created_at).getTime() +
@@ -502,7 +541,10 @@ export function InvoicePdfDocument({
       {/* appendix_is_landscape from resolvePdfColumnProfile when appendix_columns.length > 7 */}
       {effectiveProfile.main_layout === 'grouped_by_billing_type' ? (
         (() => {
-          const groups = groupLineItemsByBillingType(invoice.line_items);
+          // why: appendixLineItems includes opted-in cancelled rows (is_cancelled_trip = true,
+          // billing_included = true) so they appear in the correct billing-type group,
+          // sorted by date. renderLineItemRow adds the amber billing-reason sub-row.
+          const groups = groupLineItemsByBillingType(appendixLineItems);
           const empty = groups
             .filter((g) => g.items.length === 0)
             .map((g) => g.label);
@@ -533,7 +575,6 @@ export function InvoicePdfDocument({
                 }))}
                 columnProfile={effectiveProfile}
                 groupLabel={group.label}
-                cancelledTrips={[]}
               />
 
               <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
@@ -553,10 +594,9 @@ export function InvoicePdfDocument({
           <InvoicePdfAppendix
             invoiceNumber={invoice.invoice_number}
             invoiceCreatedAtIso={invoice.created_at}
-            lineItems={invoice.line_items}
+            lineItems={appendixLineItems}
             columnProfile={effectiveProfile}
             mainLayout={effectiveProfile.main_layout}
-            cancelledTrips={[]}
           />
 
           <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
@@ -564,10 +604,10 @@ export function InvoicePdfDocument({
       )}
 
       {/*
-        Cancelled trips: dedicated final appendix page, not Haupttabelle — CancelledTripRow has no billing_variant context for per-group bucketing here.
-        `lineItems=[]` renders the same fixed header column grid as Nach-Abrechnungsart pages, then appendix-only cancelled rows beneath (see InvoicePdfAppendix).
-        Orientation matches appendix_is_landscape (never hard-coded portrait).
-        TODO(issued-cancelled-rows): pass non-empty cancelledRowsForPdf from detail download once trips are refetched.
+        Appendix 2: passive cancelled trips (Stornierte Fahrten) — own page.
+        Gated by show_cancelled_trips. Opted-in cancelled rows are already in
+        appendixLineItems above; this page is the passive €0 transparency list only.
+        TODO(issued-cancelled-rows): populate cancelledTrips from scoped fetch for issued invoices.
        */}
       {cancelledRowsForPdf.length > 0 ? (
         <Page
@@ -586,6 +626,34 @@ export function InvoicePdfDocument({
             columnProfile={effectiveProfile}
             cancelledTrips={cancelledRowsForPdf}
             groupLabel='Stornierte Fahrten'
+          />
+
+          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
+        </Page>
+      ) : null}
+
+      {/*
+        Appendix 3: excluded trips (Ausgeschlossene Fahrten) — own independent page.
+        Gated by show_excluded_trips. Independent of Stornierte Fahrten to ensure
+        the section title renders at top-level heading hierarchy, not as a sub-section.
+       */}
+      {excludedRowsForPdf.length > 0 ? (
+        <Page
+          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
+          style={
+            effectiveProfile.appendix_is_landscape
+              ? styles.appendixPageLandscape
+              : styles.appendixPage
+          }
+          wrap
+        >
+          <InvoicePdfAppendix
+            invoiceNumber={invoice.invoice_number}
+            invoiceCreatedAtIso={invoice.created_at}
+            lineItems={[]}
+            columnProfile={effectiveProfile}
+            excludedTrips={excludedRowsForPdf}
+            groupLabel='Ausgeschlossene Fahrten'
           />
 
           <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

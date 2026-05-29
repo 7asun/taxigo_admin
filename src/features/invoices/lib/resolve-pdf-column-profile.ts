@@ -128,6 +128,8 @@ export function resolvePdfColumnProfile(
     appendix_is_landscape,
     source,
     // Persisted only on invoices.pdf_column_override; Vorlagen DB rows omit this — derive from parsed override JSON when present so enrich matches issued intent.
-    show_cancelled_trips: override?.show_cancelled_trips ?? false
+    show_cancelled_trips: override?.show_cancelled_trips ?? false,
+    // why: only present when admin opted out ≥1 normal trip in Step 3; legacy overrides omit ⇒ false.
+    show_excluded_trips: override?.show_excluded_trips ?? false
   };
 }

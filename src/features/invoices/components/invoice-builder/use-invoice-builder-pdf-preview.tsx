@@ -24,8 +24,10 @@ import {
 } from '@/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf';
 import { InvoicePdfDocument } from '@/features/invoices/components/invoice-pdf/InvoicePdfDocument';
 import type {
+  BuilderCancelledTripRow,
   BuilderLineItem,
   CancelledTripRow,
+  ExcludedTripRow,
   InvoiceDetail
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
@@ -43,8 +45,16 @@ export interface UseInvoiceBuilderPdfPreviewParams {
   step2Values: InvoiceBuilderStep2Snapshot | null;
   /** Line items fed from `fetchTripsForBuilder`; billing-only. */
   lineItems: BuilderLineItem[];
-  /** Cancelled trips for optional €0 rows on the Haupttabelle — never summed into totals. */
-  cancelledTrips: CancelledTripRow[];
+  /**
+   * Passive cancelled trips (opted-out, €0) — pre-split in index.tsx with useMemo.
+   * Gated by show_cancelled_trips profile flag in InvoicePdfDocument.
+   * Must be a stable reference (useMemo in caller) to avoid re-firing the PDF useEffect.
+   */
+  passiveCancelledTrips: BuilderCancelledTripRow[];
+  /** Opted-in cancelled trips with real billing prices — always shown in billed block when non-empty. */
+  billedCancelledTrips?: BuilderCancelledTripRow[];
+  /** Opted-out normal trips with exclusion reasons — gated by show_excluded_trips profile flag. */
+  excludedTrips?: ExcludedTripRow[];
   payers: NonNullable<InvoiceDetail['payer']>[];
   clients: NonNullable<InvoiceDetail['client']>[];
   defaultPaymentDays: number;
@@ -86,7 +96,9 @@ export function useInvoiceBuilderPdfPreview(
     companyProfile,
     step2Values,
     lineItems,
-    cancelledTrips,
+    passiveCancelledTrips = [],
+    billedCancelledTrips = [],
+    excludedTrips = [],
     payers,
     clients,
     defaultPaymentDays,
@@ -177,6 +189,12 @@ export function useInvoiceBuilderPdfPreview(
     ? step4Overlay!.recipientRow
     : defaultRecipientRow;
 
+  // why: draft PDF cover table must show only billing-included normal trips (identical filter to InvoicePdfDocument)
+  const includedLineItemsForDraft = useMemo(
+    () => lineItems.filter((li) => li.billingInclusion.included),
+    [lineItems]
+  );
+
   const draftInvoice = useMemo(() => {
     if (!livePreviewActive || !companyProfileForDraft || !step2Values)
       return null;
@@ -184,7 +202,8 @@ export function useInvoiceBuilderPdfPreview(
       companyId,
       companyProfile: companyProfileForDraft,
       step2: step2Values,
-      lineItems,
+      lineItems: includedLineItemsForDraft,
+      billedCancelledTrips,
       payers,
       clients,
       paymentDueDays,
@@ -199,7 +218,8 @@ export function useInvoiceBuilderPdfPreview(
     companyId,
     companyProfileForDraft,
     step2Values,
-    lineItems,
+    includedLineItemsForDraft,
+    billedCancelledTrips,
     payers,
     clients,
     paymentDueDays,
@@ -249,7 +269,8 @@ export function useInvoiceBuilderPdfPreview(
           outroText={outroText}
           paymentQrDataUrl={paymentQrDataUrl}
           columnProfile={columnProfile}
-          cancelledTrips={cancelledTrips}
+          cancelledTrips={passiveCancelledTrips}
+          excludedTrips={excludedTrips}
         />
       );
     }, delayMs);
@@ -262,7 +283,8 @@ export function useInvoiceBuilderPdfPreview(
     columnReorderGeneration,
     updatePdf,
     paymentQrDataUrl,
-    cancelledTrips
+    passiveCancelledTrips,
+    excludedTrips
   ]);
 
   return { pdf, draftInvoice, livePreviewActive };

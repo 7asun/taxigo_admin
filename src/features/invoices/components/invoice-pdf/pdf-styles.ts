@@ -30,6 +30,8 @@ export const PDF_COLORS = {
   primary: '#1e40af',
   /** Soft accent background for emphasis rows */
   accent: '#dbeafe',
+  /** Amber text for billing reason (opted-in cancelled) and excluded trip reason. */
+  billingReason: 'rgb(180, 83, 9)',
   /** White */
   white: '#ffffff'
 } as const;

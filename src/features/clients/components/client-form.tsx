@@ -3,6 +3,7 @@
 import { FormInput } from '@/components/forms/form-input';
 import { FormSwitch } from '@/components/forms/form-switch';
 import { FormTextarea } from '@/components/forms/form-textarea';
+import { FormBirthdatePicker } from '@/components/forms/form-birthdate-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import * as z from 'zod';
 import { cn } from '@/lib/utils';
+import { parseYmdToLocalDate, formatLocalDateToYmd } from '@/lib/date-ymd';
 import { RecurringRulesList } from './recurring-rules-list';
 import {
   recurringRulesService,
@@ -80,6 +82,7 @@ const formSchema = z.object({
   greeting_style: z.string().optional(),
   notes: z.string().optional(),
   is_wheelchair: z.boolean(),
+  birthdate: z.date().nullable().optional(),
 
   reference_field_rows: z.array(
     z.object({
@@ -180,6 +183,9 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       greeting_style: initialData?.greeting_style || '',
       notes: initialData?.notes || '',
       is_wheelchair: initialData?.is_wheelchair ?? false,
+      birthdate: initialData?.birthdate
+        ? parseYmdToLocalDate(initialData.birthdate)
+        : null,
       reference_field_rows: defaultReferenceFieldRows(initialData)
     };
 
@@ -263,6 +269,9 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
           email: emailTrimmed ? emailTrimmed : null,
           phone_secondary: phoneSecondaryTrimmed ? phoneSecondaryTrimmed : null,
           reference_fields,
+          birthdate: values.birthdate
+            ? formatLocalDateToYmd(values.birthdate)
+            : null,
           // Preserve existing lat/lng when editing; rely on AddressAutocomplete to have
           // populated them on the values object when a suggestion was selected.
           lat: (initialData as any)?.lat ?? (values as any).lat ?? null,
@@ -344,7 +353,7 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
               />
             </div>
 
-            <div className='grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2'>
+            <div className='grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-3'>
               <FormInput
                 control={form.control}
                 name='email'
@@ -358,6 +367,11 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
                 label='Telefon 2'
                 placeholder='Optional — zweite Rufnummer.'
                 type='tel'
+              />
+              <FormBirthdatePicker
+                form={form}
+                name='birthdate'
+                label='Geburtsdatum'
               />
             </div>
 

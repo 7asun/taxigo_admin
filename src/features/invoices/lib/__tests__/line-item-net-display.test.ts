@@ -44,6 +44,8 @@ function tieredItem(overrides: Partial<BuilderLineItem> = {}): BuilderLineItem {
     trip_meta: null,
     price_source: null,
     warnings: [],
+    billingInclusion: { included: true, reason: '' },
+    approach_fee_net: null,
     ...overrides
   };
 }

@@ -70,7 +70,11 @@ import {
   useInvoiceBuilderPdfPreview,
   type InvoiceBuilderStep4PdfOverlay
 } from './use-invoice-builder-pdf-preview';
-import type { InvoiceDetail, InvoiceMode } from '../../types/invoice.types';
+import type {
+  ExcludedTripRow,
+  InvoiceDetail,
+  InvoiceMode
+} from '../../types/invoice.types';
 import type { InvoiceBuilderStep2Snapshot } from '../invoice-pdf/build-draft-invoice-detail-for-pdf';
 
 type Payer = NonNullable<InvoiceDetail['payer']> & {
@@ -203,7 +207,14 @@ export function InvoiceBuilder({
     resetKmOverride,
     createInvoice,
     isCreating,
-    catalogRecipientId
+    catalogRecipientId,
+    excludedTripCount,
+    hasInclusionErrors,
+    handleLineItemInclusionChange,
+    handleCancelledTripInclusionChange,
+    handleCancelledTripGrossOverride,
+    handleCancelledTripKmOverride,
+    handleCancelledTripApproachFeeChange
   } = useInvoiceBuilder(companyId, (newId) => {
     router.push(`/dashboard/invoices/${newId}`);
   });
@@ -354,12 +365,43 @@ export function InvoiceBuilder({
   const applyStep4PdfOverlay =
     section4Unlocked && pdfStepAcknowledged && sectionOpen[5];
 
+  // why: useMemo so the derived array keeps a stable reference between renders —
+  // an inline .filter().map() produces a new array every render, firing the
+  // preview hook's useEffect dependency comparison and causing an infinite reload loop.
+  const excludedTripsForPdf: ExcludedTripRow[] = useMemo(
+    () =>
+      lineItems
+        .filter((li) => !li.billingInclusion.included)
+        .map((li) => ({
+          line_date: li.line_date,
+          client_name: li.client_name,
+          pickup_address: li.pickup_address,
+          dropoff_address: li.dropoff_address,
+          billing_exclusion_reason: li.billingInclusion.reason
+        })),
+    [lineItems]
+  );
+
+  // why: pre-split here with useMemo so the preview hook receives stable arrays —
+  // filtering inside the hook's useEffect/render path would also re-fire on every render.
+  const billedCancelledTripsForPdf = useMemo(
+    () => cancelledTrips.filter((t) => t.billingInclusion.included),
+    [cancelledTrips]
+  );
+
+  const passiveCancelledTripsForPdf = useMemo(
+    () => cancelledTrips.filter((t) => !t.billingInclusion.included),
+    [cancelledTrips]
+  );
+
   const { pdf, draftInvoice } = useInvoiceBuilderPdfPreview({
     companyId,
     companyProfile,
     step2Values: step2Snapshot,
     lineItems,
-    cancelledTrips,
+    passiveCancelledTrips: passiveCancelledTripsForPdf,
+    billedCancelledTrips: billedCancelledTripsForPdf,
+    excludedTrips: excludedTripsForPdf,
     payers,
     clients,
     defaultPaymentDays,
@@ -591,16 +633,27 @@ export function InvoiceBuilder({
           >
             <Step3LineItems
               lineItems={lineItems}
+              cancelledTrips={cancelledTrips}
               subtotal={totals.subtotal}
               taxAmount={totals.taxAmount}
               total={totals.total}
               missingPrices={missingPrices}
+              hasInclusionErrors={hasInclusionErrors}
               isLoadingTrips={isLoadingTrips}
               onConfirm={confirmSection3}
               onApplyGrossOverride={applyGrossOverride}
               onResetOverride={resetLineItemOverride}
               onApplyKmOverride={applyKmOverride}
               onResetKmOverride={resetKmOverride}
+              onLineItemInclusionChange={handleLineItemInclusionChange}
+              onCancelledTripInclusionChange={
+                handleCancelledTripInclusionChange
+              }
+              onCancelledTripGrossOverride={handleCancelledTripGrossOverride}
+              onCancelledTripKmOverride={handleCancelledTripKmOverride}
+              onCancelledTripApproachFeeChange={
+                handleCancelledTripApproachFeeChange
+              }
             />
           </BuilderSectionCard>
 
@@ -634,6 +687,7 @@ export function InvoiceBuilder({
               companyId={companyId}
               payerPdfVorlageId={selectedPayer?.pdf_vorlage_id}
               unlocked={section4Unlocked}
+              excludedTripCount={excludedTripCount}
               onColumnProfileChange={setBuilderColumnProfile}
               onPdfOverrideChange={handlePdfOverridePersist}
               onPdfColumnsReordered={() =>
@@ -694,7 +748,10 @@ export function InvoiceBuilder({
                     builderColumnProfile.appendix_columns,
                   main_layout: builderColumnProfile.main_layout,
                   show_cancelled_trips:
-                    builderColumnProfile.show_cancelled_trips ?? false
+                    builderColumnProfile.show_cancelled_trips ?? false,
+                  // why: carry Step 4 admin intent for excluded trips appendix into persisted snapshot
+                  show_excluded_trips:
+                    builderColumnProfile.show_excluded_trips ?? false
                 };
                 createInvoice(step4Values, snapshotOverride);
               }}

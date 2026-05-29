@@ -60,6 +60,7 @@ function manualOverrideLineSkewedNet(
     trip_meta: null,
     price_source: null,
     warnings: [],
+    billingInclusion: { included: true, reason: '' },
     manualGrossTotal,
     manualApproachFeeGross: 0,
     isManualOverride: true,
@@ -124,6 +125,7 @@ describe('calculateInvoiceTotals — manual gross override', () => {
       trip_meta: null,
       price_source: null,
       warnings: [],
+      billingInclusion: { included: true, reason: '' },
       approach_fee_net: approach,
       approach_fee_gross: Math.round(approach * (1 + taxRate) * 100) / 100
     };

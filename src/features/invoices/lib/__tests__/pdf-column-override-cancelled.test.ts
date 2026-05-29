@@ -28,7 +28,8 @@ describe('pdf_column_override schema + PdfColumnProfile (cancelled trips)', () =
       {
         main_columns: SYSTEM_DEFAULT_MAIN_COLUMNS,
         appendix_columns: SYSTEM_DEFAULT_APPENDIX_COLUMNS,
-        show_cancelled_trips: true
+        show_cancelled_trips: true,
+        show_excluded_trips: false
       },
       null,
       null
