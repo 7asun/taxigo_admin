@@ -875,8 +875,14 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
 
 // ─── Persist line items ───────────────────────────────────────────────────────
 
-/** Maps a BuilderLineItem to an invoice_line_items insert row. */
-function lineItemToInsertRow(
+/**
+ * Maps a BuilderLineItem to an invoice_line_items insert row.
+ *
+ * Exported so the draft re-open round-trip tests can assert that
+ * `mapLineItemRowToBuilderLineItem` → this function reproduces the persisted
+ * financial fields exactly. Behavior is unchanged.
+ */
+export function lineItemToInsertRow(
   invoiceId: string,
   item: BuilderLineItem
 ): Record<string, unknown> {
@@ -931,8 +937,13 @@ function lineItemToInsertRow(
   };
 }
 
-/** Maps an opted-in BuilderCancelledTripRow to an invoice_line_items insert row. */
-function cancelledTripToInsertRow(
+/**
+ * Maps an opted-in BuilderCancelledTripRow to an invoice_line_items insert row.
+ *
+ * Exported for the draft re-open round-trip tests (inverse of
+ * `mapLineItemRowToBuilderCancelledTrip`). Behavior is unchanged.
+ */
+export function cancelledTripToInsertRow(
   invoiceId: string,
   trip: BuilderCancelledTripRow,
   position: number

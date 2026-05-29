@@ -217,6 +217,11 @@ export interface InvoiceDetail extends InvoiceRow {
     email: string | null;
     /** payers.pdf_vorlage_id — PDF column Vorlage; null = use company default / system */
     pdf_vorlage_id?: string | null;
+    /**
+     * payers.revision_invoices_enabled — gates whether this Kostenträger's DRAFT
+     * invoices may be re-opened/edited. Drives the detail-page "Bearbeiten" entry.
+     */
+    revision_invoices_enabled?: boolean;
   } | null;
   client: {
     id: string;

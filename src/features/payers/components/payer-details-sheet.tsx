@@ -67,7 +67,8 @@ import { referenceKeys } from '@/query/keys';
 import { PAYERS_QUERY_KEY } from '../hooks/use-payers';
 import {
   updatePayerManualKmEnabled,
-  updatePayerRehaScheinEnabled
+  updatePayerRehaScheinEnabled,
+  updatePayerRevisionInvoicesEnabled
 } from '../api/payers.service';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
@@ -113,6 +114,8 @@ export function PayerDetailsSheet({
   const supabase = useMemo(() => createClient(), []);
   const [manualKmToggleBusy, setManualKmToggleBusy] = useState(false);
   const [rehaScheinToggleBusy, setRehaScheinToggleBusy] = useState(false);
+  const [revisionInvoicesToggleBusy, setRevisionInvoicesToggleBusy] =
+    useState(false);
   const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
   const [variantDialog, setVariantDialog] = useState<{
     familyId: string;
@@ -248,6 +251,28 @@ export function PayerDetailsSheet({
       toast.error('Speichern fehlgeschlagen');
     } finally {
       setRehaScheinToggleBusy(false);
+    }
+  };
+
+  /** why: payer-level gate for re-opening DRAFT invoices; mirrors the reha/manual-km
+   * toggles (auto-save on flip, same invalidation keys so the invoice-side
+   * "Bearbeiten" gate and builder reads pick up the change immediately). */
+  const handleRevisionInvoicesEnabledChange = async (checked: boolean) => {
+    if (!displayPayer) return;
+    setRevisionInvoicesToggleBusy(true);
+    try {
+      await updatePayerRevisionInvoicesEnabled(
+        displayPayer.id,
+        checked,
+        supabase
+      );
+      await queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      await queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
+      toast.success('Einstellung gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    } finally {
+      setRevisionInvoicesToggleBusy(false);
     }
   };
 
@@ -553,6 +578,31 @@ export function PayerDetailsSheet({
                   checked={displayPayer.reha_schein_enabled ?? false}
                   disabled={isUpdating || rehaScheinToggleBusy}
                   onCheckedChange={(v) => void handleRehaScheinEnabledChange(v)}
+                />
+              </div>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='min-w-0 flex-1'>
+                  <label
+                    htmlFor='payer-revision-invoices-enabled'
+                    className='text-muted-foreground mb-1 block text-xs font-medium tracking-wide uppercase'
+                  >
+                    Rechnungsentwurf bearbeiten
+                  </label>
+                  <p className='text-muted-foreground text-xs'>
+                    Ermöglicht das Bearbeiten von Rechnungsentwürfen für diesen
+                    Kostenträger
+                  </p>
+                </div>
+                <Switch
+                  id='payer-revision-invoices-enabled'
+                  checked={displayPayer.revision_invoices_enabled ?? false}
+                  disabled={isUpdating || revisionInvoicesToggleBusy}
+                  onCheckedChange={(v) =>
+                    void handleRevisionInvoicesEnabledChange(v)
+                  }
                 />
               </div>
             </div>

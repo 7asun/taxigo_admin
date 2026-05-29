@@ -45,7 +45,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, reha_schein_enabled, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, reha_schein_enabled, revision_invoices_enabled, billing_types(count)'
       )
       .order('name');
 
@@ -493,6 +493,27 @@ export async function updatePayerRehaScheinEnabled(
   const { error } = await supabase
     .from('payers')
     .update({ reha_schein_enabled: enabled })
+    .eq('id', payerId);
+  if (error) throw toQueryError(error);
+}
+
+/**
+ * Toggles the per-payer gate that allows DRAFT invoices to be re-opened and
+ * edited in the builder (draft invoice editing feature, Step 4).
+ *
+ * why: single-column update mirrors the manual_km / reha_schein updaters so the
+ * settings sheet can flip the flag without going through the broader updatePayer
+ * path. The invoice side reads this column independently via the getInvoiceDetail
+ * payer join (Step 3), so flipping it here drives the "Bearbeiten" entry point.
+ */
+export async function updatePayerRevisionInvoicesEnabled(
+  payerId: string,
+  enabled: boolean,
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  const { error } = await supabase
+    .from('payers')
+    .update({ revision_invoices_enabled: enabled })
     .eq('id', payerId);
   if (error) throw toQueryError(error);
 }

@@ -106,6 +106,11 @@ interface Step2ParamsProps {
   payers: Payer[];
   clients: Client[];
   isLoadingTrips: boolean;
+  /**
+   * Edit mode (draft re-open): payer is frozen. Changing it would invalidate the
+   * line-item snapshots, so the payer selectors are rendered read-only.
+   */
+  locked?: boolean;
   onNext: (values: {
     payer_id: string;
     billing_type_id: string | null;
@@ -394,6 +399,7 @@ export function Step2Params({
   payers,
   clients,
   isLoadingTrips,
+  locked = false,
   onNext
 }: Step2ParamsProps) {
   const { searchClients } = useTripFormData();
@@ -621,6 +627,7 @@ export function Step2Params({
                         </FormLabel>
                         <Select
                           value={combinedValue}
+                          disabled={locked}
                           onValueChange={(val) => {
                             const [pId, rawVariant] = val.split('|');
                             const variantId =
@@ -721,6 +728,7 @@ export function Step2Params({
                     <FormControl>
                       <Select
                         value={field.value}
+                        disabled={locked}
                         onValueChange={(id) => {
                           field.onChange(id);
                           // why: payer-scoped families — reset all type / variant scope.

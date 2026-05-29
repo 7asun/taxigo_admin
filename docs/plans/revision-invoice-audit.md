@@ -454,6 +454,38 @@ Migration: [`20260529080000_draft_invoice_editing_foundation.sql`](../../supabas
 
 The create flow **computes totals client-side** and passes them as insert values: [`use-invoice-builder.ts`](../../src/features/invoices/hooks/use-invoice-builder.ts) L605-621 calls `calculateInvoiceTotals`, then `createInvoice({ subtotal, taxAmount, total })` writes them directly to the `invoices` row (L673-681). The DB never verifies them. The new RPC closes that gap by recomputing the header from the persisted line items (faithful port of `calculateInvoiceTotals`, `billing_included = true` only). This is the safer authoritative pattern; the save path (later phase) must route draft edits through the RPC.
 
+## 9.1 Implementation status — Step 2 (Phase B) — DONE (2026-05-29)
+
+Reversible mapping + builder hydration (read-only re-open). **No save path, no edit route, no "Bearbeiten" button** (still deferred).
+
+| Item | Status |
+|------|--------|
+| Inverse mapper [`map-line-item-row-to-builder-line-item.ts`](../../src/features/invoices/utils/map-line-item-row-to-builder-line-item.ts) (`mapLineItemRowToBuilderLineItem` + `mapLineItemRowToBuilderCancelledTrip`) | Done |
+| Exported `lineItemToInsertRow` / `cancelledTripToInsertRow` for round-trip tests | Done |
+| No-op round-trip tests [`map-line-item-row-to-builder-line-item.test.ts`](../../src/features/invoices/utils/__tests__/map-line-item-row-to-builder-line-item.test.ts) (6 cases) | Done |
+| Hydration in `use-invoice-builder.ts` (optional `invoiceId`; pinned query; `hasHydratedRef`; trips-fetch + clear-effect gated by `isEditMode`) | Done |
+| Shell `invoice-builder/index.tsx` (optional `invoiceId`; payer/mode lock; edit-mode indicator) | Done |
+
+**Manual gross override — decision made consistent with the RPC (D1).** The mapper does **NOT** reconstruct `manualGrossTotal`/`isManualOverride`, so it does not reintroduce the `'Manuell überschrieben (Bruttoeingabe)'` note-string coupling that Step 1 removed from the RPC. Hydrated override lines flow through `calculateInvoiceTotals` exactly as the RPC persists them (net-anchor, except cleanly-detectable `client_price_tag` gross-anchor). The builder-displayed total therefore matches the persisted total, and the ≤1-cent mixed-rate edge is now the **single** deferred item **D1** for both the RPC and the builder UI. Trade-off: the Step-3 "Manuell" badge/reset is not shown on hydrated override lines (cosmetic; financials unaffected).
+
+Other documented reconstruction decisions: `originalPriceResolution = snapshot` (reset restores last saved state); `resolved_rule = null` (cannot reconstruct per-line rule for monthly invoices → live KM/gross reprice of edited lines deferred to the save path); KM "manuell" badge reconstructed UI-only from the distance columns.
+
+## 9.2 Implementation status — Step 3 (Phase C) — DONE (2026-05-29)
+
+Save path + edit route + entry point. The re-open → edit → save loop is now live for flag-enabled payers. **No new status, no Storno changes, no inline detail-page editing** (still deferred). Invoice number / payer / company / mode / period / client / status / totals are never mutated on save; totals are recomputed only by the RPC.
+
+| Item | Status |
+|------|--------|
+| `updateDraftInvoice` [`invoices.api.ts`](../../src/features/invoices/api/invoices.api.ts) — RPC line replacement + draft-safe meta + `.eq('status','draft')` defence; totals never client-sent | Done |
+| `revision_invoices_enabled` added to `getInvoiceDetail` payer select + `InvoiceDetail['payer']` type | Done |
+| Hook save branch `updateMutation` (serialize rows, fire-and-forget trip writeback, invalidate + navigate via reused `onCreated`); exposes `updateInvoice` / `isSaving` | Done |
+| Shell `invoice-builder/index.tsx` submit branch (`isEditMode ? updateInvoice : createInvoice`); `Änderungen speichern` / `Speichere Änderungen…` label; `isSubmitting` disable | Done |
+| Edit route [`/dashboard/invoices/[id]/edit/page.tsx`](../../src/app/dashboard/invoices/%5Bid%5D/edit/page.tsx) — server guard: exists + `status='draft'` + payer flag, else redirect to detail | Done |
+| Entry point [`invoice-actions.tsx`](../../src/features/invoices/components/invoice-detail/invoice-actions.tsx) — "Bearbeiten" button gated by draft + `revision_invoices_enabled`; never on terminal states | Done |
+| `bun run build` green + `bun test` 167 pass | Done |
+
+Create flow (`createMutation` / `createInvoice` / `isCreating`) left functionally identical. D1 (≤1-cent manual-override edge) remains the single deferred totals item and is unchanged by this step.
+
 ## Deferred items (read before planning Step 3)
 
 These are concrete, intentionally-deferred follow-ups — not passing remarks.
@@ -464,11 +496,13 @@ These are concrete, intentionally-deferred follow-ups — not passing remarks.
 
 **What Step 1 does instead:** the RPC special-cases **only** the cleanly-detectable `client_price_tag` gross-anchor branch; manual-gross-override lines flow through the net-anchor path. This yields a **bit-identical `subtotal`** (the line net is `gross/(1+rate)` either way) and differs from the TS only in **`total`/`tax_amount` by ≤1 cent per tax-rate bucket**, and only when an override line is mixed with other lines at the same rate.
 
-**Concrete fix when the save path lands:** persist an explicit `is_manual_gross_override BOOLEAN` (a column on `invoice_line_items`, or a stable boolean field inside `price_resolution_snapshot`) in the regenerated insert path, and extend `replace_draft_invoice_line_items` to route flagged lines through the gross-fixed branch (`grossFixed += gross`; `priceTagNet += gross/(1+rate)`). That restores bit-exact `total` parity with `calculateInvoiceTotals`. Add a parity unit test (TS `calculateInvoiceTotals` vs. RPC) covering a mixed override + net-anchor invoice.
+**Now shared with Phase B.** The Step-2 inverse mapper makes the **same** decision: it does not reconstruct `manualGrossTotal` and does not read the note string, so the re-opened builder routes manual overrides through net-anchor too. The builder-displayed total and the RPC-persisted total stay consistent (both net-anchor), and D1 is the single source of the ≤1-cent edge for both.
 
-### D2 — Regenerate `database.types.ts` before Step 3 (HARD PREREQUISITE)
+**Concrete fix when the save path lands:** persist an explicit `is_manual_gross_override BOOLEAN` (a column on `invoice_line_items`, or a stable boolean field inside `price_resolution_snapshot`) in the regenerated insert path, then (a) extend `replace_draft_invoice_line_items` to route flagged lines through the gross-fixed branch (`grossFixed += gross`; `priceTagNet += gross/(1+rate)`), and (b) reconstruct `manualGrossTotal`/`isManualOverride` from that flag in `mapLineItemRowToBuilderLineItem` (restoring the Step-3 "Manuell" badge/reset). That restores bit-exact `total` parity with `calculateInvoiceTotals` and exact UI parity. Add a parity unit test (TS `calculateInvoiceTotals` vs. RPC) covering a mixed override + net-anchor invoice.
 
-The Step 3 "Bearbeiten" button must read `payers.revision_invoices_enabled`. The generated [`src/types/database.types.ts`](../../src/types/database.types.ts) does **not** yet include this column (Step 1 deliberately skipped the regen since no TS reads it). **Regenerate the Supabase types before wiring the flag**, otherwise TypeScript silently infers `any` for the payer object and the flag check passes/fails at runtime with no compile-time signal. Run the project's Supabase type-gen and verify `revision_invoices_enabled: boolean` appears on the `payers` row type.
+### D2 — `database.types.ts` flag + RPC signature — RESOLVED (2026-05-29)
+
+The Step 3 "Bearbeiten" button must read `payers.revision_invoices_enabled` and `updateDraftInvoice` must call `replace_draft_invoice_line_items`. **Resolved by surgically patching** [`src/types/database.types.ts`](../../src/types/database.types.ts): `revision_invoices_enabled` added to `payers` Row (boolean) + Insert/Update (optional), and a `replace_draft_invoice_line_items: { Args: { p_invoice_id: string; p_line_items: Json }; Returns: undefined }` entry added to `Functions`. The surgical patch (vs. a full regen) matches how the file is already hand-maintained; TypeScript now type-checks the flag read and the RPC call (no silent `any`).
 
 ---
 
