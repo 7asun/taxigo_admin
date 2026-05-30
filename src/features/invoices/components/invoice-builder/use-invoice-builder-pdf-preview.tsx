@@ -9,9 +9,33 @@
  * Must not call createInvoice or mutate TanStack Query caches — read-only hooks only.
  *
  * Related: {@link build-draft-invoice-detail-for-pdf.ts}, {@link InvoicePdfDocument.tsx}.
+ *
+ * ── Preview trigger classification (split-trigger contract) ─────────────────
+ *
+ * Category A — layout/template: auto-render via scheduleCategoryAUpdate (600 ms;
+ * 0 ms on columnReorderGeneration bump). Category B — trip data: manual refresh only.
+ *
+ * draftInvoice useMemo deps:
+ *   Gate: livePreviewActive
+ *   A: companyId, companyProfileForDraft, step2Values, payers, clients,
+ *      paymentDueDays, introText, outroText, recipientRow, placeholderInvoiceNumber,
+ *      columnProfile
+ *   B: includedLineItemsForDraft, billedCancelledTrips
+ *
+ * updatePdf trigger deps (legacy monolithic effect — split below):
+ *   A: introText, outroText, columnProfile, columnReorderGeneration,
+ *      paymentQrDataUrl, updatePdf
+ *   B: passiveCancelledTrips, excludedTrips
+ *   Mixed: draftInvoice → split; commitPreviewUpdate always reads latest via ref
+ *
+ * Hook params / related:
+ *   B: lineItems (source for includedLineItemsForDraft)
+ *   A: logo URL effect (companyProfile?.logo_path / logo_url)
+ *   Keep as-is: paymentQrDataUrl generation effect (cheap async, not layout)
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePDF } from '@react-pdf/renderer';
 
 import { resolveCompanyAssetUrl } from '@/features/storage/resolve-company-asset-url';
@@ -26,11 +50,39 @@ import { InvoicePdfDocument } from '@/features/invoices/components/invoice-pdf/I
 import type {
   BuilderCancelledTripRow,
   BuilderLineItem,
-  CancelledTripRow,
   ExcludedTripRow,
   InvoiceDetail
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
+
+/** why: coalesce rapid Category A (layout) edits without flooding react-pdf layout. */
+const PREVIEW_CATEGORY_A_DEBOUNCE_MS = 600;
+/** why: column drag-reorder must feel instant — same as today. */
+const PREVIEW_COLUMN_REORDER_DELAY_MS = 0;
+
+interface PreviewPayload {
+  draftInvoice: InvoiceDetail | null;
+  introText: string | null | undefined;
+  outroText: string | null | undefined;
+  paymentQrDataUrl: string | null;
+  columnProfile: PdfColumnProfile;
+  passiveCancelledTrips: BuilderCancelledTripRow[];
+  excludedTrips: ExcludedTripRow[];
+}
+
+function categoryBSignature(
+  includedLineItems: BuilderLineItem[],
+  billedCancelled: BuilderCancelledTripRow[],
+  passiveCancelled: BuilderCancelledTripRow[],
+  excluded: ExcludedTripRow[]
+): string {
+  return JSON.stringify({
+    included: includedLineItems,
+    billedCancelled,
+    passiveCancelled,
+    excluded
+  });
+}
 
 export interface InvoiceBuilderStep4PdfOverlay {
   paymentDueDays: number;
@@ -90,6 +142,8 @@ export function useInvoiceBuilderPdfPreview(
   pdf: ReturnType<typeof usePDF>[0];
   draftInvoice: InvoiceDetail | null;
   livePreviewActive: boolean;
+  isDirty: boolean;
+  requestPreviewUpdate: () => void;
 } {
   const {
     companyId,
@@ -115,6 +169,20 @@ export function useInvoiceBuilderPdfPreview(
   const { data: empfaengerOptions } = useRechnungsempfaengerOptions();
   const [pdf, updatePdf] = usePDF();
   const lastColumnReorderGen = useRef(0);
+  const hasCompletedFirstRenderRef = useRef(false);
+  const initialRenderScheduledRef = useRef(false);
+  const prevCategoryBSignatureRef = useRef<string | null>(null);
+  const categoryADebounceTimerRef = useRef<number | null>(null);
+  const previewPayloadRef = useRef<PreviewPayload>({
+    draftInvoice: null,
+    introText: null,
+    outroText: null,
+    paymentQrDataUrl: null,
+    columnProfile: columnProfile,
+    passiveCancelledTrips: [],
+    excludedTrips: []
+  });
+  const [categoryBDirty, setCategoryBDirty] = useState(false);
   /** Same as invoice detail PDF preview: @react-pdf fetches the logo; private bucket needs a signed URL. */
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
 
@@ -251,45 +319,163 @@ export function useInvoiceBuilderPdfPreview(
     };
   }, [draftInvoice]);
 
-  // Reacts to draft invoice or text overlay changes: debounces updatePdf so the worker is not flooded.
-  // Drag-reorder bumps `columnReorderGeneration` for an immediate refresh (Section 4).
+  previewPayloadRef.current = {
+    draftInvoice,
+    introText,
+    outroText,
+    paymentQrDataUrl,
+    columnProfile,
+    passiveCancelledTrips,
+    excludedTrips
+  };
+
+  const commitPreviewUpdate = useCallback(() => {
+    const p = previewPayloadRef.current;
+    if (!p.draftInvoice) return;
+    updatePdf(
+      <InvoicePdfDocument
+        invoice={p.draftInvoice}
+        introText={p.introText}
+        outroText={p.outroText}
+        paymentQrDataUrl={p.paymentQrDataUrl}
+        columnProfile={p.columnProfile}
+        cancelledTrips={p.passiveCancelledTrips}
+        excludedTrips={p.excludedTrips}
+        // why: the builder only ever previews a draft (unsaved or saved-draft),
+        // and this preview is the most likely to be screenshotted/printed before
+        // saving — always stamp ENTWURF, no status check needed here.
+        showDraftWatermark={true}
+      />
+    );
+  }, [updatePdf]);
+
+  const scheduleCategoryAUpdate = useCallback(
+    (delayMs: number) => {
+      if (categoryADebounceTimerRef.current !== null) {
+        window.clearTimeout(categoryADebounceTimerRef.current);
+      }
+      categoryADebounceTimerRef.current = window.setTimeout(() => {
+        categoryADebounceTimerRef.current = null;
+        commitPreviewUpdate();
+      }, delayMs);
+    },
+    [commitPreviewUpdate]
+  );
+
+  // why: first completed blob URL marks the session as having shown a preview —
+  // Category B dirty tracking only starts after this point.
   useEffect(() => {
-    if (!draftInvoice) return undefined;
+    if (pdf.url) {
+      hasCompletedFirstRenderRef.current = true;
+    }
+  }, [pdf.url]);
+
+  // why: without reset, draftInvoice becomes null but categoryBDirty stays true,
+  // leaving "Vorschau veraltet" over an outdated PDF with no way to clear it.
+  useEffect(() => {
+    if (livePreviewActive) return;
+    setCategoryBDirty(false);
+    hasCompletedFirstRenderRef.current = false;
+    initialRenderScheduledRef.current = false;
+    prevCategoryBSignatureRef.current = null;
+    if (categoryADebounceTimerRef.current !== null) {
+      window.clearTimeout(categoryADebounceTimerRef.current);
+      categoryADebounceTimerRef.current = null;
+    }
+  }, [livePreviewActive]);
+
+  // why: first preview when trips load / edit hydration — auto-render once, not dirty.
+  useEffect(() => {
+    if (!draftInvoice) return;
+    if (hasCompletedFirstRenderRef.current) return;
+    if (initialRenderScheduledRef.current) return;
+    initialRenderScheduledRef.current = true;
+    scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
+  }, [draftInvoice, scheduleCategoryAUpdate]);
+
+  // why: Category A only — must not depend on draftInvoice or paymentQrDataUrl (both
+  // change on B edits via draftInvoice / QR regen); payload ref stays current at render time.
+  useEffect(() => {
+    if (!livePreviewActive) return;
+    if (!hasCompletedFirstRenderRef.current) return;
+
     const reorderBumped =
       columnReorderGeneration !== lastColumnReorderGen.current;
     if (reorderBumped) {
       lastColumnReorderGen.current = columnReorderGeneration;
+      scheduleCategoryAUpdate(PREVIEW_COLUMN_REORDER_DELAY_MS);
+      return;
     }
-    const delayMs = reorderBumped ? 0 : 600;
-    const t = window.setTimeout(() => {
-      updatePdf(
-        <InvoicePdfDocument
-          invoice={draftInvoice}
-          introText={introText}
-          outroText={outroText}
-          paymentQrDataUrl={paymentQrDataUrl}
-          columnProfile={columnProfile}
-          cancelledTrips={passiveCancelledTrips}
-          excludedTrips={excludedTrips}
-          // why: the builder only ever previews a draft (unsaved or saved-draft),
-          // and this preview is the most likely to be screenshotted/printed before
-          // saving — always stamp ENTWURF, no status check needed here.
-          showDraftWatermark={true}
-        />
-      );
-    }, delayMs);
-    return () => window.clearTimeout(t);
+
+    scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
   }, [
-    draftInvoice,
+    livePreviewActive,
     introText,
     outroText,
     columnProfile,
     columnReorderGeneration,
-    updatePdf,
-    paymentQrDataUrl,
+    companyProfileForDraft,
+    step2Values,
+    paymentDueDays,
+    recipientRow,
+    payers,
+    clients,
+    companyId,
+    scheduleCategoryAUpdate
+  ]);
+
+  // why: trip data edits must not auto-render — flag dirty for manual refresh only.
+  useEffect(() => {
+    const sig = categoryBSignature(
+      includedLineItemsForDraft,
+      billedCancelledTrips,
+      passiveCancelledTrips,
+      excludedTrips
+    );
+    if (prevCategoryBSignatureRef.current === null) {
+      prevCategoryBSignatureRef.current = sig;
+      return;
+    }
+    if (prevCategoryBSignatureRef.current === sig) return;
+    prevCategoryBSignatureRef.current = sig;
+    if (hasCompletedFirstRenderRef.current) {
+      setCategoryBDirty(true);
+    }
+  }, [
+    includedLineItemsForDraft,
+    billedCancelledTrips,
     passiveCancelledTrips,
     excludedTrips
   ]);
 
-  return { pdf, draftInvoice, livePreviewActive };
+  const requestPreviewUpdate = useCallback(() => {
+    setCategoryBDirty(false);
+    // why: if a layout change was queued and the user clicks Aktualisieren immediately,
+    // clearing the timer prevents a double render — commitPreviewUpdate already uses
+    // the latest draftInvoice including the layout change.
+    if (categoryADebounceTimerRef.current !== null) {
+      window.clearTimeout(categoryADebounceTimerRef.current);
+      categoryADebounceTimerRef.current = null;
+    }
+    commitPreviewUpdate();
+  }, [commitPreviewUpdate]);
+
+  // why: when categoryBDirty and a Category A change fires, commitPreviewUpdate uses
+  // current draftInvoice (includes latest trip edits in memory) — layout trigger, fresh data.
+
+  useEffect(() => {
+    return () => {
+      if (categoryADebounceTimerRef.current !== null) {
+        window.clearTimeout(categoryADebounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    pdf,
+    draftInvoice,
+    livePreviewActive,
+    isDirty: categoryBDirty,
+    requestPreviewUpdate
+  };
 }

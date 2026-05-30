@@ -30,7 +30,6 @@ import type { PriceResolution } from '../../types/pricing.types';
 
 import {
   buildInvoicePdfGroupedByBillingType,
-  groupLineItemsByBillingType,
   buildInvoicePdfSingleRow,
   buildInvoicePdfSummary
 } from './lib/build-invoice-pdf-summary';
@@ -45,7 +44,7 @@ import {
   buildInvoicePdfSenderOneLine,
   formatInvoicePdfDate
 } from './lib/invoice-pdf-format';
-import { A4_LANDSCAPE, InvoicePdfAppendix } from './invoice-pdf-appendix';
+import { InvoicePdfAppendixPages } from './invoice-pdf-appendix-pages';
 import { InvoicePdfCoverBody } from './invoice-pdf-cover-body';
 import {
   InvoicePdfCoverHeader,
@@ -567,138 +566,19 @@ export function InvoicePdfDocument({
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
       </Page>
 
-      {/* appendix_is_landscape from resolvePdfColumnProfile when appendix_columns.length > 7 */}
-      {effectiveProfile.main_layout === 'grouped_by_billing_type' ? (
-        (() => {
-          // why: appendixLineItems includes opted-in cancelled rows (is_cancelled_trip = true,
-          // billing_included = true) so they appear in the correct billing-type group,
-          // sorted by date. renderLineItemRow adds the amber billing-reason sub-row.
-          const groups = groupLineItemsByBillingType(appendixLineItems);
-          const empty = groups
-            .filter((g) => g.items.length === 0)
-            .map((g) => g.label);
-          if (empty.length && invoice.id) {
-            console.warn(
-              `[InvoicePdf] Leere Abrechnungsart-Gruppen im Anhang: ${empty.join(', ')} (invoice_id=${invoice.id})`
-            );
-          }
-          return groups.map((group) => (
-            <Page
-              key={group.label}
-              size={
-                effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'
-              }
-              style={
-                effectiveProfile.appendix_is_landscape
-                  ? styles.appendixPageLandscape
-                  : styles.appendixPage
-              }
-              wrap
-            >
-              {showDraftWatermark ? <DraftWatermark /> : null}
-              <InvoicePdfAppendix
-                invoiceNumber={invoice.invoice_number}
-                invoiceCreatedAtIso={invoice.created_at}
-                lineItems={group.items.map((item, idx) => ({
-                  ...item,
-                  position: idx + 1
-                }))}
-                columnProfile={effectiveProfile}
-                groupLabel={group.label}
-              />
-
-              <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
-            </Page>
-          ));
-        })()
-      ) : (
-        <Page
-          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
-          style={
-            effectiveProfile.appendix_is_landscape
-              ? styles.appendixPageLandscape
-              : styles.appendixPage
-          }
-          wrap
-        >
-          {showDraftWatermark ? <DraftWatermark /> : null}
-          <InvoicePdfAppendix
-            invoiceNumber={invoice.invoice_number}
-            invoiceCreatedAtIso={invoice.created_at}
-            lineItems={appendixLineItems}
-            columnProfile={effectiveProfile}
-            mainLayout={effectiveProfile.main_layout}
-          />
-
-          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
-        </Page>
-      )}
-
-      {/*
-        Appendix 2: passive cancelled trips (Stornierte Fahrten) — own page.
-        Gated by show_cancelled_trips. Opted-in cancelled rows are already in
-        appendixLineItems above; this page is the passive €0 transparency list only.
-        TODO(issued-cancelled-rows): populate cancelledTrips from scoped fetch for issued invoices.
-       */}
-      {cancelledRowsForPdf.length > 0 ? (
-        <Page
-          size={
-            (effectiveProfile.appendix_is_landscape ?? false)
-              ? A4_LANDSCAPE
-              : 'A4'
-          }
-          style={
-            (effectiveProfile.appendix_is_landscape ?? false)
-              ? styles.appendixPageLandscape
-              : styles.appendixPage
-          }
-          wrap
-        >
-          {showDraftWatermark ? <DraftWatermark /> : null}
-          <InvoicePdfAppendix
-            invoiceNumber={invoice.invoice_number}
-            invoiceCreatedAtIso={invoice.created_at}
-            lineItems={[]}
-            columnProfile={effectiveProfile}
-            cancelledTrips={cancelledRowsForPdf}
-            groupLabel='Stornierte Fahrten'
-            // why: Cancelled section follows the same orientation as the main appendix —
-            // controlled by the payer's PDF Vorlage, not hardcoded.
-            cancelledLandscape={effectiveProfile.appendix_is_landscape ?? false}
-          />
-
-          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
-        </Page>
-      ) : null}
-
-      {/*
-        Appendix 3: excluded trips (Ausgeschlossene Fahrten) — own independent page.
-        Gated by show_excluded_trips. Independent of Stornierte Fahrten to ensure
-        the section title renders at top-level heading hierarchy, not as a sub-section.
-       */}
-      {excludedRowsForPdf.length > 0 ? (
-        <Page
-          size={effectiveProfile.appendix_is_landscape ? A4_LANDSCAPE : 'A4'}
-          style={
-            effectiveProfile.appendix_is_landscape
-              ? styles.appendixPageLandscape
-              : styles.appendixPage
-          }
-          wrap
-        >
-          {showDraftWatermark ? <DraftWatermark /> : null}
-          <InvoicePdfAppendix
-            invoiceNumber={invoice.invoice_number}
-            invoiceCreatedAtIso={invoice.created_at}
-            lineItems={[]}
-            columnProfile={effectiveProfile}
-            excludedTrips={excludedRowsForPdf}
-            groupLabel='Ausgeschlossene Fahrten'
-          />
-
-          <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />
-        </Page>
-      ) : null}
+      {/* why: cancelledTrips/excludedTrips are appendix-only — gating stays here, consumption in InvoicePdfAppendixPages */}
+      <InvoicePdfAppendixPages
+        appendixLineItems={appendixLineItems}
+        cancelledTrips={cancelledRowsForPdf}
+        excludedTrips={excludedRowsForPdf}
+        effectiveProfile={effectiveProfile}
+        showDraftWatermark={showDraftWatermark}
+        companyProfile={cp}
+        notes={invoice.notes}
+        invoiceId={invoice.id}
+        invoiceNumber={invoice.invoice_number}
+        invoiceCreatedAtIso={invoice.created_at}
+      />
     </Document>
   );
 }

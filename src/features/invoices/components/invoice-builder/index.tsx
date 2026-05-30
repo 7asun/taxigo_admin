@@ -413,25 +413,26 @@ export function InvoiceBuilder({
     [cancelledTrips]
   );
 
-  const { pdf, draftInvoice } = useInvoiceBuilderPdfPreview({
-    companyId,
-    companyProfile,
-    step2Values: step2Snapshot,
-    lineItems,
-    passiveCancelledTrips: passiveCancelledTripsForPdf,
-    billedCancelledTrips: billedCancelledTripsForPdf,
-    excludedTrips: excludedTripsForPdf,
-    payers,
-    clients,
-    defaultPaymentDays,
-    catalogRecipientId,
-    payerIntroBlockId: resolvedIntroBlockId,
-    payerOutroBlockId: resolvedOutroBlockId,
-    step4Overlay,
-    applyStep4Overlay: applyStep4PdfOverlay,
-    columnProfile: builderColumnProfile,
-    columnReorderGeneration: pdfColumnReorderGeneration
-  });
+  const { pdf, draftInvoice, isDirty, requestPreviewUpdate } =
+    useInvoiceBuilderPdfPreview({
+      companyId,
+      companyProfile,
+      step2Values: step2Snapshot,
+      lineItems,
+      passiveCancelledTrips: passiveCancelledTripsForPdf,
+      billedCancelledTrips: billedCancelledTripsForPdf,
+      excludedTrips: excludedTripsForPdf,
+      payers,
+      clients,
+      defaultPaymentDays,
+      catalogRecipientId,
+      payerIntroBlockId: resolvedIntroBlockId,
+      payerOutroBlockId: resolvedOutroBlockId,
+      step4Overlay,
+      applyStep4Overlay: applyStep4PdfOverlay,
+      columnProfile: builderColumnProfile,
+      columnReorderGeneration: pdfColumnReorderGeneration
+    });
 
   const section2SummaryText = useMemo(
     () =>
@@ -831,6 +832,8 @@ export function InvoiceBuilder({
           section2Complete={section2Complete}
           draftInvoice={draftInvoice}
           pdf={pdf}
+          isDirty={isDirty}
+          onRequestPreviewUpdate={requestPreviewUpdate}
         />
       </div>
       <Sheet open={previewSheetOpen} onOpenChange={setPreviewSheetOpen}>
@@ -845,6 +848,8 @@ export function InvoiceBuilder({
               section2Complete={section2Complete}
               draftInvoice={draftInvoice}
               pdf={pdf}
+              isDirty={isDirty}
+              onRequestPreviewUpdate={requestPreviewUpdate}
             />
           </div>
         </SheetContent>

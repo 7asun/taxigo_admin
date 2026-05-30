@@ -115,7 +115,7 @@ Cross-reference: **Shared with Angebote module — both import from `src/feature
 
 ### Draft watermark (`ENTWURF`)
 
-[`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) accepts an optional `showDraftWatermark?: boolean` prop (**default `false`** — non-draft output stays byte-identical). When `true`, a diagonal light-gray `ENTWURF` stamp is rendered as the first child of **every** `Page` (cover + each appendix variant) using `fixed` so it repeats on wrapped pages and sits under the content. Size / colour / opacity / rotation live in `PDF_DRAFT_WATERMARK` in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (no magic numbers).
+[`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) accepts an optional `showDraftWatermark?: boolean` prop (**default `false`** — non-draft output stays byte-identical). When `true`, a diagonal light-gray `ENTWURF` stamp is rendered as the first child of **every** `Page` (cover + each appendix variant) using `fixed` so it repeats on wrapped pages and sits under the content. Cover watermark is in `InvoicePdfDocument`; appendix watermarks are repeated per page in `InvoicePdfAppendixPages`. Size / colour / opacity / rotation live in `PDF_DRAFT_WATERMARK` in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (no magic numbers).
 
 Wiring:
 - **Detail downloads** ([`invoice-detail/index.tsx`](../src/features/invoices/components/invoice-detail/index.tsx), both Digital + Brief) and **preview route** ([`invoice-pdf-preview.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-preview.tsx)): `showDraftWatermark={invoice.status === 'draft'}`.
@@ -185,7 +185,24 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 - **Appendix table:** [`invoice-pdf-appendix.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix.tsx) — fixed columns (Datum, Fahrgast, Von/Nach, Strecke, Netto, MwSt., Brutto, KTS, Fahrer, Hin/Rück); line net uses `price_resolution_snapshot.net` when present ([`invoice-pdf-line-amounts.ts`](../src/features/invoices/components/invoice-pdf/lib/invoice-pdf-line-amounts.ts)); KTS rows show €0 + note.
 - **Trip meta snapshot:** Optional JSONB `invoice_line_items.trip_meta_snapshot` (migration `20260407120000_invoice_line_items_trip_meta_snapshot.sql`) — frozen driver + direction for PDF, **separate** from `price_resolution_snapshot`. **Creating** invoices requires this migration applied so `insertLineItems` can persist the column.
 - **Detail fetch:** `getInvoiceDetail` loads line items with `line_items:invoice_line_items(*)` so PostgREST does not fail if optional columns are not migrated yet; after migration, `(*)` still returns `trip_meta_snapshot`.
-- **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) (600 ms debounce) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
+- **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
+
+#### Split-trigger preview (Category A / Category B)
+
+Large invoices (120+ trips) previously re-rendered the full PDF on every KM/price blur, causing tab OOM. The builder now splits preview triggers by change type:
+
+| Category | What changes | Trigger |
+|---|---|---|
+| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder | **Auto-render** — `scheduleCategoryAUpdate` with **600 ms** debounce (`PREVIEW_CATEGORY_A_DEBOUNCE_MS`); **0 ms** on `columnReorderGeneration` bump |
+| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips | **Manual only** — sets `isDirty`; admin clicks **Aktualisieren** → `requestPreviewUpdate()` (immediate, clears pending A timer) |
+
+- **Initial load** (trips fetch / edit hydration): one auto-render when `draftInvoice` first becomes available — not marked dirty.
+- **`livePreviewActive` false** (trips cleared): resets `isDirty` and preview session refs so a stale “Vorschau veraltet” banner cannot persist.
+- **Continuous iframe:** while `usePDF` sets `loading: true`, `pdf.url` still points at the previous blob; the panel keeps the iframe visible and shows a non-blocking **“Wird aktualisiert…”** badge. Superseded blob URLs are revoked in the panel when `pdf.url` changes **and** `pdf.loading === false` (react-pdf sets both in one `setState` on completion).
+- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — Category B gating is required at scale.
+- **Mobile sheet** uses the same `isDirty` / `requestPreviewUpdate` props as the desktop panel.
+
+Classification contract is documented in the comment block at the top of `use-invoice-builder-pdf-preview.tsx`.
 
 ### Phase 6 (complete) — Dynamic PDF-Vorlagen (column layout system)
 
@@ -366,6 +383,10 @@ PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/
 - **Detail page** — [`PDFDownloadLink`](https://react-pdf.org/components#pdfdownloadlink) wraps the same document for “PDF herunterladen”.
 - **Preview** — dashboard route `src/app/dashboard/invoices/[id]/preview/page.tsx` uses `InvoicePdfPreview` + `PDFViewer`.
 
+**Composition:** cover `Page` (header, reference bar, body, footer) + [`InvoicePdfAppendixPages`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix-pages.tsx) (all appendix `Page` shells). Root keeps recipient/salutation/totals prep and gates `cancelledTrips` / `excludedTrips` before passing pre-filtered arrays to the appendix orchestrator.
+
+**No `React.memo` in the PDF tree:** `@react-pdf/renderer` performs its own layout pass outside React's reconciler — memo does not skip appendix work inside `<Document>`.
+
 Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (A4 padding, DIN-oriented top margin, flex tables). Supporting utilities: `resolve-sender-font-size.ts`, `generate-payment-qr-data-url.ts`, `build-sepa-qr-payload.ts`.
 
 ## Logo im PDF-Header
@@ -401,7 +422,8 @@ Das Layout ist identisch — kein Extra-Padding nötig.
 
 | Piece | File | Role |
 |-------|------|------|
-| Root composer | `InvoicePdfDocument.tsx` | `Document` + two `Page`s; recipient/salutation; totals + `buildInvoicePdfSummary` |
+| Root composer | `InvoicePdfDocument.tsx` | `Document` + cover `Page`; recipient/salutation; totals + `buildInvoicePdfSummary`; passes gated appendix props to `InvoicePdfAppendixPages` |
+| Appendix pages | `invoice-pdf-appendix-pages.tsx` | All appendix `<Page>` wrappers: Fahrtendetails (single or `grouped_by_billing_type` multi-page), passive Stornierte, Ausgeschlossene; draft watermark + footer per page; receives pre-gated `cancelledTrips` / `excludedTrips`, `appendixLineItems`, `effectiveProfile`, `invoiceId` (`string | null`) |
 | Cover header | `invoice-pdf-cover-header.tsx` | Logo, sender line, address window, Rechnungsdaten |
 | Cover body | `invoice-pdf-cover-body.tsx` | Dynamic main table: grouped (`InvoicePdfSummaryRow`) or flat (`InvoiceLineItemRow`); `mainTableKeys` as single source array for widths + header + body |
 | Footer | `invoice-pdf-footer.tsx` | Fixed footer + `Seite x / y` |
