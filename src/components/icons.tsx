@@ -40,7 +40,8 @@ import {
   IconRoute,
   IconTruck,
   IconFilePencil,
-  IconClipboardCheck
+  IconClipboardCheck,
+  IconChartBar
 } from '@tabler/icons-react';
 
 export type Icon = React.ComponentType<IconProps>;
@@ -90,5 +91,6 @@ export const Icons = {
   profile: IconUser,
   angebot: IconFilePencil,
   /** Schichtzettel reconciliation (Account). */
-  shiftReconciliation: IconClipboardCheck
+  shiftReconciliation: IconClipboardCheck,
+  controlling: IconChartBar
 };

@@ -40,6 +40,14 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: 'Controlling',
+    url: '/dashboard/controlling',
+    icon: 'controlling',
+    shortcut: ['c', 'o'],
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Regelfahrten',
     url: '/dashboard/regelfahrten',
     icon: 'kanban',
