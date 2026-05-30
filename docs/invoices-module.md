@@ -185,7 +185,24 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 - **Appendix table:** [`invoice-pdf-appendix.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix.tsx) — fixed columns (Datum, Fahrgast, Von/Nach, Strecke, Netto, MwSt., Brutto, KTS, Fahrer, Hin/Rück); line net uses `price_resolution_snapshot.net` when present ([`invoice-pdf-line-amounts.ts`](../src/features/invoices/components/invoice-pdf/lib/invoice-pdf-line-amounts.ts)); KTS rows show €0 + note.
 - **Trip meta snapshot:** Optional JSONB `invoice_line_items.trip_meta_snapshot` (migration `20260407120000_invoice_line_items_trip_meta_snapshot.sql`) — frozen driver + direction for PDF, **separate** from `price_resolution_snapshot`. **Creating** invoices requires this migration applied so `insertLineItems` can persist the column.
 - **Detail fetch:** `getInvoiceDetail` loads line items with `line_items:invoice_line_items(*)` so PostgREST does not fail if optional columns are not migrated yet; after migration, `(*)` still returns `trip_meta_snapshot`.
-- **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) (600 ms debounce) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
+- **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
+
+#### Split-trigger preview (Category A / Category B)
+
+Large invoices (120+ trips) previously re-rendered the full PDF on every KM/price blur, causing tab OOM. The builder now splits preview triggers by change type:
+
+| Category | What changes | Trigger |
+|---|---|---|
+| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder | **Auto-render** — `scheduleCategoryAUpdate` with **600 ms** debounce (`PREVIEW_CATEGORY_A_DEBOUNCE_MS`); **0 ms** on `columnReorderGeneration` bump |
+| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips | **Manual only** — sets `isDirty`; admin clicks **Aktualisieren** → `requestPreviewUpdate()` (immediate, clears pending A timer) |
+
+- **Initial load** (trips fetch / edit hydration): one auto-render when `draftInvoice` first becomes available — not marked dirty.
+- **`livePreviewActive` false** (trips cleared): resets `isDirty` and preview session refs so a stale “Vorschau veraltet” banner cannot persist.
+- **Continuous iframe:** while `usePDF` sets `loading: true`, `pdf.url` still points at the previous blob; the panel keeps the iframe visible and shows a non-blocking **“Wird aktualisiert…”** badge. Superseded blob URLs are revoked in the panel when `pdf.url` changes **and** `pdf.loading === false` (react-pdf sets both in one `setState` on completion).
+- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — Category B gating is required at scale.
+- **Mobile sheet** uses the same `isDirty` / `requestPreviewUpdate` props as the desktop panel.
+
+Classification contract is documented in the comment block at the top of `use-invoice-builder-pdf-preview.tsx`.
 
 ### Phase 6 (complete) — Dynamic PDF-Vorlagen (column layout system)
 
