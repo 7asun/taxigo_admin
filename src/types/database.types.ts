@@ -1981,6 +1981,94 @@ export type Database = {
           reconciled_at: string | null;
         }[];
       };
+      get_controlling_operational: {
+        Args: {
+          p_company_id: string;
+          p_date_from: string;
+          p_date_to: string;
+        };
+        Returns: {
+          trip_date: string;
+          total_trips: number;
+          completed_trips: number;
+          cancelled_trips: number;
+          revenue_net: number;
+          revenue_gross: number;
+          total_km: number;
+          avg_price_per_trip: number | null;
+          avg_km_per_trip: number | null;
+          unpriced_trips: number;
+          unassigned_trips: number;
+          wheelchair_trips: number;
+          kts_trips: number;
+          fremdfirma_trips: number;
+          fremdfirma_cost: number;
+        }[];
+      };
+      get_controlling_breakdown: {
+        Args: {
+          p_company_id: string;
+          p_date_from: string;
+          p_date_to: string;
+        };
+        Returns: {
+          payer_id: string | null;
+          payer_name: string | null;
+          billing_type_id: string | null;
+          billing_type_name: string | null;
+          billing_variant_id: string | null;
+          billing_variant_name: string | null;
+          driver_id: string | null;
+          driver_name: string | null;
+          trip_count: number;
+          revenue_net: number;
+          revenue_gross: number;
+          total_km: number;
+          avg_price_per_trip: number | null;
+          active_days: number | null;
+          wheelchair_trips: number;
+        }[];
+      };
+      get_controlling_heatmap: {
+        Args: {
+          p_company_id: string;
+          p_date_from: string;
+          p_date_to: string;
+        };
+        Returns: {
+          day_of_week: number;
+          hour_of_day: number;
+          trip_count: number;
+          revenue_net: number;
+        }[];
+      };
+      get_controlling_invoice_kpis: {
+        Args: {
+          p_company_id: string;
+          p_date_from: string;
+          p_date_to: string;
+        };
+        Returns: {
+          open_count: number;
+          open_amount: number;
+          overdue_count: number;
+          overdue_amount: number;
+          dso_days: number | null;
+          invoicing_rate_pct: number;
+          period_invoice_count: number;
+        }[];
+      };
+      get_controlling_monthly_revenue: {
+        Args: {
+          p_company_id: string;
+          p_months?: number;
+        };
+        Returns: {
+          month_start: string;
+          revenue_net: number;
+          trip_count: number;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;

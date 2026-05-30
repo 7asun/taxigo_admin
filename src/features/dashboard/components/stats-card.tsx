@@ -6,10 +6,14 @@ import {
   CardHeader,
   CardDescription,
   CardTitle,
-  CardAction,
   CardFooter
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import { IconTrendingUp, IconTrendingDown } from '@tabler/icons-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -25,8 +29,43 @@ export interface StatsCardProps {
     isUp: boolean;
     label?: string;
   };
+  /** Tooltip on the trend badge — previous period absolute value. */
+  trendTooltip?: string;
   isLoading?: boolean;
   className?: string;
+}
+
+function TrendRow({
+  trend,
+  trendTooltip
+}: {
+  trend: NonNullable<StatsCardProps['trend']>;
+  trendTooltip?: string;
+}) {
+  return (
+    <div className='mt-1 flex items-center gap-1.5'>
+      <span
+        className={cn(
+          'text-xs font-medium tabular-nums',
+          trend.isUp ? 'text-green-500' : 'text-red-500'
+        )}
+      >
+        {trend.value}
+      </span>
+      {trendTooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className='text-muted-foreground cursor-default text-xs'>
+              vs. Vorperiode
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{trendTooltip}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className='text-muted-foreground text-xs'>vs. Vorperiode</span>
+      )}
+    </div>
+  );
 }
 
 export function StatsCard({
@@ -35,6 +74,7 @@ export function StatsCard({
   countLabel,
   description,
   trend,
+  trendTooltip,
   isLoading,
   className
 }: StatsCardProps) {
@@ -81,31 +121,25 @@ export function StatsCard({
             <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
               {value}
             </CardTitle>
+            {trend ? (
+              <TrendRow trend={trend} trendTooltip={trendTooltip} />
+            ) : null}
           </>
         ) : (
           <>
-            <CardDescription>{title}</CardDescription>
-            <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
+            <CardDescription className='min-w-0'>{title}</CardDescription>
+            <CardTitle className='min-w-0 text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
               {value}
             </CardTitle>
-            {trend && (
-              <CardAction>
-                <Badge variant='outline' className='gap-1'>
-                  {trend.isUp ? (
-                    <IconTrendingUp className='size-3' />
-                  ) : (
-                    <IconTrendingDown className='size-3' />
-                  )}
-                  {trend.value}
-                </Badge>
-              </CardAction>
-            )}
+            {trend ? (
+              <TrendRow trend={trend} trendTooltip={trendTooltip} />
+            ) : null}
           </>
         )}
       </CardHeader>
       {(description || trend?.label) && (
         <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-          {trend?.label && (
+          {trend?.label ? (
             <div className='line-clamp-1 flex gap-2 font-medium'>
               {trend.label}{' '}
               {trend.isUp ? (
@@ -114,10 +148,10 @@ export function StatsCard({
                 <IconTrendingDown className='size-4' />
               )}
             </div>
-          )}
-          {description && (
+          ) : null}
+          {description ? (
             <div className='text-muted-foreground'>{description}</div>
-          )}
+          ) : null}
         </CardFooter>
       )}
     </Card>
@@ -172,7 +206,10 @@ export function StatsRowCard({
             {value}
           </p>
           {trend ? (
-            <Badge variant='outline' className='h-6 gap-0.5 px-1.5 text-[10px]'>
+            <Badge
+              variant='outline'
+              className='h-6 shrink-0 gap-0.5 px-1.5 text-[10px] whitespace-nowrap'
+            >
               {trend.isUp ? (
                 <IconTrendingUp className='size-2.5' />
               ) : (
