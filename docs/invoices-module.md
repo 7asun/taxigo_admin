@@ -115,7 +115,7 @@ Cross-reference: **Shared with Angebote module — both import from `src/feature
 
 ### Draft watermark (`ENTWURF`)
 
-[`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) accepts an optional `showDraftWatermark?: boolean` prop (**default `false`** — non-draft output stays byte-identical). When `true`, a diagonal light-gray `ENTWURF` stamp is rendered as the first child of **every** `Page` (cover + each appendix variant) using `fixed` so it repeats on wrapped pages and sits under the content. Size / colour / opacity / rotation live in `PDF_DRAFT_WATERMARK` in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (no magic numbers).
+[`InvoicePdfDocument`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx) accepts an optional `showDraftWatermark?: boolean` prop (**default `false`** — non-draft output stays byte-identical). When `true`, a diagonal light-gray `ENTWURF` stamp is rendered as the first child of **every** `Page` (cover + each appendix variant) using `fixed` so it repeats on wrapped pages and sits under the content. Cover watermark is in `InvoicePdfDocument`; appendix watermarks are repeated per page in `InvoicePdfAppendixPages`. Size / colour / opacity / rotation live in `PDF_DRAFT_WATERMARK` in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (no magic numbers).
 
 Wiring:
 - **Detail downloads** ([`invoice-detail/index.tsx`](../src/features/invoices/components/invoice-detail/index.tsx), both Digital + Brief) and **preview route** ([`invoice-pdf-preview.tsx`](../src/features/invoices/components/invoice-pdf/invoice-pdf-preview.tsx)): `showDraftWatermark={invoice.status === 'draft'}`.
@@ -383,6 +383,10 @@ PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/
 - **Detail page** — [`PDFDownloadLink`](https://react-pdf.org/components#pdfdownloadlink) wraps the same document for “PDF herunterladen”.
 - **Preview** — dashboard route `src/app/dashboard/invoices/[id]/preview/page.tsx` uses `InvoicePdfPreview` + `PDFViewer`.
 
+**Composition:** cover `Page` (header, reference bar, body, footer) + [`InvoicePdfAppendixPages`](../src/features/invoices/components/invoice-pdf/invoice-pdf-appendix-pages.tsx) (all appendix `Page` shells). Root keeps recipient/salutation/totals prep and gates `cancelledTrips` / `excludedTrips` before passing pre-filtered arrays to the appendix orchestrator.
+
+**No `React.memo` in the PDF tree:** `@react-pdf/renderer` performs its own layout pass outside React's reconciler — memo does not skip appendix work inside `<Document>`.
+
 Styling is centralized in [`pdf-styles.ts`](../src/features/invoices/components/invoice-pdf/pdf-styles.ts) (A4 padding, DIN-oriented top margin, flex tables). Supporting utilities: `resolve-sender-font-size.ts`, `generate-payment-qr-data-url.ts`, `build-sepa-qr-payload.ts`.
 
 ## Logo im PDF-Header
@@ -418,7 +422,8 @@ Das Layout ist identisch — kein Extra-Padding nötig.
 
 | Piece | File | Role |
 |-------|------|------|
-| Root composer | `InvoicePdfDocument.tsx` | `Document` + two `Page`s; recipient/salutation; totals + `buildInvoicePdfSummary` |
+| Root composer | `InvoicePdfDocument.tsx` | `Document` + cover `Page`; recipient/salutation; totals + `buildInvoicePdfSummary`; passes gated appendix props to `InvoicePdfAppendixPages` |
+| Appendix pages | `invoice-pdf-appendix-pages.tsx` | All appendix `<Page>` wrappers: Fahrtendetails (single or `grouped_by_billing_type` multi-page), passive Stornierte, Ausgeschlossene; draft watermark + footer per page; receives pre-gated `cancelledTrips` / `excludedTrips`, `appendixLineItems`, `effectiveProfile`, `invoiceId` (`string | null`) |
 | Cover header | `invoice-pdf-cover-header.tsx` | Logo, sender line, address window, Rechnungsdaten |
 | Cover body | `invoice-pdf-cover-body.tsx` | Dynamic main table: grouped (`InvoicePdfSummaryRow`) or flat (`InvoiceLineItemRow`); `mainTableKeys` as single source array for widths + header + body |
 | Footer | `invoice-pdf-footer.tsx` | Fixed footer + `Seite x / y` |
