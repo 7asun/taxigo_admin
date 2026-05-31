@@ -94,3 +94,27 @@ export interface ControllingDriverSummary {
   active_days: number | null;
   wheelchair_trips: number;
 }
+
+/** Flat payer roll-up for payer comparison charts (not a billing tree). */
+export interface ControllingPayerSummary {
+  payer_id: string;
+  payer_name: string;
+  revenue_net: number;
+  revenue_gross: number;
+  trip_count: number;
+  total_km: number;
+}
+
+/** Payer × billing type roll-up for PayerBillingTreemap. */
+export interface ControllingPayerTreemapItem {
+  payer_id: string;
+  payer_name: string;
+  billing_types: {
+    billing_type_id: string;
+    billing_type_name: string;
+    revenue_net: number;
+    trip_count: number;
+  }[];
+  total_revenue_net: number;
+  total_trip_count: number;
+}

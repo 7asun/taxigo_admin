@@ -21,6 +21,14 @@ export const controllingKeys = {
   breakdown: (period: ControllingPeriod) =>
     ['controlling', 'breakdown', period.dateFrom, period.dateTo] as const,
 
+  breakdownPrevious: (period: ControllingPeriod) =>
+    [
+      'controlling',
+      'breakdown-previous',
+      period.dateFrom,
+      period.dateTo
+    ] as const,
+
   heatmap: (period: ControllingPeriod) =>
     ['controlling', 'heatmap', period.dateFrom, period.dateTo] as const,
 

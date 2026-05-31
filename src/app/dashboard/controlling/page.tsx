@@ -13,7 +13,10 @@ import { RevenueTimeSeries } from '@/features/controlling/components/RevenueTime
 import { PrimetimeHeatmap } from '@/features/controlling/components/PrimetimeHeatmap';
 import { HourlyDistribution } from '@/features/controlling/components/HourlyDistribution';
 import { DriverTable } from '@/features/controlling/components/DriverTable';
+import { DriverRevenueChart } from '@/features/controlling/components/DriverRevenueChart';
 import { PayerBreakdown } from '@/features/controlling/components/PayerBreakdown';
+import { PayerComparisonChart } from '@/features/controlling/components/PayerComparisonChart';
+import { PayerBillingTreemap } from '@/features/controlling/components/PayerBillingTreemap';
 import { WheelchairStats } from '@/features/controlling/components/WheelchairStats';
 import { InvoiceKpis } from '@/features/controlling/components/InvoiceKpis';
 import { OperationalFlags } from '@/features/controlling/components/OperationalFlags';
@@ -30,6 +33,7 @@ export default function ControllingPage() {
     operational,
     operationalPrevious,
     breakdown,
+    breakdownPrevious,
     heatmap,
     invoiceKpis,
     monthlyRevenue,
@@ -81,8 +85,17 @@ export default function ControllingPage() {
           <PrimetimeHeatmap heatmap={heatmap} />
         </div>
 
+        <DriverRevenueChart
+          breakdown={breakdown}
+          breakdownPrevious={breakdownPrevious}
+        />
         <DriverTable breakdown={breakdown} />
 
+        <PayerComparisonChart
+          breakdown={breakdown}
+          breakdownPrevious={breakdownPrevious}
+        />
+        <PayerBillingTreemap breakdown={breakdown} />
         <PayerBreakdown breakdown={breakdown} />
 
         <WheelchairStats

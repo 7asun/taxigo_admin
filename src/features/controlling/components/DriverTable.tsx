@@ -18,14 +18,12 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  aggregateDrivers,
   formatEuro,
   formatKm,
   formatTripsPerDay
 } from '../lib/controlling-utils';
-import type {
-  ControllingBreakdownRow,
-  ControllingDriverSummary
-} from '../types/controlling.types';
+import type { ControllingBreakdownRow } from '../types/controlling.types';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 
@@ -37,36 +35,6 @@ type SortKey =
   | 'euro_per_km'
   | 'utilization'
   | 'wheelchair_trips';
-
-function aggregateDrivers(
-  rows: ControllingBreakdownRow[]
-): ControllingDriverSummary[] {
-  const map = new Map<string, ControllingDriverSummary>();
-
-  for (const row of rows) {
-    const key = row.driver_id ?? '__unassigned__';
-    const existing = map.get(key);
-    if (existing) {
-      existing.trip_count += row.trip_count;
-      existing.revenue_net += row.revenue_net;
-      existing.total_km += row.total_km;
-      existing.wheelchair_trips += row.wheelchair_trips;
-    } else {
-      map.set(key, {
-        driver_id: row.driver_id,
-        driver_name:
-          row.driver_id == null ? 'Nicht zugewiesen' : (row.driver_name ?? '—'),
-        trip_count: row.trip_count,
-        revenue_net: row.revenue_net,
-        total_km: row.total_km,
-        active_days: row.active_days,
-        wheelchair_trips: row.wheelchair_trips
-      });
-    }
-  }
-
-  return Array.from(map.values());
-}
 
 export interface DriverTableProps {
   breakdown: UseQueryResult<ControllingBreakdownRow[]>;
