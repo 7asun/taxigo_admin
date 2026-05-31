@@ -42,6 +42,14 @@ export function useControllingData(period: ControllingPeriod) {
     staleTime: CONTROLLING_STALE_TIME_MS
   });
 
+  // Prior-period breakdown is section-scoped (PayerComparisonChart skeleton only) —
+  // excluded from global isLoading, same as operationalPrevious.
+  const breakdownPrevious = useQuery({
+    queryKey: controllingKeys.breakdownPrevious(period),
+    queryFn: () => fetchControllingBreakdown(previousPeriod),
+    staleTime: CONTROLLING_STALE_TIME_MS
+  });
+
   const heatmap = useQuery({
     queryKey: controllingKeys.heatmap(period),
     queryFn: () => fetchControllingHeatmap(period),
@@ -78,6 +86,7 @@ export function useControllingData(period: ControllingPeriod) {
     operational,
     operationalPrevious,
     breakdown,
+    breakdownPrevious,
     heatmap,
     invoiceKpis,
     monthlyRevenue,

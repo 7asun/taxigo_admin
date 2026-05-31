@@ -25,7 +25,11 @@ import {
 import type {
   ControllingPeriod,
   ControllingPeriodKey,
-  ControllingOperationalRow
+  ControllingOperationalRow,
+  ControllingBreakdownRow,
+  ControllingDriverSummary,
+  ControllingPayerTreemapItem,
+  ControllingPayerSummary
 } from '../types/controlling.types';
 
 export const CONTROLLING_STALE_TIME_MS = 5 * 60 * 1000;
@@ -239,6 +243,152 @@ export function getWeekdayLabel(dayOfWeek: number): string {
 
 export function getMonthLabel(monthIndex: number): string {
   return MONTH_LABELS[monthIndex] ?? '?';
+}
+
+/**
+ * Roll breakdown slices up to one row per driver.
+ * active_days is driver-level (same value on every slice for that driver) — take
+ * the first row only; summing would multiply working days by slice count.
+ */
+export function aggregateDrivers(
+  rows: ControllingBreakdownRow[]
+): ControllingDriverSummary[] {
+  const map = new Map<string, ControllingDriverSummary>();
+
+  for (const row of rows) {
+    const key = row.driver_id ?? '__unassigned__';
+    const existing = map.get(key);
+    if (existing) {
+      existing.trip_count += row.trip_count;
+      existing.revenue_net += row.revenue_net;
+      existing.total_km += row.total_km;
+      existing.wheelchair_trips += row.wheelchair_trips;
+    } else {
+      map.set(key, {
+        driver_id: row.driver_id,
+        driver_name:
+          row.driver_id == null ? 'Nicht zugewiesen' : (row.driver_name ?? '—'),
+        trip_count: row.trip_count,
+        revenue_net: row.revenue_net,
+        total_km: row.total_km,
+        active_days: row.active_days,
+        wheelchair_trips: row.wheelchair_trips
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+/**
+ * Flat payer totals for charts — not a billing tree like buildPayerTree.
+ */
+export function aggregatePayers(
+  rows: ControllingBreakdownRow[]
+): ControllingPayerSummary[] {
+  const map = new Map<string, ControllingPayerSummary>();
+
+  for (const row of rows) {
+    const key = row.payer_id ?? '__unknown__';
+    const existing = map.get(key);
+    if (existing) {
+      existing.trip_count += row.trip_count;
+      existing.revenue_net += row.revenue_net;
+      existing.revenue_gross += row.revenue_gross;
+      existing.total_km += row.total_km;
+    } else {
+      map.set(key, {
+        payer_id: key,
+        payer_name: row.payer_name ?? 'Unbekannt',
+        trip_count: row.trip_count,
+        revenue_net: row.revenue_net,
+        revenue_gross: row.revenue_gross,
+        total_km: row.total_km
+      });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => b.revenue_net - a.revenue_net);
+}
+
+/**
+ * Payer × billing_type roll-up for PayerBillingTreemap.
+ * billing_type_id null → 'Ohne Typ' so trips without a configured billing type
+ * stay visible rather than disappearing from the mix.
+ */
+export function aggregatePayerTreemap(
+  rows: ControllingBreakdownRow[]
+): ControllingPayerTreemapItem[] {
+  const payerMap = new Map<
+    string,
+    {
+      payer_name: string;
+      billingTypes: Map<
+        string,
+        {
+          billing_type_name: string;
+          revenue_net: number;
+          trip_count: number;
+        }
+      >;
+    }
+  >();
+
+  for (const row of rows) {
+    const payerKey = row.payer_id ?? '__unknown__';
+    let payer = payerMap.get(payerKey);
+    if (!payer) {
+      payer = {
+        payer_name: row.payer_name ?? 'Unbekannt',
+        billingTypes: new Map()
+      };
+      payerMap.set(payerKey, payer);
+    }
+
+    const billingKey = row.billing_type_id ?? '__untyped__';
+    const existing = payer.billingTypes.get(billingKey);
+    if (existing) {
+      existing.revenue_net += row.revenue_net;
+      existing.trip_count += row.trip_count;
+    } else {
+      payer.billingTypes.set(billingKey, {
+        billing_type_name: row.billing_type_name ?? 'Ohne Typ',
+        revenue_net: row.revenue_net,
+        trip_count: row.trip_count
+      });
+    }
+  }
+
+  return Array.from(payerMap.entries())
+    .map(([payer_id, payer]) => {
+      const billing_types = Array.from(payer.billingTypes.entries())
+        .map(([billing_type_id, bt]) => ({
+          billing_type_id,
+          billing_type_name: bt.billing_type_name,
+          revenue_net: bt.revenue_net,
+          trip_count: bt.trip_count
+        }))
+        .filter((bt) => bt.revenue_net !== 0);
+
+      const total_revenue_net = billing_types.reduce(
+        (sum, bt) => sum + bt.revenue_net,
+        0
+      );
+      const total_trip_count = billing_types.reduce(
+        (sum, bt) => sum + bt.trip_count,
+        0
+      );
+
+      return {
+        payer_id,
+        payer_name: payer.payer_name,
+        billing_types,
+        total_revenue_net,
+        total_trip_count
+      };
+    })
+    .filter((payer) => payer.total_revenue_net > 0)
+    .sort((a, b) => b.total_revenue_net - a.total_revenue_net);
 }
 
 export function aggregateOperationalRows(rows: ControllingOperationalRow[]) {
