@@ -68,7 +68,7 @@ Optional env: `NEXT_PUBLIC_TRIPS_BUSINESS_TIMEZONE` (defaults to `Europe/Berlin`
 
 | Callsite | Helper |
 |----------|--------|
-| [`src/app/api/cron/generate-recurring-trips/route.ts`](../src/app/api/cron/generate-recurring-trips/route.ts) | `buildScheduledAt`; Berlin “today” + window via `tz(getTripsBusinessTimeZone())`; RRule `DTSTART` and `between()` window from `getZonedDayBoundsIso`; occurrences → `instantToYmdInBusinessTz`; dedup without `scheduled_at` so correcting UTC encoding does not double-insert |
+| [`src/app/api/cron/generate-recurring-trips/route.ts`](../src/app/api/cron/generate-recurring-trips/route.ts) | `buildScheduledAt`; Berlin “today” + window via `tz(getTripsBusinessTimeZone())`; RRule `between()` window from `getZonedDayBoundsIso`; occurrences → `instantToYmdInBusinessTz`; dedup without `scheduled_at` so correcting UTC encoding does not double-insert. **DTSTART** uses `TZID=${getTripsBusinessTimeZone()}` so RRule evaluates `BYDAY` in Berlin civil time — do not revert to UTC `Z` encoding. |
 | [`src/features/dashboard/components/timeless-rule-trips-widget.tsx`](../src/features/dashboard/components/timeless-rule-trips-widget.tsx) | `buildScheduledAtOrNull` (+ `TripTimeError` toast) |
 | [`src/features/dashboard/components/pending-tours-widget.tsx`](../src/features/dashboard/components/pending-tours-widget.tsx) | `buildScheduledAtOrNull` (+ `TripTimeError` toast) |
 | [`src/features/driver-portal/api/driver-trips.service.ts`](../src/features/driver-portal/api/driver-trips.service.ts) `getDriverTrips` date branch | `getZonedDayBoundsIso` → half-open `gte` / `lt` on `scheduled_at` |

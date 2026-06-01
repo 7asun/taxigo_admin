@@ -69,6 +69,9 @@ type EditingState = {
 
 type KmEditingState = { position: number; value: string } | null;
 
+/** Debounce before committing typed KM so overrides reach lineItems without blur. */
+const KM_INPUT_DEBOUNCE_MS = 600;
+
 function priceResolutionBadge(
   item: BuilderLineItem
 ): { label: string; className: string } | null {
@@ -243,6 +246,14 @@ export function Step3LineItems({
   const editingRef = useRef<EditingState>(null);
   const kmEditingRef = useRef<KmEditingState>(null);
   const kmCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kmDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (kmCommitTimerRef.current) clearTimeout(kmCommitTimerRef.current);
+      if (kmDebounceTimerRef.current) clearTimeout(kmDebounceTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -276,8 +287,29 @@ export function Step3LineItems({
     setKmEditing(newState);
   };
 
+  const cancelKmDebounce = () => {
+    if (kmDebounceTimerRef.current) {
+      clearTimeout(kmDebounceTimerRef.current);
+      kmDebounceTimerRef.current = null;
+    }
+  };
+
+  // why: kmEditing is local until blur/Enter; debounced commit pushes valid KM into
+  // lineItems so a tab switch or background refetch cannot drop an in-progress override.
+  const scheduleDebouncedKmCommit = (value: string) => {
+    cancelKmDebounce();
+    const parsed = parseFloat(value.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    kmDebounceTimerRef.current = setTimeout(() => {
+      const snap = kmEditingRef.current;
+      if (snap) commitKmEdit(snap);
+      kmDebounceTimerRef.current = null;
+    }, KM_INPUT_DEBOUNCE_MS);
+  };
+
   const cancelKmEdit = () => {
     if (kmCommitTimerRef.current) clearTimeout(kmCommitTimerRef.current);
+    cancelKmDebounce();
     kmEditingRef.current = null;
     setKmEditing(null);
   };
@@ -295,6 +327,7 @@ export function Step3LineItems({
   };
 
   const handleKmBlur = (state: KmEditingState) => {
+    cancelKmDebounce();
     kmCommitTimerRef.current = setTimeout(() => {
       commitKmEdit(state);
     }, 0);
@@ -316,6 +349,7 @@ export function Step3LineItems({
 
   const commitKmIfThisRow = (position: number) => {
     if (kmCommitTimerRef.current) clearTimeout(kmCommitTimerRef.current);
+    cancelKmDebounce();
     const snap = kmEditingRef.current;
     if (snap?.position === position) commitKmEdit(snap);
   };
@@ -644,10 +678,11 @@ export function Step3LineItems({
                                   if (!isKmEditingThisRow) beginKmEditing(item);
                                 }}
                                 onChange={(e) => {
+                                  const nextValue = e.target.value;
                                   if (isKmEditingThisRow) {
                                     setKmEditing((prev) => {
                                       const next = prev
-                                        ? { ...prev, value: e.target.value }
+                                        ? { ...prev, value: nextValue }
                                         : prev;
                                       kmEditingRef.current = next;
                                       return next;
@@ -655,11 +690,12 @@ export function Step3LineItems({
                                   } else {
                                     const next = {
                                       position: item.position,
-                                      value: e.target.value
+                                      value: nextValue
                                     };
                                     kmEditingRef.current = next;
                                     setKmEditing(next);
                                   }
+                                  scheduleDebouncedKmCommit(nextValue);
                                 }}
                                 onBlur={() => blurKmIfThisRow(item.position)}
                                 onKeyDown={(e) => {
