@@ -492,16 +492,16 @@ export async function GET(request: NextRequest) {
         ? endOfDay(inTz(rule.end_date), { in: inTz })
         : windowEndLocal;
 
-      const ruleDayStartUtc = getZonedDayBoundsIso(rule.start_date).startISO;
-      const dtStartAnchor = new Date(ruleDayStartUtc);
-      const utcTz = tz('UTC');
-      const dtStartStr = format(dtStartAnchor, "yyyyMMdd'T'HHmmss'Z'", {
-        in: utcTz
-      });
+      // DTSTART must carry Berlin TZID so RRule evaluates BYDAY tokens in
+      // Berlin civil time, not UTC. Without TZID, a Monday 00:00 Berlin start
+      // becomes Sunday 22:00Z, shifting every weekly occurrence forward one
+      // Berlin calendar day.
+      const businessTz = getTripsBusinessTimeZone();
+      const dtStartStr = `${rule.start_date.replace(/-/g, '')}T000000`;
 
       let rruleObj: RRule;
       try {
-        const rruleStr = `DTSTART:${dtStartStr}\n${rule.rrule_string}`;
+        const rruleStr = `DTSTART;TZID=${businessTz}:${dtStartStr}\n${rule.rrule_string}`;
         rruleObj = rrulestr(rruleStr) as RRule;
       } catch (e) {
         console.error('Invalid RRule', rule.rrule_string, e);

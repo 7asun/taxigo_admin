@@ -335,7 +335,14 @@ export function useInvoiceBuilder(
     // trips — re-running buildLineItemsFromTrips would silently recompute prices
     // from current (mutable) trips on load.
     enabled: !isEditMode && step2ValuesReadyForTripsFetch(step2Values),
-    staleTime: 5 * 60 * 1000
+    staleTime: 5 * 60 * 1000,
+    // why: after staleTime (5 min) the global refetchOnWindowFocus default would
+    // re-run queryFn → setLineItems(buildLineItemsFromTrips(...)), wiping unsaved
+    // builder-only KM overrides (manualDistanceKm / isManualKmOverride). Trips are
+    // loaded once per Step 2 submit; Step 3 edits live in React state until save.
+    refetchOnWindowFocus: false,
+    // why: laptop sleep/wake reconnect hits the same queryFn/setLineItems path.
+    refetchOnReconnect: false
   });
 
   const applyGrossOverride = useCallback(

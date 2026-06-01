@@ -208,6 +208,21 @@ ORDER BY 1, 2;
 
 ---
 
+## Resolution (2026-06-01)
+
+**Shipped fix:** Regelfahrten cron DTSTART weekday offset (+1 Berlin day when user selected e.g. Monday but trips landed on Tuesday).
+
+| Issue | Status |
+| --- | --- |
+| `toScheduledIso` / naive UTC time encoding | **Resolved** (Phase 2) — replaced by `buildScheduledAt` |
+| UTC `dateStr` from `toISOString().split('T')[0]` | **Resolved** (Phase 2) — `instantToYmdInBusinessTz` |
+| UTC `startOfDay(new Date())` for cron window | **Resolved** (Phase 2) — Berlin `startOfDay` via `getTripsBusinessTimeZone()` |
+| **DTSTART encoded as UTC `Z`** (Berlin midnight → previous UTC day; RRule `BYDAY` in UTC) | **Resolved (2026-06-01)** — `DTSTART;TZID=${getTripsBusinessTimeZone()}:${start_date}T000000` in `generate-recurring-trips/route.ts` (~lines 495–504). See [`regelfahrten-cron-day-offset-audit.md`](./regelfahrten-cron-day-offset-audit.md) and [`trips-date-filter.md`](../trips-date-filter.md) cron row. |
+
+**Do not revert** DTSTART to `format(..., 'Z')` on `getZonedDayBoundsIso(...).startISO` — that reintroduces the weekday +1 bug.
+
+---
+
 ## Files read (complete or substantive)
 
 - `src/app/api/cron/generate-recurring-trips/route.ts` (full)  
