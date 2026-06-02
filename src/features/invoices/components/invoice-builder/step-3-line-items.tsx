@@ -581,7 +581,10 @@ export function Step3LineItems({
                       )}
                     >
                       <div className='grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-2 px-4 py-2.5 pr-9 transition-colors'>
-                        <div className='row-span-2 flex items-start pt-0.5'>
+                        {/* Inclusion rail: checkbox + its consequences (opt-out badge, advisory
+                            warnings) in one vertical stack so inclusion state and reason read at a
+                            glance. row-span-2 keeps the rail aligned to the full right-hand block. */}
+                        <div className='row-span-2 flex flex-col items-start gap-1.5 pt-0.5'>
                           <Checkbox
                             checked={item.billingInclusion.included}
                             aria-label={
@@ -602,6 +605,46 @@ export function Step3LineItems({
                               }
                             }}
                           />
+                          {/* Stays outside CollapsibleContent so warnings remain visible when collapsed. */}
+                          {(isOptedOut || item.warnings.length > 0) && (
+                            <div className='flex w-full min-w-0 flex-wrap items-center gap-1.5'>
+                              {isOptedOut ? (
+                                <div className='flex max-w-full min-w-0 items-center gap-1'>
+                                  <Badge
+                                    variant='outline'
+                                    className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
+                                  >
+                                    Ausgeschlossen
+                                  </Badge>
+                                  {item.billingInclusion.reason ? (
+                                    <span className='truncate text-[10px] text-amber-600'>
+                                      {item.billingInclusion.reason}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {item.warnings.length > 0 ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type='button'
+                                      className='text-amber-500'
+                                      aria-label='Hinweise zu dieser Position'
+                                    >
+                                      <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className='text-xs'>
+                                      {item.warnings
+                                        .map((w) => getWarningLabel(w))
+                                        .join(' · ')}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
 
                         {/* Row 1 — informational only; one type size/weight for #, client, date */}
@@ -650,302 +693,256 @@ export function Step3LineItems({
                         </div>
 
                         {/* Controls + column badges — strict 3-column grid */}
-                        <div className='min-w-0'>
-                          <div className='grid w-full grid-cols-3 items-start gap-x-3'>
-                            {/* Column 1 — KM */}
-                            <div className='flex min-w-0 flex-col gap-1'>
-                              {item.manual_km_enabled ? (
-                                <div className='flex items-center gap-1'>
-                                  <Input
-                                    type='text'
-                                    inputMode='decimal'
-                                    aria-label='Manuelle Distanz in km'
-                                    className='h-8 w-full text-right text-xs tabular-nums'
-                                    value={kmInputValue}
-                                    placeholder='km'
-                                    disabled={isOptedOut}
-                                    onFocus={() => {
-                                      handleKmFocus(item.position);
-                                      if (!isKmEditingThisRow)
-                                        beginKmEditing(item);
-                                    }}
-                                    onChange={(e) => {
-                                      const nextValue = e.target.value;
-                                      if (isKmEditingThisRow) {
-                                        setKmEditing((prev) => {
-                                          const next = prev
-                                            ? { ...prev, value: nextValue }
-                                            : prev;
-                                          kmEditingRef.current = next;
-                                          return next;
-                                        });
-                                      } else {
-                                        const next = {
-                                          position: item.position,
-                                          value: nextValue
-                                        };
-                                        kmEditingRef.current = next;
-                                        setKmEditing(next);
-                                      }
-                                      scheduleDebouncedKmCommit(nextValue);
-                                    }}
-                                    onBlur={() =>
-                                      blurKmIfThisRow(item.position)
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        commitKmIfThisRow(item.position);
-                                      }
-                                      if (e.key === 'Escape') {
-                                        e.preventDefault();
-                                        cancelKmEdit();
-                                      }
-                                    }}
-                                  />
-                                  <span className='text-muted-foreground shrink-0 text-[10px]'>
-                                    km
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className='text-muted-foreground text-sm whitespace-nowrap tabular-nums'>
-                                  {item.original_distance_km != null
-                                    ? `${item.original_distance_km.toFixed(1)} km`
-                                    : item.distance_km != null
-                                      ? `${item.distance_km.toFixed(1)} km`
-                                      : '—'}
-                                </span>
-                              )}
-                              {item.isManualKmOverride ? (
-                                <div className='flex items-center gap-1'>
-                                  <Badge
-                                    variant='outline'
-                                    className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
-                                  >
-                                    KM manuell{' '}
-                                    {item.original_distance_km != null
-                                      ? item.original_distance_km.toLocaleString(
-                                          'de-DE',
-                                          {
-                                            minimumFractionDigits: 1,
-                                            maximumFractionDigits: 1
-                                          }
-                                        )
-                                      : '—'}
-                                  </Badge>
-                                  <Button
-                                    type='button'
-                                    variant='ghost'
-                                    size='icon'
-                                    className='h-6 w-6'
-                                    aria-label='Manuellen KM zurücksetzen'
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      cancelKmEdit();
-                                      onResetKmOverride(item.position);
-                                    }}
-                                  >
-                                    <X className='h-3 w-3' />
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Column 2 — tax rate */}
-                            <div className='flex min-w-0 flex-col gap-1'>
-                              <div className='flex items-center gap-1.5'>
-                                <Select
-                                  value={String(item.tax_rate)}
-                                  onValueChange={(val) =>
-                                    onApplyTaxRateOverride(
-                                      item.position,
-                                      parseFloat(val)
-                                    )
-                                  }
+                        <div className='grid w-full min-w-0 grid-cols-3 items-start gap-x-3'>
+                          {/* Column 1 — KM */}
+                          <div className='flex min-w-0 flex-col gap-1'>
+                            {item.manual_km_enabled ? (
+                              <div className='flex items-center gap-1'>
+                                <Input
+                                  type='text'
+                                  inputMode='decimal'
+                                  aria-label='Manuelle Distanz in km'
+                                  className='h-8 w-full text-right text-xs tabular-nums'
+                                  value={kmInputValue}
+                                  placeholder='km'
                                   disabled={isOptedOut}
-                                >
-                                  <SelectTrigger
-                                    className='h-8 w-full max-w-[80px] text-sm'
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value={String(TAX_RATES.ZERO)}>
-                                      0 %
-                                    </SelectItem>
-                                    <SelectItem
-                                      value={String(TAX_RATES.REDUCED)}
-                                    >
-                                      7 %
-                                    </SelectItem>
-                                    <SelectItem
-                                      value={String(TAX_RATES.STANDARD)}
-                                    >
-                                      19 %
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                {item.is_wheelchair && (
-                                  <span
-                                    className='inline-flex shrink-0'
-                                    title='Rollstuhlfahrt – Steuersatz prüfen (ggf. §4 Nr. 17b UStG)'
-                                  >
-                                    <Accessibility
-                                      className='h-4 w-4 text-amber-500'
-                                      aria-label='Rollstuhlfahrt – Steuersatz prüfen'
-                                    />
-                                  </span>
-                                )}
+                                  onFocus={() => {
+                                    handleKmFocus(item.position);
+                                    if (!isKmEditingThisRow)
+                                      beginKmEditing(item);
+                                  }}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    if (isKmEditingThisRow) {
+                                      setKmEditing((prev) => {
+                                        const next = prev
+                                          ? { ...prev, value: nextValue }
+                                          : prev;
+                                        kmEditingRef.current = next;
+                                        return next;
+                                      });
+                                    } else {
+                                      const next = {
+                                        position: item.position,
+                                        value: nextValue
+                                      };
+                                      kmEditingRef.current = next;
+                                      setKmEditing(next);
+                                    }
+                                    scheduleDebouncedKmCommit(nextValue);
+                                  }}
+                                  onBlur={() => blurKmIfThisRow(item.position)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      commitKmIfThisRow(item.position);
+                                    }
+                                    if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      cancelKmEdit();
+                                    }
+                                  }}
+                                />
+                                <span className='text-muted-foreground shrink-0 text-[10px]'>
+                                  km
+                                </span>
                               </div>
-                              {item.isManualTaxRateOverride ? (
-                                <div className='flex items-center gap-1'>
-                                  <Badge
-                                    variant='outline'
-                                    className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
-                                  >
-                                    MwSt manuell
-                                  </Badge>
-                                  <Button
-                                    type='button'
-                                    variant='ghost'
-                                    size='icon'
-                                    className='h-6 w-6'
-                                    aria-label='MwSt zurücksetzen'
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onResetTaxRateOverride(item.position);
-                                    }}
-                                  >
-                                    <X className='h-3 w-3' />
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Column 3 — gross */}
-                            <div className='flex min-w-0 flex-col items-end gap-1'>
-                              <Input
-                                type='text'
-                                inputMode='decimal'
-                                aria-label='Bruttopreis'
-                                className='h-8 w-full text-right text-xs tabular-nums'
-                                value={grossInputValue}
-                                placeholder='Betrag'
-                                disabled={isOptedOut}
-                                onFocus={() => {
-                                  handleFocus(item.position);
-                                  if (!isEditingThisRow) beginEditing(item);
-                                }}
-                                onChange={(e) => {
-                                  if (isEditingThisRow) {
-                                    setEditing((prev) => {
-                                      const next = prev
-                                        ? {
-                                            ...prev,
-                                            grossValue: e.target.value
-                                          }
-                                        : prev;
-                                      editingRef.current = next;
-                                      return next;
-                                    });
-                                  } else {
-                                    const next = {
-                                      position: item.position,
-                                      grossValue: e.target.value,
-                                      approachValue:
-                                        item.approach_fee_gross != null &&
-                                        item.approach_fee_gross !== undefined
-                                          ? formatEurInput(
-                                              item.approach_fee_gross
-                                            )
-                                          : ''
-                                    };
-                                    editingRef.current = next;
-                                    setEditing(next);
-                                  }
-                                }}
-                                onBlur={() => blurIfThisRow(item.position)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    commitIfThisRow(item.position);
-                                  }
-                                  if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    cancelEdit();
-                                  }
-                                }}
-                              />
-                              {item.isManualOverride ||
-                              item.price_resolution.source ===
-                                'manual_gross_price' ? (
-                                <div className='flex items-center gap-1'>
-                                  <Badge
-                                    variant='outline'
-                                    className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
-                                  >
-                                    Taxameter
-                                  </Badge>
-                                  {item.isManualOverride ? (
-                                    <Button
-                                      type='button'
-                                      variant='ghost'
-                                      size='icon'
-                                      className='h-6 w-6'
-                                      aria-label='Taxameter-Preis zurücksetzen'
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onResetOverride(item.position);
-                                      }}
-                                    >
-                                      <X className='h-3 w-3' />
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
+                            ) : (
+                              <span className='text-muted-foreground text-sm whitespace-nowrap tabular-nums'>
+                                {item.original_distance_km != null
+                                  ? `${item.original_distance_km.toFixed(1)} km`
+                                  : item.distance_km != null
+                                    ? `${item.distance_km.toFixed(1)} km`
+                                    : '—'}
+                              </span>
+                            )}
+                            {item.isManualKmOverride ? (
+                              <div className='flex items-center gap-1'>
+                                <Badge
+                                  variant='outline'
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                                >
+                                  KM manuell{' '}
+                                  {item.original_distance_km != null
+                                    ? item.original_distance_km.toLocaleString(
+                                        'de-DE',
+                                        {
+                                          minimumFractionDigits: 1,
+                                          maximumFractionDigits: 1
+                                        }
+                                      )
+                                    : '—'}
+                                </Badge>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='icon'
+                                  className='h-6 w-6'
+                                  aria-label='Manuellen KM zurücksetzen'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cancelKmEdit();
+                                    onResetKmOverride(item.position);
+                                  }}
+                                >
+                                  <X className='h-3 w-3' />
+                                </Button>
+                              </div>
+                            ) : null}
                           </div>
 
-                          {(isOptedOut || item.warnings.length > 0) && (
-                            <div className='mt-2.5 flex min-w-0 flex-wrap items-center gap-1.5'>
-                              {isOptedOut ? (
-                                <div className='flex max-w-full min-w-0 items-center gap-1'>
-                                  <Badge
-                                    variant='outline'
-                                    className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
+                          {/* Column 2 — tax rate */}
+                          <div className='flex min-w-0 flex-col gap-1'>
+                            <div className='flex items-center gap-1.5'>
+                              <Select
+                                value={String(item.tax_rate)}
+                                onValueChange={(val) =>
+                                  onApplyTaxRateOverride(
+                                    item.position,
+                                    parseFloat(val)
+                                  )
+                                }
+                                disabled={isOptedOut}
+                              >
+                                <SelectTrigger
+                                  className='h-8 w-full max-w-[80px] text-sm'
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={String(TAX_RATES.ZERO)}>
+                                    0 %
+                                  </SelectItem>
+                                  <SelectItem value={String(TAX_RATES.REDUCED)}>
+                                    7 %
+                                  </SelectItem>
+                                  <SelectItem
+                                    value={String(TAX_RATES.STANDARD)}
                                   >
-                                    Ausgeschlossen
-                                  </Badge>
-                                  {item.billingInclusion.reason ? (
-                                    <span className='truncate text-[10px] text-amber-600'>
-                                      {item.billingInclusion.reason}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                              {item.warnings.length > 0 ? (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type='button'
-                                      className='text-amber-500'
-                                      aria-label='Hinweise zu dieser Position'
-                                    >
-                                      <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p className='text-xs'>
-                                      {item.warnings
-                                        .map((w) => getWarningLabel(w))
-                                        .join(' · ')}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              ) : null}
+                                    19 %
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {item.is_wheelchair && (
+                                <span
+                                  className='inline-flex shrink-0'
+                                  title='Rollstuhlfahrt – Steuersatz prüfen (ggf. §4 Nr. 17b UStG)'
+                                >
+                                  <Accessibility
+                                    className='h-4 w-4 text-amber-500'
+                                    aria-label='Rollstuhlfahrt – Steuersatz prüfen'
+                                  />
+                                </span>
+                              )}
                             </div>
-                          )}
+                            {item.isManualTaxRateOverride ? (
+                              <div className='flex items-center gap-1'>
+                                <Badge
+                                  variant='outline'
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                                >
+                                  MwSt manuell
+                                </Badge>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='icon'
+                                  className='h-6 w-6'
+                                  aria-label='MwSt zurücksetzen'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onResetTaxRateOverride(item.position);
+                                  }}
+                                >
+                                  <X className='h-3 w-3' />
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {/* Column 3 — gross */}
+                          <div className='flex min-w-0 flex-col items-end gap-1'>
+                            <Input
+                              type='text'
+                              inputMode='decimal'
+                              aria-label='Bruttopreis'
+                              className='h-8 w-full text-right text-xs tabular-nums'
+                              value={grossInputValue}
+                              placeholder='Betrag'
+                              disabled={isOptedOut}
+                              onFocus={() => {
+                                handleFocus(item.position);
+                                if (!isEditingThisRow) beginEditing(item);
+                              }}
+                              onChange={(e) => {
+                                if (isEditingThisRow) {
+                                  setEditing((prev) => {
+                                    const next = prev
+                                      ? {
+                                          ...prev,
+                                          grossValue: e.target.value
+                                        }
+                                      : prev;
+                                    editingRef.current = next;
+                                    return next;
+                                  });
+                                } else {
+                                  const next = {
+                                    position: item.position,
+                                    grossValue: e.target.value,
+                                    approachValue:
+                                      item.approach_fee_gross != null &&
+                                      item.approach_fee_gross !== undefined
+                                        ? formatEurInput(
+                                            item.approach_fee_gross
+                                          )
+                                        : ''
+                                  };
+                                  editingRef.current = next;
+                                  setEditing(next);
+                                }
+                              }}
+                              onBlur={() => blurIfThisRow(item.position)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  commitIfThisRow(item.position);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  cancelEdit();
+                                }
+                              }}
+                            />
+                            {item.isManualOverride ||
+                            item.price_resolution.source ===
+                              'manual_gross_price' ? (
+                              <div className='flex items-center gap-1'>
+                                <Badge
+                                  variant='outline'
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                                >
+                                  Taxameter
+                                </Badge>
+                                {item.isManualOverride ? (
+                                  <Button
+                                    type='button'
+                                    variant='ghost'
+                                    size='icon'
+                                    className='h-6 w-6'
+                                    aria-label='Taxameter-Preis zurücksetzen'
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onResetOverride(item.position);
+                                    }}
+                                  >
+                                    <X className='h-3 w-3' />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
