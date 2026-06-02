@@ -844,7 +844,18 @@ export function InvoiceBuilder({
           onRequestPreviewUpdate={requestPreviewUpdate}
         />
       </div>
-      <Sheet open={previewSheetOpen} onOpenChange={setPreviewSheetOpen}>
+      <Sheet
+        open={previewSheetOpen}
+        onOpenChange={(open) => {
+          setPreviewSheetOpen(open);
+          if (open) {
+            // why: mobile sheet opening is the admin's explicit signal to view
+            // the PDF. Trigger one render with the latest state so the panel
+            // is not blank on open.
+            requestPreviewUpdate();
+          }
+        }}
+      >
         <SheetContent side='bottom' className='h-[88vh] overflow-hidden'>
           <SheetHeader>
             <SheetTitle>PDF-Vorschau</SheetTitle>

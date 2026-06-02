@@ -4,25 +4,25 @@ overview: Stop all automatic PDF renders in the invoice builder preview hook. Ev
 todos:
   - id: step1-hash
     content: Add buildCategoryBSignature + replace JSON.stringify in use-invoice-builder-pdf-preview.tsx; build gate
-    status: pending
+    status: completed
   - id: step2-manual
     content: Remove Category A auto-render, initial render, debounce refs; add Category A dirty effect + draftInvoice dirty; build gate
-    status: pending
+    status: completed
   - id: step3-qr-hook
     content: "Remove preview QR state/effect; pass paymentQrDataUrl: null in commitPreviewUpdate; build gate"
-    status: pending
+    status: completed
   - id: step4-qr-placeholder
     content: QR placeholder in invoice-pdf-cover-body.tsx for __pdf_preview__ only; build gate
-    status: pending
+    status: completed
   - id: step5-panel-copy
     content: Update never-rendered idle copy in invoice-builder-pdf-panel.tsx; build gate
-    status: pending
+    status: completed
   - id: step6-mobile
     content: Wire mobile sheet onOpenChange → requestPreviewUpdate in index.tsx; build + bun test 167/167
-    status: pending
+    status: completed
   - id: step7-docs
     content: Rewrite docs/invoices-module.md Builder preview section; final build gate
-    status: pending
+    status: completed
 isProject: false
 ---
 

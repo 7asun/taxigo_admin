@@ -126,8 +126,9 @@ export function InvoiceBuilderPdfPanel({
             </Button>
           </div>
         ) : showFirstLoadIdle ? (
-          <div className='text-muted-foreground flex h-full min-h-0 items-center justify-center text-sm'>
-            Vorschau wird geladen…
+          <div className='text-muted-foreground flex h-full min-h-0 items-center justify-center gap-2 text-sm'>
+            <RefreshCw className='h-3.5 w-3.5 shrink-0' />
+            Vorschau noch nicht geladen — klicken Sie auf Aktualisieren
           </div>
         ) : iframeSrc ? (
           <>
