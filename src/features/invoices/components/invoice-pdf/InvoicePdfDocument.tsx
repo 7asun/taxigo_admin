@@ -362,40 +362,43 @@ export function InvoicePdfDocument({
       return a.line_date.localeCompare(b.line_date);
     });
 
-  const lineItemsForCalc: BuilderLineItem[] = invoice.line_items.map((li) => ({
-    trip_id: li.trip_id,
-    position: li.position,
-    line_date: li.line_date,
-    description: li.description,
-    client_name: li.client_name,
-    pickup_address: li.pickup_address,
-    dropoff_address: li.dropoff_address,
-    distance_km: li.distance_km,
-    effective_distance_km: li.effective_distance_km ?? li.distance_km,
-    original_distance_km: li.original_distance_km ?? li.distance_km,
-    manual_km_enabled: false,
-    unit_price: li.unit_price,
-    quantity: li.quantity,
-    approach_fee_net: li.approach_fee_net ?? null,
-    tax_rate: li.tax_rate,
-    billing_variant_code: li.billing_variant_code,
-    billing_variant_name: li.billing_variant_name,
-    billing_type_name: li.billing_type_name ?? null,
-    kts_document_applies: li.kts_override,
-    no_invoice_warning: false,
-    price_resolution: priceResolutionFromLineItem(li),
-    kts_override: li.kts_override,
-    trip_meta: parseTripMetaSnapshot(
-      li.trip_meta_snapshot as Record<string, unknown> | null | undefined
-    ),
-    price_source: null,
-    warnings: [],
-    // why: InvoicePdfDocument operates on persisted data where all items are already included in totals
-    billingInclusion: {
-      included: li.billing_included ?? true,
-      reason: li.billing_exclusion_reason ?? ''
-    }
-  }));
+  // Exclude opted-out lines so PDF footer matches builder totals
+  const lineItemsForCalc: BuilderLineItem[] = invoice.line_items
+    .filter((li) => li.billing_included !== false)
+    .map((li) => ({
+      trip_id: li.trip_id,
+      position: li.position,
+      line_date: li.line_date,
+      description: li.description,
+      client_name: li.client_name,
+      pickup_address: li.pickup_address,
+      dropoff_address: li.dropoff_address,
+      distance_km: li.distance_km,
+      effective_distance_km: li.effective_distance_km ?? li.distance_km,
+      original_distance_km: li.original_distance_km ?? li.distance_km,
+      manual_km_enabled: false,
+      unit_price: li.unit_price,
+      quantity: li.quantity,
+      approach_fee_net: li.approach_fee_net ?? null,
+      tax_rate: li.tax_rate,
+      billing_variant_code: li.billing_variant_code,
+      billing_variant_name: li.billing_variant_name,
+      billing_type_name: li.billing_type_name ?? null,
+      kts_document_applies: li.kts_override,
+      no_invoice_warning: false,
+      is_wheelchair: false,
+      price_resolution: priceResolutionFromLineItem(li),
+      kts_override: li.kts_override,
+      trip_meta: parseTripMetaSnapshot(
+        li.trip_meta_snapshot as Record<string, unknown> | null | undefined
+      ),
+      price_source: null,
+      warnings: [],
+      billingInclusion: {
+        included: li.billing_included ?? true,
+        reason: li.billing_exclusion_reason ?? ''
+      }
+    }));
 
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);

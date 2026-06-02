@@ -19,6 +19,12 @@
 
 /** Available MwSt rates as decimal fractions. */
 export const TAX_RATES = {
+  /**
+   * 0% — §4 Nr. 17b UStG (befreite Krankenbeförderung mit Genehmigung).
+   * Only applied via explicit dispatcher override in the invoice builder Step 3;
+   * never auto-assigned by `resolveTaxRate` or trip creation.
+   */
+  ZERO: 0,
   REDUCED: 0.07, // 7%  — Ermäßigter Steuersatz
   STANDARD: 0.19 // 19% — Regelsteuersatz
 } as const;

@@ -10,10 +10,16 @@
  *
  * Related: {@link build-draft-invoice-detail-for-pdf.ts}, {@link InvoicePdfDocument.tsx}.
  *
- * ── Preview trigger classification (split-trigger contract) ─────────────────
+ * ── Preview trigger classification (threshold-gated contract) ───────────────
  *
- * Category A — layout/template: auto-render via scheduleCategoryAUpdate (600 ms;
- * 0 ms on columnReorderGeneration bump). Category B — trip data: manual refresh only.
+ * Below MANUAL_PREVIEW_TRIP_THRESHOLD: Category A auto-renders (600 ms debounce;
+ * 0 ms on column reorder); initial load auto-renders once.
+ * At/above threshold: Category A and initial load mark isDirty only — manual refresh.
+ * Category B — trip data: always manual (isDirty) after first completed render.
+ *
+ * Explicit render triggers (all trip counts):
+ *   - Admin clicks Aktualisieren / Vorschau laden → requestPreviewUpdate()
+ *   - Mobile preview sheet opens (wired in index.tsx)
  *
  * draftInvoice useMemo deps:
  *   Gate: livePreviewActive
@@ -22,16 +28,10 @@
  *      columnProfile
  *   B: includedLineItemsForDraft, billedCancelledTrips
  *
- * updatePdf trigger deps (legacy monolithic effect — split below):
- *   A: introText, outroText, columnProfile, columnReorderGeneration,
- *      paymentQrDataUrl, updatePdf
- *   B: passiveCancelledTrips, excludedTrips
- *   Mixed: draftInvoice → split; commitPreviewUpdate always reads latest via ref
- *
  * Hook params / related:
- *   B: lineItems (source for includedLineItemsForDraft)
+ *   B: lineItems (source for includedLineItemsForDraft; also drives isLargeInvoice)
  *   A: logo URL effect (companyProfile?.logo_path / logo_url)
- *   Keep as-is: paymentQrDataUrl generation effect (cheap async, not layout)
+ *   Preview QR: always null — placeholder in InvoicePdfCoverBody for draft id
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -55,6 +55,11 @@ import type {
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
 
+/** why: main-thread PDF layout becomes a crash risk above this trip count over
+ *  long sessions (~90 min). Below the threshold the live preview UX is preserved.
+ *  Above it, all renders are manual to protect browser memory. */
+export const MANUAL_PREVIEW_TRIP_THRESHOLD = 90;
+
 /** why: coalesce rapid Category A (layout) edits without flooding react-pdf layout. */
 const PREVIEW_CATEGORY_A_DEBOUNCE_MS = 600;
 /** why: column drag-reorder must feel instant — same as today. */
@@ -64,24 +69,53 @@ interface PreviewPayload {
   draftInvoice: InvoiceDetail | null;
   introText: string | null | undefined;
   outroText: string | null | undefined;
-  paymentQrDataUrl: string | null;
+  paymentQrDataUrl: null;
   columnProfile: PdfColumnProfile;
   passiveCancelledTrips: BuilderCancelledTripRow[];
   excludedTrips: ExcludedTripRow[];
 }
 
-function categoryBSignature(
-  includedLineItems: BuilderLineItem[],
-  billedCancelled: BuilderCancelledTripRow[],
-  passiveCancelled: BuilderCancelledTripRow[],
+/** why: JSON.stringify on 160 rows runs on every keystroke
+ *  and accumulates CPU pressure over long sessions.
+ *  A numeric hash is ~100x cheaper with identical dirty
+ *  detection for the KM/inclusion changes we care about. */
+function buildCategoryBSignature(
+  included: BuilderLineItem[],
+  billed: BuilderCancelledTripRow[],
+  passive: BuilderCancelledTripRow[],
   excluded: ExcludedTripRow[]
 ): string {
-  return JSON.stringify({
-    included: includedLineItems,
-    billedCancelled,
-    passiveCancelled,
-    excluded
-  });
+  const hashIncluded = (rows: BuilderLineItem[]) =>
+    rows.reduce(
+      (acc, r) =>
+        acc +
+        (r.position ?? 0) * 1000 +
+        Math.round((r.effective_distance_km ?? 0) * 100) +
+        (r.billingInclusion.included ? 1 : 0),
+      0
+    );
+
+  const hashCancelled = (rows: BuilderCancelledTripRow[]) =>
+    rows.reduce((acc, r) => {
+      const idFold = r.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+      return (
+        acc +
+        idFold * 1000 +
+        Math.round((r.effective_distance_km ?? 0) * 100) +
+        (r.billingInclusion.included ? 1 : 0)
+      );
+    }, 0);
+
+  const hashExcluded = (rows: ExcludedTripRow[]) =>
+    rows.reduce((acc, r) => {
+      let reasonFold = 0;
+      for (let i = 0; i < r.billing_exclusion_reason.length; i++) {
+        reasonFold += r.billing_exclusion_reason.charCodeAt(i);
+      }
+      return acc + (r.client_name?.length ?? 0) * 1000 + reasonFold;
+    }, 0);
+
+  return `${hashIncluded(included)}_${hashCancelled(billed)}_${hashCancelled(passive)}_${hashExcluded(excluded)}`;
 }
 
 export interface InvoiceBuilderStep4PdfOverlay {
@@ -185,6 +219,8 @@ export function useInvoiceBuilderPdfPreview(
   const [categoryBDirty, setCategoryBDirty] = useState(false);
   /** Same as invoice detail PDF preview: @react-pdf fetches the logo; private bucket needs a signed URL. */
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
+
+  const isLargeInvoice = lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD;
 
   // Reacts to company logo path/url: resolves a short-lived signed URL for the PDF renderer.
   useEffect(() => {
@@ -298,32 +334,14 @@ export function useInvoiceBuilderPdfPreview(
     columnProfile
   ]);
 
-  const [paymentQrDataUrl, setPaymentQrDataUrl] = useState<string | null>(null);
-
-  // Reacts to draft invoice changes: generates a SEPA QR data URL for the payment block.
-  useEffect(() => {
-    if (!draftInvoice) {
-      setPaymentQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    import(
-      '@/features/invoices/components/invoice-pdf/generate-payment-qr-data-url'
-    ).then(({ generatePaymentQrDataUrl }) => {
-      void generatePaymentQrDataUrl(draftInvoice).then((url) => {
-        if (!cancelled) setPaymentQrDataUrl(url);
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [draftInvoice]);
-
   previewPayloadRef.current = {
     draftInvoice,
     introText,
     outroText,
-    paymentQrDataUrl,
+    // why: QR generation is deferred to invoice save for all preview sessions
+    // regardless of trip count — the preview QR is never scannable and generation
+    // on every draftInvoice change adds unnecessary async work.
+    paymentQrDataUrl: null,
     columnProfile,
     passiveCancelledTrips,
     excludedTrips
@@ -332,6 +350,9 @@ export function useInvoiceBuilderPdfPreview(
   const commitPreviewUpdate = useCallback(() => {
     const p = previewPayloadRef.current;
     if (!p.draftInvoice) return;
+    // why: QR generation is deferred to invoice save for all preview sessions
+    // regardless of trip count — the preview QR is never scannable and generation
+    // on every draftInvoice change adds unnecessary async work.
     updatePdf(
       <InvoicePdfDocument
         invoice={p.draftInvoice}
@@ -384,20 +405,28 @@ export function useInvoiceBuilderPdfPreview(
     }
   }, [livePreviewActive]);
 
-  // why: first preview when trips load / edit hydration — auto-render once, not dirty.
+  // why: first preview when trips load — auto-render below threshold; mark dirty
+  // above threshold so admin must click Aktualisieren or open mobile sheet.
   useEffect(() => {
     if (!draftInvoice) return;
     if (hasCompletedFirstRenderRef.current) return;
     if (initialRenderScheduledRef.current) return;
+    if (isLargeInvoice) {
+      // why: first render deferred to manual above threshold
+      setCategoryBDirty(true);
+      return;
+    }
     initialRenderScheduledRef.current = true;
     scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
-  }, [draftInvoice, scheduleCategoryAUpdate]);
+  }, [draftInvoice, isLargeInvoice, scheduleCategoryAUpdate]);
 
-  // why: Category A only — must not depend on draftInvoice or paymentQrDataUrl (both
-  // change on B edits via draftInvoice / QR regen); payload ref stays current at render time.
+  // why: Category A only — must not depend on draftInvoice (changes on B edits);
+  // payload ref stays current at render time. Gated above trip threshold — large
+  // invoices use the dirty-only effect below instead of silent background layout.
   useEffect(() => {
     if (!livePreviewActive) return;
     if (!hasCompletedFirstRenderRef.current) return;
+    if (isLargeInvoice) return;
 
     const reorderBumped =
       columnReorderGeneration !== lastColumnReorderGen.current;
@@ -410,6 +439,7 @@ export function useInvoiceBuilderPdfPreview(
     scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
   }, [
     livePreviewActive,
+    isLargeInvoice,
     introText,
     outroText,
     columnProfile,
@@ -424,9 +454,32 @@ export function useInvoiceBuilderPdfPreview(
     scheduleCategoryAUpdate
   ]);
 
+  // why: above MANUAL_PREVIEW_TRIP_THRESHOLD, Category A changes mark dirty
+  // instead of auto-rendering — prevents silent background layout at scale.
+  // Below the threshold auto-render handles Category A; this effect is skipped.
+  useEffect(() => {
+    if (!livePreviewActive) return;
+    if (!isLargeInvoice) return;
+    setCategoryBDirty(true);
+  }, [
+    introText,
+    outroText,
+    columnProfile,
+    columnReorderGeneration,
+    companyProfileForDraft,
+    step2Values,
+    paymentDueDays,
+    recipientRow,
+    payers,
+    clients,
+    companyId,
+    livePreviewActive,
+    isLargeInvoice
+  ]);
+
   // why: trip data edits must not auto-render — flag dirty for manual refresh only.
   useEffect(() => {
-    const sig = categoryBSignature(
+    const sig = buildCategoryBSignature(
       includedLineItemsForDraft,
       billedCancelledTrips,
       passiveCancelledTrips,
@@ -459,9 +512,6 @@ export function useInvoiceBuilderPdfPreview(
     }
     commitPreviewUpdate();
   }, [commitPreviewUpdate]);
-
-  // why: when categoryBDirty and a Category A change fires, commitPreviewUpdate uses
-  // current draftInvoice (includes latest trip edits in memory) — layout trigger, fresh data.
 
   useEffect(() => {
     return () => {

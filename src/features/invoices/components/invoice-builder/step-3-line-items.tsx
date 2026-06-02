@@ -22,7 +22,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AlertTriangle, ChevronDown, Info, Map, X } from 'lucide-react';
+import {
+  Accessibility,
+  AlertTriangle,
+  ChevronDown,
+  Info,
+  Map,
+  X
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,7 +57,14 @@ import {
 } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
-import { formatTaxRate } from '../../lib/tax-calculator';
+import { formatTaxRate, TAX_RATES } from '../../lib/tax-calculator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { getWarningLabel } from '../../lib/invoice-validators';
 import {
   lineItemGrossTotalForDisplay,
@@ -180,6 +194,8 @@ interface Step3LineItemsProps {
   onResetOverride: (position: number) => void;
   onApplyKmOverride: (position: number, km: number) => void;
   onResetKmOverride: (position: number) => void;
+  onApplyTaxRateOverride: (position: number, rate: number) => void;
+  onResetTaxRateOverride: (position: number) => void;
   onLineItemInclusionChange: (
     position: number,
     included: boolean,
@@ -216,6 +232,8 @@ export function Step3LineItems({
   onResetOverride,
   onApplyKmOverride,
   onResetKmOverride,
+  onApplyTaxRateOverride,
+  onResetTaxRateOverride,
   onLineItemInclusionChange,
   onCancelledTripInclusionChange,
   onCancelledTripGrossOverride,
@@ -562,13 +580,11 @@ export function Step3LineItems({
                         leftBorderClass
                       )}
                     >
-                      <div
-                        className={cn(
-                          'grid grid-cols-[auto_1fr_auto_auto] items-start gap-x-3 px-4 py-2.5 pr-9 transition-colors'
-                        )}
-                      >
-                        {/* Opt-out checkbox — leftmost column */}
-                        <div className='flex items-center pt-0.5'>
+                      <div className='grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-2 px-4 py-2.5 pr-9 transition-colors'>
+                        {/* Inclusion rail: checkbox + its consequences (opt-out badge, advisory
+                            warnings) in one vertical stack so inclusion state and reason read at a
+                            glance. row-span-2 keeps the rail aligned to the full right-hand block. */}
+                        <div className='row-span-2 flex flex-col items-start gap-1.5 pt-0.5'>
                           <Checkbox
                             checked={item.billingInclusion.included}
                             aria-label={
@@ -579,30 +595,80 @@ export function Step3LineItems({
                             onClick={(e) => e.stopPropagation()}
                             onCheckedChange={(checked) => {
                               if (checked) {
-                                // Re-include immediately — no dialog
                                 onLineItemInclusionChange(
                                   item.position,
                                   true,
                                   ''
                                 );
                               } else {
-                                // Open dialog for mandatory reason
                                 setOptOutDialog({ item, reason: '' });
                               }
                             }}
                           />
+                          {/* Stays outside CollapsibleContent so warnings remain visible when collapsed. */}
+                          {(isOptedOut || item.warnings.length > 0) && (
+                            <div className='flex w-full min-w-0 flex-wrap items-center gap-1.5'>
+                              {isOptedOut ? (
+                                <div className='flex max-w-full min-w-0 items-center gap-1'>
+                                  <Badge
+                                    variant='outline'
+                                    className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
+                                  >
+                                    Ausgeschlossen
+                                  </Badge>
+                                  {item.billingInclusion.reason ? (
+                                    <span className='truncate text-[10px] text-amber-600'>
+                                      {item.billingInclusion.reason}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {item.warnings.length > 0 ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type='button'
+                                      className='text-amber-500'
+                                      aria-label='Hinweise zu dieser Position'
+                                    >
+                                      <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className='text-xs'>
+                                      {item.warnings
+                                        .map((w) => getWarningLabel(w))
+                                        .join(' · ')}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
 
-                        <div className='flex min-w-0 flex-col'>
-                          <div className='flex items-center gap-1.5'>
-                            <span className='text-foreground text-sm font-medium tabular-nums'>
-                              #{item.position}
-                            </span>
-                            {item.pickup_address != null &&
-                            item.pickup_address !== '' &&
-                            item.dropoff_address != null &&
-                            item.dropoff_address !== '' ? (
-                              // why: client-side Google Maps directions URL — no API key; only when both addresses exist
+                        {/* Row 1 — informational only; one type size/weight for #, client, date */}
+                        <div className='flex w-full min-w-0 items-center gap-2'>
+                          <span className='text-foreground shrink-0 text-sm font-medium tabular-nums'>
+                            #{item.position}
+                          </span>
+                          <span className='text-foreground min-w-0 truncate text-sm font-medium'>
+                            {item.client_name ?? '—'}
+                          </span>
+                          <span className='text-foreground ml-auto shrink-0 text-sm font-medium whitespace-nowrap'>
+                            {item.line_date
+                              ? format(
+                                  new Date(item.line_date),
+                                  'EEE, dd.MM.yyyy',
+                                  { locale: de }
+                                )
+                              : '—'}
+                          </span>
+                          {item.pickup_address != null &&
+                          item.pickup_address !== '' &&
+                          item.dropoff_address != null &&
+                          item.dropoff_address !== '' ? (
+                            <div className='shrink-0'>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <a
@@ -610,7 +676,7 @@ export function Step3LineItems({
                                     target='_blank'
                                     rel='noopener noreferrer'
                                     aria-label='Route in Google Maps öffnen'
-                                    className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors'
+                                    className='text-muted-foreground hover:text-foreground inline-flex items-center'
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     <Map className='h-3.5 w-3.5' />
@@ -622,218 +688,261 @@ export function Step3LineItems({
                                   </p>
                                 </TooltipContent>
                               </Tooltip>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {/* Controls + column badges — strict 3-column grid */}
+                        <div className='grid w-full min-w-0 grid-cols-3 items-start gap-x-3'>
+                          {/* Column 1 — KM */}
+                          <div className='flex min-w-0 flex-col gap-1'>
+                            {item.manual_km_enabled ? (
+                              <div className='flex items-center gap-1'>
+                                <Input
+                                  type='text'
+                                  inputMode='decimal'
+                                  aria-label='Manuelle Distanz in km'
+                                  className='h-8 w-full text-right text-xs tabular-nums'
+                                  value={kmInputValue}
+                                  placeholder='km'
+                                  disabled={isOptedOut}
+                                  onFocus={() => {
+                                    handleKmFocus(item.position);
+                                    if (!isKmEditingThisRow)
+                                      beginKmEditing(item);
+                                  }}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    if (isKmEditingThisRow) {
+                                      setKmEditing((prev) => {
+                                        const next = prev
+                                          ? { ...prev, value: nextValue }
+                                          : prev;
+                                        kmEditingRef.current = next;
+                                        return next;
+                                      });
+                                    } else {
+                                      const next = {
+                                        position: item.position,
+                                        value: nextValue
+                                      };
+                                      kmEditingRef.current = next;
+                                      setKmEditing(next);
+                                    }
+                                    scheduleDebouncedKmCommit(nextValue);
+                                  }}
+                                  onBlur={() => blurKmIfThisRow(item.position)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      commitKmIfThisRow(item.position);
+                                    }
+                                    if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      cancelKmEdit();
+                                    }
+                                  }}
+                                />
+                                <span className='text-muted-foreground shrink-0 text-[10px]'>
+                                  km
+                                </span>
+                              </div>
+                            ) : (
+                              <span className='text-muted-foreground text-sm whitespace-nowrap tabular-nums'>
+                                {item.original_distance_km != null
+                                  ? `${item.original_distance_km.toFixed(1)} km`
+                                  : item.distance_km != null
+                                    ? `${item.distance_km.toFixed(1)} km`
+                                    : '—'}
+                              </span>
+                            )}
+                            {item.isManualKmOverride ? (
+                              <div className='flex items-center gap-1'>
+                                <Badge
+                                  variant='outline'
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                                >
+                                  KM manuell{' '}
+                                  {item.original_distance_km != null
+                                    ? item.original_distance_km.toLocaleString(
+                                        'de-DE',
+                                        {
+                                          minimumFractionDigits: 1,
+                                          maximumFractionDigits: 1
+                                        }
+                                      )
+                                    : '—'}
+                                </Badge>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='icon'
+                                  className='h-6 w-6'
+                                  aria-label='Manuellen KM zurücksetzen'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cancelKmEdit();
+                                    onResetKmOverride(item.position);
+                                  }}
+                                >
+                                  <X className='h-3 w-3' />
+                                </Button>
+                              </div>
                             ) : null}
                           </div>
-                          <span className='text-muted-foreground truncate text-xs'>
-                            {item.client_name ?? '—'}
-                          </span>
-                          <span className='text-muted-foreground text-xs'>
-                            {item.line_date
-                              ? format(
-                                  new Date(item.line_date),
-                                  'EEE, dd.MM.yyyy',
-                                  { locale: de }
-                                )
-                              : '—'}
-                          </span>
-                          {isOptedOut && (
-                            <div className='mt-0.5 flex items-center gap-1'>
-                              <Badge
-                                variant='outline'
-                                className='h-4 border-amber-400 px-1 text-[10px] text-amber-700'
+
+                          {/* Column 2 — tax rate */}
+                          <div className='flex min-w-0 flex-col gap-1'>
+                            <div className='flex items-center gap-1.5'>
+                              <Select
+                                value={String(item.tax_rate)}
+                                onValueChange={(val) =>
+                                  onApplyTaxRateOverride(
+                                    item.position,
+                                    parseFloat(val)
+                                  )
+                                }
+                                disabled={isOptedOut}
                               >
-                                Ausgeschlossen
-                              </Badge>
-                              {item.billingInclusion.reason && (
-                                <span className='truncate text-[10px] text-amber-600'>
-                                  {item.billingInclusion.reason}
+                                <SelectTrigger
+                                  className='h-8 w-full max-w-[80px] text-sm'
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={String(TAX_RATES.ZERO)}>
+                                    0 %
+                                  </SelectItem>
+                                  <SelectItem value={String(TAX_RATES.REDUCED)}>
+                                    7 %
+                                  </SelectItem>
+                                  <SelectItem
+                                    value={String(TAX_RATES.STANDARD)}
+                                  >
+                                    19 %
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {item.is_wheelchair && (
+                                <span
+                                  className='inline-flex shrink-0'
+                                  title='Rollstuhlfahrt – Steuersatz prüfen (ggf. §4 Nr. 17b UStG)'
+                                >
+                                  <Accessibility
+                                    className='h-4 w-4 text-amber-500'
+                                    aria-label='Rollstuhlfahrt – Steuersatz prüfen'
+                                  />
                                 </span>
                               )}
                             </div>
-                          )}
-                        </div>
-
-                        <div className='flex min-w-24 flex-col items-end gap-1'>
-                          {/* why: same min-h as price column meta row so both inputs start at the same y. */}
-                          <div className='flex min-h-4 w-full items-center justify-end'>
-                            <span className='text-muted-foreground text-[10px] whitespace-nowrap tabular-nums'>
-                              {item.original_distance_km != null
-                                ? `${item.original_distance_km.toFixed(1)} km`
-                                : item.distance_km != null
-                                  ? `${item.distance_km.toFixed(1)} km`
-                                  : '—'}
-                            </span>
+                            {item.isManualTaxRateOverride ? (
+                              <div className='flex items-center gap-1'>
+                                <Badge
+                                  variant='outline'
+                                  className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
+                                >
+                                  MwSt manuell
+                                </Badge>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  size='icon'
+                                  className='h-6 w-6'
+                                  aria-label='MwSt zurücksetzen'
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onResetTaxRateOverride(item.position);
+                                  }}
+                                >
+                                  <X className='h-3 w-3' />
+                                </Button>
+                              </div>
+                            ) : null}
                           </div>
-                          {item.manual_km_enabled ? (
-                            <div className='flex items-center gap-1'>
-                              <Input
-                                type='text'
-                                inputMode='decimal'
-                                aria-label='Manuelle Distanz in km'
-                                className='h-7 w-24 shrink-0 text-right text-sm tabular-nums'
-                                value={kmInputValue}
-                                placeholder='km'
-                                onFocus={() => {
-                                  handleKmFocus(item.position);
-                                  if (!isKmEditingThisRow) beginKmEditing(item);
-                                }}
-                                onChange={(e) => {
-                                  const nextValue = e.target.value;
-                                  if (isKmEditingThisRow) {
-                                    setKmEditing((prev) => {
-                                      const next = prev
-                                        ? { ...prev, value: nextValue }
-                                        : prev;
-                                      kmEditingRef.current = next;
-                                      return next;
-                                    });
-                                  } else {
-                                    const next = {
-                                      position: item.position,
-                                      value: nextValue
-                                    };
-                                    kmEditingRef.current = next;
-                                    setKmEditing(next);
-                                  }
-                                  scheduleDebouncedKmCommit(nextValue);
-                                }}
-                                onBlur={() => blurKmIfThisRow(item.position)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    commitKmIfThisRow(item.position);
-                                  }
-                                  if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    cancelKmEdit();
-                                  }
-                                }}
-                              />
-                              <span className='text-muted-foreground shrink-0 text-[10px]'>
-                                km
-                              </span>
-                            </div>
-                          ) : null}
-                          {item.isManualKmOverride ? (
-                            <div className='flex items-center gap-1'>
-                              <Badge
-                                variant='outline'
-                                className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
-                              >
-                                KM manuell
-                              </Badge>
-                              <button
-                                type='button'
-                                aria-label='Manuellen KM zurücksetzen'
-                                className='text-muted-foreground hover:text-foreground'
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  cancelKmEdit();
-                                  onResetKmOverride(item.position);
-                                }}
-                              >
-                                <X className='h-3 w-3' />
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
 
-                        <div className='flex shrink-0 flex-col items-end gap-1'>
-                          <div className='flex min-h-4 items-center justify-end gap-1'>
-                            {(item.isManualOverride ||
-                              item.price_resolution.source ===
-                                'manual_gross_price') && (
-                              <>
+                          {/* Column 3 — gross */}
+                          <div className='flex min-w-0 flex-col items-end gap-1'>
+                            <Input
+                              type='text'
+                              inputMode='decimal'
+                              aria-label='Bruttopreis'
+                              className='h-8 w-full text-right text-xs tabular-nums'
+                              value={grossInputValue}
+                              placeholder='Betrag'
+                              disabled={isOptedOut}
+                              onFocus={() => {
+                                handleFocus(item.position);
+                                if (!isEditingThisRow) beginEditing(item);
+                              }}
+                              onChange={(e) => {
+                                if (isEditingThisRow) {
+                                  setEditing((prev) => {
+                                    const next = prev
+                                      ? {
+                                          ...prev,
+                                          grossValue: e.target.value
+                                        }
+                                      : prev;
+                                    editingRef.current = next;
+                                    return next;
+                                  });
+                                } else {
+                                  const next = {
+                                    position: item.position,
+                                    grossValue: e.target.value,
+                                    approachValue:
+                                      item.approach_fee_gross != null &&
+                                      item.approach_fee_gross !== undefined
+                                        ? formatEurInput(
+                                            item.approach_fee_gross
+                                          )
+                                        : ''
+                                  };
+                                  editingRef.current = next;
+                                  setEditing(next);
+                                }
+                              }}
+                              onBlur={() => blurIfThisRow(item.position)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  commitIfThisRow(item.position);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  cancelEdit();
+                                }
+                              }}
+                            />
+                            {item.isManualOverride ||
+                            item.price_resolution.source ===
+                              'manual_gross_price' ? (
+                              <div className='flex items-center gap-1'>
                                 <Badge
                                   variant='outline'
                                   className='h-4 border-amber-400 px-1 text-[10px] text-amber-600'
                                 >
                                   Taxameter
                                 </Badge>
-                                {item.isManualOverride && (
-                                  <button
+                                {item.isManualOverride ? (
+                                  <Button
                                     type='button'
+                                    variant='ghost'
+                                    size='icon'
+                                    className='h-6 w-6'
                                     aria-label='Taxameter-Preis zurücksetzen'
-                                    className='text-muted-foreground hover:text-foreground'
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onResetOverride(item.position);
                                     }}
                                   >
                                     <X className='h-3 w-3' />
-                                  </button>
-                                )}
-                              </>
-                            )}
-                            {item.warnings.length > 0 && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type='button'
-                                    className='text-amber-500'
-                                    aria-label='Hinweise zu dieser Position'
-                                  >
-                                    <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className='text-xs'>
-                                    {item.warnings
-                                      .map((w) => getWarningLabel(w))
-                                      .join(' · ')}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
-
-                          {/* why: `type="number"` rejects comma decimals in HTML; text + inputMode keeps de-DE typing and we parse in commitEdit. */}
-                          <Input
-                            type='text'
-                            inputMode='decimal'
-                            aria-label='Bruttopreis'
-                            className='h-7 w-24 shrink-0 text-right text-sm tabular-nums'
-                            value={grossInputValue}
-                            placeholder='Betrag'
-                            onFocus={() => {
-                              handleFocus(item.position);
-                              if (!isEditingThisRow) beginEditing(item);
-                            }}
-                            onChange={(e) => {
-                              if (isEditingThisRow) {
-                                setEditing((prev) => {
-                                  const next = prev
-                                    ? { ...prev, grossValue: e.target.value }
-                                    : prev;
-                                  editingRef.current = next;
-                                  return next;
-                                });
-                              } else {
-                                const next = {
-                                  position: item.position,
-                                  grossValue: e.target.value,
-                                  approachValue:
-                                    item.approach_fee_gross != null &&
-                                    item.approach_fee_gross !== undefined
-                                      ? formatEurInput(item.approach_fee_gross)
-                                      : ''
-                                };
-                                editingRef.current = next;
-                                setEditing(next);
-                              }
-                            }}
-                            onBlur={() => blurIfThisRow(item.position)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                commitIfThisRow(item.position);
-                              }
-                              if (e.key === 'Escape') {
-                                e.preventDefault();
-                                cancelEdit();
-                              }
-                            }}
-                          />
                         </div>
                       </div>
 

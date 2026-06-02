@@ -31,6 +31,7 @@ function tieredItem(overrides: Partial<BuilderLineItem> = {}): BuilderLineItem {
     billing_type_name: null,
     kts_document_applies: false,
     no_invoice_warning: false,
+    is_wheelchair: false,
     price_resolution: {
       gross: null,
       net,

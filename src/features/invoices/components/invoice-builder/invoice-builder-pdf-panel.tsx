@@ -7,6 +7,8 @@ import { Panel, PanelHeader, PanelBody } from '@/components/panels';
 import { Button } from '@/components/ui/button';
 import type { InvoiceDetail } from '@/features/invoices/types/invoice.types';
 
+import { MANUAL_PREVIEW_TRIP_THRESHOLD } from './use-invoice-builder-pdf-preview';
+
 interface InvoiceBuilderPdfPanelProps {
   lineItemCount: number;
   isLoadingTrips: boolean;
@@ -17,6 +19,7 @@ interface InvoiceBuilderPdfPanelProps {
     url: string | null;
   };
   isDirty?: boolean;
+  isLargeInvoice?: boolean;
   onRequestPreviewUpdate?: () => void;
 }
 
@@ -27,6 +30,7 @@ export function InvoiceBuilderPdfPanel({
   draftInvoice,
   pdf,
   isDirty = false,
+  isLargeInvoice = false,
   onRequestPreviewUpdate = () => {}
 }: InvoiceBuilderPdfPanelProps) {
   // why: iframe binds to this URL — kept across pdf.loading=true so the previous PDF
@@ -126,8 +130,9 @@ export function InvoiceBuilderPdfPanel({
             </Button>
           </div>
         ) : showFirstLoadIdle ? (
-          <div className='text-muted-foreground flex h-full min-h-0 items-center justify-center text-sm'>
-            Vorschau wird geladen…
+          <div className='text-muted-foreground flex h-full min-h-0 items-center justify-center gap-2 text-sm'>
+            <RefreshCw className='h-3.5 w-3.5 shrink-0' />
+            Vorschau noch nicht geladen — klicken Sie auf Aktualisieren
           </div>
         ) : iframeSrc ? (
           <>
@@ -143,17 +148,26 @@ export function InvoiceBuilderPdfPanel({
               </div>
             ) : null}
             {isDirty && !pdf.loading ? (
-              <div className='bg-background/95 border-border absolute top-3 right-3 left-3 z-10 flex items-center justify-between gap-3 rounded-md border px-3 py-2 shadow-sm'>
+              <div className='bg-background/95 border-border absolute top-3 right-3 left-3 z-10 flex items-start justify-between gap-3 rounded-md border px-3 py-2 shadow-sm'>
                 <span className='text-sm font-medium'>Vorschau veraltet</span>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='secondary'
-                  onClick={onRequestPreviewUpdate}
-                >
-                  <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
-                  Aktualisieren
-                </Button>
+                <div className='flex shrink-0 flex-col items-end gap-1'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='secondary'
+                    onClick={onRequestPreviewUpdate}
+                  >
+                    <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+                    Aktualisieren
+                  </Button>
+                  {isLargeInvoice ? (
+                    <p className='text-muted-foreground max-w-[14rem] text-right text-xs'>
+                      Bei Rechnungen mit mehr als{' '}
+                      {MANUAL_PREVIEW_TRIP_THRESHOLD} Fahrten wird die Vorschau
+                      manuell aktualisiert.
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </>

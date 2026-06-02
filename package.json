@@ -18,7 +18,7 @@
     "format:check": "prettier -c -w .",
     "prepare": "husky",
     "db:types": "npx supabase gen types typescript --local > src/types/database.types.ts",
-    "test": "bun test src/features/invoices/lib/__tests__ src/features/trips/lib/__tests__",
+    "test": "bun test src/features/invoices/lib/__tests__ src/features/invoices/hooks/__tests__ src/features/invoices/api/__tests__ src/features/invoices/utils/__tests__ src/features/trips/lib/__tests__",
     "backfill:audit": "bun run scripts/backfill-trip-prices-audit.ts",
     "backfill:apply": "bun run scripts/backfill-trip-prices-apply.ts"
   },

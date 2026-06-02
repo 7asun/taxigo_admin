@@ -39,6 +39,15 @@ backfill-driving-distance ──►
 
 **File**: `src/features/trips/lib/trip-price-engine.ts`
 
+**Invoice builder repricing** (Step 3 overrides, not trip creation): [`apply-tax-rate-override.ts`](../src/features/invoices/lib/apply-tax-rate-override.ts), [`trip-write-back.ts`](../src/features/invoices/lib/trip-write-back.ts). See [invoices-module.md](invoices-module.md) §3.1.1–3.1.2.
+
+| User action | Handler | Anchor |
+|-------------|---------|--------|
+| Change KM | `applyKmOverride` | Taxameter: gross fixed; else `resolveTripPricePure` |
+| Change brutto | `applyGrossOverride` | Combined gross → back-solve net |
+| Change MwSt | `applyTaxRateOverride` | Gross-anchor vs net-anchor vs KTS (table in invoices-module) |
+| Invoice save | `executeTripWriteBack` | Combined `gross_price` + `tax_rate` → `trips` (included lines only) |
+
 ---
 
 ## `loadPricingContext`

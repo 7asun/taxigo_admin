@@ -187,20 +187,33 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 - **Detail fetch:** `getInvoiceDetail` loads line items with `line_items:invoice_line_items(*)` so PostgREST does not fail if optional columns are not migrated yet; after migration, `(*)` still returns `trip_meta_snapshot`.
 - **Builder preview:** `/dashboard/invoices/new` loads a full `company_profiles` row and passes `companyProfile` into `InvoiceBuilder`. [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx) runs [`build-draft-invoice-detail-for-pdf.ts`](../src/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf.ts) + [`usePDF`](https://react-pdf.org/hooks#usepdf) from **step 3** when line items exist; [`invoice-builder-pdf-panel.tsx`](../src/features/invoices/components/invoice-builder/invoice-builder-pdf-panel.tsx) shows the iframe (desktop right column; mobile Sheet via **Vorschau**).
 
-#### Split-trigger preview (Category A / Category B)
+#### Manual-only preview (Category A / Category B)
 
-Large invoices (120+ trips) previously re-rendered the full PDF on every KM/price blur, causing tab OOM. The builder now splits preview triggers by change type:
+Large invoices (160+ trips) previously auto-rendered the full PDF on layout changes, initial load, and every `draftInvoice` mutation — causing main-thread layout pressure, memory accumulation, and tab crashes during long editing sessions. Preview rendering is now **threshold-gated** via `MANUAL_PREVIEW_TRIP_THRESHOLD` (exported from [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx)):
 
-| Category | What changes | Trigger |
-|---|---|---|
-| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder | **Auto-render** — `scheduleCategoryAUpdate` with **600 ms** debounce (`PREVIEW_CATEGORY_A_DEBOUNCE_MS`); **0 ms** on `columnReorderGeneration` bump |
-| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips | **Manual only** — sets `isDirty`; admin clicks **Aktualisieren** → `requestPreviewUpdate()` (immediate, clears pending A timer) |
+| Trip count | Category A (layout/template) | Category B (trip data) | Initial load |
+|---|---|---|---|
+| **Below threshold** | **Auto-render** — 600 ms debounce; 0 ms on column reorder | **Manual only** — `isDirty` after first render | One auto-render when `draftInvoice` first available |
+| **At/above threshold** | **Manual only** — sets `isDirty` | **Manual only** — sets `isDirty` after first render | Marks `isDirty` — admin clicks **Vorschau laden** or opens mobile sheet |
 
-- **Initial load** (trips fetch / edit hydration): one auto-render when `draftInvoice` first becomes available — not marked dirty.
+| Category | What changes |
+|---|---|
+| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder |
+| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips |
+
+**Explicit render triggers (all trip counts):**
+
+1. **Aktualisieren** / **Vorschau laden** — `requestPreviewUpdate()` (immediate `commitPreviewUpdate`, clears dirty)
+2. **Mobile preview sheet open** — `index.tsx` calls `requestPreviewUpdate()` when the Sheet opens
+3. *(Planned follow-up)* **Server-side PDF generation** — deferred; target for sub-second preview at large trip counts without main-thread layout
+
+- **Category B signature:** lightweight numeric hash (`buildCategoryBSignature`) replaces `JSON.stringify` on 160+ rows — same dirty detection for `position`, `effective_distance_km`, and `billingInclusion.included` without per-keystroke CPU cost.
+- **Preview QR (all trip counts):** preview hook always passes `paymentQrDataUrl: null` — QR generation is never run during editing regardless of invoice size. The preview QR is not scannable; async regeneration on every `draftInvoice` change added unnecessary work. `InvoicePdfCoverBody` shows a placeholder for draft id `__pdf_preview__` in **all** preview sessions; real QR is generated on invoice save / detail view unchanged.
+- **Large-invoice UI note:** when `lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD`, the dirty banner includes a secondary line explaining manual refresh (`isLargeInvoice` prop on `invoice-builder-pdf-panel.tsx`).
 - **`livePreviewActive` false** (trips cleared): resets `isDirty` and preview session refs so a stale “Vorschau veraltet” banner cannot persist.
-- **Continuous iframe:** while `usePDF` sets `loading: true`, `pdf.url` still points at the previous blob; the panel keeps the iframe visible and shows a non-blocking **“Wird aktualisiert…”** badge. Superseded blob URLs are revoked in the panel when `pdf.url` changes **and** `pdf.loading === false` (react-pdf sets both in one `setState` on completion).
-- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — Category B gating is required at scale.
-- **Mobile sheet** uses the same `isDirty` / `requestPreviewUpdate` props as the desktop panel.
+- **Continuous iframe:** while `usePDF` sets `loading: true`, `pdf.url` still points at the previous blob; the panel keeps the iframe visible and shows a non-blocking **“Wird aktualisiert…”** badge. Superseded blob URLs are revoked in the panel when `pdf.url` changes **and** `pdf.loading === false`.
+- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — manual-only gating above the threshold prevents silent background renders at scale.
+- **Mobile sheet** uses the same `isDirty` / `requestPreviewUpdate` props as the desktop panel; opening the sheet triggers one render.
 
 Classification contract is documented in the comment block at the top of `use-invoice-builder-pdf-preview.tsx`.
 
@@ -314,6 +327,37 @@ Automatically determines the German MwSt rate:
 - Trips under 50km receive `7%` (ermäßigter Steuersatz für Personennahverkehr)
 - Trips over 50km receive `19%`
 - Trips with unknown distance default to `7%` (conservative fallback)
+- **`TAX_RATES.ZERO` (0%)** exists for dispatcher override in the invoice builder only (§4 Nr. 17b UStG — licensed Krankenbeförderung). It is **never** returned by `resolveTaxRate` and is **not** auto-assigned for wheelchair trips.
+
+### 3.1.1 Tax rate override in Step 3 (`applyTaxRateOverride`)
+
+Dispatchers can set **0% / 7% / 19%** per line via a Select in [`step-3-line-items.tsx`](../src/features/invoices/components/invoice-builder/step-3-line-items.tsx). Logic lives in [`apply-tax-rate-override.ts`](../src/features/invoices/lib/apply-tax-rate-override.ts).
+
+| Branch | When | Repricing |
+|--------|------|-----------|
+| **Gross-anchor** | `manual_gross_price`, `client_price_tag`, or `isManualOverride` | Agreed brutto fixed; `net = gross / (1 + rate)` (manual override uses `applyGrossOverrideToResolution`) |
+| **Net-anchor** | All other priced sources | `resolveTripPricePure` with new rate; transport net fixed, gross floats |
+| **KTS** | `kts_override` | `tax_rate` only — amounts stay €0 |
+
+- `isManualTaxRateOverride` is set when the chosen rate differs from `resolveTaxRate(effective_distance_km)`; reset calls `resetTaxRateOverride`.
+- `is_wheelchair` is snapshotted on `BuilderLineItem` at build time (create) or batch-fetched from `trips` on edit hydration; the amber ♿ hint is informational only.
+
+### 3.1.2 Trip write-back after save
+
+After create or draft save, [`executeTripWriteBack`](../src/features/invoices/lib/trip-write-back.ts) updates **included** trips only (`billingInclusion.included === true`). Payload uses combined brutto via `lineItemGrossTotalForDisplay`, never `net_price` or `PRICING_RELEVANT_FIELDS`.
+
+**Failure handling (Option A):** failures populate `FailedSyncItem[]` with a **frozen `patch`** captured at save time; [`TripSyncFailureDialog`](../src/features/invoices/components/invoice-builder/trip-sync-failure-dialog.tsx) lets the dispatcher retry (`retryTripWriteBack` replays stored patches only). A future `has_sync_warning` on `invoices` is deferred (TODO in code).
+
+**Storno:** [`createStornorechnung`](../src/features/invoices/lib/storno.ts) copies line-level `tax_rate` onto negated rows; there is **no** trip write-back on Storno.
+
+### 3.1.3 Step 3 collapsed row — visual QA checklist
+
+When changing the two-row layout, verify in the builder (narrow column ~invoice builder width):
+
+- Checkbox spans both rows; row 1 is read-only (position, client, date, Maps link).
+- Row 2: KM column, MwSt Select (disabled when opted out), Brutto input.
+- ♿ visible for wheelchair + non-0% rate; hidden at 0%.
+- All prior badges/controls (Taxameter, KM manuell, MwSt manuell, warnings, Ausgeschlossen) still present.
 
 ### 3.2 Price Resolution (`lib/price-calculator.ts`)
 
@@ -375,6 +419,10 @@ Invoice mutations automatically refresh the "Rechnungsumsatz" stat on the dashbo
 - **`useInvoiceBuilder`**: Invalidates `invoiceKeys.revenueTotal` on `onSuccess` after invoice creation. New invoices start as 'draft' but may immediately be sent, so the cache is refreshed to include the new invoice if it qualifies for revenue calculation.
 
 The revenue total query (`useInvoiceRevenueTotal`) has a 5-minute `staleTime` since invoice revenue does not need real-time precision, but explicit invalidation ensures the stat updates immediately after user actions.
+
+### Bank CSV payment reconciliation (Zahlungsabgleich)
+
+See [`docs/bank-reconciliation-module.md`](bank-reconciliation-module.md). Marks `sent` invoices as `paid` from a Sparkasse/CAMT052 CSV import on `/dashboard/invoices`. Batch writes use `useUpdateInvoiceStatus` with optional `paidAt` (bank Buchungstag); lookup by number via `getInvoicesByNumbers` in `invoices.api.ts`.
 
 ### Invoice PDF (`@react-pdf/renderer`)
 

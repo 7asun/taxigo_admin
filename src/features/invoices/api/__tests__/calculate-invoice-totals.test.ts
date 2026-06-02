@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { calculateInvoiceTotals } from '@/features/invoices/api/invoice-line-items.api';
 import { lineItemGrossTotalForDisplay } from '@/features/invoices/lib/line-item-net-display';
+import { TAX_RATES } from '@/features/invoices/lib/tax-calculator';
 import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
 
 /**
@@ -46,6 +47,7 @@ function manualOverrideLineSkewedNet(
     billing_type_name: null,
     kts_document_applies: false,
     no_invoice_warning: false,
+    is_wheelchair: false,
     price_resolution: {
       gross: manualGrossTotal,
       net: skewedUnitNet,
@@ -111,6 +113,7 @@ describe('calculateInvoiceTotals — manual gross override', () => {
       billing_type_name: null,
       kts_document_applies: false,
       no_invoice_warning: false,
+      is_wheelchair: false,
       price_resolution: {
         gross: null,
         net: transportNet,
@@ -142,5 +145,101 @@ describe('calculateInvoiceTotals — manual gross override', () => {
 
     const wrongTotal = singleLineBruttoViaUnitTimesQtyOnly(item);
     expect(wrongTotal).not.toBe(expectedTotal);
+  });
+});
+
+function simpleNetAnchorLine(
+  taxRate: number,
+  transportNet: number,
+  position: number
+): BuilderLineItem {
+  return {
+    trip_id: `t-${position}`,
+    position,
+    line_date: null,
+    description: 'Line',
+    client_name: null,
+    pickup_address: null,
+    dropoff_address: null,
+    distance_km: 10,
+    effective_distance_km: 10,
+    original_distance_km: 10,
+    manual_km_enabled: false,
+    unit_price: transportNet,
+    quantity: 1,
+    tax_rate: taxRate,
+    billing_variant_code: null,
+    billing_variant_name: null,
+    billing_type_name: null,
+    kts_document_applies: false,
+    no_invoice_warning: false,
+    is_wheelchair: false,
+    price_resolution: {
+      gross: transportNet * (1 + taxRate),
+      net: transportNet,
+      tax_rate: taxRate,
+      strategy_used: 'fixed_price',
+      source: 'payer',
+      unit_price_net: transportNet,
+      quantity: 1,
+      approach_fee_net: 0
+    },
+    kts_override: false,
+    trip_meta: null,
+    price_source: null,
+    warnings: [],
+    billingInclusion: { included: true, reason: '' },
+    approach_fee_net: 0,
+    approach_fee_gross: 0
+  };
+}
+
+describe('calculateInvoiceTotals — zero VAT rate', () => {
+  test('0% and 7% lines → two breakdown buckets', () => {
+    const zero = simpleNetAnchorLine(TAX_RATES.ZERO, 100, 1);
+    const seven = simpleNetAnchorLine(TAX_RATES.REDUCED, 50, 2);
+    const totals = calculateInvoiceTotals([zero, seven]);
+    expect(totals.breakdown).toHaveLength(2);
+    const zeroBucket = totals.breakdown.find((b) => b.rate === TAX_RATES.ZERO);
+    const sevenBucket = totals.breakdown.find(
+      (b) => b.rate === TAX_RATES.REDUCED
+    );
+    expect(zeroBucket?.tax).toBe(0);
+    expect(zeroBucket?.net).toBe(100);
+    expect(sevenBucket?.net).toBe(50);
+    expect(sevenBucket?.tax).toBeCloseTo(3.5, 2);
+  });
+
+  test('0% only → tax 0 and net equals gross total', () => {
+    const line = simpleNetAnchorLine(TAX_RATES.ZERO, 80, 1);
+    const totals = calculateInvoiceTotals([line]);
+    expect(totals.breakdown).toHaveLength(1);
+    expect(totals.breakdown[0].rate).toBe(TAX_RATES.ZERO);
+    expect(totals.breakdown[0].tax).toBe(0);
+    expect(totals.total).toBe(80);
+    expect(totals.subtotal).toBe(80);
+    expect(totals.taxAmount).toBe(0);
+  });
+
+  test('mixed 0% / 7% / 19% → three buckets sum to total', () => {
+    const lines = [
+      simpleNetAnchorLine(TAX_RATES.ZERO, 100, 1),
+      simpleNetAnchorLine(TAX_RATES.REDUCED, 50, 2),
+      simpleNetAnchorLine(TAX_RATES.STANDARD, 40, 3)
+    ];
+    const totals = calculateInvoiceTotals(lines);
+    expect(totals.breakdown).toHaveLength(3);
+    const sumNet = totals.breakdown.reduce((s, b) => s + b.net, 0);
+    const sumTax = totals.breakdown.reduce((s, b) => s + b.tax, 0);
+    expect(Math.round((sumNet + sumTax) * 100) / 100).toBe(totals.total);
+  });
+
+  test('merges float-drifted tax_rate values into one bucket', () => {
+    const line1 = simpleNetAnchorLine(0.07, 100, 1);
+    const line2 = simpleNetAnchorLine(0.07000000000000001, 50, 2);
+    const totals = calculateInvoiceTotals([line1, line2]);
+    expect(totals.breakdown).toHaveLength(1);
+    expect(totals.breakdown[0].rate).toBe(0.07);
+    expect(totals.breakdown[0].net).toBeCloseTo(150, 2);
   });
 });

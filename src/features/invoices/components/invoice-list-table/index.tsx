@@ -51,6 +51,7 @@ import { useInvoices } from '../../hooks/use-invoices';
 import { createInvoiceColumns } from './columns';
 import type { InvoiceListFilter } from '@/query/keys/invoices';
 import type { InvoiceWithPayer } from '../../types/invoice.types';
+import { ZahlungsabgleichDialog } from '@/features/bank-reconciliation/components/zahlungsabgleich-dialog';
 
 function openInvoicePdfPreview(invoiceId: string): void {
   window.open(
@@ -82,6 +83,7 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
   // ── Filter state ─────────────────────────────────────────────────────────
   const [filter, setFilter] = useState<InvoiceListFilter>({});
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [zahlungsabgleichOpen, setZahlungsabgleichOpen] = useState(false);
 
   // Phase 10: deep-links from Abrechnung KPI cards (?status=sent&bucket=open|overdue|this_month).
   useEffect(() => {
@@ -225,6 +227,13 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
           <Button
             type='button'
             variant='outline'
+            onClick={() => setZahlungsabgleichOpen(true)}
+          >
+            Zahlungsabgleich
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
             className='gap-2'
             disabled={!previewInvoice}
             onClick={() => {
@@ -244,6 +253,13 @@ export function InvoiceListTable({ payers }: InvoiceListTableProps) {
           </Button>
         </div>
       </div>
+
+      {zahlungsabgleichOpen && (
+        <ZahlungsabgleichDialog
+          open={zahlungsabgleichOpen}
+          onOpenChange={setZahlungsabgleichOpen}
+        />
+      )}
 
       {/* ── Table ───────────────────────────────────────────────────────── */}
       <div className='rounded-md border'>

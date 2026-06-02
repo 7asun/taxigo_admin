@@ -63,11 +63,13 @@ import { useInvoiceBuilder } from '../../hooks/use-invoice-builder';
 import { Step1Mode } from './step-1-mode';
 import { Step2Params } from './step-2-params';
 import { Step3LineItems } from './step-3-line-items';
+import { TripSyncFailureDialog } from './trip-sync-failure-dialog';
 import { Step4Confirm } from './step-4-confirm';
 import { Step4Vorlage } from './step-4-vorlage';
 import { InvoiceBuilderPdfPanel } from './invoice-builder-pdf-panel';
 import {
   useInvoiceBuilderPdfPreview,
+  MANUAL_PREVIEW_TRIP_THRESHOLD,
   type InvoiceBuilderStep4PdfOverlay
 } from './use-invoice-builder-pdf-preview';
 import type {
@@ -212,6 +214,11 @@ export function InvoiceBuilder({
     resetLineItemOverride,
     applyKmOverride,
     resetKmOverride,
+    applyTaxRateOverride,
+    resetTaxRateOverride,
+    syncFailedItems,
+    clearSyncFailedItems,
+    retrySyncFailedItems,
     createInvoice,
     isCreating,
     catalogRecipientId,
@@ -433,6 +440,8 @@ export function InvoiceBuilder({
       columnProfile: builderColumnProfile,
       columnReorderGeneration: pdfColumnReorderGeneration
     });
+
+  const isLargeInvoice = lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD;
 
   const section2SummaryText = useMemo(
     () =>
@@ -676,6 +685,8 @@ export function InvoiceBuilder({
               onResetOverride={resetLineItemOverride}
               onApplyKmOverride={applyKmOverride}
               onResetKmOverride={resetKmOverride}
+              onApplyTaxRateOverride={applyTaxRateOverride}
+              onResetTaxRateOverride={resetTaxRateOverride}
               onLineItemInclusionChange={handleLineItemInclusionChange}
               onCancelledTripInclusionChange={
                 handleCancelledTripInclusionChange
@@ -833,10 +844,22 @@ export function InvoiceBuilder({
           draftInvoice={draftInvoice}
           pdf={pdf}
           isDirty={isDirty}
+          isLargeInvoice={isLargeInvoice}
           onRequestPreviewUpdate={requestPreviewUpdate}
         />
       </div>
-      <Sheet open={previewSheetOpen} onOpenChange={setPreviewSheetOpen}>
+      <Sheet
+        open={previewSheetOpen}
+        onOpenChange={(open) => {
+          setPreviewSheetOpen(open);
+          if (open) {
+            // why: mobile sheet opening is the admin's explicit signal to view
+            // the PDF. Trigger one render with the latest state so the panel
+            // is not blank on open.
+            requestPreviewUpdate();
+          }
+        }}
+      >
         <SheetContent side='bottom' className='h-[88vh] overflow-hidden'>
           <SheetHeader>
             <SheetTitle>PDF-Vorschau</SheetTitle>
@@ -849,11 +872,18 @@ export function InvoiceBuilder({
               draftInvoice={draftInvoice}
               pdf={pdf}
               isDirty={isDirty}
+              isLargeInvoice={isLargeInvoice}
               onRequestPreviewUpdate={requestPreviewUpdate}
             />
           </div>
         </SheetContent>
       </Sheet>
+      <TripSyncFailureDialog
+        open={syncFailedItems.length > 0}
+        items={syncFailedItems}
+        onRetry={retrySyncFailedItems}
+        onClose={clearSyncFailedItems}
+      />
     </div>
   );
 }

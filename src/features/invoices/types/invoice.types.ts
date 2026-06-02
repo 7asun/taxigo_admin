@@ -338,6 +338,8 @@ export interface TripForInvoice {
   kts_document_applies: boolean;
   /** Keine Rechnung — trip should not be invoiced via TaxiGo */
   no_invoice_required: boolean;
+  /** Rollstuhlfahrt — informational for Step 3 VAT hint only; does not auto-assign 0%. */
+  is_wheelchair: boolean;
   link_type: string | null;
   linked_trip_id: string | null;
   driver?: { name: string | null } | null;
@@ -618,6 +620,20 @@ export interface BuilderLineItem {
    */
   no_invoice_warning: boolean;
   /**
+   * Snapshot of `trips.is_wheelchair` at invoice build time.
+   * Used in Step 3 to display a silent amber wheelchair icon when the
+   * auto-resolved tax rate may not be appropriate (§4 Nr. 17b UStG).
+   * Does not auto-assign 0% — dispatcher always decides.
+   */
+  is_wheelchair: boolean;
+  /**
+   * true when the dispatcher has manually set a tax rate that differs from
+   * `resolveTaxRate(effective_distance_km)`. Drives the amber "MwSt manuell"
+   * badge and × reset button in Step 3. Reset calls `resetTaxRateOverride`
+   * with the auto rate from effective distance.
+   */
+  isManualTaxRateOverride?: boolean;
+  /**
    * Full output of `resolveTripPrice` for this trip (strategy, source, net, gross, notes).
    * Persisted as `invoice_line_items.price_resolution_snapshot` on insert; step-4 tooltips
    * read `strategy_used` and `source` from here.
@@ -725,4 +741,36 @@ export interface TaxBreakdown {
   rate: number; // e.g. 0.07
   net: number; // sum of total_price where tax_rate === rate
   tax: number; // net × rate
+}
+
+/**
+ * Payload written to `trips` after invoice save — must not include `net_price`
+ * (generated column) or `PRICING_RELEVANT_FIELDS` (would re-trigger pricing engine).
+ */
+export interface TripWriteBackPatch {
+  gross_price: number | null;
+  tax_rate: number;
+  base_net_price: number | null;
+  approach_fee_net: number;
+  manual_gross_price?: number;
+  manual_distance_km?: number;
+}
+
+/**
+ * One trip that failed post-save write-back — dialog display + frozen patch for retry.
+ */
+export interface FailedSyncItem {
+  trip_id: string;
+  position: number;
+  client_name: string | null;
+  line_date: string | null;
+  /** Display only — from `patch.gross_price` at failure time. */
+  gross_price: number | null;
+  /** Display only — from `patch.tax_rate` at failure time. */
+  tax_rate: number;
+  /**
+   * why: captured at invoice save time — retry must not re-read builder state
+   * (dispatcher may edit lines after save while the dialog is open).
+   */
+  patch: TripWriteBackPatch;
 }

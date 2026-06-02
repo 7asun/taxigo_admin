@@ -302,6 +302,7 @@ export async function fetchTripsForBuilder(
       dropoff_address,
       kts_document_applies,
       no_invoice_required,
+      is_wheelchair,
       link_type,
       linked_trip_id,
       client_name,
@@ -350,6 +351,26 @@ export async function fetchTripsForBuilder(
     listClientKmOverridesForClientIds(clientIds)
   ]);
   return { trips, clientPriceTags, clientKmOverrides };
+}
+
+/**
+ * Batch-fetch `trips.is_wheelchair` for edit-mode hydration (not on invoice_line_items).
+ */
+export async function fetchTripWheelchairFlags(
+  tripIds: string[]
+): Promise<Record<string, boolean>> {
+  if (tripIds.length === 0) return {};
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('trips')
+    .select('id, is_wheelchair')
+    .in('id', tripIds);
+  if (error) throw toQueryError(error);
+  const out: Record<string, boolean> = {};
+  for (const row of data ?? []) {
+    out[row.id] = row.is_wheelchair === true;
+  }
+  return out;
 }
 
 /**
@@ -402,6 +423,7 @@ export async function fetchCancelledTripsForBuilder(
       billing_variant_id,
       kts_document_applies,
       no_invoice_required,
+      is_wheelchair,
       link_type,
       linked_trip_id,
       driver:accounts!trips_driver_id_fkey(name),
@@ -672,6 +694,9 @@ export function buildLineItemsFromTrips(
       billing_type_name: trip.billing_variant?.billing_type?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
       no_invoice_warning: trip.no_invoice_required === true,
+      // why: snapshot at build time — invoice_line_items has no wheelchair column;
+      // edit mode batch-fetches live trips.is_wheelchair on hydration instead.
+      is_wheelchair: trip.is_wheelchair ?? false,
       price_resolution: priceResolution,
       resolved_rule: rule ?? null,
       kts_override,
@@ -783,6 +808,9 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
   for (const item of items) {
     const pr = item.price_resolution;
     const rate = item.tax_rate;
+    // Normalize before keying — prevents float drift producing duplicate buckets
+    // e.g. 0.07000000000000001 must collapse to the same bucket as 0.07
+    const normalizedRate = Math.round(item.tax_rate * 100) / 100;
     const approach = item.approach_fee_net ?? 0;
 
     if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined) {
@@ -794,10 +822,10 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineNet = gLine / (1 + rate);
       priceTagNetTotal += lineNet;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineNet;
+      byRateMerged[normalizedRate] += lineNet;
       continue;
     }
 
@@ -813,10 +841,10 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineNet = (g * qty) / (1 + rate) + approach;
       priceTagNetTotal += lineNet;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineNet;
+      byRateMerged[normalizedRate] += lineNet;
     } else {
       // Net-anchor path (all strategies except client_price_tag):
       // Accumulate net line totals by tax rate. Tax is computed ONCE per rate bucket
@@ -833,15 +861,15 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineTotal = baseNet + approach;
       nonTagSubtotal += lineTotal;
 
-      if (byRateNonTag[rate] === undefined) {
-        byRateNonTag[rate] = 0;
+      if (byRateNonTag[normalizedRate] === undefined) {
+        byRateNonTag[normalizedRate] = 0;
       }
-      byRateNonTag[rate] += lineTotal;
+      byRateNonTag[normalizedRate] += lineTotal;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineTotal;
+      byRateMerged[normalizedRate] += lineTotal;
     }
   }
 

@@ -385,6 +385,31 @@ export function InvoicePdfCoverBody({
             <View style={styles.paymentQrCol} wrap={false}>
               <Image src={paymentQrDataUrl} style={styles.paymentQr} />
             </View>
+          ) : invoice.id === '__pdf_preview__' ? (
+            // why: builder preview passes null for paymentQrDataUrl — QR is not
+            // scannable in draft preview; real QR is generated on invoice save.
+            <View style={styles.paymentQrCol} wrap={false}>
+              <View
+                style={[
+                  styles.paymentQr,
+                  {
+                    backgroundColor: PDF_COLORS.lightGray,
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: PDF_FONT_SIZES.xs,
+                    color: PDF_COLORS.muted,
+                    textAlign: 'center'
+                  }}
+                >
+                  QR-Code wird beim Speichern generiert
+                </Text>
+              </View>
+            </View>
           ) : null}
         </View>
       </View>
