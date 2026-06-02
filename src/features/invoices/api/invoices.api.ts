@@ -26,6 +26,7 @@ import {
   rechnungsempfaengerRowToSnapshot
 } from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
 import { parseClientReferenceFieldsFromDb } from '@/features/clients/lib/client-reference-fields.schema';
+import type { MatchedInvoice } from '@/features/bank-reconciliation/types/reconciliation.types';
 import type { Json } from '@/types/database.types';
 import type {
   InvoiceRow,
@@ -419,10 +420,12 @@ export type InvoiceStatusTransition = 'sent' | 'paid' | 'cancelled';
  *
  * @param id     - Invoice UUID.
  * @param status - The new status to transition to.
+ * @param paidAt - Optional ISO timestamp for paid_at (bank Buchungstag); defaults to now().
  */
 export async function updateInvoiceStatus(
   id: string,
-  status: InvoiceStatusTransition
+  status: InvoiceStatusTransition,
+  paidAt?: string
 ): Promise<InvoiceRow> {
   const supabase = createClient();
   const now = new Date().toISOString();
@@ -432,7 +435,7 @@ export async function updateInvoiceStatus(
     status === 'sent'
       ? { sent_at: now }
       : status === 'paid'
-        ? { paid_at: now }
+        ? { paid_at: paidAt ?? now } // why: bank import records Buchungstag, not click time; ?? now keeps existing callers unchanged
         : { cancelled_at: now };
 
   const { data, error } = await supabase
@@ -467,4 +470,35 @@ export async function saveInvoiceEmailDraft(
     .eq('id', id);
 
   if (error) throw toQueryError(error);
+}
+
+// ─── Bank reconciliation lookup ────────────────────────────────────────────────
+
+/**
+ * Loads invoices by human-readable number (all statuses) for Zahlungsabgleich lookup.
+ * Why: Supabase access stays in the invoices API layer, not inside reconciliation hooks.
+ */
+export async function getInvoicesByNumbers(
+  numbers: string[]
+): Promise<MatchedInvoice[]> {
+  if (numbers.length === 0) return [];
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('id, invoice_number, total, status, payer:payers(name)')
+    .in('invoice_number', numbers);
+
+  if (error) throw toQueryError(error);
+
+  return (data ?? []).map((row) => {
+    const payer = row.payer as { name?: string } | null;
+    return {
+      id: row.id as string,
+      invoiceNumber: row.invoice_number as string,
+      total: Number(row.total),
+      status: row.status as string,
+      payerName: payer?.name?.trim() ?? '—'
+    };
+  });
 }

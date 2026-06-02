@@ -407,6 +407,10 @@ Invoice mutations automatically refresh the "Rechnungsumsatz" stat on the dashbo
 
 The revenue total query (`useInvoiceRevenueTotal`) has a 5-minute `staleTime` since invoice revenue does not need real-time precision, but explicit invalidation ensures the stat updates immediately after user actions.
 
+### Bank CSV payment reconciliation (Zahlungsabgleich)
+
+See [`docs/bank-reconciliation-module.md`](bank-reconciliation-module.md). Marks `sent` invoices as `paid` from a Sparkasse/CAMT052 CSV import on `/dashboard/invoices`. Batch writes use `useUpdateInvoiceStatus` with optional `paidAt` (bank Buchungstag); lookup by number via `getInvoicesByNumbers` in `invoices.api.ts`.
+
 ### Invoice PDF (`@react-pdf/renderer`)
 
 PDFs are generated in the browser with **`InvoicePdfDocument`** ([`src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx`](../src/features/invoices/components/invoice-pdf/InvoicePdfDocument.tsx)):

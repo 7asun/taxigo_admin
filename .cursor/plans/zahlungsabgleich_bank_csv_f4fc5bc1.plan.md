@@ -4,34 +4,34 @@ overview: "Add a Zahlungsabgleich dialog to the invoice list: parse Sparkasse/CA
 todos:
   - id: step1-api-hook
     content: "Step 1: Extend updateInvoiceStatus(paidAt?) + refactor useUpdateInvoiceStatus in use-invoice.ts (optional invoiceId, suppressToast for batch); bun run build"
-    status: pending
+    status: completed
   - id: step2-types
     content: "Step 2: Create reconciliation.types.ts with AMOUNT_TOLERANCE + shared types; bun run build"
-    status: pending
+    status: completed
   - id: step3-parse
     content: "Step 3: Create parse-bank-csv.ts (Papa semicolon, regex, date/betrag parsing); bun run build"
-    status: pending
+    status: completed
   - id: step4-match
     content: "Step 4: Create match-invoices.ts pure bucketing with invoiceLookup for already_paid; bun run build"
-    status: pending
+    status: completed
   - id: step5-hook
     content: "Step 5: Create use-zahlungsabgleich.ts — parse/match/fetch + batch mutateAsync via useUpdateInvoiceStatus(); bun run build"
-    status: pending
+    status: completed
   - id: step6-warning-ui
     content: "Step 6: Create warning-rows-dialog.tsx (read-only); bun run build"
-    status: pending
+    status: completed
   - id: step7-review-ui
     content: "Step 7: Create review-table.tsx with checkboxes + confirm; bun run build"
-    status: pending
+    status: completed
   - id: step8-dialog
     content: "Step 8: Create zahlungsabgleich-dialog.tsx shell + lazy mount; bun run build"
-    status: pending
+    status: completed
   - id: step9-wire
     content: "Step 9: Add Zahlungsabgleich button to invoice-list-table/index.tsx; bun run build"
-    status: pending
+    status: completed
   - id: step10-docs
     content: "Step 10: docs/bank-reconciliation-module.md + invoices-module.md cross-link + inline why-comments; bun run build"
-    status: pending
+    status: completed
 isProject: false
 ---
 

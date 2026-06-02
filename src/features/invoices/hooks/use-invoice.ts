@@ -34,6 +34,44 @@ import type {
   InvoiceWithPayer
 } from '../types/invoice.types';
 
+export type UpdateInvoiceStatusInput =
+  | InvoiceStatusTransition
+  | {
+      status: InvoiceStatusTransition;
+      paidAt?: string;
+      invoiceId?: string;
+      suppressToast?: boolean;
+    };
+
+type ResolvedUpdateVars = {
+  id: string;
+  status: InvoiceStatusTransition;
+  paidAt?: string;
+  suppressToast?: boolean;
+};
+
+function resolveUpdateInvoiceStatusVars(
+  boundInvoiceId: string | undefined,
+  input: UpdateInvoiceStatusInput
+): ResolvedUpdateVars {
+  if (typeof input === 'string') {
+    if (!boundInvoiceId) {
+      throw new Error('invoiceId ist erforderlich');
+    }
+    return { id: boundInvoiceId, status: input };
+  }
+  const id = input.invoiceId ?? boundInvoiceId;
+  if (!id) {
+    throw new Error('invoiceId ist erforderlich');
+  }
+  return {
+    id,
+    status: input.status,
+    paidAt: input.paidAt,
+    suppressToast: input.suppressToast
+  };
+}
+
 /**
  * Fetches the full invoice detail (header + line items + payer + company profile).
  * After `getInvoiceDetail`, attaches **`column_profile`** via {@link enrichInvoiceDetailWithColumnProfile}
@@ -83,9 +121,9 @@ export function useInvoiceDetail(id: string | undefined) {
  *   - Invalidates invoiceKeys.all (refreshes list table)
  *   - Invalidates invoiceKeys.full(id) (refreshes detail cache)
  *
- * @param invoiceId - The invoice to update.
+ * @param invoiceId - Optional bound invoice (single-invoice UI). Omit for batch Zahlungsabgleich.
  */
-export function useUpdateInvoiceStatus(invoiceId: string) {
+export function useUpdateInvoiceStatus(invoiceId?: string) {
   const queryClient = useQueryClient();
 
   const listPredicate = {
@@ -94,25 +132,29 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
   };
 
   return useMutation({
-    mutationFn: (status: InvoiceStatusTransition) =>
-      updateInvoiceStatus(invoiceId, status),
+    mutationFn: (input: UpdateInvoiceStatusInput) => {
+      const { id, status, paidAt } = resolveUpdateInvoiceStatusVars(
+        invoiceId,
+        input
+      );
+      return updateInvoiceStatus(id, status, paidAt);
+    },
 
-    onMutate: async (status) => {
+    onMutate: async (input) => {
+      const { id, status } = resolveUpdateInvoiceStatusVars(invoiceId, input);
       await queryClient.cancelQueries({ queryKey: ['invoices'] });
       const previousLists =
         queryClient.getQueriesData<InvoiceWithPayer[]>(listPredicate);
       queryClient.setQueriesData<InvoiceWithPayer[]>(listPredicate, (old) => {
         if (!old) return old;
         return old.map((inv) =>
-          inv.id === invoiceId
-            ? { ...inv, status: status as InvoiceStatus }
-            : inv
+          inv.id === id ? { ...inv, status: status as InvoiceStatus } : inv
         );
       });
       return { previousLists };
     },
 
-    onError: (err: unknown, _status, context) => {
+    onError: (err: unknown, _input, context) => {
       const previousLists = (
         context as {
           previousLists?: [
@@ -128,7 +170,14 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
       toast.error('Status konnte nicht aktualisiert werden: ' + message);
     },
 
-    onSuccess: (updatedInvoice) => {
+    onSuccess: (updatedInvoice, input) => {
+      const { suppressToast } = resolveUpdateInvoiceStatusVars(
+        invoiceId,
+        input
+      );
+      // why: batch Zahlungsabgleich shows one summary on the done screen, not N toasts
+      if (suppressToast) return;
+
       const labels: Record<InvoiceStatusTransition, string> = {
         sent: 'als versendet markiert',
         paid: 'als bezahlt markiert',
@@ -139,10 +188,11 @@ export function useUpdateInvoiceStatus(invoiceId: string) {
       );
     },
 
-    onSettled: async () => {
+    onSettled: async (_data, _err, input) => {
+      const { id } = resolveUpdateInvoiceStatusVars(invoiceId, input);
       await queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
+      void queryClient.invalidateQueries({ queryKey: invoiceKeys.full(id) });
       // Invalidate revenue total to refresh "Rechnungsumsatz" stat on dashboard
-      // since status changes (draft → sent → paid) affect the revenue calculation
       void queryClient.invalidateQueries({
         queryKey: invoiceKeys.revenueTotal
       });
