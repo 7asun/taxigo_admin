@@ -233,4 +233,13 @@ describe('calculateInvoiceTotals — zero VAT rate', () => {
     const sumTax = totals.breakdown.reduce((s, b) => s + b.tax, 0);
     expect(Math.round((sumNet + sumTax) * 100) / 100).toBe(totals.total);
   });
+
+  test('merges float-drifted tax_rate values into one bucket', () => {
+    const line1 = simpleNetAnchorLine(0.07, 100, 1);
+    const line2 = simpleNetAnchorLine(0.07000000000000001, 50, 2);
+    const totals = calculateInvoiceTotals([line1, line2]);
+    expect(totals.breakdown).toHaveLength(1);
+    expect(totals.breakdown[0].rate).toBe(0.07);
+    expect(totals.breakdown[0].net).toBeCloseTo(150, 2);
+  });
 });

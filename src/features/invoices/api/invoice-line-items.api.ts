@@ -808,6 +808,9 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
   for (const item of items) {
     const pr = item.price_resolution;
     const rate = item.tax_rate;
+    // Normalize before keying — prevents float drift producing duplicate buckets
+    // e.g. 0.07000000000000001 must collapse to the same bucket as 0.07
+    const normalizedRate = Math.round(item.tax_rate * 100) / 100;
     const approach = item.approach_fee_net ?? 0;
 
     if (item.manualGrossTotal !== null && item.manualGrossTotal !== undefined) {
@@ -819,10 +822,10 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineNet = gLine / (1 + rate);
       priceTagNetTotal += lineNet;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineNet;
+      byRateMerged[normalizedRate] += lineNet;
       continue;
     }
 
@@ -838,10 +841,10 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineNet = (g * qty) / (1 + rate) + approach;
       priceTagNetTotal += lineNet;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineNet;
+      byRateMerged[normalizedRate] += lineNet;
     } else {
       // Net-anchor path (all strategies except client_price_tag):
       // Accumulate net line totals by tax rate. Tax is computed ONCE per rate bucket
@@ -858,15 +861,15 @@ export function calculateInvoiceTotals(items: TotalsLineShape[]): {
       const lineTotal = baseNet + approach;
       nonTagSubtotal += lineTotal;
 
-      if (byRateNonTag[rate] === undefined) {
-        byRateNonTag[rate] = 0;
+      if (byRateNonTag[normalizedRate] === undefined) {
+        byRateNonTag[normalizedRate] = 0;
       }
-      byRateNonTag[rate] += lineTotal;
+      byRateNonTag[normalizedRate] += lineTotal;
 
-      if (byRateMerged[rate] === undefined) {
-        byRateMerged[rate] = 0;
+      if (byRateMerged[normalizedRate] === undefined) {
+        byRateMerged[normalizedRate] = 0;
       }
-      byRateMerged[rate] += lineTotal;
+      byRateMerged[normalizedRate] += lineTotal;
     }
   }
 
