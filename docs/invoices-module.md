@@ -189,25 +189,30 @@ Calculates the final Netto and Brutto summaries using a tax breakdown (separatin
 
 #### Manual-only preview (Category A / Category B)
 
-Large invoices (160+ trips) previously auto-rendered the full PDF on layout changes, initial load, and every `draftInvoice` mutation — causing main-thread layout pressure, memory accumulation, and tab crashes during long editing sessions. **All PDF renders are now admin-triggered only.**
+Large invoices (160+ trips) previously auto-rendered the full PDF on layout changes, initial load, and every `draftInvoice` mutation — causing main-thread layout pressure, memory accumulation, and tab crashes during long editing sessions. Preview rendering is now **threshold-gated** via `MANUAL_PREVIEW_TRIP_THRESHOLD` (exported from [`use-invoice-builder-pdf-preview.tsx`](../src/features/invoices/components/invoice-builder/use-invoice-builder-pdf-preview.tsx)):
 
-| Category | What changes | Trigger |
-|---|---|---|
-| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder | **Manual only** — sets `isDirty`; admin clicks **Aktualisieren** / **Vorschau laden** → `requestPreviewUpdate()` |
-| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips | **Manual only** — sets `isDirty` after first completed render; same **Aktualisieren** path |
+| Trip count | Category A (layout/template) | Category B (trip data) | Initial load |
+|---|---|---|---|
+| **Below threshold** | **Auto-render** — 600 ms debounce; 0 ms on column reorder | **Manual only** — `isDirty` after first render | One auto-render when `draftInvoice` first available |
+| **At/above threshold** | **Manual only** — sets `isDirty` | **Manual only** — sets `isDirty` after first render | Marks `isDirty` — admin clicks **Vorschau laden** or opens mobile sheet |
 
-**Explicit render triggers (today):**
+| Category | What changes |
+|---|---|
+| **A — layout/template** | `columnProfile`, intro/outro text, `step2Values`, company profile, recipient, payment days, column reorder |
+| **B — trip data** | `lineItems`, billed/passive cancelled trips, excluded trips |
+
+**Explicit render triggers (all trip counts):**
 
 1. **Aktualisieren** / **Vorschau laden** — `requestPreviewUpdate()` (immediate `commitPreviewUpdate`, clears dirty)
 2. **Mobile preview sheet open** — `index.tsx` calls `requestPreviewUpdate()` when the Sheet opens
 3. *(Planned follow-up)* **Server-side PDF generation** — deferred; target for sub-second preview at large trip counts without main-thread layout
 
-- **Initial load** (trips fetch / edit hydration): marks `isDirty` when `draftInvoice` first becomes available — **no auto-render**. Admin must click **Vorschau laden** or open the mobile sheet.
 - **Category B signature:** lightweight numeric hash (`buildCategoryBSignature`) replaces `JSON.stringify` on 160+ rows — same dirty detection for `position`, `effective_distance_km`, and `billingInclusion.included` without per-keystroke CPU cost.
-- **Preview QR:** preview hook always passes `paymentQrDataUrl: null` (no async QR generation during editing). `InvoicePdfCoverBody` shows a placeholder for draft id `__pdf_preview__`; real QR is generated on invoice save / detail view unchanged.
+- **Preview QR (all trip counts):** preview hook always passes `paymentQrDataUrl: null` — QR generation is never run during editing regardless of invoice size. The preview QR is not scannable; async regeneration on every `draftInvoice` change added unnecessary work. `InvoicePdfCoverBody` shows a placeholder for draft id `__pdf_preview__` in **all** preview sessions; real QR is generated on invoice save / detail view unchanged.
+- **Large-invoice UI note:** when `lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD`, the dirty banner includes a secondary line explaining manual refresh (`isLargeInvoice` prop on `invoice-builder-pdf-panel.tsx`).
 - **`livePreviewActive` false** (trips cleared): resets `isDirty` and preview session refs so a stale “Vorschau veraltet” banner cannot persist.
 - **Continuous iframe:** while `usePDF` sets `loading: true`, `pdf.url` still points at the previous blob; the panel keeps the iframe visible and shows a non-blocking **“Wird aktualisiert…”** badge. Superseded blob URLs are revoked in the panel when `pdf.url` changes **and** `pdf.loading === false`.
-- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — manual-only gating prevents silent background renders at scale.
+- **Main thread:** browser `usePDF` runs layout on the main thread (not a Web Worker) — manual-only gating above the threshold prevents silent background renders at scale.
 - **Mobile sheet** uses the same `isDirty` / `requestPreviewUpdate` props as the desktop panel; opening the sheet triggers one render.
 
 Classification contract is documented in the comment block at the top of `use-invoice-builder-pdf-preview.tsx`.

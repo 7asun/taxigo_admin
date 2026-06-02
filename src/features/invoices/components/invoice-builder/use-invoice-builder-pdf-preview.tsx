@@ -10,12 +10,14 @@
  *
  * Related: {@link build-draft-invoice-detail-for-pdf.ts}, {@link InvoicePdfDocument.tsx}.
  *
- * ── Preview trigger classification (manual-only contract) ─────────────────
+ * ── Preview trigger classification (threshold-gated contract) ───────────────
  *
- * Category A — layout/template: marks isDirty; no auto-render.
- * Category B — trip data: marks isDirty after first completed render; no auto-render.
+ * Below MANUAL_PREVIEW_TRIP_THRESHOLD: Category A auto-renders (600 ms debounce;
+ * 0 ms on column reorder); initial load auto-renders once.
+ * At/above threshold: Category A and initial load mark isDirty only — manual refresh.
+ * Category B — trip data: always manual (isDirty) after first completed render.
  *
- * Explicit render triggers only:
+ * Explicit render triggers (all trip counts):
  *   - Admin clicks Aktualisieren / Vorschau laden → requestPreviewUpdate()
  *   - Mobile preview sheet opens (wired in index.tsx)
  *
@@ -27,7 +29,7 @@
  *   B: includedLineItemsForDraft, billedCancelledTrips
  *
  * Hook params / related:
- *   B: lineItems (source for includedLineItemsForDraft)
+ *   B: lineItems (source for includedLineItemsForDraft; also drives isLargeInvoice)
  *   A: logo URL effect (companyProfile?.logo_path / logo_url)
  *   Preview QR: always null — placeholder in InvoicePdfCoverBody for draft id
  * ─────────────────────────────────────────────────────────────────────────────
@@ -52,6 +54,16 @@ import type {
   InvoiceDetail
 } from '@/features/invoices/types/invoice.types';
 import type { PdfColumnProfile } from '@/features/invoices/types/pdf-vorlage.types';
+
+/** why: main-thread PDF layout becomes a crash risk above this trip count over
+ *  long sessions (~90 min). Below the threshold the live preview UX is preserved.
+ *  Above it, all renders are manual to protect browser memory. */
+export const MANUAL_PREVIEW_TRIP_THRESHOLD = 90;
+
+/** why: coalesce rapid Category A (layout) edits without flooding react-pdf layout. */
+const PREVIEW_CATEGORY_A_DEBOUNCE_MS = 600;
+/** why: column drag-reorder must feel instant — same as today. */
+const PREVIEW_COLUMN_REORDER_DELAY_MS = 0;
 
 interface PreviewPayload {
   draftInvoice: InvoiceDetail | null;
@@ -190,8 +202,11 @@ export function useInvoiceBuilderPdfPreview(
   const { data: textBlocks } = useAllInvoiceTextBlocks();
   const { data: empfaengerOptions } = useRechnungsempfaengerOptions();
   const [pdf, updatePdf] = usePDF();
+  const lastColumnReorderGen = useRef(0);
   const hasCompletedFirstRenderRef = useRef(false);
+  const initialRenderScheduledRef = useRef(false);
   const prevCategoryBSignatureRef = useRef<string | null>(null);
+  const categoryADebounceTimerRef = useRef<number | null>(null);
   const previewPayloadRef = useRef<PreviewPayload>({
     draftInvoice: null,
     introText: null,
@@ -204,6 +219,8 @@ export function useInvoiceBuilderPdfPreview(
   const [categoryBDirty, setCategoryBDirty] = useState(false);
   /** Same as invoice detail PDF preview: @react-pdf fetches the logo; private bucket needs a signed URL. */
   const [pdfLogoUrl, setPdfLogoUrl] = useState<string | null>(null);
+
+  const isLargeInvoice = lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD;
 
   // Reacts to company logo path/url: resolves a short-lived signed URL for the PDF renderer.
   useEffect(() => {
@@ -321,10 +338,9 @@ export function useInvoiceBuilderPdfPreview(
     draftInvoice,
     introText,
     outroText,
-    // why: QR generation ran on every draftInvoice change (every trip edit),
-    // adding async work throughout the session. The QR is not scannable in a
-    // preview — it is only meaningful in the final saved PDF. Pass null here;
-    // InvoicePdfCoverBody renders a placeholder instead.
+    // why: QR generation is deferred to invoice save for all preview sessions
+    // regardless of trip count — the preview QR is never scannable and generation
+    // on every draftInvoice change adds unnecessary async work.
     paymentQrDataUrl: null,
     columnProfile,
     passiveCancelledTrips,
@@ -334,6 +350,9 @@ export function useInvoiceBuilderPdfPreview(
   const commitPreviewUpdate = useCallback(() => {
     const p = previewPayloadRef.current;
     if (!p.draftInvoice) return;
+    // why: QR generation is deferred to invoice save for all preview sessions
+    // regardless of trip count — the preview QR is never scannable and generation
+    // on every draftInvoice change adds unnecessary async work.
     updatePdf(
       <InvoicePdfDocument
         invoice={p.draftInvoice}
@@ -351,6 +370,19 @@ export function useInvoiceBuilderPdfPreview(
     );
   }, [updatePdf]);
 
+  const scheduleCategoryAUpdate = useCallback(
+    (delayMs: number) => {
+      if (categoryADebounceTimerRef.current !== null) {
+        window.clearTimeout(categoryADebounceTimerRef.current);
+      }
+      categoryADebounceTimerRef.current = window.setTimeout(() => {
+        categoryADebounceTimerRef.current = null;
+        commitPreviewUpdate();
+      }, delayMs);
+    },
+    [commitPreviewUpdate]
+  );
+
   // why: first completed blob URL marks the session as having shown a preview —
   // Category B dirty tracking only starts after this point.
   useEffect(() => {
@@ -365,24 +397,69 @@ export function useInvoiceBuilderPdfPreview(
     if (livePreviewActive) return;
     setCategoryBDirty(false);
     hasCompletedFirstRenderRef.current = false;
+    initialRenderScheduledRef.current = false;
     prevCategoryBSignatureRef.current = null;
+    if (categoryADebounceTimerRef.current !== null) {
+      window.clearTimeout(categoryADebounceTimerRef.current);
+      categoryADebounceTimerRef.current = null;
+    }
   }, [livePreviewActive]);
 
-  // why: first draft available — mark dirty instead of auto-rendering. Admin clicks
-  // Aktualisieren (or opens mobile sheet) for their first render; prevents silent
-  // background layout at session start on large invoices.
+  // why: first preview when trips load — auto-render below threshold; mark dirty
+  // above threshold so admin must click Aktualisieren or open mobile sheet.
   useEffect(() => {
     if (!draftInvoice) return;
     if (hasCompletedFirstRenderRef.current) return;
-    setCategoryBDirty(true);
-  }, [draftInvoice]);
+    if (initialRenderScheduledRef.current) return;
+    if (isLargeInvoice) {
+      // why: first render deferred to manual above threshold
+      setCategoryBDirty(true);
+      return;
+    }
+    initialRenderScheduledRef.current = true;
+    scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
+  }, [draftInvoice, isLargeInvoice, scheduleCategoryAUpdate]);
 
-  // why: Category A auto-render was removed — layout/template changes previously
-  // triggered debounced react-pdf layout on every edit, accumulating memory and
-  // causing tab crashes at 160+ trips. Now they mark dirty and wait for explicit
-  // admin refresh (Aktualisieren or mobile sheet open).
+  // why: Category A only — must not depend on draftInvoice (changes on B edits);
+  // payload ref stays current at render time. Gated above trip threshold — large
+  // invoices use the dirty-only effect below instead of silent background layout.
   useEffect(() => {
     if (!livePreviewActive) return;
+    if (!hasCompletedFirstRenderRef.current) return;
+    if (isLargeInvoice) return;
+
+    const reorderBumped =
+      columnReorderGeneration !== lastColumnReorderGen.current;
+    if (reorderBumped) {
+      lastColumnReorderGen.current = columnReorderGeneration;
+      scheduleCategoryAUpdate(PREVIEW_COLUMN_REORDER_DELAY_MS);
+      return;
+    }
+
+    scheduleCategoryAUpdate(PREVIEW_CATEGORY_A_DEBOUNCE_MS);
+  }, [
+    livePreviewActive,
+    isLargeInvoice,
+    introText,
+    outroText,
+    columnProfile,
+    columnReorderGeneration,
+    companyProfileForDraft,
+    step2Values,
+    paymentDueDays,
+    recipientRow,
+    payers,
+    clients,
+    companyId,
+    scheduleCategoryAUpdate
+  ]);
+
+  // why: above MANUAL_PREVIEW_TRIP_THRESHOLD, Category A changes mark dirty
+  // instead of auto-rendering — prevents silent background layout at scale.
+  // Below the threshold auto-render handles Category A; this effect is skipped.
+  useEffect(() => {
+    if (!livePreviewActive) return;
+    if (!isLargeInvoice) return;
     setCategoryBDirty(true);
   }, [
     introText,
@@ -396,7 +473,8 @@ export function useInvoiceBuilderPdfPreview(
     payers,
     clients,
     companyId,
-    livePreviewActive
+    livePreviewActive,
+    isLargeInvoice
   ]);
 
   // why: trip data edits must not auto-render — flag dirty for manual refresh only.
@@ -425,8 +503,23 @@ export function useInvoiceBuilderPdfPreview(
 
   const requestPreviewUpdate = useCallback(() => {
     setCategoryBDirty(false);
+    // why: if a layout change was queued and the user clicks Aktualisieren immediately,
+    // clearing the timer prevents a double render — commitPreviewUpdate already uses
+    // the latest draftInvoice including the layout change.
+    if (categoryADebounceTimerRef.current !== null) {
+      window.clearTimeout(categoryADebounceTimerRef.current);
+      categoryADebounceTimerRef.current = null;
+    }
     commitPreviewUpdate();
   }, [commitPreviewUpdate]);
+
+  useEffect(() => {
+    return () => {
+      if (categoryADebounceTimerRef.current !== null) {
+        window.clearTimeout(categoryADebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     pdf,

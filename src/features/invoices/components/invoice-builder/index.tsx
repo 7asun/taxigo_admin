@@ -69,6 +69,7 @@ import { Step4Vorlage } from './step-4-vorlage';
 import { InvoiceBuilderPdfPanel } from './invoice-builder-pdf-panel';
 import {
   useInvoiceBuilderPdfPreview,
+  MANUAL_PREVIEW_TRIP_THRESHOLD,
   type InvoiceBuilderStep4PdfOverlay
 } from './use-invoice-builder-pdf-preview';
 import type {
@@ -439,6 +440,8 @@ export function InvoiceBuilder({
       columnProfile: builderColumnProfile,
       columnReorderGeneration: pdfColumnReorderGeneration
     });
+
+  const isLargeInvoice = lineItems.length >= MANUAL_PREVIEW_TRIP_THRESHOLD;
 
   const section2SummaryText = useMemo(
     () =>
@@ -841,6 +844,7 @@ export function InvoiceBuilder({
           draftInvoice={draftInvoice}
           pdf={pdf}
           isDirty={isDirty}
+          isLargeInvoice={isLargeInvoice}
           onRequestPreviewUpdate={requestPreviewUpdate}
         />
       </div>
@@ -868,6 +872,7 @@ export function InvoiceBuilder({
               draftInvoice={draftInvoice}
               pdf={pdf}
               isDirty={isDirty}
+              isLargeInvoice={isLargeInvoice}
               onRequestPreviewUpdate={requestPreviewUpdate}
             />
           </div>
