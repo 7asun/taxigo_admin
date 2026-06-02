@@ -314,6 +314,37 @@ Automatically determines the German MwSt rate:
 - Trips under 50km receive `7%` (ermäßigter Steuersatz für Personennahverkehr)
 - Trips over 50km receive `19%`
 - Trips with unknown distance default to `7%` (conservative fallback)
+- **`TAX_RATES.ZERO` (0%)** exists for dispatcher override in the invoice builder only (§4 Nr. 17b UStG — licensed Krankenbeförderung). It is **never** returned by `resolveTaxRate` and is **not** auto-assigned for wheelchair trips.
+
+### 3.1.1 Tax rate override in Step 3 (`applyTaxRateOverride`)
+
+Dispatchers can set **0% / 7% / 19%** per line via a Select in [`step-3-line-items.tsx`](../src/features/invoices/components/invoice-builder/step-3-line-items.tsx). Logic lives in [`apply-tax-rate-override.ts`](../src/features/invoices/lib/apply-tax-rate-override.ts).
+
+| Branch | When | Repricing |
+|--------|------|-----------|
+| **Gross-anchor** | `manual_gross_price`, `client_price_tag`, or `isManualOverride` | Agreed brutto fixed; `net = gross / (1 + rate)` (manual override uses `applyGrossOverrideToResolution`) |
+| **Net-anchor** | All other priced sources | `resolveTripPricePure` with new rate; transport net fixed, gross floats |
+| **KTS** | `kts_override` | `tax_rate` only — amounts stay €0 |
+
+- `isManualTaxRateOverride` is set when the chosen rate differs from `resolveTaxRate(effective_distance_km)`; reset calls `resetTaxRateOverride`.
+- `is_wheelchair` is snapshotted on `BuilderLineItem` at build time (create) or batch-fetched from `trips` on edit hydration; the amber ♿ hint is informational only.
+
+### 3.1.2 Trip write-back after save
+
+After create or draft save, [`executeTripWriteBack`](../src/features/invoices/lib/trip-write-back.ts) updates **included** trips only (`billingInclusion.included === true`). Payload uses combined brutto via `lineItemGrossTotalForDisplay`, never `net_price` or `PRICING_RELEVANT_FIELDS`.
+
+**Failure handling (Option A):** failures populate `FailedSyncItem[]` with a **frozen `patch`** captured at save time; [`TripSyncFailureDialog`](../src/features/invoices/components/invoice-builder/trip-sync-failure-dialog.tsx) lets the dispatcher retry (`retryTripWriteBack` replays stored patches only). A future `has_sync_warning` on `invoices` is deferred (TODO in code).
+
+**Storno:** [`createStornorechnung`](../src/features/invoices/lib/storno.ts) copies line-level `tax_rate` onto negated rows; there is **no** trip write-back on Storno.
+
+### 3.1.3 Step 3 collapsed row — visual QA checklist
+
+When changing the two-row layout, verify in the builder (narrow column ~invoice builder width):
+
+- Checkbox spans both rows; row 1 is read-only (position, client, date, Maps link).
+- Row 2: KM column, MwSt Select (disabled when opted out), Brutto input.
+- ♿ visible for wheelchair + non-0% rate; hidden at 0%.
+- All prior badges/controls (Taxameter, KM manuell, MwSt manuell, warnings, Ausgeschlossen) still present.
 
 ### 3.2 Price Resolution (`lib/price-calculator.ts`)
 

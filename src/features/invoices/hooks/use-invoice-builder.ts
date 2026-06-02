@@ -20,6 +20,7 @@ import { listPricingRulesForPayer } from '@/features/payers/api/billing-pricing-
 import {
   fetchTripsForBuilder,
   fetchCancelledTripsForBuilder,
+  fetchTripWheelchairFlags,
   mapBillingPricingRuleRowsToLike,
   buildLineItemsFromTrips,
   buildCancelledTripBillingState,
@@ -42,7 +43,6 @@ import {
   getInvoiceDetail,
   updateDraftInvoice
 } from '../api/invoices.api';
-import { tripsService } from '@/features/trips/api/trips.service';
 import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
 import {
   hasMissingPrices,
@@ -50,6 +50,15 @@ import {
   validateLineItem
 } from '../lib/invoice-validators';
 import { resolveTaxRate } from '../lib/tax-calculator';
+import {
+  patchLineItemForTaxRateOverride,
+  resetLineItemTaxRateOverride
+} from '../lib/apply-tax-rate-override';
+import {
+  executeTripWriteBack,
+  retryTripWriteBack
+} from '../lib/trip-write-back';
+import type { FailedSyncItem } from '../types/invoice.types';
 import { resolveRechnungsempfaenger } from '../lib/resolve-rechnungsempfaenger';
 import type {
   InvoiceBuilderFormValues,
@@ -156,6 +165,7 @@ export function useInvoiceBuilder(
    * in-progress admin edits after the initial load.
    */
   const hasHydratedRef = useRef(false);
+  const [syncFailedItems, setSyncFailedItems] = useState<FailedSyncItem[]>([]);
 
   useEffect(() => {
     // why: in edit mode step2Values is seeded from the invoice; the create-mode
@@ -201,6 +211,26 @@ export function useInvoiceBuilder(
     staleTime: 30_000
   });
 
+  const editHydrationTripIds =
+    isEditMode && hydrationQuery.data
+      ? [
+          ...new Set(
+            (hydrationQuery.data.line_items ?? [])
+              .filter((r) => r.is_cancelled_trip !== true && r.trip_id)
+              .map((r) => r.trip_id as string)
+          )
+        ]
+      : [];
+
+  const editWheelchairQuery = useQuery({
+    queryKey: ['invoices', 'builder', 'wheelchair-flags', editHydrationTripIds],
+    queryFn: () => fetchTripWheelchairFlags(editHydrationTripIds),
+    enabled: isEditMode && editHydrationTripIds.length > 0,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
+  });
+
   useEffect(() => {
     if (!isEditMode) return;
     // why: seed exactly once; never overwrite in-progress edits on any re-emit.
@@ -211,8 +241,11 @@ export function useInvoiceBuilder(
     // resolved_rule is reconstructed on first hydration — hasHydratedRef blocks
     // any later re-seed, so seeding early with no rules would permanently lose it.
     if (detail.payer?.id && editRulesQuery.isLoading) return;
+    if (editHydrationTripIds.length > 0 && editWheelchairQuery.isLoading)
+      return;
     hasHydratedRef.current = true;
 
+    const wheelchairFlags = editWheelchairQuery.data ?? {};
     const rows = detail.line_items ?? [];
     // why: cancelled-trip line items hydrate into the cancelled-trip block;
     // normal lines into the main positions list.
@@ -233,7 +266,16 @@ export function useInvoiceBuilder(
     };
 
     setLineItems(
-      normalRows.map((r) => mapLineItemRowToBuilderLineItem(r, mapCtx))
+      normalRows.map((r) => {
+        const item = mapLineItemRowToBuilderLineItem(r, mapCtx);
+        if (r.trip_id) {
+          return {
+            ...item,
+            is_wheelchair: wheelchairFlags[r.trip_id] ?? false
+          };
+        }
+        return item;
+      })
     );
     setCancelledTrips(
       cancelledRows.map((r) => mapLineItemRowToBuilderCancelledTrip(r, mapCtx))
@@ -260,7 +302,10 @@ export function useInvoiceBuilder(
     isEditMode,
     hydrationQuery.data,
     editRulesQuery.isLoading,
-    editRulesQuery.data
+    editRulesQuery.data,
+    editHydrationTripIds.length,
+    editWheelchairQuery.isLoading,
+    editWheelchairQuery.data
   ]);
 
   const tripsQuery = useQuery({
@@ -497,6 +542,39 @@ export function useInvoiceBuilder(
       })
     );
   }, []);
+
+  const applyTaxRateOverride = useCallback(
+    (position: number, newRate: number) => {
+      setLineItems((prev) =>
+        prev.map((item) => {
+          if (item.position !== position) return item;
+          const patched = patchLineItemForTaxRateOverride(item, newRate);
+          return { ...patched, warnings: validateLineItem(patched) };
+        })
+      );
+    },
+    []
+  );
+
+  const resetTaxRateOverride = useCallback((position: number) => {
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.position !== position) return item;
+        const patched = resetLineItemTaxRateOverride(item);
+        return { ...patched, warnings: validateLineItem(patched) };
+      })
+    );
+  }, []);
+
+  const clearSyncFailedItems = useCallback(() => setSyncFailedItems([]), []);
+
+  const retrySyncFailedItems = useCallback(async () => {
+    const remaining = await retryTripWriteBack(syncFailedItems);
+    setSyncFailedItems(remaining);
+    if (remaining.length === 0) {
+      toast.success('Alle Fahrten wurden aktualisiert.');
+    }
+  }, [syncFailedItems]);
 
   // ── Billing inclusion handlers ────────────────────────────────────────────────
 
@@ -844,42 +922,20 @@ export function useInvoiceBuilder(
       );
       await insertLineItems(invoice.id, lineItems, optedInCancelled);
 
-      // Fire-and-forget: failed writeback must never block the invoice.
-      // price_resolution.net is transport-only; Anfahrt on approach_fee_net.
-      // Phase 2: `trips.net_price` is a generated column — never write it here; DB combines base + approach.
-      // why: persist admin KM for future resolveEffectiveDistanceKm; never write driving_distance_km.
-      void Promise.allSettled(
-        lineItems
-          .filter((item) => item.trip_id !== null)
-          .map((item) => {
-            const baseNet = item.price_resolution.net;
-            const approachNet = item.approach_fee_net ?? 0;
-            return tripsService.updateTrip(item.trip_id!, {
-              gross_price: item.manualGrossTotal ?? item.price_resolution.gross,
-              tax_rate: item.tax_rate,
-              base_net_price: baseNet,
-              approach_fee_net: approachNet,
-              ...(item.isManualOverride && item.manualGrossTotal !== null
-                ? { manual_gross_price: item.manualGrossTotal }
-                : {}),
-              ...(item.isManualKmOverride && item.manualDistanceKm != null
-                ? { manual_distance_km: item.manualDistanceKm }
-                : {})
-            });
-          })
-      );
-
-      return invoice;
+      const syncFailures = await executeTripWriteBack(lineItems);
+      return { invoice, syncFailures };
     },
 
-    onSuccess: (invoice) => {
+    onSuccess: ({ invoice, syncFailures }) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
-      // Invalidate revenue total to refresh "Rechnungsumsatz" stat on dashboard
-      // since invoice creation (and subsequent status changes) affect the revenue calculation
       void queryClient.invalidateQueries({
         queryKey: invoiceKeys.revenueTotal
       });
-      toast.success(`Rechnung ${invoice.invoice_number} wurde erstellt.`);
+      if (syncFailures.length > 0) {
+        setSyncFailedItems(syncFailures);
+      } else {
+        toast.success(`Rechnung ${invoice.invoice_number} wurde erstellt.`);
+      }
       onCreated(invoice.id);
     },
 
@@ -958,46 +1014,28 @@ export function useInvoiceBuilder(
         lineItemRows: [...normalRows, ...cancelledRows]
       });
 
-      // why: same fire-and-forget trip writeback as create so re-saving a draft
-      // keeps trip pricing in sync; a failed writeback must never block the save.
-      void Promise.allSettled(
-        lineItems
-          .filter((item) => item.trip_id !== null)
-          .map((item) => {
-            const baseNet = item.price_resolution.net;
-            const approachNet = item.approach_fee_net ?? 0;
-            return tripsService.updateTrip(item.trip_id!, {
-              gross_price: item.manualGrossTotal ?? item.price_resolution.gross,
-              tax_rate: item.tax_rate,
-              base_net_price: baseNet,
-              approach_fee_net: approachNet,
-              ...(item.isManualOverride && item.manualGrossTotal !== null
-                ? { manual_gross_price: item.manualGrossTotal }
-                : {}),
-              ...(item.isManualKmOverride && item.manualDistanceKm != null
-                ? { manual_distance_km: item.manualDistanceKm }
-                : {})
-            });
-          })
-      );
-
-      return invoiceId;
+      const syncFailures = await executeTripWriteBack(lineItems);
+      return { invoiceId, syncFailures };
     },
 
-    onSuccess: (id) => {
+    onSuccess: ({ invoiceId, syncFailures }) => {
       queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
-      // why: the edited draft's full detail is cached (hydration query) — drop it
-      // so the detail page re-reads the freshly persisted lines + totals.
-      void queryClient.invalidateQueries({ queryKey: invoiceKeys.full(id) });
+      void queryClient.invalidateQueries({
+        queryKey: invoiceKeys.full(invoiceId)
+      });
       void queryClient.invalidateQueries({
         queryKey: invoiceKeys.revenueTotal
       });
-      toast.success('Änderungen wurden gespeichert.');
+      if (syncFailures.length > 0) {
+        setSyncFailedItems(syncFailures);
+      } else {
+        toast.success('Änderungen wurden gespeichert.');
+      }
       // why: onCreated is a navigation-only callback (index.tsx passes
       // router.push('/dashboard/invoices/' + id)). The edit-success target is the
       // same detail page, so reuse is functionally correct; NOT renamed to onSaved
       // because that would change the hook signature shared with the create flow.
-      onCreated(id);
+      onCreated(invoiceId);
     },
 
     onError: (err: unknown) => {
@@ -1033,6 +1071,11 @@ export function useInvoiceBuilder(
     resetLineItemOverride,
     applyKmOverride,
     resetKmOverride,
+    applyTaxRateOverride,
+    resetTaxRateOverride,
+    syncFailedItems,
+    clearSyncFailedItems,
+    retrySyncFailedItems,
     handleLineItemInclusionChange,
     handleCancelledTripInclusionChange,
     handleCancelledTripGrossOverride,

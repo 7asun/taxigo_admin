@@ -90,6 +90,7 @@ function makeBuilderLineItem(
     billing_type_name: 'Krankenfahrt',
     kts_document_applies: false,
     no_invoice_warning: false,
+    is_wheelchair: false,
     price_resolution: {
       gross: null,
       net: transportNet,

@@ -152,6 +152,8 @@ export function mapLineItemRowToBuilderLineItem(
     kts_document_applies: pr.strategy_used === 'kts_override',
     // why: no_invoice_required is a trip-level advisory not snapshotted on the line.
     no_invoice_warning: false,
+    // why: overwritten in edit-mode hydration from live trips.is_wheelchair batch fetch.
+    is_wheelchair: false,
     price_resolution: pr,
     // why: resolved_rule is reconstructed from live pricing rules so KM overrides in
     // edit mode reprice correctly, matching create-mode behaviour. Falls back to null

@@ -383,6 +383,7 @@ export function InvoicePdfDocument({
     billing_type_name: li.billing_type_name ?? null,
     kts_document_applies: li.kts_override,
     no_invoice_warning: false,
+    is_wheelchair: false,
     price_resolution: priceResolutionFromLineItem(li),
     kts_override: li.kts_override,
     trip_meta: parseTripMetaSnapshot(

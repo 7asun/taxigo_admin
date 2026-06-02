@@ -63,6 +63,7 @@ import { useInvoiceBuilder } from '../../hooks/use-invoice-builder';
 import { Step1Mode } from './step-1-mode';
 import { Step2Params } from './step-2-params';
 import { Step3LineItems } from './step-3-line-items';
+import { TripSyncFailureDialog } from './trip-sync-failure-dialog';
 import { Step4Confirm } from './step-4-confirm';
 import { Step4Vorlage } from './step-4-vorlage';
 import { InvoiceBuilderPdfPanel } from './invoice-builder-pdf-panel';
@@ -212,6 +213,11 @@ export function InvoiceBuilder({
     resetLineItemOverride,
     applyKmOverride,
     resetKmOverride,
+    applyTaxRateOverride,
+    resetTaxRateOverride,
+    syncFailedItems,
+    clearSyncFailedItems,
+    retrySyncFailedItems,
     createInvoice,
     isCreating,
     catalogRecipientId,
@@ -676,6 +682,8 @@ export function InvoiceBuilder({
               onResetOverride={resetLineItemOverride}
               onApplyKmOverride={applyKmOverride}
               onResetKmOverride={resetKmOverride}
+              onApplyTaxRateOverride={applyTaxRateOverride}
+              onResetTaxRateOverride={resetTaxRateOverride}
               onLineItemInclusionChange={handleLineItemInclusionChange}
               onCancelledTripInclusionChange={
                 handleCancelledTripInclusionChange
@@ -854,6 +862,12 @@ export function InvoiceBuilder({
           </div>
         </SheetContent>
       </Sheet>
+      <TripSyncFailureDialog
+        open={syncFailedItems.length > 0}
+        items={syncFailedItems}
+        onRetry={retrySyncFailedItems}
+        onClose={clearSyncFailedItems}
+      />
     </div>
   );
 }

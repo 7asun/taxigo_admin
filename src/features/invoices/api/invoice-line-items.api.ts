@@ -302,6 +302,7 @@ export async function fetchTripsForBuilder(
       dropoff_address,
       kts_document_applies,
       no_invoice_required,
+      is_wheelchair,
       link_type,
       linked_trip_id,
       client_name,
@@ -350,6 +351,26 @@ export async function fetchTripsForBuilder(
     listClientKmOverridesForClientIds(clientIds)
   ]);
   return { trips, clientPriceTags, clientKmOverrides };
+}
+
+/**
+ * Batch-fetch `trips.is_wheelchair` for edit-mode hydration (not on invoice_line_items).
+ */
+export async function fetchTripWheelchairFlags(
+  tripIds: string[]
+): Promise<Record<string, boolean>> {
+  if (tripIds.length === 0) return {};
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('trips')
+    .select('id, is_wheelchair')
+    .in('id', tripIds);
+  if (error) throw toQueryError(error);
+  const out: Record<string, boolean> = {};
+  for (const row of data ?? []) {
+    out[row.id] = row.is_wheelchair === true;
+  }
+  return out;
 }
 
 /**
@@ -402,6 +423,7 @@ export async function fetchCancelledTripsForBuilder(
       billing_variant_id,
       kts_document_applies,
       no_invoice_required,
+      is_wheelchair,
       link_type,
       linked_trip_id,
       driver:accounts!trips_driver_id_fkey(name),
@@ -672,6 +694,9 @@ export function buildLineItemsFromTrips(
       billing_type_name: trip.billing_variant?.billing_type?.name ?? null,
       kts_document_applies: trip.kts_document_applies === true,
       no_invoice_warning: trip.no_invoice_required === true,
+      // why: snapshot at build time — invoice_line_items has no wheelchair column;
+      // edit mode batch-fetches live trips.is_wheelchair on hydration instead.
+      is_wheelchair: trip.is_wheelchair ?? false,
       price_resolution: priceResolution,
       resolved_rule: rule ?? null,
       kts_override,

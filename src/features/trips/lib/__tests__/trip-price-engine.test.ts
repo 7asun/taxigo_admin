@@ -78,6 +78,42 @@ describe('computeTripPrice', () => {
     expect(result.approach_fee_net).toBe(0);
   });
 
+  test('wheelchair trips still use distance VAT — 30 km → 7%', () => {
+    const ctx: PricingContext = {
+      rules: [
+        rule({
+          strategy: 'fixed_price',
+          config: { price: 20 }
+        })
+      ],
+      clientPriceTags: [],
+      clientPriceTag: null
+    };
+    const result = computeTripPrice(
+      { ...baseTrip, driving_distance_km: 30 },
+      ctx
+    );
+    expect(result.tax_rate).toBe(0.07);
+  });
+
+  test('wheelchair trips still use distance VAT — 55 km → 19%', () => {
+    const ctx: PricingContext = {
+      rules: [
+        rule({
+          strategy: 'fixed_price',
+          config: { price: 20 }
+        })
+      ],
+      clientPriceTags: [],
+      clientPriceTag: null
+    };
+    const result = computeTripPrice(
+      { ...baseTrip, driving_distance_km: 55 },
+      ctx
+    );
+    expect(result.tax_rate).toBe(0.19);
+  });
+
   test('tiered_km 15 km → net=11.00, gross=11.77, tax_rate=0.07', () => {
     // Tiers: first 10 km at €1.00/km, beyond 10 km at €0.20/km
     // Total: 10×1.0 + 5×0.2 = 11.00 net; 11.00 × 1.07 = 11.77 gross
