@@ -1,4 +1,5 @@
 import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
+import { lineItemGrossTotalForDisplay } from '@/features/invoices/lib/line-item-net-display';
 import { resolveTaxRate } from '@/features/invoices/lib/tax-calculator';
 import {
   applyGrossOverrideToResolution,
@@ -26,7 +27,8 @@ function isGrossAnchorTaxReprice(item: BuilderLineItem): boolean {
   return (
     src === 'manual_gross_price' ||
     src === 'client_price_tag' ||
-    item.isManualOverride === true
+    item.isManualOverride === true ||
+    item.is_wheelchair === true
   );
 }
 
@@ -73,6 +75,47 @@ export function patchLineItemForTaxRateOverride(
         price_resolution: nextRes,
         isManualTaxRateOverride
       };
+    }
+
+    if (item.is_wheelchair) {
+      const fullLineGross = lineItemGrossTotalForDisplay(item);
+      if (fullLineGross != null) {
+        const pr = item.price_resolution;
+        const oldApproachNet =
+          pr.approach_fee_net ?? item.approach_fee_net ?? 0;
+        const fullLineNet = fullLineGross / (1 + newRate);
+        const oldFullLineNet = fullLineGross / (1 + item.tax_rate);
+        const approachFraction =
+          oldFullLineNet > 0 ? oldApproachNet / oldFullLineNet : 0;
+        const newApproachFeeNet = fullLineNet * approachFraction;
+        const newTransportNet = fullLineNet - newApproachFeeNet;
+        const transportGross =
+          Math.round(newTransportNet * (1 + newRate) * 100) / 100;
+        const nextRes = {
+          ...pr,
+          gross: transportGross,
+          net: newTransportNet,
+          approach_fee_net: newApproachFeeNet > 0 ? newApproachFeeNet : 0,
+          tax_rate: newRate,
+          unit_price_net:
+            item.quantity > 1
+              ? newTransportNet / item.quantity
+              : newTransportNet
+        };
+        const approachGross =
+          newApproachFeeNet > 0
+            ? Math.round(newApproachFeeNet * (1 + newRate) * 100) / 100
+            : null;
+        return {
+          ...item,
+          tax_rate: newRate,
+          unit_price: nextRes.unit_price_net,
+          approach_fee_net: newApproachFeeNet > 0 ? newApproachFeeNet : null,
+          approach_fee_gross: approachGross,
+          price_resolution: nextRes,
+          isManualTaxRateOverride
+        };
+      }
     }
 
     const pr = item.price_resolution;

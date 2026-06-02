@@ -4,6 +4,7 @@ import {
   patchLineItemForTaxRateOverride,
   resetLineItemTaxRateOverride
 } from '@/features/invoices/lib/apply-tax-rate-override';
+import { lineItemGrossTotalForDisplay } from '@/features/invoices/lib/line-item-net-display';
 import { TAX_RATES } from '@/features/invoices/lib/tax-calculator';
 import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
 import type { PriceResolution } from '@/features/invoices/types/pricing.types';
@@ -134,6 +135,48 @@ describe('patchLineItemForTaxRateOverride', () => {
     const patched = patchLineItemForTaxRateOverride(item, TAX_RATES.ZERO);
     expect(patched.price_resolution.gross).toBe(0);
     expect(patched.tax_rate).toBe(TAX_RATES.ZERO);
+  });
+
+  test('wheelchair trip: full-line display gross stays fixed when tax rate changes', () => {
+    const transportNet = 37.38;
+    const approachNet = 5.6;
+    const item = baseItem({
+      is_wheelchair: true,
+      unit_price: transportNet,
+      approach_fee_net: approachNet,
+      effective_distance_km: 14.05,
+      price_resolution: {
+        gross: 40,
+        net: transportNet,
+        tax_rate: TAX_RATES.REDUCED,
+        strategy_used: 'tiered_km',
+        source: 'payer',
+        unit_price_net: transportNet,
+        quantity: 1,
+        approach_fee_net: approachNet
+      }
+    });
+
+    const displayGrossBefore = lineItemGrossTotalForDisplay(item);
+    expect(displayGrossBefore).not.toBeNull();
+
+    const at0 = patchLineItemForTaxRateOverride(item, TAX_RATES.ZERO);
+    const at19 = patchLineItemForTaxRateOverride(item, TAX_RATES.STANDARD);
+
+    expect(lineItemGrossTotalForDisplay(at0)).toBeCloseTo(
+      displayGrossBefore!,
+      2
+    );
+    expect(lineItemGrossTotalForDisplay(at19)).toBeCloseTo(
+      displayGrossBefore!,
+      2
+    );
+
+    expect(lineItemGrossTotalForDisplay(at0)).toBeCloseTo(
+      (at0.price_resolution.net ?? 0) +
+        (at0.price_resolution.approach_fee_net ?? 0),
+      2
+    );
   });
 
   test('resetLineItemTaxRateOverride clears manual flag', () => {
