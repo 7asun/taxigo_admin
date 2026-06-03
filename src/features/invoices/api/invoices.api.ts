@@ -35,6 +35,7 @@ import type {
   InvoiceStatus,
   InvoiceBuilderFormValues
 } from '../types/invoice.types';
+import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
 
 // ─── List invoices ────────────────────────────────────────────────────────────
 
@@ -280,6 +281,23 @@ export async function createInvoice(
     );
   }
 
+  let pdfColumnOverrideForInsert: Record<string, unknown> | null = null;
+  if (payload.pdfColumnOverride != null) {
+    const validated = pdfColumnOverrideSchema.safeParse(
+      payload.pdfColumnOverride
+    );
+    if (!validated.success) {
+      // why: reject before INSERT so Digital/Brief never read a row that cannot win tier 1 at enrich time
+      throw new Error(
+        `pdf_column_override failed validation before INSERT — invoice not created: ${validated.error.message}`
+      );
+    }
+    pdfColumnOverrideForInsert = validated.data as unknown as Record<
+      string,
+      unknown
+    >;
+  }
+
   const { data, error } = await supabase
     .from('invoices')
     .insert({
@@ -308,7 +326,7 @@ export async function createInvoice(
       // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
       rechnungsempfaenger_snapshot,
       client_reference_fields_snapshot,
-      pdf_column_override: payload.pdfColumnOverride ?? null
+      pdf_column_override: pdfColumnOverrideForInsert
     })
     .select()
     .single();
@@ -389,6 +407,23 @@ export async function updateDraftInvoice(
   // mirrors the RPC guard as defence-in-depth — admins can update own-company
   // invoices via RLS, so this prevents mutating a non-draft even if it slipped
   // past the route guard. Totals/number/payer/status are intentionally absent.
+  let pdfColumnOverrideForUpdate: Record<string, unknown> | null = null;
+  if (payload.pdfColumnOverride != null) {
+    const validated = pdfColumnOverrideSchema.safeParse(
+      payload.pdfColumnOverride
+    );
+    if (!validated.success) {
+      // why: mirror INSERT guard — invalid tier-1 JSON must not reach the row via UPDATE
+      throw new Error(
+        `pdf_column_override failed validation before UPDATE — changes not saved: ${validated.error.message}`
+      );
+    }
+    pdfColumnOverrideForUpdate = validated.data as unknown as Record<
+      string,
+      unknown
+    >;
+  }
+
   const { error: updError } = await supabase
     .from('invoices')
     .update({
@@ -397,7 +432,7 @@ export async function updateDraftInvoice(
       payment_due_days: payload.paymentDueDays,
       rechnungsempfaenger_id: payload.rechnungsempfaengerId,
       rechnungsempfaenger_snapshot,
-      pdf_column_override: payload.pdfColumnOverride ?? null,
+      pdf_column_override: pdfColumnOverrideForUpdate,
       updated_at: new Date().toISOString()
     })
     .eq('id', payload.invoiceId)

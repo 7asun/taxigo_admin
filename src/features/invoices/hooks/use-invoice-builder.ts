@@ -43,7 +43,12 @@ import {
   getInvoiceDetail,
   updateDraftInvoice
 } from '../api/invoices.api';
-import { pdfColumnOverrideSchema } from '../types/pdf-vorlage.types';
+import { APPENDIX_LANDSCAPE_THRESHOLD } from '../lib/pdf-column-catalog';
+import {
+  pdfColumnOverrideSchema,
+  type PdfColumnOverridePayload,
+  type PdfColumnProfile
+} from '../types/pdf-vorlage.types';
 import {
   hasMissingPrices,
   hasInclusionReasonErrors,
@@ -65,7 +70,6 @@ import type {
   BuilderLineItem,
   BuilderCancelledTripRow
 } from '../types/invoice.types';
-import type { PdfColumnOverridePayload } from '../types/pdf-vorlage.types';
 import { step2ValuesReadyForTripsFetch } from '../lib/invoice-builder-section-guards';
 import { tripsBuilderParamsFromStep2 } from '../lib/trips-builder-params';
 import type {
@@ -116,6 +120,33 @@ function tripInputFromLineItem(item: BuilderLineItem): TripPriceInput {
   };
 }
 
+/** Maps a stored tier-1 JSON snapshot to the preview/profile shape (edit hydration). */
+function pdfColumnProfileFromStoredOverride(
+  data: PdfColumnOverridePayload
+): PdfColumnProfile {
+  return {
+    main_columns: data.main_columns,
+    appendix_columns: data.appendix_columns,
+    main_layout: data.main_layout ?? 'grouped',
+    appendix_is_landscape:
+      data.appendix_columns.length > APPENDIX_LANDSCAPE_THRESHOLD,
+    source: 'invoice_override',
+    show_cancelled_trips: data.show_cancelled_trips ?? false,
+    show_excluded_trips: data.show_excluded_trips ?? false
+  };
+}
+
+export interface UseInvoiceBuilderOptions {
+  /**
+   * Edit mode only: seed shell `builderColumnProfile` + `pdfOverrideRef` from
+   * `invoices.pdf_column_override` so preview and save-without-edits match the row.
+   */
+  onEditPdfColumnOverrideHydrated?: (
+    profile: PdfColumnProfile,
+    override: PdfColumnOverridePayload
+  ) => void;
+}
+
 /**
  * State for the long-form invoice builder (all sections on one page).
  *
@@ -126,7 +157,8 @@ function tripInputFromLineItem(item: BuilderLineItem): TripPriceInput {
 export function useInvoiceBuilder(
   companyId: string,
   onCreated: (invoiceId: string) => void,
-  invoiceId?: string
+  invoiceId?: string,
+  options?: UseInvoiceBuilderOptions
 ) {
   const queryClient = useQueryClient();
 
@@ -294,6 +326,33 @@ export function useInvoiceBuilder(
       client_id: detail.client_id
     });
     setCatalogRecipientId(detail.rechnungsempfaenger_id ?? null);
+
+    const rawPdfOverride = detail.pdf_column_override;
+    if (
+      rawPdfOverride &&
+      typeof rawPdfOverride === 'object' &&
+      !Array.isArray(rawPdfOverride)
+    ) {
+      const parsedPdfOverride =
+        pdfColumnOverrideSchema.safeParse(rawPdfOverride);
+      if (parsedPdfOverride.success) {
+        // why: save-without-edits must not replace a good row snapshot with payer Vorlage resolution
+        options?.onEditPdfColumnOverrideHydrated?.(
+          pdfColumnProfileFromStoredOverride(parsedPdfOverride.data),
+          parsedPdfOverride.data
+        );
+      } else {
+        console.error(
+          '[useInvoiceBuilder] pdf_column_override failed validation on edit hydration',
+          {
+            invoiceId: detail.id,
+            zodError: parsedPdfOverride.error.flatten(),
+            zodIssues: parsedPdfOverride.error.issues
+          }
+        );
+      }
+    }
+
     // why: the draft was already confirmed once; re-open with all sections
     // navigable instead of forcing the admin to re-confirm Section 3.
     setSection3Confirmed(true);
@@ -305,7 +364,8 @@ export function useInvoiceBuilder(
     editRulesQuery.data,
     editHydrationTripIds.length,
     editWheelchairQuery.isLoading,
-    editWheelchairQuery.data
+    editWheelchairQuery.data,
+    options?.onEditPdfColumnOverrideHydrated
   ]);
 
   const tripsQuery = useQuery({

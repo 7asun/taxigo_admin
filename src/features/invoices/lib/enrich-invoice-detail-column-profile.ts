@@ -34,7 +34,19 @@ export async function enrichInvoiceDetailWithColumnProfile(
   let override: PdfColumnOverridePayload | null = null;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const parsed = pdfColumnOverrideSchema.safeParse(raw);
-    if (parsed.success) override = parsed.data;
+    if (parsed.success) {
+      override = parsed.data;
+    } else {
+      // why: tier-1 must not fail quietly — corrupt JSON looks like “wrong Vorlage” when tier 2 wins
+      console.error(
+        '[enrichInvoiceDetailWithColumnProfile] pdf_column_override failed validation; falling back to Kostenträger/company Vorlage',
+        {
+          invoiceId: detail.id,
+          zodError: parsed.error.flatten(),
+          zodIssues: parsed.error.issues
+        }
+      );
+    }
   }
 
   const payerVid =

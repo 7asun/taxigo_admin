@@ -59,7 +59,10 @@ import {
   isInvoiceBuilderSection4Unlocked,
   isInvoiceBuilderSection5Unlocked
 } from '@/features/invoices/lib/invoice-builder-section-guards';
-import { useInvoiceBuilder } from '../../hooks/use-invoice-builder';
+import {
+  useInvoiceBuilder,
+  type UseInvoiceBuilderOptions
+} from '../../hooks/use-invoice-builder';
 import { Step1Mode } from './step-1-mode';
 import { Step2Params } from './step-2-params';
 import { Step3LineItems } from './step-3-line-items';
@@ -184,6 +187,17 @@ export function InvoiceBuilder({
   const [pdfColumnReorderGeneration, setPdfColumnReorderGeneration] =
     useState(0);
   const pdfOverrideRef = useRef<PdfColumnOverridePayload | null>(null);
+  /** Edit mode: tier-1 snapshot from the invoice row — passed to Step4 so emit does not clobber hydration. */
+  const [editHydratedPdfOverride, setEditHydratedPdfOverride] =
+    useState<PdfColumnOverridePayload | null>(null);
+
+  const handleEditPdfColumnOverrideHydrated = useCallback<
+    NonNullable<UseInvoiceBuilderOptions['onEditPdfColumnOverrideHydrated']>
+  >((profile, override) => {
+    setBuilderColumnProfile(profile);
+    pdfOverrideRef.current = override;
+    setEditHydratedPdfOverride(override);
+  }, []);
 
   const section1Ref = useRef<HTMLElement | null>(null);
   const section2Ref = useRef<HTMLElement | null>(null);
@@ -238,7 +252,8 @@ export function InvoiceBuilder({
     (newId) => {
       router.push(`/dashboard/invoices/${newId}`);
     },
-    invoiceId
+    invoiceId,
+    { onEditPdfColumnOverrideHydrated: handleEditPdfColumnOverrideHydrated }
   );
 
   // why: edit mode submits via updateInvoice, create via createInvoice — a single
@@ -369,6 +384,7 @@ export function InvoiceBuilder({
   useEffect(() => {
     setPdfStepAcknowledged(false);
     pdfOverrideRef.current = null;
+    setEditHydratedPdfOverride(null);
     setBuilderColumnProfile(resolvePdfColumnProfile(null, null, null));
     setBuilderResolvedVorlage(null);
   }, [step2Values?.payer_id]);
@@ -730,6 +746,9 @@ export function InvoiceBuilder({
               payerPdfVorlageId={selectedPayer?.pdf_vorlage_id}
               unlocked={section4Unlocked}
               excludedTripCount={excludedTripCount}
+              hydratedPdfColumnOverride={
+                isEditMode ? editHydratedPdfOverride : null
+              }
               onColumnProfileChange={setBuilderColumnProfile}
               onPdfOverrideChange={handlePdfOverridePersist}
               onPdfColumnsReordered={() =>
@@ -789,6 +808,8 @@ export function InvoiceBuilder({
                 // When 'Spalten anpassen' is ON, preserve the user's custom column
                 // arrays; otherwise use the preview's resolved columns from
                 // builderColumnProfile. Tier 1 always wins for new invoices.
+                // why: field set must match pdfColumnOverrideSchema (enrich + INSERT guard) —
+                // non-empty main/appendix arrays required; booleans explicit so read/write agree.
                 const snapshotOverride: PdfColumnOverridePayload = {
                   main_columns:
                     pdfOverrideRef.current?.main_columns ??
@@ -797,11 +818,12 @@ export function InvoiceBuilder({
                     pdfOverrideRef.current?.appendix_columns ??
                     builderColumnProfile.appendix_columns,
                   main_layout: builderColumnProfile.main_layout,
-                  show_cancelled_trips:
-                    builderColumnProfile.show_cancelled_trips ?? false,
-                  // why: carry Step 4 admin intent for excluded trips appendix into persisted snapshot
-                  show_excluded_trips:
-                    builderColumnProfile.show_excluded_trips ?? false
+                  show_cancelled_trips: Boolean(
+                    builderColumnProfile.show_cancelled_trips
+                  ),
+                  show_excluded_trips: Boolean(
+                    builderColumnProfile.show_excluded_trips
+                  )
                 };
                 // why: same confirm UI for both flows; edit mode persists changes to
                 // the existing draft (RPC + meta), create mode issues a new invoice.
