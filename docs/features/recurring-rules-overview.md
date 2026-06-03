@@ -26,6 +26,9 @@ Implementation: [`create-recurring-rule-sheet.tsx`](../../src/features/recurring
 | [`src/features/recurring-rules/components/recurring-rules-columns.tsx`](../../src/features/recurring-rules/components/recurring-rules-columns.tsx) | Column definitions (`'use client'`). |
 | [`src/features/recurring-rules/lib/recurring-rules-sort-column-ids.ts`](../../src/features/recurring-rules/lib/recurring-rules-sort-column-ids.ts) | `RECURRING_RULES_SORT_COLUMN_IDS` for `getSortingStateParser` — **not** in the client columns module so the RSC page receives a real `Set`. |
 | [`src/config/nav-config.ts`](../../src/config/nav-config.ts) | Top-level nav item **Regelfahrten** after **Fahrten**. |
+| [`src/query/keys/recurring.ts`](../../src/query/keys/recurring.ts) | TanStack keys for expiry banner (`recurringKeys`). |
+| [`src/features/dashboard/hooks/use-expiring-recurring-rules.ts`](../../src/features/dashboard/hooks/use-expiring-recurring-rules.ts) | Overview expiry banner data hook. |
+| [`src/features/dashboard/components/expiring-rules-banner.tsx`](../../src/features/dashboard/components/expiring-rules-banner.tsx) | Overview expiry banner UI. |
 
 If `tsc` or the bundler pulls the server module into the client bundle when columns `import type` from `recurring-rules.server.ts`, extract **`src/features/recurring-rules/types/recurring-rules-overview.types.ts`** with only `RecurringRuleWithClientEmbed` and point server + columns at it (see implementation plan — no other workaround).
 
@@ -55,6 +58,24 @@ The dashboard includes a widget that focuses on **tomorrow’s** recurring-rule-
 - **What it shows**: trips with `rule_id IS NOT NULL`, `scheduled_at IS NULL`, `status NOT IN ('cancelled','completed')`, and `requested_date = tomorrow`.
 - **Grouping**: one row per passenger per day, pairing outbound + return legs by `(rule_id, requested_date, client_id)` and enriching missing partner legs via `linked_trip_id`.
 - **Dispatcher workflow**: the widget only sets `scheduled_at` for timeless legs. **Driver assignment is intentionally deferred** to the normal dispatch flow.
+
+## Expiry banner (dashboard)
+
+Persistent countdown on **`/dashboard/overview`**, rendered **above** the timeless-rule widget (sibling, not inside it).
+
+- **When it shows:** active rules (`is_active = true`) with `end_date` on Berlin **today+1**, **today+2**, or **today+3** (`EXPIRY_WARNING_DAYS = 3` in the hook). Rules ending **today** or later than day 3 are excluded.
+- **Timezone:** window dates use `todayYmdInBusinessTz` / `ymdToPickerDate` / `instantToYmdInBusinessTz` from [`trip-business-date.ts`](../../src/features/trips/lib/trip-business-date.ts) — same as the timeless widget, not device-local midnight.
+- **UI:** up to three shadcn `Alert` rows (amber for morgen / in 2 Tagen, blue for in 3 Tagen), German copy, link to [**Regelfahrten**](/dashboard/regelfahrten). Empty → nothing rendered (no skeleton while loading).
+- **Extend window:** change `EXPIRY_WARNING_DAYS` in [`use-expiring-recurring-rules.ts`](../../src/features/dashboard/hooks/use-expiring-recurring-rules.ts) only.
+- **Query cache:** `recurringKeys.expiring(day3Ymd)` in [`src/query/keys/recurring.ts`](../../src/query/keys/recurring.ts).
+
+| File | Role |
+|------|------|
+| [`use-expiring-recurring-rules.ts`](../../src/features/dashboard/hooks/use-expiring-recurring-rules.ts) | Fetches rules; returns `rules`, `day1Ymd`, `day2Ymd`, `day3Ymd` |
+| [`expiring-rules-banner.tsx`](../../src/features/dashboard/components/expiring-rules-banner.tsx) | Buckets by `end_date === dayNYmd` (no date math) |
+| [`overview/layout.tsx`](../../src/app/dashboard/overview/layout.tsx) | Wires hook → banner → timeless widget |
+
+**Deferred:** inline badge on timeless rows, Regelfahrten row highlight, Fahrten/Kanban badges (see [recurring-rule-expiry-alert-audit.md](../plans/recurring-rule-expiry-alert-audit.md)).
 
 ## Known gaps
 

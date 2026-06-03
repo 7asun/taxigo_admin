@@ -1,4 +1,5 @@
 export { tripKeys, type UnplannedTripsFilter } from './trips';
+export { recurringKeys } from './recurring';
 export { referenceKeys } from './reference';
 export { companyKeys } from './company-settings';
 export {
