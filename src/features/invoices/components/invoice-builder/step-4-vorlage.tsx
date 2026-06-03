@@ -102,6 +102,11 @@ interface Step4VorlageProps {
    * When > 0 the "Ausgeschlossene Fahrten anzeigen" checkbox is rendered.
    */
   excludedTripCount?: number;
+  /**
+   * Edit mode: parsed `invoices.pdf_column_override` from hydration. Used as tier-1
+   * in the resolver until the dispatcher picks a different Vorlage in the dropdown.
+   */
+  hydratedPdfColumnOverride?: PdfColumnOverridePayload | null;
 }
 
 /**
@@ -119,7 +124,8 @@ export function Step4Vorlage({
   onPdfOverrideChange,
   onPdfColumnsReordered,
   onResolvedVorlageRowChange,
-  excludedTripCount = 0
+  excludedTripCount = 0,
+  hydratedPdfColumnOverride = null
 }: Step4VorlageProps) {
   const { data: vorlagen = [] } = usePdfVorlagenList(companyId);
   const { data: companyDefaultVorlage = null } = useQuery({
@@ -142,6 +148,19 @@ export function Step4Vorlage({
   const [showCancelledTrips, setShowCancelledTrips] = useState(false);
   /** Ausgeschlossene Fahrten appendix block — only relevant when excludedTripCount > 0. */
   const [showExcludedTrips, setShowExcludedTrips] = useState(false);
+  /** After the dispatcher changes the Vorlage dropdown, stop applying the edit hydration snapshot. */
+  const [userPickedVorlage, setUserPickedVorlage] = useState(false);
+
+  // Reacts to edit hydration snapshot: seed appendix flags from the stored row.
+  useEffect(() => {
+    if (!hydratedPdfColumnOverride || userPickedVorlage) return;
+    setShowCancelledTrips(
+      hydratedPdfColumnOverride.show_cancelled_trips ?? false
+    );
+    setShowExcludedTrips(
+      hydratedPdfColumnOverride.show_excluded_trips ?? false
+    );
+  }, [hydratedPdfColumnOverride, userPickedVorlage]);
 
   // Reacts to payer’s pdf_vorlage_id or company default Vorlage id: sync dropdown selection.
   useEffect(() => {
@@ -191,9 +210,9 @@ export function Step4Vorlage({
   // Emit the resolved column profile to the parent (index.tsx) on every change.
   // index.tsx feeds this into useInvoiceBuilderPdfPreview so the live preview
   // updates whenever the dispatcher changes Vorlage or custom column settings.
-  // Priority chain: custom override → selected Vorlage → company default → system fallback.
-  useEffect(() => {
-    const resolved = resolvePdfColumnProfile(
+  // Priority chain: custom override → edit hydration snapshot → selected Vorlage → …
+  const tier1OverridePayload = useMemo(
+    () =>
       customizeEnabled && customColumns
         ? {
             main_columns: customColumns.main_columns,
@@ -202,7 +221,23 @@ export function Step4Vorlage({
             show_cancelled_trips: showCancelledTrips,
             show_excluded_trips: showExcludedTrips
           }
-        : null,
+        : userPickedVorlage
+          ? null
+          : (hydratedPdfColumnOverride ?? null),
+    [
+      customizeEnabled,
+      customColumns,
+      inheritedMainLayout,
+      showCancelledTrips,
+      showExcludedTrips,
+      userPickedVorlage,
+      hydratedPdfColumnOverride
+    ]
+  );
+
+  useEffect(() => {
+    const resolved = resolvePdfColumnProfile(
+      tier1OverridePayload,
       selectedVorlage,
       companyDefaultVorlage
     );
@@ -221,6 +256,9 @@ export function Step4Vorlage({
     inheritedMainLayout,
     showCancelledTrips,
     showExcludedTrips,
+    tier1OverridePayload,
+    hydratedPdfColumnOverride,
+    userPickedVorlage,
     onColumnProfileChange
   ]);
 
@@ -236,7 +274,7 @@ export function Step4Vorlage({
             show_cancelled_trips: showCancelledTrips,
             show_excluded_trips: showExcludedTrips
           }
-        : null
+        : tier1OverridePayload
     );
   }, [
     customizeEnabled,
@@ -244,6 +282,7 @@ export function Step4Vorlage({
     inheritedMainLayout,
     showCancelledTrips,
     showExcludedTrips,
+    tier1OverridePayload,
     onPdfOverrideChange
   ]);
 
@@ -305,9 +344,10 @@ export function Step4Vorlage({
         <Label>PDF-Vorlage</Label>
         <Select
           value={selectedVorlageId ?? '__none__'}
-          onValueChange={(v) =>
-            setSelectedVorlageId(v === '__none__' ? null : v)
-          }
+          onValueChange={(v) => {
+            setUserPickedVorlage(true);
+            setSelectedVorlageId(v === '__none__' ? null : v);
+          }}
           disabled={!unlocked}
         >
           <SelectTrigger className='w-full max-w-md'>

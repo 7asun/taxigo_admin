@@ -20,6 +20,34 @@ Implemented in [`src/features/invoices/lib/resolve-pdf-column-profile.ts`](../sr
 
 **Important:** The resolver returns `main_columns` exactly as stored. It never filters by layout compatibility — that is the renderer’s job. This preserves saved user preferences even if the system adds new `flatOnly` / `groupedOnly` flags later.
 
+### Tier-1 guard (write + read)
+
+The same Zod schema (`pdfColumnOverrideSchema` in `pdf-vorlage.types.ts`) validates `invoices.pdf_column_override` on **write** and **read**:
+
+| Stage | File | Behaviour |
+|-------|------|-----------|
+| **Builder submit** | `invoice-builder/index.tsx` | Builds a full `snapshotOverride` (non-empty `main_columns` / `appendix_columns`, `main_layout`, appendix flags) so tier 1 matches the live preview. |
+| **INSERT** | `invoices.api.ts` → `createInvoice()` | If `pdfColumnOverride` is non-null, `safeParse()` runs **before** the Supabase INSERT. On failure the invoice is **not** created and the client sees: `pdf_column_override failed validation before INSERT — invoice not created` plus the Zod message. |
+| **UPDATE (draft edit)** | `invoices.api.ts` → `updateDraftInvoice()` | Same guard **before** the meta `.update()`: non-null → `safeParse()` → throw `pdf_column_override failed validation before UPDATE — changes not saved` on failure; writes normalized `validated.data`. Null clears the column (intentional). |
+| **Detail fetch / download** | `enrich-invoice-detail-column-profile.ts` | Parses the stored JSON again. On success, tier 1 wins. On failure (corrupt or legacy-shaped JSON), a **`console.error`** logs `invoiceId` and the full Zod flatten/issues, then resolution **falls through** to tier 2 (`payers.pdf_vorlage_id`) — same user-visible PDF as before, but invalid snapshots are loud in devtools. |
+| **NULL override** | enrich only | No error — tier 2→4 apply (legacy invoices created before the builder always snapshotted layout). |
+
+Digital and Brief downloads use `invoice.column_profile` from enrich; they do not re-read builder state. A valid tier-1 snapshot is therefore required for issued PDFs to match the dispatcher’s builder preview.
+
+### Edit mode hydration
+
+When a draft is re-opened at `/dashboard/invoices/[id]/edit` (`use-invoice-builder.ts` edit hydration):
+
+1. `pdfColumnOverrideSchema.safeParse(detail.pdf_column_override)` runs once after `getInvoiceDetail`.
+2. On **success**, the shell receives `onEditPdfColumnOverrideHydrated(profile, override)` and sets:
+   - `builderColumnProfile` (preview via existing hook),
+   - `pdfOverrideRef.current` (so `snapshotOverride` on save-without-edits keeps the row snapshot),
+   - `editHydratedPdfOverride` passed into `Step4Vorlage` as tier-1 input until the dispatcher changes the Vorlage dropdown.
+3. On **null** override: unchanged — Step 4 still seeds the dropdown from `payers.pdf_vorlage_id` / company default.
+4. On **invalid** non-null JSON: `console.error` with `invoiceId` + Zod issues; same payer/company fallback as null.
+
+The Vorlage dropdown label still follows payer/company assignment (`step-4-vorlage.tsx` L146–150); only the **resolved columns** for preview/save start from the invoice row when a valid snapshot exists.
+
 ## Database schema
 
 ### Table: `pdf_vorlagen`
