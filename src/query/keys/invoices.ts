@@ -133,5 +133,9 @@ export const invoiceKeys = {
    * Aggregate revenue total for issued invoices (status: sent | paid).
    * Used by the dashboard overview stat card.
    */
-  revenueTotal: ['invoices', 'revenue-total'] as const
+  revenueTotal: ['invoices', 'revenue-total'] as const,
+
+  /** Whether a branch draft already exists for a corrected original. */
+  branchDraftExists: (originalInvoiceId: string) =>
+    [...invoiceKeys.all, 'branch-draft-exists', originalInvoiceId] as const
 };

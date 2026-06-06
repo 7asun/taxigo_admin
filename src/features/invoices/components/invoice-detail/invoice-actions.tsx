@@ -7,21 +7,34 @@
  *
  * Displayed buttons depend on the current invoice status:
  *
- *   draft     → [Als versendet markieren] [Stornieren]
- *   sent      → [Als bezahlt markieren]   [Stornieren]
- *   paid      → (no actions — final state)
- *   cancelled → (no actions — storniert)
- *   corrected → (no actions — replaced by Stornorechnung)
+ *   draft (normal)     → [Bearbeiten?] [Als versendet] [Stornieren]
+ *   draft (Storno doc) → [Als versendet] [Neue Rechnung erstellen]
+ *   sent               → [Als bezahlt] [Stornieren]
+ *   paid / cancelled   → (no actions)
+ *   corrected          → [Neue Rechnung erstellen] only
  *
- * Storno: after confirm, createStornorechnung runs a single atomic Postgres RPC
- * (insert Storno + line items + mark original corrected). No separate cancelled step.
+ * Storno: after confirm, createStornorechnung runs a single atomic Postgres RPC.
+ * Branch: after Storno, createBranchDraft copies the corrected original into a new draft.
  */
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Send, CheckCircle, XCircle, Pencil } from 'lucide-react';
+import {
+  Loader2,
+  Send,
+  CheckCircle,
+  XCircle,
+  Pencil,
+  FilePlus2
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,12 +48,103 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   useUpdateInvoiceStatus,
-  useCreateStornorechnung
+  useCreateStornorechnung,
+  useCreateBranchDraft,
+  useBranchDraftExists
 } from '../../hooks/use-invoice';
 import type { InvoiceDetail, InvoiceStatus } from '../../types/invoice.types';
 
 interface InvoiceActionsProps {
   invoice: InvoiceDetail;
+}
+
+function BranchDraftButton({
+  originalInvoiceId,
+  companyId,
+  disabled,
+  isWorking
+}: {
+  originalInvoiceId: string;
+  companyId: string;
+  disabled: boolean;
+  isWorking: boolean;
+}) {
+  const router = useRouter();
+  const createBranch = useCreateBranchDraft(originalInvoiceId);
+  const [branchStep, setBranchStep] = useState<'idle' | 'creating'>('idle');
+
+  const handleBranch = async () => {
+    try {
+      setBranchStep('creating');
+      const { branchDraftId } = await createBranch.mutateAsync({
+        originalInvoiceId,
+        companyId
+      });
+      router.push(`/dashboard/invoices/${branchDraftId}/edit`);
+    } finally {
+      setBranchStep('idle');
+    }
+  };
+
+  const buttonLabel =
+    branchStep === 'creating'
+      ? 'Korrekturrechnung wird erstellt…'
+      : 'Neue Rechnung erstellen';
+
+  if (disabled) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className='inline-flex w-full'>
+              <Button variant='outline' className='w-full gap-2' disabled>
+                <FilePlus2 className='h-4 w-4' />
+                {buttonLabel}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            Für diese Rechnung wurde bereits eine Korrekturrechnung erstellt.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant='outline'
+          className='w-full gap-2'
+          disabled={isWorking || createBranch.isPending}
+        >
+          {branchStep !== 'idle' || createBranch.isPending ? (
+            <Loader2 className='h-4 w-4 animate-spin' />
+          ) : (
+            <FilePlus2 className='h-4 w-4' />
+          )}
+          {buttonLabel}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Neue Rechnung erstellen?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Es wird ein neuer Rechnungsentwurf mit den Beträgen der stornierten
+            Rechnung erstellt. Sie können den Entwurf anschließend im Builder
+            anpassen und erneut ausstellen.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          <AlertDialogAction onClick={handleBranch}>
+            Ja, Entwurf erstellen
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 /**
@@ -53,21 +157,28 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
   const updateStatus = useUpdateInvoiceStatus(invoice.id);
   const createStorno = useCreateStornorechnung(invoice.id);
 
-  // why: the "Bearbeiten" entry is gated by the per-payer revision flag AND draft
-  // status. Non-draft invoices never reach here (terminal-state guard returns null
-  // for paid/cancelled/corrected; sent never shows it because of the draft check),
-  // mirroring the route + RPC server-side guards exactly — no client-only access.
+  // why: Stornorechnung rows are draft + cancels_invoice_id — must not show Stornieren/Bearbeiten.
+  const isStornoDocument = invoice.cancels_invoice_id != null;
+
+  const branchOriginalId =
+    invoice.status === 'corrected'
+      ? invoice.id
+      : isStornoDocument
+        ? invoice.cancels_invoice_id
+        : null;
+
+  const branchExistsQuery = useBranchDraftExists(branchOriginalId);
+  const branchAlreadyExists = branchExistsQuery.data === true;
+
+  // why: branch drafts bypass revision_invoices_enabled on the edit route; normal drafts need the flag.
   const canEditDraft =
     invoice.status === 'draft' &&
+    !isStornoDocument &&
     invoice.payer?.revision_invoices_enabled === true;
 
   const isWorking =
     updateStatus.isPending || createStorno.isPending || stornoStep !== 'idle';
 
-  /**
-   * Previously: updateInvoiceStatus('cancelled') then createStornorechnung.
-   * Now one RPC atomically creates the Storno and marks the original corrected.
-   */
   const handleStorno = async () => {
     try {
       setStornoStep('creating');
@@ -80,14 +191,28 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
     }
   };
 
-  // No actions for terminal states
-  if (['paid', 'cancelled', 'corrected'].includes(invoice.status)) {
+  // why: paid/cancelled are terminal — no Storno or branch actions remain.
+  if (['paid', 'cancelled'].includes(invoice.status)) {
     return null;
+  }
+
+  const branchButton =
+    branchOriginalId != null ? (
+      <BranchDraftButton
+        originalInvoiceId={branchOriginalId}
+        companyId={invoice.company_id}
+        disabled={branchAlreadyExists}
+        isWorking={isWorking}
+      />
+    ) : null;
+
+  // why: corrected originals only offer the branch path — no sent/paid/storno actions.
+  if (invoice.status === 'corrected') {
+    return <div className='space-y-2'>{branchButton}</div>;
   }
 
   return (
     <div className='space-y-2'>
-      {/* Bearbeiten — draft + payer revision flag only */}
       {canEditDraft && (
         <Button
           variant='outline'
@@ -100,7 +225,6 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
         </Button>
       )}
 
-      {/* Mark as sent (draft only) */}
       {invoice.status === 'draft' && (
         <Button
           className='w-full gap-2'
@@ -116,7 +240,6 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
         </Button>
       )}
 
-      {/* Mark as paid (sent only) */}
       {invoice.status === 'sent' && (
         <Button
           className='w-full gap-2'
@@ -132,47 +255,49 @@ export function InvoiceActions({ invoice }: InvoiceActionsProps) {
         </Button>
       )}
 
-      {/* Stornieren — draft + sent */}
-      {(['draft', 'sent'] as InvoiceStatus[]).includes(invoice.status) && (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              variant='outline'
-              className='text-destructive w-full gap-2'
-              disabled={isWorking}
-            >
-              {isWorking && stornoStep !== 'idle' ? (
-                <Loader2 className='h-4 w-4 animate-spin' />
-              ) : (
-                <XCircle className='h-4 w-4' />
-              )}
-              {stornoStep === 'creating'
-                ? 'Stornorechnung wird erstellt…'
-                : 'Stornieren'}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Rechnung stornieren?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Rechnung <strong>{invoice.invoice_number}</strong> wird
-                storniert. Es wird automatisch eine Stornorechnung mit negativen
-                Beträgen erstellt. Dieser Vorgang kann nicht rückgängig gemacht
-                werden.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-              <AlertDialogAction
-                className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                onClick={handleStorno}
+      {(['draft', 'sent'] as InvoiceStatus[]).includes(invoice.status) &&
+        !isStornoDocument && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant='outline'
+                className='text-destructive w-full gap-2'
+                disabled={isWorking}
               >
-                Ja, stornieren
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+                {isWorking && stornoStep !== 'idle' ? (
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                ) : (
+                  <XCircle className='h-4 w-4' />
+                )}
+                {stornoStep === 'creating'
+                  ? 'Stornorechnung wird erstellt…'
+                  : 'Stornieren'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Rechnung stornieren?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Rechnung <strong>{invoice.invoice_number}</strong> wird
+                  storniert. Es wird automatisch eine Stornorechnung mit
+                  negativen Beträgen erstellt. Dieser Vorgang kann nicht
+                  rückgängig gemacht werden.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                <AlertDialogAction
+                  className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                  onClick={handleStorno}
+                >
+                  Ja, stornieren
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+
+      {branchButton}
     </div>
   );
 }

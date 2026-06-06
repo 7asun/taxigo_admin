@@ -1518,6 +1518,7 @@ export type Database = {
           approach_fee_net: number | null;
           manual_distance_km: number | null;
           manual_gross_price: number | null;
+          manual_tax_rate: number | null;
           billing_type_id: string | null;
           requested_date: string | null;
           return_status: string | null;
@@ -1594,6 +1595,7 @@ export type Database = {
           approach_fee_net?: number | null;
           manual_distance_km?: number | null;
           manual_gross_price?: number | null;
+          manual_tax_rate?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;
@@ -1662,6 +1664,7 @@ export type Database = {
           approach_fee_net?: number | null;
           manual_distance_km?: number | null;
           manual_gross_price?: number | null;
+          manual_tax_rate?: number | null;
           billing_type_id?: string | null;
           requested_date?: string | null;
           return_status?: string | null;
@@ -1940,6 +1943,14 @@ export type Database = {
           p_subtotal: number;
           p_tax_amount: number;
           p_total: number;
+        };
+        Returns: string;
+      };
+      create_branch_draft_from_invoice: {
+        Args: {
+          p_company_id: string;
+          p_original_invoice_id: string;
+          p_branch_invoice_number: string;
         };
         Returns: string;
       };

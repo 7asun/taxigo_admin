@@ -21,7 +21,6 @@ export function buildTripWriteBackPatch(
 
   return {
     gross_price: gross,
-    tax_rate: item.tax_rate,
     base_net_price: baseNet,
     approach_fee_net: approachNet,
     ...(item.isManualOverride && item.manualGrossTotal !== null
@@ -29,6 +28,9 @@ export function buildTripWriteBackPatch(
       : {}),
     ...(item.isManualKmOverride && item.manualDistanceKm != null
       ? { manual_distance_km: item.manualDistanceKm }
+      : {}),
+    ...(item.isManualTaxRateOverride === true
+      ? { manual_tax_rate: item.tax_rate }
       : {})
   };
 }
@@ -43,7 +45,7 @@ function failedSyncItemFromLine(
     client_name: item.client_name,
     line_date: item.line_date,
     gross_price: patch.gross_price,
-    tax_rate: patch.tax_rate,
+    tax_rate: item.tax_rate,
     patch
   };
 }

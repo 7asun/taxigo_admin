@@ -62,6 +62,7 @@ export const EXAMPLE_INVOICE_REHA_ZENTRUM: InvoiceDetail = {
   paid_at: null,
   cancelled_at: null,
   cancels_invoice_id: null,
+  replaces_invoice_id: null,
   rechnungsempfaenger_id: '44444444-4444-4444-4444-444444444444',
   rechnungsempfaenger_snapshot: {
     name: 'Reha-Zentrum am Meer',

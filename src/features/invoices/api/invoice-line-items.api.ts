@@ -22,7 +22,7 @@ import {
 } from '@/features/payers/api/billing-pricing-rules.api';
 import { createClient } from '@/lib/supabase/client';
 import { toQueryError } from '@/lib/supabase/to-query-error';
-import { resolveTaxRate } from '../lib/tax-calculator';
+import { resolveEffectiveTaxRate } from '../lib/resolve-effective-tax-rate';
 import { resolvePricingRule } from '../lib/resolve-pricing-rule';
 import { resolveTripPrice as resolveTripPricePure } from '../lib/resolve-trip-price';
 import {
@@ -297,6 +297,8 @@ export async function fetchTripsForBuilder(
       manual_gross_price,
       driving_distance_km,
       manual_distance_km,
+      manual_tax_rate,
+      tax_rate,
       billing_variant_id,
       pickup_address,
       dropoff_address,
@@ -420,6 +422,8 @@ export async function fetchCancelledTripsForBuilder(
       manual_gross_price,
       driving_distance_km,
       manual_distance_km,
+      manual_tax_rate,
+      tax_rate,
       billing_variant_id,
       kts_document_applies,
       no_invoice_required,
@@ -491,7 +495,11 @@ export function buildCancelledTripBillingState(
     clientKmOverrides
   });
 
-  const { rate: taxRate } = resolveTaxRate(effectiveDistanceKm);
+  const taxRate = resolveEffectiveTaxRate({
+    manualTaxRate: trip.manual_tax_rate ?? null,
+    taxRate: null,
+    effectiveDistanceKm
+  });
 
   const rule = resolvePricingRule({
     rules,
@@ -616,7 +624,11 @@ export function buildLineItemsFromTrips(
       clientKmOverrides
     });
 
-    const { rate: taxRate } = resolveTaxRate(effectiveDistanceKm);
+    const taxRate = resolveEffectiveTaxRate({
+      manualTaxRate: trip.manual_tax_rate ?? null,
+      taxRate: trip.tax_rate ?? null,
+      effectiveDistanceKm
+    });
 
     const rule = resolvePricingRule({
       rules,

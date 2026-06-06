@@ -27,6 +27,33 @@ Because invoices are immutable, any mistake requires a formal cancellation (**St
   3. Updates the original invoice to `status = 'corrected'` and sets `cancelled_at` / `updated_at`.
 - There is **no** separate `updateInvoiceStatus('cancelled')` step; if any step fails, Postgres rolls back all of them.
 
+### 1.2.1 Branch draft flow (corrective invoice after Storno)
+
+After Storno, the original invoice is `corrected` and a negative Stornorechnung exists as `draft`. To issue a replacement invoice, the dispatcher creates a **branch draft**:
+
+1. **UI:** On the corrected original or on the Stornorechnung detail page, **Neue Rechnung erstellen** calls [`createBranchDraft`](../src/features/invoices/api/invoices.api.ts) → Postgres **`create_branch_draft_from_invoice`** (single transaction).
+2. **RPC:** Loads the `corrected` original, inserts a new `draft` header with **positive** totals copied from the original, sets `replaces_invoice_id` → original id, copies all `invoice_line_items` verbatim (including distance/tax snapshots and billing-inclusion columns), and returns the new draft id.
+3. **Edit route:** Branch drafts (`replaces_invoice_id IS NOT NULL`) **bypass** `payers.revision_invoices_enabled` on [`/dashboard/invoices/[id]/edit`](../src/app/dashboard/invoices/[id]/edit/page.tsx) — corrective work must not depend on the per-payer revision flag.
+4. **Uniqueness:** Partial unique index on `replaces_invoice_id` — at most one branch draft per corrected original; the button is disabled with a tooltip when one already exists.
+
+**Storno detail guards** ([`invoice-actions.tsx`](../src/features/invoices/components/invoice-detail/invoice-actions.tsx)): Stornorechnung rows (`cancels_invoice_id != null`) hide **Stornieren** and **Bearbeiten** but keep **Als versendet markieren** and show **Neue Rechnung erstellen** (RPC target = `cancels_invoice_id`).
+
+### 1.2.2 Trip override write-back (`manual_tax_rate`)
+
+After invoice create or draft save, [`executeTripWriteBack`](../src/features/invoices/lib/trip-write-back.ts) writes invoice-confirmed pricing to included trip rows:
+
+| Trip column | Write-back rule |
+|-------------|-----------------|
+| `manual_tax_rate` | Set **only** when Step 3 `isManualTaxRateOverride === true` |
+| `manual_distance_km` | Set when `isManualKmOverride` (unchanged) |
+| `manual_gross_price` | Set when `isManualOverride` (unchanged) |
+| `base_net_price`, `approach_fee_net`, `gross_price` | Always written from confirmed line pricing |
+| **`tax_rate`, `net_price`, `driving_distance_km`** | **Never** written from invoice flows |
+
+**Rebuild honouring overrides:** [`resolveEffectiveTaxRate`](../src/features/invoices/lib/resolve-effective-tax-rate.ts) prefers `trips.manual_tax_rate` over distance-based §12 UStG tiering when building new invoice lines via [`buildLineItemsFromTrips`](../src/features/invoices/api/invoice-line-items.api.ts).
+
+Migration: [`20260605120000_trips_manual_tax_rate.sql`](../supabase/migrations/20260605120000_trips_manual_tax_rate.sql).
+
 ### 1.3 Invoice numbers (`RE-YYYY-MM-NNNN`)
 
 Human-readable numbers are generated in [`src/features/invoices/lib/invoice-number.ts`](src/features/invoices/lib/invoice-number.ts) at **final insert time** (new invoice or Stornorechnung), using the machine date at that moment as the **issue month**:
@@ -95,8 +122,8 @@ The save path closes the loop: an edited draft re-persists through the RPC with 
   - **Step C** updates **only draft-safe meta** (`intro_block_id`, `outro_block_id`, `payment_due_days`, `rechnungsempfaenger_id`, snapshot, `pdf_column_override`) with `.eq('id', …).eq('status','draft')` as defence in depth. It **never** touches `invoice_number`, `payer_id`, `company_id`, `mode`, `billing_*`, `period_*`, `client_id`, `status`, or totals.
 - **Hook save branch** [`use-invoice-builder.ts`](../src/features/invoices/hooks/use-invoice-builder.ts): `updateMutation` mirrors `createMutation` (same step-4 meta resolution, same fire-and-forget trip writeback) but routes through `updateDraftInvoice`. `onSuccess` invalidates `invoiceKeys.all` + `full(id)` + `revenueTotal`, toasts, and navigates via the reused `onCreated(id)` callback (navigation-only — same detail target; not renamed to avoid changing the create-shared signature). Exposes `updateInvoice` / `isSaving`. The create flow is functionally unchanged.
 - **Shell submit** branches `isEditMode ? updateInvoice(…) : createInvoice(…)` on the same confirm UI. Button label: `Änderungen speichern` / `Speichere Änderungen…` (edit) vs `Rechnung erstellen` / `Erstelle Rechnung…` (create); disabled on `isCreating || isSaving`.
-- **Edit route** [`/dashboard/invoices/[id]/edit/page.tsx`](../src/app/dashboard/invoices/%5Bid%5D/edit/page.tsx) mirrors `new/page.tsx` reference data **plus a server-side guard**: the invoice must exist, be `status='draft'`, and belong to a payer with `revision_invoices_enabled = true`; otherwise `redirect('/dashboard/invoices/[id]')`. RLS already scopes the read to the company. This aligns with the RPC's own `draft` constraint — the capability is never reachable client-only.
-- **Entry point** [`invoice-actions.tsx`](../src/features/invoices/components/invoice-detail/invoice-actions.tsx): a "Bearbeiten" button (Pencil) renders **only** when `status==='draft'` **and** `payer.revision_invoices_enabled === true`, routing to the edit route. Never shown for sent/paid/cancelled/corrected (terminal-state guard + draft check). `getInvoiceDetail` now selects `payers.revision_invoices_enabled` to supply the flag.
+- **Edit route** [`/dashboard/invoices/[id]/edit/page.tsx`](../src/app/dashboard/invoices/%5Bid%5D/edit/page.tsx) mirrors `new/page.tsx` reference data **plus a server-side guard**: the invoice must exist, be `status='draft'`, and either be a **branch draft** (`replaces_invoice_id IS NOT NULL`) or belong to a payer with `revision_invoices_enabled = true`; otherwise `redirect('/dashboard/invoices/[id]')`. RLS already scopes the read to the company. This aligns with the RPC's own `draft` constraint — the capability is never reachable client-only.
+- **Entry point** [`invoice-actions.tsx`](../src/features/invoices/components/invoice-detail/invoice-actions.tsx): a "Bearbeiten" button (Pencil) renders **only** when `status==='draft'`, `cancels_invoice_id` is null, **and** `payer.revision_invoices_enabled === true`, routing to the edit route. **Neue Rechnung erstellen** appears on `corrected` originals and Stornorechnung detail pages (see §1.2.1). Never shown for sent/paid/cancelled terminal states. `getInvoiceDetail` selects `payers.revision_invoices_enabled` to supply the flag.
 
 ---
 
