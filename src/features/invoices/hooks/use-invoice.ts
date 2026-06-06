@@ -24,6 +24,8 @@ import { useBreadcrumbStore } from '@/hooks/use-breadcrumb-store';
 import {
   getInvoiceDetail,
   updateInvoiceStatus,
+  createBranchDraft,
+  branchDraftExistsForOriginal,
   type InvoiceStatusTransition
 } from '../api/invoices.api';
 import { enrichInvoiceDetailWithColumnProfile } from '../lib/enrich-invoice-detail-column-profile';
@@ -228,6 +230,58 @@ export function useCreateStornorechnung(originalId: string) {
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
       toast.error('Stornorechnung konnte nicht erstellt werden: ' + message);
+    }
+  });
+}
+
+/**
+ * Query hook — whether a corrective branch draft already exists for the original.
+ */
+export function useBranchDraftExists(originalInvoiceId: string | null) {
+  return useQuery({
+    queryKey: originalInvoiceId
+      ? invoiceKeys.branchDraftExists(originalInvoiceId)
+      : ['invoices', 'branch-draft-exists', 'skip'],
+    queryFn: () => branchDraftExistsForOriginal(originalInvoiceId!),
+    enabled: originalInvoiceId != null
+  });
+}
+
+/**
+ * Mutation hook for creating a corrective branch draft after Storno.
+ */
+export function useCreateBranchDraft(originalId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      originalInvoiceId,
+      companyId
+    }: {
+      originalInvoiceId: string;
+      companyId: string;
+    }) => createBranchDraft(originalInvoiceId, companyId),
+
+    onSuccess: ({ branchDraftId }, { originalInvoiceId }) => {
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: invoiceKeys.full(originalId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: invoiceKeys.full(originalInvoiceId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: invoiceKeys.full(branchDraftId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: invoiceKeys.branchDraftExists(originalInvoiceId)
+      });
+      toast.success('Korrekturrechnung wurde als Entwurf erstellt.');
+    },
+
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      toast.error('Korrekturrechnung konnte nicht erstellt werden: ' + message);
     }
   });
 }

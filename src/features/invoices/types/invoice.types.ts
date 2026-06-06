@@ -100,6 +100,8 @@ export interface InvoiceRow {
   paid_at: string | null;
   cancelled_at: string | null;
   cancels_invoice_id: string | null; // FK to original invoice (Stornorechnung chain)
+  /** FK to the storniert original — set on corrective branch drafts only. */
+  replaces_invoice_id: string | null;
   rechnungsempfaenger_id: string | null;
   /** Frozen recipient JSON at creation — §14 UStG; do not mutate after issue. */
   rechnungsempfaenger_snapshot: Record<string, unknown> | null;
@@ -298,7 +300,11 @@ export interface TripForInvoice {
   manual_gross_price: number | null;
   /** Admin KM override on trip; Phase 2 writeback. NULL = use routing / client catalog. */
   manual_distance_km: number | null;
+  /** Admin tax override from invoice write-back; NULL = distance-based §12 UStG tiering. */
+  manual_tax_rate?: number | null;
   driving_distance_km: number | null; // for tax rate calculation
+  /** Billing-engine value at trip creation — not overwritten by invoice flows. */
+  tax_rate?: number | null;
   billing_variant_id: string | null;
   payer?: {
     rechnungsempfaenger_id: string | null;
@@ -380,6 +386,7 @@ export interface CancelledTripRow {
   approach_fee_net?: number | null;
   manual_gross_price?: number | null;
   manual_distance_km?: number | null;
+  manual_tax_rate?: number | null;
   driving_distance_km?: number | null;
   billing_variant_id?: string | null;
   kts_document_applies?: boolean;
@@ -749,11 +756,12 @@ export interface TaxBreakdown {
  */
 export interface TripWriteBackPatch {
   gross_price: number | null;
-  tax_rate: number;
   base_net_price: number | null;
   approach_fee_net: number;
   manual_gross_price?: number;
   manual_distance_km?: number;
+  /** Set only when the builder line had isManualTaxRateOverride — never writes trips.tax_rate. */
+  manual_tax_rate?: number;
 }
 
 /**
@@ -766,7 +774,7 @@ export interface FailedSyncItem {
   line_date: string | null;
   /** Display only — from `patch.gross_price` at failure time. */
   gross_price: number | null;
-  /** Display only — from `patch.tax_rate` at failure time. */
+  /** Display only — line-item tax_rate at failure time (not trips.tax_rate). */
   tax_rate: number;
   /**
    * why: captured at invoice save time — retry must not re-read builder state

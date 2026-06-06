@@ -330,6 +330,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     paid_at: null,
     cancelled_at: null,
     cancels_invoice_id: null,
+    replaces_invoice_id: null,
     rechnungsempfaenger_id: recipientRow?.id ?? null,
     rechnungsempfaenger_snapshot: snap,
     client_reference_fields_snapshot: clientReferenceFieldsSnapshot,

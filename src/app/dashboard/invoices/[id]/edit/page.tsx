@@ -40,7 +40,9 @@ export default async function EditInvoicePage({
   // Guard query first: cheap status + flag check before loading builder context.
   const { data: invoice } = await supabase
     .from('invoices')
-    .select('id, status, payer:payers(revision_invoices_enabled)')
+    .select(
+      'id, status, replaces_invoice_id, payer:payers(revision_invoices_enabled)'
+    )
     .eq('id', id)
     .single();
 
@@ -48,10 +50,13 @@ export default async function EditInvoicePage({
     (invoice?.payer as { revision_invoices_enabled?: boolean } | null)
       ?.revision_invoices_enabled === true;
 
-  // why: only editable drafts for flag-enabled payers may enter the builder;
-  // everything else (not found, non-draft, flag off) returns to the read-only
-  // detail page.
-  if (!invoice || invoice.status !== 'draft' || !payerFlagEnabled) {
+  const isBranchDraft = invoice?.replaces_invoice_id != null;
+  // why: branch drafts bypass revision_invoices_enabled — corrective work after Storno;
+  // all other draft re-opens still require the per-payer flag.
+  const canEdit =
+    invoice?.status === 'draft' && (isBranchDraft || payerFlagEnabled);
+
+  if (!invoice || !canEdit) {
     redirect(`/dashboard/invoices/${id}`);
   }
 

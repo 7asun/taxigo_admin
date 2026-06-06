@@ -507,6 +507,56 @@ export async function saveInvoiceEmailDraft(
   if (error) throw toQueryError(error);
 }
 
+// ─── Branch draft (corrective invoice after Storno) ───────────────────────────
+
+/**
+ * Returns whether a branch draft already exists for the storniert original.
+ * Used to disable "Neue Rechnung erstellen" on corrected / Storno detail pages.
+ */
+export async function branchDraftExistsForOriginal(
+  originalInvoiceId: string
+): Promise<boolean> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('id')
+    .eq('replaces_invoice_id', originalInvoiceId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw toQueryError(error);
+  return data != null;
+}
+
+/**
+ * Creates a corrective branch draft from a status='corrected' original invoice.
+ * Atomic via `create_branch_draft_from_invoice` RPC (header + line copy).
+ */
+export async function createBranchDraft(
+  originalInvoiceId: string,
+  companyId: string
+): Promise<{ branchDraftId: string }> {
+  const supabase = createClient();
+  const branchInvoiceNumber = await generateNextInvoiceNumber();
+
+  const { data: branchDraftId, error } = await supabase.rpc(
+    'create_branch_draft_from_invoice',
+    {
+      p_company_id: companyId,
+      p_original_invoice_id: originalInvoiceId,
+      p_branch_invoice_number: branchInvoiceNumber
+    }
+  );
+
+  if (error || branchDraftId == null) {
+    throw new Error(
+      `Korrekturrechnung konnte nicht erstellt werden: ${error?.message ?? 'keine Antwort'}`
+    );
+  }
+
+  return { branchDraftId: branchDraftId as string };
+}
+
 // ─── Bank reconciliation lookup ────────────────────────────────────────────────
 
 /**
