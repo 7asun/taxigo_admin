@@ -15,7 +15,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { resolveTripsFilterDateYmd } from '@/lib/driver-availability';
+import { useDriversWithAvailability } from '@/hooks/useDriversWithAvailability';
 import { TripsRscRefreshChrome } from '@/features/trips/components/trips-rsc-refresh-chrome';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import {
@@ -79,6 +82,20 @@ interface TripsKanbanBoardProps {
  */
 export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const kanbanDateYmd = resolveTripsFilterDateYmd(
+    searchParams.get('scheduled_at')
+  );
+  const {
+    dataMap: availabilityMap,
+    isError: availabilityError,
+    isLoading: availabilityLoading
+  } = useDriversWithAvailability(kanbanDateYmd);
+
+  // WHY graceful degradation: Kanban must never block on plan/availability fetch failure.
+  const availabilityForColumns =
+    !availabilityLoading && !availabilityError ? availabilityMap : undefined;
+
   const { refreshTripsPage } = useTripsRscRefresh();
   const { drivers, isLoading: isFormDataLoading } = useTripFormData();
   const { pendingChanges, setPendingChanges, clearPendingChanges, pruneToIds } =
@@ -250,8 +267,14 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   // ── Columns & layout ────────────────────────────────────────────────────────
 
   const columns: KanbanColumn[] = useMemo(
-    () => buildColumns(visibleTrips, groupBy, drivers),
-    [visibleTrips, groupBy, drivers]
+    () =>
+      buildColumns(
+        visibleTrips,
+        groupBy,
+        drivers,
+        groupBy === 'driver' ? availabilityForColumns : undefined
+      ),
+    [visibleTrips, groupBy, drivers, availabilityForColumns]
   );
 
   const itemsByColumn = useMemo(

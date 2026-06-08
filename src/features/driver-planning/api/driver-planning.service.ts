@@ -5,10 +5,6 @@
  * requireAdminContext() is the first call in every export (same boundary as shift-reconciliations).
  */
 
-import {
-  getZonedDayBoundsIso,
-  instantToYmdInBusinessTz
-} from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/server';
 import { toQueryError } from '@/lib/supabase/to-query-error';
 import type {
@@ -168,36 +164,20 @@ export async function getCompanyWeekPlan(
 }
 
 /**
- * Read-only overlay: dates in the week where the driver has an ended shift row.
- * WHY read shifts: compare plan vs actual without writing to driver-owned shift tables.
+ * Read-only overlay: Berlin YMD dates in the week where the driver has a shift row.
+ * WHY thin wrapper: company week batch is the single shift read path for roster overlay.
  */
 export async function getActualShiftDatesForWeek(
   driverId: string,
   weekStartYmd: string
 ): Promise<string[]> {
-  const { supabase, companyId } = await requireAdminContext();
-  const weekEndYmd = getWeekEndYmd(weekStartYmd);
-  const { startISO } = getZonedDayBoundsIso(weekStartYmd);
-  const { endExclusiveISO } = getZonedDayBoundsIso(weekEndYmd);
-
-  const { data, error } = await supabase
-    .from('shifts')
-    .select('started_at')
-    .eq('company_id', companyId)
-    .eq('driver_id', driverId)
-    .eq('status', 'ended')
-    .gte('started_at', startISO)
-    .lt('started_at', endExclusiveISO);
-
-  if (error) throw toQueryError(error);
-
-  const dates = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.started_at) {
-      dates.add(instantToYmdInBusinessTz(new Date(row.started_at).getTime()));
-    }
-  }
-  return [...dates].sort();
+  const { getCompanyWeekShiftsMap } = await import(
+    '@/lib/driver-availability.server'
+  );
+  const map = await getCompanyWeekShiftsMap(weekStartYmd);
+  const byDate = map.get(driverId);
+  if (!byDate) return [];
+  return [...byDate.keys()].sort();
 }
 
 function normalizeTimesForStatus(

@@ -110,6 +110,7 @@ export async function saveIstZeitInlineAction(
   try {
     await saveIstZeitInline(params);
     revalidatePath(RECONCILIATIONS_PATH);
+    revalidatePath('/dashboard/fahrerschichtplanung');
     return { success: true };
   } catch (err) {
     if (err instanceof Error && err.message === 'IST_ZEIT_INCOMPLETE') {

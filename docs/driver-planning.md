@@ -166,14 +166,8 @@ src/features/driver-planning/
 - **Driver filter:** optional `?driver=` narrows visible rows; **Besetzt** footer still counts all company `working` plans for the week (not filter-scoped).
 - **Row totals:** `calcWeekHours` sums `PLAN_STATUSES_WITH_TIMES` rows with both times (German `8,5 h` format).
 - **Column footer:** **Besetzt** counts drivers with `status = 'working'` per day.
-- **Date math:** all calendar keys use `Europe/Berlin` helpers from [`trip-business-date.ts`](../src/features/trips/lib/trip-business-date.ts) and [`week-dates.ts`](../src/features/driver-planning/lib/week-dates.ts).
-
-## Deferred
-
-- Auto week jump after create-dialog save when plan date is outside visible week
-- Planned break field on `driver_day_plans` (Phase 3B)
-- Bulk edit / week copy / recurring templates / multi-day selection (Phase 3B)
-- **Ist overlay** for all drivers on roster grid (Phase 4B — read display only)
+- **Roster Ist overlay (Phase 4B — shipped):** cells show `Ist: HH:MM – HH:MM` when a `shifts` row exists for that day (via `useCompanyWeekShifts`). Plan badge and planned times unchanged. See [`docs/driver-availability.md`](driver-availability.md).
+- **Cross-invalidation:** saving Ist-Zeit from Schichtzettel-Abgleich calls `revalidatePath('/dashboard/fahrerschichtplanung')` and invalidates availability query caches.
 - `calcWeekHours` net-of-break deduction
 - `shift_reconciliations` integration with admin shift entry
 - Single-driver card view toggle, monthly view

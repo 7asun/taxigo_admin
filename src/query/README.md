@@ -29,6 +29,9 @@ The global default is set in [`query-client.ts`](query-client.ts). While data is
 | Key | Purpose | Owning feature / hook | Invalidation triggers |
 |-----|---------|----------------------|------------------------|
 | `referenceKeys.allBillingPricingRules()` | All `billing_pricing_rules` for the session company with joined payer / Familie / Unterart names (Preisregeln catalog) | [`useAllPricingRules`](../features/payers/hooks/use-all-pricing-rules.ts) | After create/update/delete via that hook; **`invalidatePricingRuleCaches`** also runs when `PricingRuleDialog` saves from the catalog (same helper). Always invalidate **`['reference', 'billingPricingRules']`** in the same breath so per-payer Kostenträger caches refetch. |
+| `driverAvailabilityKeys.day(driverId, dateYmd)` | Single driver day context (plan + shift + derived dispatchability) | [`useDriverAvailability`](../src/hooks/useDriverAvailability.ts) | Plan upsert/delete; shift save/delete (planning + reconciliation). Prefix: `driverAvailabilityKeys.root`. |
+| `driverAvailabilityKeys.driversDay(dateYmd)` | All active drivers for one Berlin date | [`useDriversWithAvailability`](../src/hooks/useDriversWithAvailability.ts) | Same as above. Prefix: `['drivers-availability']`. |
+| `companyWeekShiftsKeys.week(weekStartYmd)` | Week batch of shift summaries for roster Ist overlay | [`useCompanyWeekShifts`](../src/features/driver-planning/hooks/use-driver-week-plan.ts) | Shift save/delete. See [`docs/driver-availability.md`](../docs/driver-availability.md). |
 
 ### Kostenträger: two query keys (admin vs trip UI)
 
