@@ -243,6 +243,30 @@ export async function createAdminShiftForDriver(
   return { shiftId: shift.id };
 }
 
-export async function deleteAdminShift(shiftId: string): Promise<void> {
-  await deleteShiftAndEvents(shiftId);
+/**
+ * Removes admin-entered shift for a driver on a Berlin calendar day.
+ * Idempotent when no shift exists. Events deleted explicitly (no ON DELETE CASCADE on shift_events.shift_id).
+ */
+export async function deleteAdminShift(
+  driverId: string,
+  date: string
+): Promise<void> {
+  const { supabase, companyId } = await requireAdminContext();
+  const { startISO, endExclusiveISO } = getZonedDayBoundsIso(date);
+
+  const { data: shift, error } = await supabase
+    .from('shifts')
+    .select('id')
+    .eq('driver_id', driverId)
+    .eq('company_id', companyId)
+    .gte('started_at', startISO)
+    .lt('started_at', endExclusiveISO)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw toQueryError(error);
+  if (!shift) return;
+
+  await deleteShiftAndEvents(shift.id);
 }

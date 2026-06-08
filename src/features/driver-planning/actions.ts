@@ -5,6 +5,7 @@
  * Delegates only to driver-planning.service — no data access here.
  */
 
+import { reopenReconciliationAction } from '@/features/shift-reconciliations/actions';
 import {
   createAdminShiftForDriver,
   deleteAdminShift,
@@ -80,11 +81,19 @@ export async function createAdminShiftAction(
 }
 
 export async function deleteAdminShiftAction(
-  shiftId: string
-): Promise<{ success: true } | { success: false; error: string }> {
+  driverId: string,
+  date: string
+): Promise<{ success: boolean; error?: string }> {
   try {
-    await deleteAdminShift(shiftId);
+    await deleteAdminShift(driverId, date);
+    revalidatePath('/dashboard/shift-reconciliations');
     revalidatePath('/dashboard/fahrerschichtplanung');
+
+    const reopenResult = await reopenReconciliationAction(driverId, date);
+    if (!reopenResult.success && reopenResult.error !== 'NOT_FOUND') {
+      // Delete succeeded; reopen is best-effort for completed reconciliations.
+    }
+
     return { success: true };
   } catch {
     return { success: false, error: 'UNKNOWN' };

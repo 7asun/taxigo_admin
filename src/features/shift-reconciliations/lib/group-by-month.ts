@@ -10,7 +10,7 @@ export function groupByMonth(
 ): { monthLabel: string; days: ShiftDaySummary[] }[] {
   const groups: { monthLabel: string; days: ShiftDaySummary[] }[] = [];
   for (const day of summaries) {
-    const d = parseYmdToLocalDate(day.shift_date);
+    const d = parseYmdToLocalDate(day.date);
     if (!d) continue;
     const monthLabel = new Intl.DateTimeFormat('de-DE', {
       month: 'long',

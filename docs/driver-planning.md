@@ -39,6 +39,8 @@ Admins can create, overwrite, and delete **shift actuals** (`shifts` + `shift_ev
 | Cell entry | Popover **Ist-Zeit** tab → `AdminShiftEntryForm` |
 | Backfill | Toolbar **Schicht erfassen** → `AdminShiftEntrySheet` (any driver + date) |
 
+**Phase A cross-link:** Ist-Zeit tab in [`day-plan-edit-popover.tsx`](../src/features/driver-planning/components/day-plan-edit-popover.tsx) links to `/dashboard/shift-reconciliations?driver=&date=&mode=detail` for the full Schichtzettel workflow. See [`docs/shift-reconciliations.md`](shift-reconciliations.md) Phase A.
+
 ### Product decisions (Phase 4)
 
 | ID | Rule |

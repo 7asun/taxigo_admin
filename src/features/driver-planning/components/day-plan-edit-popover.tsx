@@ -18,6 +18,7 @@ import {
 } from '@/features/trips/lib/trip-business-date';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import Link from 'next/link';
 import { tz } from '@date-fns/tz';
 import type { RefObject } from 'react';
 import type { DriverDayPlan } from '../types';
@@ -122,6 +123,12 @@ export function DayPlanEditPopover({
               onSaved={() => onOpenChange(false)}
               onCancel={() => onOpenChange(false)}
             />
+            <Link
+              href={`/dashboard/shift-reconciliations?driver=${driverId}&date=${planDate}&mode=detail`}
+              className='text-muted-foreground mt-4 inline-block text-sm underline underline-offset-2'
+            >
+              Vollständigen Abgleich öffnen →
+            </Link>
           </TabsContent>
         </Tabs>
       </PopoverContent>

@@ -13,16 +13,21 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DatePicker } from '@/components/ui/date-time-picker';
 import type { DriverListItem } from '../api/shift-reconciliations.service';
 import { parseAsString, useQueryState } from 'nuqs';
 
 type ShiftReconciliationFiltersProps = {
   drivers: DriverListItem[];
+  showAllDays: boolean;
+  onShowAllDaysChange: (showAll: boolean) => void;
 };
 
 export function ShiftReconciliationFilters({
-  drivers
+  drivers,
+  showAllDays,
+  onShowAllDaysChange
 }: ShiftReconciliationFiltersProps) {
   const [driverId, setDriverId] = useQueryState('driver', parseAsString);
   const [dateYmd, setDateYmd] = useQueryState('date', parseAsString);
@@ -30,31 +35,59 @@ export function ShiftReconciliationFilters({
 
   return (
     <div className='flex flex-col gap-4 sm:flex-row sm:items-end'>
-      <div className='min-w-0 flex-1 space-y-2'>
-        <Label htmlFor='sr-driver'>Fahrer</Label>
-        <Select
-          value={driverId ?? '__none__'}
-          onValueChange={(v) => {
-            const id = v === '__none__' ? null : v;
-            void setDriverId(id);
-            void setDateYmd(null);
-            void setViewMode(null);
-          }}
-        >
-          <SelectTrigger id='sr-driver' className='w-full sm:max-w-md'>
-            <SelectValue placeholder='Fahrer wählen…' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='__none__' className='text-muted-foreground'>
-              Bitte wählen…
-            </SelectItem>
-            {drivers.map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.full_name}
+      <div className='flex min-w-0 flex-1 flex-col gap-4 sm:flex-row sm:items-end'>
+        <div className='min-w-0 flex-1 space-y-2'>
+          <Label htmlFor='sr-driver'>Fahrer</Label>
+          <Select
+            value={driverId ?? '__none__'}
+            onValueChange={(v) => {
+              const id = v === '__none__' ? null : v;
+              void setDriverId(id);
+              void setDateYmd(null);
+              void setViewMode(null);
+              onShowAllDaysChange(false);
+            }}
+          >
+            <SelectTrigger id='sr-driver' className='w-full sm:max-w-md'>
+              <SelectValue placeholder='Fahrer wählen…' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='__none__' className='text-muted-foreground'>
+                Bitte wählen…
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {drivers.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.full_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {driverId && (
+          <div className='space-y-2 sm:shrink-0'>
+            <ToggleGroup
+              type='single'
+              value={showAllDays ? 'alle' : 'fahrten'}
+              onValueChange={(value) => {
+                if (!value) return;
+                onShowAllDaysChange(value === 'alle');
+              }}
+              variant='outline'
+              aria-label='Ansicht'
+              className='h-9'
+            >
+              <ToggleGroupItem
+                value='fahrten'
+                className='px-3 text-xs sm:text-sm'
+              >
+                Mit Fahrten
+              </ToggleGroupItem>
+              <ToggleGroupItem value='alle' className='px-3 text-xs sm:text-sm'>
+                Alle Tage
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+        )}
       </div>
       <div className='w-full min-w-0 space-y-2 sm:w-56 sm:shrink-0'>
         <Label htmlFor='sr-date'>Datum (optional)</Label>

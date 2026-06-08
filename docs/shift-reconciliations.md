@@ -17,9 +17,72 @@ Admins review **trips** for a **driver** and **business-calendar day** against t
 
 - **`payers.accepts_self_payment`**: see Kostenträger detail sheet (**Fahrgast zahlt direkt (Schichtzettel)**).
 - **Family override:** Abrechnungsfamilie bearbeiten — **Selbstzahler (Abrechnungsfamilie)** (Vererben / Selbstzahler / Rechnung).
-- **`shift_reconciliations`**: one row per `(company_id, driver_id, date)`; `confirmed_by`, `confirmed_at`, `notes`, optional `shift_id` (FK, nullable, `ON DELETE SET NULL`).
+- **`shift_reconciliations`**: one row per `(company_id, driver_id, date)`; `confirmed_by`, `confirmed_at`, `notes`, optional `shift_id` (FK, nullable, `ON DELETE SET NULL`), **`status`** (`open` | `completed`, default `completed`).
 
 **Deferred:** `billing_variants.accepts_self_payment` (per-Unterart override) is not implemented; add only if the business needs a third tier.
+
+## Phase A (shipped) — Unified Schichtzettel workspace
+
+One page processes the paper Schichtzettel without switching to Fahrerschichtplanung for trip sign-off.
+
+### List layout (State B)
+
+Each day is a **two-row inline card** (plus optional Phase B row placeholder):
+
+| Row | Content |
+| --- | --- |
+| **Row 1 — Ist-Zeit** | Inline `Beginn` / `Ende` / `Pause` (minutes); save on blur; **Arbeitsstunden** (e.g. `8,0 Std.`) and **€/h** when revenue and hours &gt; 0 |
+| **Row 2 — Fahrten** | Trip count, Selbstzahler/Rechnung split bar, total revenue, **Details →** link |
+| **Row 3 (Phase B)** | Comment placeholder in `shift-day-row.tsx` for `vehicle_shift_logs` — not implemented |
+
+**Day header:** date, status badge, **Abschließen** / **Erneut öffnen**.
+
+**Urlaub/Krank (`plan_only`):** plan badge only — no rows, no action.
+
+### Detail view (State C — `?driver&date&mode=detail`)
+
+Tabs: **Fahrten** · **Ist-Zeit** (`AdminShiftEntryForm`) · **Kilometer** (Phase B placeholder) · **Abschluss** (checklist + complete/reopen + notes).
+
+### Three list sources (`get_shift_day_summaries` RPC)
+
+| `day_type` | Source |
+| --- | --- |
+| `trips` | Assigned trips grouped by Berlin date |
+| `shift_only` | `shifts` row with zero assigned trips (D3) |
+| `plan_only` | `driver_day_plans` with `vacation` or `sick`, no trips |
+
+### `showIstZeit` (Option B → Option A path)
+
+- **Option B (now):** `showIstZeit={true}` hardcoded in `shift-day-list.tsx` only.
+- **Option A (future):** swap to `driver.requires_shift_times` from page props — **one assignment site**; row component reads `IstZeitRowProps.showIstZeit` only.
+
+### Product decisions (Phase A — not Phase 4 driver-planning D1–D4)
+
+| ID | Rule |
+| --- | --- |
+| D1 | **Abschließen** requires complete Ist-Zeit **only if** a `shifts` row exists with incomplete times (`ended_at` null). Empty Row 1 (no shift) is allowed — not all drivers are hourly. |
+| D2 | Admin can **reopen** a completed reconciliation (`status → open`). |
+| D3 | Days with shift actuals but zero assigned trips appear in the list (`shift_only`). |
+| D4 | Fahrerschichtplanung **Ist-Zeit** tab links to full reconciliation page (`mode=detail`), not a sheet. |
+| D5 | `showIstZeit` always true in Option B; isolated behind one prop for future `accounts.requires_shift_times`. |
+
+### Status migration
+
+[`20260608140000_add_reconciliation_status.sql`](../supabase/migrations/20260608140000_add_reconciliation_status.sql) — `status text NOT NULL DEFAULT 'completed'`. Existing rows implied completion via legacy `confirmShift`.
+
+RPC replaced in [`20260608140100_update_shift_day_summaries.sql`](../supabase/migrations/20260608140100_update_shift_day_summaries.sql) (DROP + CREATE in same transaction when return columns change).
+
+### €/h display
+
+`total_revenue ÷ Arbeitsstunden` shown only when both &gt; 0. Arbeitsstunden = `(Ende − Beginn − Pause)` formatted with `Intl.NumberFormat('de-DE')` → `"8,0 Std."` (comma decimal).
+
+### Inline Ist-Zeit save
+
+`saveIstZeitInline` calls `createAdminShiftForDriver` (same `entered_by`, Berlin bounds, unique index). Success is **silent** (no toast); list refreshes via query invalidation on `summaries(driverId)`.
+
+### Deep link
+
+Fahrerschichtplanung popover **Ist-Zeit** tab → **Vollständigen Abgleich öffnen →** → `/dashboard/shift-reconciliations?driver=&date=&mode=detail`.
 
 ## Price rules (UI & writes)
 
@@ -33,15 +96,15 @@ Admins review **trips** for a **driver** and **business-calendar day** against t
 ## URL state (nuqs)
 
 - **A** — no `driver`: empty prompt.
-- **B** — `?driver=<id>` only: **list view** (month-grouped day rows). Data comes from the **`get_shift_day_summaries` RPC** (per-day aggregates only — never re-sum full trips in the browser for this list).
-- **C** — `?driver=<id>&date=YYYY-MM-DD`: **detail** (summary bar, trip table, confirm). `date` is optional in the date picker; clearing it returns to the list. Changing the driver clears `date` to avoid a stale driver+day pair.
+- **B** — `?driver=<id>` only: **list view** (month-grouped two-row day cards). Data from **`get_shift_day_summaries` RPC** (trips + shifts + plan days).
+- **C** — `?driver=<id>&date=YYYY-MM-DD&mode=detail`: **detail tabs** (Fahrten, Ist-Zeit, Kilometer placeholder, Abschluss). Date picker sets `mode=detail`. Changing driver clears `date`.
 
 Links are shareable; refresh keeps the same selection.
 
 ## Component tree (rough)
 
 - **RSC** `app/dashboard/shift-reconciliations/page.tsx` — `getDrivers()`; if **B**, prefetches `getShiftDaySummaries` → `initialSummaries`; if **C**, prefetches trips + reconciliation → `initialBundle`.
-- **Client** `shift-reconciliation-page-client.tsx` — composes by state: `shift-reconciliation-filters.tsx` · `shift-day-list.tsx` (B) · `shift-detail-panel.tsx` (C: summary, table, confirm). Confirm success can clear `date` to return to the list.
+- **Client** `shift-reconciliation-page-client.tsx` — `shift-reconciliation-filters.tsx` · `shift-day-list.tsx` → `shift-day-row.tsx` (B) · `shift-detail-panel.tsx` (C: tabbed detail). Abschluss success can clear URL to return to list.
 
 **Server actions** in `actions.ts` only delegate to `api/shift-reconciliations.service.ts` (see `docs/SUPABASE_INTEGRATION.md`).
 

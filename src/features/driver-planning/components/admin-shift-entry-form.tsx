@@ -120,11 +120,11 @@ export function AdminShiftEntryForm({
   };
 
   const handleDelete = async () => {
-    if (!existingShift?.id) return;
+    if (!existingShift) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await deleteAdminShiftAction(existingShift.id);
+      const result = await deleteAdminShiftAction(driverId, date);
       if (!result.success) {
         setSubmitError('Löschen fehlgeschlagen.');
         return;
