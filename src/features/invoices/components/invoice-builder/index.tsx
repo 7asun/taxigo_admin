@@ -59,6 +59,7 @@ import {
   isInvoiceBuilderSection4Unlocked,
   isInvoiceBuilderSection5Unlocked
 } from '@/features/invoices/lib/invoice-builder-section-guards';
+import { buildConfirmationDisplayRows } from '../../lib/build-confirmation-display-rows';
 import {
   useInvoiceBuilder,
   type UseInvoiceBuilderOptions
@@ -438,6 +439,13 @@ export function InvoiceBuilder({
     [cancelledTrips]
   );
 
+  // why: Step 4 table/count must mirror calculateInvoiceTotals input — same filter as
+  // use-invoice-builder.ts L903–919 (billingIncludedLineItems + priced opted-in cancelled).
+  const confirmationRows = useMemo(
+    () => buildConfirmationDisplayRows(lineItems, cancelledTrips),
+    [lineItems, cancelledTrips]
+  );
+
   const { pdf, draftInvoice, isDirty, requestPreviewUpdate } =
     useInvoiceBuilderPdfPreview({
       companyId,
@@ -472,9 +480,10 @@ export function InvoiceBuilder({
   );
 
   const section3SummaryText = useMemo(() => {
-    if (lineItems.length === 0) return '';
-    return `${lineItems.length} Positionen · ${formatEurDe(totals.subtotal)}`;
-  }, [lineItems.length, totals.subtotal]);
+    // why: subtotal already reflects the billable slice; raw lineItems.length counted opted-out rows.
+    if (confirmationRows.length === 0) return '';
+    return `${confirmationRows.length} Positionen · ${formatEurDe(totals.subtotal)}`;
+  }, [confirmationRows.length, totals.subtotal]);
 
   useEffect(() => {
     if (section1Complete && !prevSection1Complete.current) {
@@ -796,7 +805,7 @@ export function InvoiceBuilder({
               subtotal={totals.subtotal}
               taxAmount={totals.taxAmount}
               total={totals.total}
-              lineItemCount={lineItems.length}
+              lineItemCount={confirmationRows.length}
               defaultPaymentDays={defaultPaymentDays}
               missingPrices={missingPrices}
               isCreating={isSubmitting}
@@ -839,7 +848,7 @@ export function InvoiceBuilder({
               resolvedOutroBlockId={resolvedOutroBlockId}
               defaultRechnungsempfaengerId={catalogRecipientId}
               catalogRecipientId={catalogRecipientId}
-              lineItems={lineItems}
+              lineItems={confirmationRows}
               onStep4PdfOverlayChange={handleStep4PdfOverlay}
               pdfOverlayEnabled={applyStep4PdfOverlay}
             />

@@ -199,6 +199,19 @@ This is the heart of the verifier. The wizard queries the real `trips` matching 
 
 SQL RPCs use `COALESCE(billing_included, true) = true`, equivalent to `isBillingIncludedRow` on persisted rows. **Known limitation:** invoices saved before the PDF cover fix may show opted-out km/amounts on the Haupttabelle until re-opened in the builder and re-saved — no automated migration.
 
+**Confirmation display rows (Step 5 Bestätigung):** [`build-confirmation-display-rows.ts`](../src/features/invoices/lib/build-confirmation-display-rows.ts) assembles the Step 4/5 position table and `{n} Positionen` count. **Do not** inline another `billingInclusion.included` filter for confirmation UI — use this helper.
+
+| Input | Filter (mirrors `use-invoice-builder.ts` totals L903–919) |
+|-------|-------------------------------------------------------------|
+| `lineItems` | `billingIncludedLineItems(lineItems)` |
+| `cancelledTrips` | `included && price_resolution != null` |
+
+**`ConfirmationDisplayRow` fields:** `key`, `position`, `description`, `price_resolution`, `manualGrossTotal`, `rowType` (`'normal' \| 'cancelled'`). Cancelled rows use trip `id` as React key and a confirmation-only description (`dd.MM.yyyy · Name (Stornogebühr)`); persist still uses `Storno-Fahrt:` on insert.
+
+**Excluded from display (by design):** opted-out normal trips, opted-out cancelled trips, opted-in cancelled trips without pricing. Submit/persist unchanged — `createInvoice` / `insertLineItems` still receive full hook state.
+
+**Future reuse:** If a trip-based quote builder adds billing inclusion, evaluate `buildConfirmationDisplayRows` before adding a fourth inline filter. Unit tests: [`build-confirmation-display-rows.test.ts`](../src/features/invoices/lib/__tests__/build-confirmation-display-rows.test.ts).
+
 **Cancelled trips (billing vs PDF):** The builder loads trips in two queries ([`invoice-line-items.api.ts`](../src/features/invoices/api/invoice-line-items.api.ts)): `fetchTripsForBuilder` excludes `status = cancelled` (constant `CANCELLED_STATUS`). A parallel **`fetchCancelledTripsForBuilder`** returns a **`BuilderCancelledTripRow`** list (extends `CancelledTripRow` with `billingInclusion` + pricing fields). **Default: opted out** (`billingInclusion.included = false`). The Step 3 **Stornierte Fahrten** collapsible lets the dispatcher opt a cancelled trip in: an amber-styled mandatory billing-reason `<Textarea>` appears and the trip is priced via `buildCancelledTripBillingState` (same `resolveTripPrice` cascade as normal trips). Opted-in cancelled trips are included in `calculateInvoiceTotals`, inserted as `invoice_line_items` with `is_cancelled_trip = true` / `billing_included = true` / `cancelled_billing_reason`, and always shown in the **Abgerechnete stornierte Fahrten** billed block in the PDF appendix (no checkbox gate). The **`show_cancelled_trips`** Step 4 checkbox is **unchanged** — it only gates the **passive €0** list (`renderCancelledPassiveSection`) using `canceled_reason_notes`. Haupttabelle cover uses `mainCoverLineItems`; appendix Fahrtendetails and footer totals use `billingIncludedLineItems`. **Re-downloading** an issued PDF with opted-in cancelled rows is deferred to **`TODO(issued-cancelled-rows)`**.
 
 ### Step 4: PDF-Vorlage (`Step4Vorlage`)

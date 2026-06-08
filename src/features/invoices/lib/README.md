@@ -36,6 +36,7 @@ See [docs/pricing-engine.md](../../../../docs/pricing-engine.md).
 
 ## Other
 
+- **`build-confirmation-display-rows.ts`** — Step 5 confirmation table/count (`buildConfirmationDisplayRows`); mirrors totals slice in `use-invoice-builder.ts`.
 - **`billing-inclusion.ts`** — SSOT for billing-inclusion slices (`isBillingIncludedRow`, `billingIncludedLineItems`, `mainCoverLineItems`); see module JSDoc and § Step 3 billing inclusion slices.
 - **`invoice-number.ts`** — Sequential `RE-YYYY-MM-NNNN`.
 - **`invoice-validators.ts`** — Builder step-3 warnings (`missing_price`, `no_invoice_trip`, …).
