@@ -1303,6 +1303,7 @@ export type Database = {
           driver_id: string | null;
           end_odometer: number | null;
           ended_at: string | null;
+          entered_by: string | null;
           id: string;
           start_odometer: number | null;
           started_at: string;
@@ -1317,6 +1318,7 @@ export type Database = {
           driver_id?: string | null;
           end_odometer?: number | null;
           ended_at?: string | null;
+          entered_by?: string | null;
           id?: string;
           start_odometer?: number | null;
           started_at: string;
@@ -1331,6 +1333,7 @@ export type Database = {
           driver_id?: string | null;
           end_odometer?: number | null;
           ended_at?: string | null;
+          entered_by?: string | null;
           id?: string;
           start_odometer?: number | null;
           started_at?: string;
@@ -1350,6 +1353,13 @@ export type Database = {
           {
             foreignKeyName: 'shifts_driver_id_fkey';
             columns: ['driver_id'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'shifts_entered_by_fkey';
+            columns: ['entered_by'];
             isOneToOne: false;
             referencedRelation: 'accounts';
             referencedColumns: ['id'];

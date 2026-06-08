@@ -44,7 +44,10 @@ export default async function FahrerschichtplanungPage({
       pageDescription='Wochenplanung aller Fahrer — Status und Zeiten verwalten.'
     >
       <div className='space-y-6'>
-        <DriverPlanningFilters defaultWeekYmd={defaultWeekYmd} />
+        <DriverPlanningFilters
+          defaultWeekYmd={defaultWeekYmd}
+          drivers={drivers}
+        />
         <DriverRosterGrid
           drivers={drivers}
           initialWeekStartYmd={weekStartYmd}

@@ -27,7 +27,7 @@ type AdminContext = {
   userId: string;
 };
 
-async function requireAdminContext(): Promise<AdminContext> {
+export async function requireAdminContext(): Promise<AdminContext> {
   const supabase = await createClient();
   const {
     data: { user },

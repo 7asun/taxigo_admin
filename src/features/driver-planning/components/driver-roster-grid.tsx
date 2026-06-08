@@ -30,6 +30,7 @@ import { parseAsString, useQueryState } from 'nuqs';
 import { useMemo, useRef, useState } from 'react';
 import { useCompanyWeekPlan } from '../hooks/use-driver-week-plan';
 import { calcWeekHours, formatHours } from '../lib/plan-hours';
+import { DRIVER_PLANNING_URL_PARAMS } from '../lib/planning-url-params';
 import { buildWeekPlanDates, snapYmdToWeekStart } from '../lib/week-dates';
 import type { DriverDayPlan, PlanningDriverListItem } from '../types';
 import { DayPlanEditPopover } from './day-plan-edit-popover';
@@ -71,9 +72,21 @@ export function DriverRosterGrid({
   initialWeekStartYmd,
   initialPlans
 }: DriverRosterGridProps) {
-  const [weekYmd] = useQueryState('week', parseAsString);
+  const [weekYmd] = useQueryState(
+    DRIVER_PLANNING_URL_PARAMS.week,
+    parseAsString
+  );
+  const [driverParam] = useQueryState(
+    DRIVER_PLANNING_URL_PARAMS.driver,
+    parseAsString
+  );
   const anchorRef = useRef<HTMLTableCellElement>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+
+  const visibleDrivers = useMemo(() => {
+    if (!driverParam) return drivers;
+    return drivers.filter((d) => d.id === driverParam);
+  }, [drivers, driverParam]);
 
   const weekStartYmd =
     weekYmd && weekYmd.length >= 10
@@ -117,7 +130,8 @@ export function DriverRosterGrid({
       ? (planMap.get(editTarget.driverId)?.get(editTarget.planDate) ?? null)
       : null;
 
-  const showSkeleton = isLoading && plans.length === 0 && drivers.length > 0;
+  const showSkeleton =
+    isLoading && plans.length === 0 && visibleDrivers.length > 0;
 
   return (
     <>
@@ -168,17 +182,19 @@ export function DriverRosterGrid({
             </tr>
           </thead>
           <tbody>
-            {drivers.length === 0 ? (
+            {visibleDrivers.length === 0 ? (
               <tr>
                 <td
                   colSpan={weekDates.length + 2}
                   className='text-muted-foreground px-4 py-10 text-center text-sm'
                 >
-                  Keine aktiven Fahrer gefunden.
+                  {drivers.length === 0
+                    ? 'Keine aktiven Fahrer gefunden.'
+                    : 'Kein Fahrer für diesen Filter gefunden.'}
                 </td>
               </tr>
             ) : showSkeleton ? (
-              drivers.map((driver) => (
+              visibleDrivers.map((driver) => (
                 <tr key={driver.id}>
                   <td className={cn(STICKY_DRIVER, 'px-3 py-2')}>
                     <Skeleton className='h-4 w-24' />
@@ -194,7 +210,7 @@ export function DriverRosterGrid({
                 </tr>
               ))
             ) : (
-              drivers.map((driver) => {
+              visibleDrivers.map((driver) => {
                 const driverPlans = planMap.get(driver.id);
                 const weekPlans = Array.from(driverPlans?.values() ?? []);
                 const weekTotal = calcWeekHours(weekPlans);
@@ -248,7 +264,7 @@ export function DriverRosterGrid({
               })
             )}
           </tbody>
-          {drivers.length > 0 && !showSkeleton && (
+          {visibleDrivers.length > 0 && !showSkeleton && (
             <tfoot>
               <tr className='border-t'>
                 <td

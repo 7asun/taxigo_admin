@@ -15,7 +15,7 @@
  * Below MANUAL_PREVIEW_TRIP_THRESHOLD: Category A auto-renders (600 ms debounce;
  * 0 ms on column reorder); initial load auto-renders once.
  * At/above threshold: Category A and initial load mark isDirty only — manual refresh.
- * Category B — trip data: always manual (isDirty) after first completed render.
+ * Category B — trip data: sets isDirty when fingerprint changes (manual refresh).
  *
  * Explicit render triggers (all trip counts):
  *   - Admin clicks Aktualisieren / Vorschau laden → requestPreviewUpdate()
@@ -29,7 +29,8 @@
  *   B: includedLineItemsForDraft, billedCancelledTrips
  *
  * Hook params / related:
- *   B: lineItems (source for includedLineItemsForDraft; also drives isLargeInvoice)
+ *   B: lineItems (raw — Category B fingerprint; source for includedLineItemsForDraft)
+ *   B fingerprint: buildPreviewDirtyFingerprint(lineItems, …) in preview-dirty-fingerprint.ts
  *   A: logo URL effect (companyProfile?.logo_path / logo_url)
  *   Preview QR: always null — placeholder in InvoicePdfCoverBody for draft id
  * ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ import {
 } from '@/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf';
 import { InvoicePdfDocument } from '@/features/invoices/components/invoice-pdf/InvoicePdfDocument';
 import { billingIncludedLineItems } from '@/features/invoices/lib/billing-inclusion';
+import { buildPreviewDirtyFingerprint } from '@/features/invoices/lib/preview-dirty-fingerprint';
 import type {
   BuilderCancelledTripRow,
   BuilderLineItem,
@@ -74,49 +76,6 @@ interface PreviewPayload {
   columnProfile: PdfColumnProfile;
   passiveCancelledTrips: BuilderCancelledTripRow[];
   excludedTrips: ExcludedTripRow[];
-}
-
-/** why: JSON.stringify on 160 rows runs on every keystroke
- *  and accumulates CPU pressure over long sessions.
- *  A numeric hash is ~100x cheaper with identical dirty
- *  detection for the KM/inclusion changes we care about. */
-function buildCategoryBSignature(
-  included: BuilderLineItem[],
-  billed: BuilderCancelledTripRow[],
-  passive: BuilderCancelledTripRow[],
-  excluded: ExcludedTripRow[]
-): string {
-  const hashIncluded = (rows: BuilderLineItem[]) =>
-    rows.reduce(
-      (acc, r) =>
-        acc +
-        (r.position ?? 0) * 1000 +
-        Math.round((r.effective_distance_km ?? 0) * 100) +
-        (r.billingInclusion.included ? 1 : 0),
-      0
-    );
-
-  const hashCancelled = (rows: BuilderCancelledTripRow[]) =>
-    rows.reduce((acc, r) => {
-      const idFold = r.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-      return (
-        acc +
-        idFold * 1000 +
-        Math.round((r.effective_distance_km ?? 0) * 100) +
-        (r.billingInclusion.included ? 1 : 0)
-      );
-    }, 0);
-
-  const hashExcluded = (rows: ExcludedTripRow[]) =>
-    rows.reduce((acc, r) => {
-      let reasonFold = 0;
-      for (let i = 0; i < r.billing_exclusion_reason.length; i++) {
-        reasonFold += r.billing_exclusion_reason.charCodeAt(i);
-      }
-      return acc + (r.client_name?.length ?? 0) * 1000 + reasonFold;
-    }, 0);
-
-  return `${hashIncluded(included)}_${hashCancelled(billed)}_${hashCancelled(passive)}_${hashExcluded(excluded)}`;
 }
 
 export interface InvoiceBuilderStep4PdfOverlay {
@@ -294,8 +253,8 @@ export function useInvoiceBuilderPdfPreview(
     ? step4Overlay!.recipientRow
     : defaultRecipientRow;
 
-  // why: draft PDF cover table must show only billing-included normal trips (identical filter to InvoicePdfDocument).
-  // SSOT: billing-inclusion.ts — use billingIncludedLineItems, not inline .billingInclusion.included.
+  // why: draft building uses billable-only slice; dirty detection uses raw
+  // lineItems via buildPreviewDirtyFingerprint — different inputs, different jobs
   const includedLineItemsForDraft = useMemo(
     () => billingIncludedLineItems(lineItems),
     [lineItems]
@@ -385,8 +344,8 @@ export function useInvoiceBuilderPdfPreview(
     [commitPreviewUpdate]
   );
 
-  // why: first completed blob URL marks the session as having shown a preview —
-  // Category B dirty tracking only starts after this point.
+  // why: first completed blob URL — gates Category A auto-render and initial
+  // scheduling only; Category B dirty uses buildPreviewDirtyFingerprint directly.
   useEffect(() => {
     if (pdf.url) {
       hasCompletedFirstRenderRef.current = true;
@@ -481,8 +440,10 @@ export function useInvoiceBuilderPdfPreview(
 
   // why: trip data edits must not auto-render — flag dirty for manual refresh only.
   useEffect(() => {
-    const sig = buildCategoryBSignature(
-      includedLineItemsForDraft,
+    // why: raw lineItems so opt-out toggles and price edits on excluded rows
+    // are visible; pre-filtered includedLineItemsForDraft hid those changes.
+    const sig = buildPreviewDirtyFingerprint(
+      lineItems,
       billedCancelledTrips,
       passiveCancelledTrips,
       excludedTrips
@@ -493,15 +454,10 @@ export function useInvoiceBuilderPdfPreview(
     }
     if (prevCategoryBSignatureRef.current === sig) return;
     prevCategoryBSignatureRef.current = sig;
-    if (hasCompletedFirstRenderRef.current) {
-      setCategoryBDirty(true);
-    }
-  }, [
-    includedLineItemsForDraft,
-    billedCancelledTrips,
-    passiveCancelledTrips,
-    excludedTrips
-  ]);
+    // why: do not gate on hasCompletedFirstRenderRef — edits during first PDF
+    // load must set dirty or the banner never appears after render completes.
+    setCategoryBDirty(true);
+  }, [lineItems, billedCancelledTrips, passiveCancelledTrips, excludedTrips]);
 
   const requestPreviewUpdate = useCallback(() => {
     setCategoryBDirty(false);

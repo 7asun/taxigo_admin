@@ -40,7 +40,8 @@ src/features/driver-portal/
 └── components/
     ├── driver-header.tsx           # Header + Sheet burger menu (Startseite / Touren / Schichtenzettel)
     ├── driver-shift-page-content.tsx
-    ├── shift-time-form.tsx         # Manual time-entry form (Schichtenzettel)
+    ├── shift-entry-form.tsx          # Presentational time/break fields (shared admin + driver)
+    ├── shift-time-form.tsx           # Driver wrapper: auth + overwrite dialog + shiftsService
     ├── shift-history-list.tsx      # Past shifts list
     ├── shared/
     │   └── driver-trip-card.tsx    # Reusable trip card used on both Startseite and Touren
@@ -118,6 +119,8 @@ ended
 Break state is also stored in `shift_events` (event_type = `break_start` / `break_end`) so break durations can be calculated for payroll.
 
 If the driver reloads the page mid-shift, `getActiveShift()` restores the correct state from the DB.
+
+**Manual Schichtenzettel (`/driver/shift`):** `ShiftTimeForm` is a thin wrapper around shared `ShiftEntryForm` (field layout + validation). Phase 4 extracted the presentational layer so admins can reuse the same form from Fahrerschichtplanung via server actions; driver behaviour and UI are unchanged.
 
 ---
 

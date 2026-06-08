@@ -53,3 +53,23 @@ export type UpsertDayPlanPayload = {
   vehicleId?: string | null;
   notes?: string | null;
 };
+
+export type AdminShiftForDate = {
+  id: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  vehicleId: string | null;
+  startTime: string;
+  endTime: string;
+  breaks: Array<{ start: string; end: string }>;
+};
+
+export type CreateAdminShiftPayload = {
+  driverId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breaks?: Array<{ start: string; end: string }>;
+  vehicleId?: string | null;
+};
