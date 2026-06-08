@@ -5,6 +5,7 @@
  * Both functions are side-effect-free and therefore easily testable.
  */
 
+import type { DriverDayContext } from '@/lib/driver-availability';
 import type { KanbanTrip, KanbanColumn, GroupByMode } from './kanban-types';
 
 // ─── buildColumns ─────────────────────────────────────────────────────────────
@@ -15,16 +16,24 @@ import type { KanbanTrip, KanbanColumn, GroupByMode } from './kanban-types';
  * - Driver: known drivers + orphan driver_ids → "Fahrer (unbekannt)"
  * - Status: fixed ordered list + orphan statuses → "Status (unbekannt)"
  * - Payer: known payers + orphan payer_ids → "Kostenträger (unbekannt)"
+ *
+ * WHY optional availabilityMap: backwards compatible — print export and other callers
+ * omit the 4th arg and get identical columns to pre-availability behaviour.
  */
 export function buildColumns(
   trips: KanbanTrip[],
   groupBy: GroupByMode,
-  drivers: { id: string; name: string }[]
+  drivers: { id: string; name: string }[],
+  availabilityMap?: Map<string, DriverDayContext>
 ): KanbanColumn[] {
   if (groupBy === 'driver') {
     const driverIds = new Set(drivers.map((d) => d.id));
     const driverColumns: KanbanColumn[] = drivers
-      .map((driver) => ({ id: driver.id, title: driver.name }))
+      .map((driver) => ({
+        id: driver.id,
+        title: driver.name,
+        dayContext: availabilityMap?.get(driver.id)
+      }))
       .sort((a, b) => a.title.localeCompare(b.title, 'de'));
 
     const orphanDriverIds = [

@@ -25,6 +25,7 @@ import type {
 import { chunkItemsByGroup } from '@/features/trips/lib/kanban-grouping';
 import { TripCard } from './kanban-trip-card';
 import { GroupedTripsContainer } from './kanban-group-container';
+import { KanbanDriverColumnHeader } from './kanban-driver-column-header';
 
 export interface KanbanColumnViewProps {
   column: KanbanColumn;
@@ -41,6 +42,7 @@ export interface KanbanColumnViewProps {
 export function KanbanColumnView({
   column,
   items,
+  groupBy,
   groupLabels,
   activeDragId,
   onTimeChange,
@@ -97,29 +99,41 @@ export function KanbanColumnView({
       style={dragStyle}
     >
       {/* Column header – drag handle; highlights when this column is the reorder target */}
-      <div
-        className={cn(
-          'bg-muted sticky top-0 z-10 flex cursor-grab items-baseline justify-between gap-2 rounded-t-lg border-b px-3 py-2 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-colors duration-150 active:cursor-grabbing',
-          isColumnDropTarget && 'bg-primary/10'
-        )}
-        {...listeners}
-        {...attributes}
-      >
-        <div className='flex min-w-0 flex-1 items-center gap-1.5'>
-          <GripVertical className='text-muted-foreground h-4 w-4 shrink-0' />
-          <div className='flex min-w-0 flex-col'>
-            <span className='text-sm font-medium'>{column.title}</span>
-            {column.subtitle && (
-              <span className='text-muted-foreground text-[11px]'>
-                {column.subtitle}
-              </span>
-            )}
+      {groupBy === 'driver' ? (
+        <KanbanDriverColumnHeader
+          title={column.title}
+          subtitle={column.subtitle}
+          tripCount={items.length}
+          dayContext={column.dayContext}
+          isColumnDropTarget={isColumnDropTarget}
+          listeners={listeners}
+          attributes={attributes}
+        />
+      ) : (
+        <div
+          className={cn(
+            'bg-muted sticky top-0 z-10 flex cursor-grab items-baseline justify-between gap-2 rounded-t-lg border-b px-3 py-2 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-colors duration-150 active:cursor-grabbing',
+            isColumnDropTarget && 'bg-primary/10'
+          )}
+          {...listeners}
+          {...attributes}
+        >
+          <div className='flex min-w-0 flex-1 items-center gap-1.5'>
+            <GripVertical className='text-muted-foreground h-4 w-4 shrink-0' />
+            <div className='flex min-w-0 flex-col'>
+              <span className='text-sm font-medium'>{column.title}</span>
+              {column.subtitle && (
+                <span className='text-muted-foreground text-[11px]'>
+                  {column.subtitle}
+                </span>
+              )}
+            </div>
           </div>
+          <Badge variant='outline' className='px-2 py-0 text-[11px]'>
+            {items.length}
+          </Badge>
         </div>
-        <Badge variant='outline' className='px-2 py-0 text-[11px]'>
-          {items.length}
-        </Badge>
-      </div>
+      )}
 
       {/* Column body – tinted only for trip drops, not column reorder */}
       <div

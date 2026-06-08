@@ -6,6 +6,8 @@ import {
   getPlanningDrivers
 } from '@/features/driver-planning/api/driver-planning.service';
 import { snapYmdToWeekStart } from '@/features/driver-planning/lib/week-dates';
+import { serializeCompanyWeekShiftsMap } from '@/lib/driver-availability';
+import { getCompanyWeekShiftsMap as fetchCompanyWeekShiftsMap } from '@/lib/driver-availability.server';
 import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,9 @@ export default async function FahrerschichtplanungPage({
       : defaultWeekYmd;
 
   const initialPlans = await getCompanyWeekPlan(weekStartYmd);
+  const initialWeekShifts = serializeCompanyWeekShiftsMap(
+    await fetchCompanyWeekShiftsMap(weekStartYmd)
+  );
 
   return (
     <PageContainer
@@ -52,6 +57,7 @@ export default async function FahrerschichtplanungPage({
           drivers={drivers}
           initialWeekStartYmd={weekStartYmd}
           initialPlans={initialPlans}
+          initialWeekShifts={initialWeekShifts}
         />
       </div>
     </PageContainer>

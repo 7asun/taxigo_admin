@@ -3,6 +3,7 @@
  * Imported by all kanban components and utility files.
  */
 
+import type { DriverDayContext } from '@/lib/driver-availability';
 import type { Trip } from '../api/trips.service';
 
 // ─── Core data types ─────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ export type KanbanColumn = {
   id: string;
   title: string;
   subtitle?: string;
+  /** Driver day context — Kanban driver columns only when availability is loaded. */
+  dayContext?: DriverDayContext;
 };
 
 // ─── Pending changes ──────────────────────────────────────────────────────────

@@ -123,6 +123,22 @@ Trips can be grouped for multi-passenger dispatches by dragging one trip onto an
 
 ---
 
+## 6b. Driver availability badges
+
+When grouped by **Fahrer**, column headers can show a leave/status badge for drivers who are not dispatchable on the filter date (Urlaub, Krank, Frei, etc.).
+
+| Aspect | Behaviour |
+| --- | --- |
+| Data source | `useDriversWithAvailability(dateYmd)` → shared [`driver-availability`](../docs/driver-availability.md) read model |
+| Date scope | URL param `scheduled_at` via `resolveTripsFilterDateYmd` (default: today Berlin; date ranges use **start** YMD) |
+| Column visibility | Columns are **not hidden** — trips may already be assigned to unavailable drivers |
+| Badge | Shown on header only when `!isDispatchable`; German label from `PLAN_STATUSES` |
+| Graceful degradation | If availability fetch is loading or errored, board renders normally without badges — DnD and drop targets unchanged |
+
+Drag-assign blocking onto unavailable drivers is **deferred** (defense-in-depth follow-up).
+
+---
+
 ## 7. DnD Structure
 
 - **Columns:** `useDroppable(id: column.id)` + `useDraggable(id: \`column-${column.id}\`)` for column reordering.

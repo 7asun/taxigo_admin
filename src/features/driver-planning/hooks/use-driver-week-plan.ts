@@ -1,6 +1,10 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ShiftSummary } from '@/lib/driver-availability';
+import { invalidateDriverAvailabilityCaches } from '@/lib/driver-availability-cache';
+import { getCompanyWeekShiftsMapAction } from '@/lib/driver-availability.actions';
+import { companyWeekShiftsKeys } from '@/query/keys/driver-availability';
 import { toast } from 'sonner';
 import {
   deleteDayPlanAction,
@@ -24,6 +28,10 @@ export const companyWeekPlanKeys = {
 
 type UseDriverWeekPlanOpts = {
   initialData?: DriverDayPlan[];
+};
+
+type UseCompanyWeekShiftsOpts = {
+  initialData?: Record<string, Record<string, ShiftSummary>>;
 };
 
 export function useDriverWeekPlan(
@@ -57,6 +65,21 @@ export function useCompanyWeekPlan(
   });
 }
 
+export function useCompanyWeekShifts(
+  weekStartYmd: string | null,
+  options?: UseCompanyWeekShiftsOpts
+) {
+  const enabled = weekStartYmd !== null;
+
+  return useQuery({
+    queryKey: companyWeekShiftsKeys.week(weekStartYmd ?? ''),
+    queryFn: () => getCompanyWeekShiftsMapAction(weekStartYmd!),
+    enabled,
+    staleTime: STALE_MS,
+    initialData: options?.initialData
+  });
+}
+
 function invalidateWeekPlans(
   queryClient: ReturnType<typeof useQueryClient>,
   driverId: string,
@@ -69,6 +92,7 @@ function invalidateWeekPlans(
   void queryClient.invalidateQueries({
     queryKey: companyWeekPlanKeys.week(week)
   });
+  invalidateDriverAvailabilityCaches(queryClient, planDate);
 }
 
 export function useUpsertDayPlan(driverId: string, _weekStartYmd: string) {

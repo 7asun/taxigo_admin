@@ -12,3 +12,7 @@ export { angebotKeys } from './angebote';
 export { letterKeys } from './letters';
 export { userKeys } from './users';
 export { controllingKeys } from './controlling';
+export {
+  companyWeekShiftsKeys,
+  driverAvailabilityKeys
+} from './driver-availability';

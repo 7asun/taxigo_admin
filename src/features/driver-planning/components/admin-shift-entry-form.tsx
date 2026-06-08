@@ -11,7 +11,9 @@ import {
   type ShiftEntryExistingShift
 } from '@/features/driver-portal/components/shift-entry-form';
 import { SHIFT_STATUSES } from '@/features/driver-portal/types';
+import { invalidateShiftAndAvailabilityCaches } from '@/lib/driver-availability-cache';
 import { createClient } from '@/lib/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   createAdminShiftAction,
@@ -46,6 +48,7 @@ export function AdminShiftEntryForm({
   onCancel,
   showDateField = false
 }: AdminShiftEntryFormProps) {
+  const queryClient = useQueryClient();
   const [existingShift, setExistingShift] = useState<AdminShiftForDate | null>(
     null
   );
@@ -113,6 +116,7 @@ export function AdminShiftEntryForm({
         return;
       }
 
+      invalidateShiftAndAvailabilityCaches(queryClient, data.date);
       onSaved();
     } finally {
       setIsSubmitting(false);
@@ -129,6 +133,7 @@ export function AdminShiftEntryForm({
         setSubmitError('Löschen fehlgeschlagen.');
         return;
       }
+      invalidateShiftAndAvailabilityCaches(queryClient, date);
       onSaved();
     } finally {
       setIsSubmitting(false);

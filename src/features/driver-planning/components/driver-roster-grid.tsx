@@ -28,7 +28,10 @@ import { de } from 'date-fns/locale';
 import { tz } from '@date-fns/tz';
 import { parseAsString, useQueryState } from 'nuqs';
 import { useMemo, useRef, useState } from 'react';
-import { useCompanyWeekPlan } from '../hooks/use-driver-week-plan';
+import {
+  useCompanyWeekPlan,
+  useCompanyWeekShifts
+} from '../hooks/use-driver-week-plan';
 import { calcWeekHours, formatHours } from '../lib/plan-hours';
 import { DRIVER_PLANNING_URL_PARAMS } from '../lib/planning-url-params';
 import { buildWeekPlanDates, snapYmdToWeekStart } from '../lib/week-dates';
@@ -50,6 +53,10 @@ type DriverRosterGridProps = {
   drivers: PlanningDriverListItem[];
   initialWeekStartYmd: string;
   initialPlans?: DriverDayPlan[];
+  initialWeekShifts?: Record<
+    string,
+    Record<string, import('@/lib/driver-availability').ShiftSummary>
+  >;
 };
 
 function buildPlanMap(
@@ -70,7 +77,8 @@ function buildPlanMap(
 export function DriverRosterGrid({
   drivers,
   initialWeekStartYmd,
-  initialPlans
+  initialPlans,
+  initialWeekShifts
 }: DriverRosterGridProps) {
   const [weekYmd] = useQueryState(
     DRIVER_PLANNING_URL_PARAMS.week,
@@ -100,8 +108,19 @@ export function DriverRosterGrid({
     return initialPlans;
   }, [initialPlans, weekStartYmd, initialWeekStartYmd]);
 
+  const shiftsInitialData = useMemo(() => {
+    if (!initialWeekShifts || weekStartYmd !== initialWeekStartYmd) {
+      return undefined;
+    }
+    return initialWeekShifts;
+  }, [initialWeekShifts, weekStartYmd, initialWeekStartYmd]);
+
   const { data: plans = [], isLoading } = useCompanyWeekPlan(weekStartYmd, {
     initialData: listInitialData
+  });
+
+  const { data: weekShifts = {} } = useCompanyWeekShifts(weekStartYmd, {
+    initialData: shiftsInitialData
   });
 
   const weekDates = useMemo(
@@ -241,6 +260,7 @@ export function DriverRosterGrid({
                             planDate={date}
                             driverId={driver.id}
                             isToday={date === todayYmd}
+                            shiftSummary={weekShifts[driver.id]?.[date] ?? null}
                             onClick={() =>
                               setEditTarget({
                                 driverId: driver.id,
