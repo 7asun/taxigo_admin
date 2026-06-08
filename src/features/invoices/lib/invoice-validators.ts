@@ -23,6 +23,7 @@ import type {
   BuilderCancelledTripRow,
   LineItemWarning
 } from '../types/invoice.types';
+import { billingIncludedLineItems } from './billing-inclusion';
 
 /**
  * Validates a single builder line item and returns an array of warning codes.
@@ -91,11 +92,15 @@ export function getWarningLabel(warning: LineItemWarning): string {
 }
 
 /**
- * Returns true if ANY line item in the list has a 'missing_price' warning.
+ * Returns true if ANY **billing-included** line item has a 'missing_price' warning.
  * Used to gate the "Rechnung erstellen" button in step 4.
+ *
+ * why: opted-out trips may lack prices but must not block Step 3 — they are not billed.
  */
 export function hasMissingPrices(items: BuilderLineItem[]): boolean {
-  return items.some((item) => item.warnings.includes('missing_price'));
+  return billingIncludedLineItems(items).some((item) =>
+    item.warnings.includes('missing_price')
+  );
 }
 
 /**

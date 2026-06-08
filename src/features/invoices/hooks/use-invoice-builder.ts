@@ -50,6 +50,10 @@ import {
   type PdfColumnProfile
 } from '../types/pdf-vorlage.types';
 import {
+  billingIncludedLineItems,
+  isBillingIncludedRow
+} from '../lib/billing-inclusion';
+import {
   hasMissingPrices,
   hasInclusionReasonErrors,
   validateLineItem
@@ -898,7 +902,7 @@ export function useInvoiceBuilder(
 
   // why: totals must reflect only billing-included rows; opted-out normal trips and
   // opted-out cancelled trips are excluded from subtotal/tax/total.
-  const includedNormal = lineItems.filter((i) => i.billingInclusion.included);
+  const includedNormal = billingIncludedLineItems(lineItems);
   const includedCancelled = cancelledTrips.filter(
     (c) => c.billingInclusion.included && c.price_resolution != null
   );
@@ -915,7 +919,7 @@ export function useInvoiceBuilder(
   ]);
   const missingPrices = hasMissingPrices(lineItems);
   const excludedTripCount = lineItems.filter(
-    (i) => !i.billingInclusion.included
+    (i) => !isBillingIncludedRow(i)
   ).length;
   const hasInclusionErrors = hasInclusionReasonErrors(
     lineItems,

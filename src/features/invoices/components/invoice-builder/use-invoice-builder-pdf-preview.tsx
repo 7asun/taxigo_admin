@@ -47,6 +47,7 @@ import {
   type InvoiceBuilderStep2Snapshot
 } from '@/features/invoices/components/invoice-pdf/build-draft-invoice-detail-for-pdf';
 import { InvoicePdfDocument } from '@/features/invoices/components/invoice-pdf/InvoicePdfDocument';
+import { billingIncludedLineItems } from '@/features/invoices/lib/billing-inclusion';
 import type {
   BuilderCancelledTripRow,
   BuilderLineItem,
@@ -293,9 +294,10 @@ export function useInvoiceBuilderPdfPreview(
     ? step4Overlay!.recipientRow
     : defaultRecipientRow;
 
-  // why: draft PDF cover table must show only billing-included normal trips (identical filter to InvoicePdfDocument)
+  // why: draft PDF cover table must show only billing-included normal trips (identical filter to InvoicePdfDocument).
+  // SSOT: billing-inclusion.ts — use billingIncludedLineItems, not inline .billingInclusion.included.
   const includedLineItemsForDraft = useMemo(
-    () => lineItems.filter((li) => li.billingInclusion.included),
+    () => billingIncludedLineItems(lineItems),
     [lineItems]
   );
 

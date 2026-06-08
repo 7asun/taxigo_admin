@@ -410,6 +410,8 @@ export function InvoiceBuilder({
   // why: useMemo so the derived array keeps a stable reference between renders —
   // an inline .filter().map() produces a new array every render, firing the
   // preview hook's useEffect dependency comparison and causing an infinite reload loop.
+  // why: EXCLUDED appendix slice — negation of isBillingIncludedRow (see billing-inclusion.ts).
+  // Do not use billingIncludedLineItems here; this list is intentionally the inverse for the PDF appendix.
   const excludedTripsForPdf: ExcludedTripRow[] = useMemo(
     () =>
       lineItems
