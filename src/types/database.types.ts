@@ -1244,6 +1244,7 @@ export type Database = {
           confirmed_at: string;
           notes: string | null;
           shift_id: string | null;
+          status: string;
         };
         Insert: {
           id?: string;
@@ -1254,6 +1255,7 @@ export type Database = {
           confirmed_at?: string;
           notes?: string | null;
           shift_id?: string | null;
+          status?: string;
         };
         Update: {
           id?: string;
@@ -1264,6 +1266,7 @@ export type Database = {
           confirmed_at?: string;
           notes?: string | null;
           shift_id?: string | null;
+          status?: string;
         };
         Relationships: [
           {
@@ -1303,6 +1306,7 @@ export type Database = {
           driver_id: string | null;
           end_odometer: number | null;
           ended_at: string | null;
+          entered_by: string | null;
           id: string;
           start_odometer: number | null;
           started_at: string;
@@ -1317,6 +1321,7 @@ export type Database = {
           driver_id?: string | null;
           end_odometer?: number | null;
           ended_at?: string | null;
+          entered_by?: string | null;
           id?: string;
           start_odometer?: number | null;
           started_at: string;
@@ -1331,6 +1336,7 @@ export type Database = {
           driver_id?: string | null;
           end_odometer?: number | null;
           ended_at?: string | null;
+          entered_by?: string | null;
           id?: string;
           start_odometer?: number | null;
           started_at?: string;
@@ -1350,6 +1356,13 @@ export type Database = {
           {
             foreignKeyName: 'shifts_driver_id_fkey';
             columns: ['driver_id'];
+            isOneToOne: false;
+            referencedRelation: 'accounts';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'shifts_entered_by_fkey';
+            columns: ['entered_by'];
             isOneToOne: false;
             referencedRelation: 'accounts';
             referencedColumns: ['id'];
@@ -1981,15 +1994,18 @@ export type Database = {
           p_company_id: string;
         };
         Returns: {
-          shift_date: string;
+          date: string;
+          day_type: string;
           total_trips: number;
-          self_pay_count: number;
-          self_pay_total: number;
-          invoice_count: number;
-          unconfigured_count: number;
-          is_reconciled: boolean;
-          reconciled_by_name: string | null;
-          reconciled_at: string | null;
+          selbstzahler_count: number;
+          rechnung_count: number;
+          total_revenue: number;
+          shift_started_at: string | null;
+          shift_ended_at: string | null;
+          shift_break_minutes: number | null;
+          shift_entered_by: string | null;
+          reconciliation_status: string | null;
+          plan_status: string | null;
         }[];
       };
       get_controlling_operational: {

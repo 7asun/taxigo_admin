@@ -60,6 +60,10 @@ import {
   PDF_PAGE,
   PDF_ZONES
 } from '@/features/invoices/lib/pdf-layout-constants';
+import {
+  billingIncludedLineItems,
+  mainCoverLineItems
+} from '@/features/invoices/lib/billing-inclusion';
 import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
@@ -343,62 +347,60 @@ export function InvoicePdfDocument({
     coverRecipient = snapshotWindowRecipient ?? payerWindowRecipient;
   }
 
-  // why: opted-in cancelled trips (is_cancelled_trip=true) render in the Stornierte billed
-  // appendix block only — not in the Haupttabelle cover table. Pre-new invoices have is_cancelled_trip
-  // undefined (defaults to false per DB migration), so ?? false is safe.
-  const mainLineItems = invoice.line_items.filter(
-    (li) => !(li.is_cancelled_trip ?? false)
-  );
+  // why: Haupttabelle must show only billing-included normal trips — opted-out rows keep price/km
+  // snapshots for audit but must not affect cover summary; cancelled billed rows belong in the
+  // Stornierte appendix only (see mainCoverLineItems in billing-inclusion.ts).
+  const mainLineItems = mainCoverLineItems(invoice.line_items);
 
   // Fahrtendetails appendix: all billing-included rows (normal + opted-in cancelled), sorted by date.
   // Opted-in cancelled trips (is_cancelled_trip = true, billing_included = true) slot in by their
   // trip date alongside normal trips — renderLineItemRow adds the amber billing-reason sub-row.
-  const appendixLineItems = invoice.line_items
-    .filter((li) => li.billing_included !== false)
-    .sort((a, b) => {
+  const appendixLineItems = billingIncludedLineItems(invoice.line_items).sort(
+    (a, b) => {
       if (!a.line_date && !b.line_date) return 0;
       if (!a.line_date) return 1;
       if (!b.line_date) return -1;
       return a.line_date.localeCompare(b.line_date);
-    });
+    }
+  );
 
   // Exclude opted-out lines so PDF footer matches builder totals
-  const lineItemsForCalc: BuilderLineItem[] = invoice.line_items
-    .filter((li) => li.billing_included !== false)
-    .map((li) => ({
-      trip_id: li.trip_id,
-      position: li.position,
-      line_date: li.line_date,
-      description: li.description,
-      client_name: li.client_name,
-      pickup_address: li.pickup_address,
-      dropoff_address: li.dropoff_address,
-      distance_km: li.distance_km,
-      effective_distance_km: li.effective_distance_km ?? li.distance_km,
-      original_distance_km: li.original_distance_km ?? li.distance_km,
-      manual_km_enabled: false,
-      unit_price: li.unit_price,
-      quantity: li.quantity,
-      approach_fee_net: li.approach_fee_net ?? null,
-      tax_rate: li.tax_rate,
-      billing_variant_code: li.billing_variant_code,
-      billing_variant_name: li.billing_variant_name,
-      billing_type_name: li.billing_type_name ?? null,
-      kts_document_applies: li.kts_override,
-      no_invoice_warning: false,
-      is_wheelchair: false,
-      price_resolution: priceResolutionFromLineItem(li),
-      kts_override: li.kts_override,
-      trip_meta: parseTripMetaSnapshot(
-        li.trip_meta_snapshot as Record<string, unknown> | null | undefined
-      ),
-      price_source: null,
-      warnings: [],
-      billingInclusion: {
-        included: li.billing_included ?? true,
-        reason: li.billing_exclusion_reason ?? ''
-      }
-    }));
+  const lineItemsForCalc: BuilderLineItem[] = billingIncludedLineItems(
+    invoice.line_items
+  ).map((li) => ({
+    trip_id: li.trip_id,
+    position: li.position,
+    line_date: li.line_date,
+    description: li.description,
+    client_name: li.client_name,
+    pickup_address: li.pickup_address,
+    dropoff_address: li.dropoff_address,
+    distance_km: li.distance_km,
+    effective_distance_km: li.effective_distance_km ?? li.distance_km,
+    original_distance_km: li.original_distance_km ?? li.distance_km,
+    manual_km_enabled: false,
+    unit_price: li.unit_price,
+    quantity: li.quantity,
+    approach_fee_net: li.approach_fee_net ?? null,
+    tax_rate: li.tax_rate,
+    billing_variant_code: li.billing_variant_code,
+    billing_variant_name: li.billing_variant_name,
+    billing_type_name: li.billing_type_name ?? null,
+    kts_document_applies: li.kts_override,
+    no_invoice_warning: false,
+    is_wheelchair: false,
+    price_resolution: priceResolutionFromLineItem(li),
+    kts_override: li.kts_override,
+    trip_meta: parseTripMetaSnapshot(
+      li.trip_meta_snapshot as Record<string, unknown> | null | undefined
+    ),
+    price_source: null,
+    warnings: [],
+    billingInclusion: {
+      included: li.billing_included ?? true,
+      reason: li.billing_exclusion_reason ?? ''
+    }
+  }));
 
   const { subtotal, total, breakdown } =
     calculateInvoiceTotals(lineItemsForCalc);

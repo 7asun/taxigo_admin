@@ -12,9 +12,11 @@ import {
   getEffectivePrice,
   isInvoiceTrip,
   isSelfPay,
-  isUnconfiguredPayer
+  isUnconfiguredPayer,
+  RECONCILIATION_STATUS,
+  type ShiftReconciliationWithMeta,
+  type ShiftTrip
 } from '../types';
-import type { ShiftReconciliationWithMeta, ShiftTrip } from '../types';
 
 const money = new Intl.NumberFormat(SHIFT_RECONCILIATION_CURRENCY_LOCALE, {
   style: 'currency',
@@ -24,7 +26,6 @@ const money = new Intl.NumberFormat(SHIFT_RECONCILIATION_CURRENCY_LOCALE, {
 type ShiftSummaryBarProps = {
   trips: ShiftTrip[];
   reconciliation: ShiftReconciliationWithMeta | null | undefined;
-  /** While trips query is still loading. */
   isLoading?: boolean;
 };
 
@@ -38,12 +39,39 @@ export function ShiftSummaryBar({
   const unconfigured = trips.filter((t) => isUnconfiguredPayer(t));
   const selfPaySum = selfPayTrips.reduce((s, t) => s + getEffectivePrice(t), 0);
 
-  const confirmed = reconciliation
-    ? format(new Date(reconciliation.confirmed_at), "dd.MM.yyyy 'um' HH:mm", {
-        locale: de
-      })
-    : null;
-  const byName = reconciliation?.confirmer_name?.trim() || 'Kolleg:in';
+  const statusBadge = (() => {
+    if (!reconciliation) {
+      return (
+        <Badge variant='secondary' className='text-muted-foreground'>
+          Noch nicht geprüft
+        </Badge>
+      );
+    }
+    if (reconciliation.status === RECONCILIATION_STATUS.OPEN) {
+      return (
+        <Badge
+          variant='secondary'
+          className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+        >
+          In Bearbeitung
+        </Badge>
+      );
+    }
+    const confirmed = format(
+      new Date(reconciliation.confirmed_at),
+      "dd.MM.yyyy 'um' HH:mm",
+      { locale: de }
+    );
+    const byName = reconciliation.confirmer_name?.trim() || 'Kolleg:in';
+    return (
+      <Badge
+        className='border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200'
+        variant='outline'
+      >
+        Abgeschlossen von {byName} am {confirmed}
+      </Badge>
+    );
+  })();
 
   return (
     <div className='space-y-3'>
@@ -85,18 +113,7 @@ export function ShiftSummaryBar({
             </span>
           </span>
         </div>
-        {reconciliation ? (
-          <Badge
-            className='border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200'
-            variant='outline'
-          >
-            Bestätigt von {byName}, {confirmed}
-          </Badge>
-        ) : (
-          <Badge variant='secondary' className='text-muted-foreground'>
-            Nicht geprüft
-          </Badge>
-        )}
+        {statusBadge}
       </div>
     </div>
   );

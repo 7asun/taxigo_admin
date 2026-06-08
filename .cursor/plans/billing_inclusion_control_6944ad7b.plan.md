@@ -26,6 +26,14 @@ todos:
 isProject: false
 ---
 
+**Status: Fix applied — 2026-06-08.** Shared helpers in [`billing-inclusion.ts`](../../src/features/invoices/lib/billing-inclusion.ts) (`isBillingIncludedRow`, `billingIncludedLineItems`, `mainCoverLineItems`) close the PDF Haupttabelle bugs (grouped + flat cover included opted-out rows) and dedupe builder/PDF filters. Implementation plan: [`.cursor/plans/billing_inclusion_helper_3c6144af.plan.md`](billing_inclusion_helper_3c6144af.plan.md).
+
+**Closed gaps (2026-06-08):**
+- PDF cover `mainLineItems` / flat `coercedFlatLineItems` now use `mainCoverLineItems`
+- Builder preview, totals, `hasMissingPrices`, and `executeTripWriteBack` use shared helpers
+- Regression tests in `lib/__tests__/billing-inclusion.test.ts`, `trip-write-back.test.ts`, `build-invoice-pdf-summary-inclusion.test.ts`
+- Saved invoices before deploy: re-open + re-save to fix cover table (no migration)
+
 # Trip Billing Inclusion Control (Feature 1 + 1b)
 
 ## Product rules (confirmed)

@@ -11,6 +11,15 @@
 
 import { resolveAcceptsSelfPayment } from '@/features/trips/lib/resolve-accepts-self-payment';
 
+export type ReconciliationStatus = 'open' | 'completed';
+
+export const RECONCILIATION_STATUS = {
+  OPEN: 'open',
+  COMPLETED: 'completed'
+} as const satisfies Record<string, ReconciliationStatus>;
+
+export type ShiftDayType = 'trips' | 'shift_only' | 'plan_only';
+
 export type ShiftTrip = {
   id: string;
   scheduled_at: string | null;
@@ -39,6 +48,7 @@ export type ShiftReconciliation = {
   confirmed_at: string;
   notes: string | null;
   shift_id: string | null;
+  status: ReconciliationStatus;
 };
 
 /** Reconciliation row with confirmer display name for the summary bar. */
@@ -46,18 +56,37 @@ export type ShiftReconciliationWithMeta = ShiftReconciliation & {
   confirmer_name: string | null;
 };
 
-/** One row per calendar day from `get_shift_day_summaries` (list view / State B). */
+/** One row per calendar day from `get_shift_day_summaries` (list view). */
 export type ShiftDaySummary = {
-  shift_date: string;
+  date: string;
+  day_type: ShiftDayType;
   total_trips: number;
-  self_pay_count: number;
-  self_pay_total: number;
-  invoice_count: number;
-  unconfigured_count: number;
-  is_reconciled: boolean;
-  reconciled_by_name: string | null;
-  reconciled_at: string | null;
+  selbstzahler_count: number;
+  rechnung_count: number;
+  total_revenue: number;
+  shift_started_at: string | null;
+  shift_ended_at: string | null;
+  shift_break_minutes: number | null;
+  shift_entered_by: string | null;
+  reconciliation_status: ReconciliationStatus | null;
+  plan_status: string | null;
 };
+
+export interface IstZeitRowProps {
+  driverId: string;
+  date: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  breakMinutes: number | null;
+  totalRevenue: number | null;
+  /**
+   * WHY showIstZeit isolated here: Option B now (always true).
+   * Option A: swap in driver.requires_shift_times without touching row rendering logic.
+   * This is the ONLY place this flag lives (assignment is in shift-day-list.tsx).
+   */
+  showIstZeit: boolean;
+  onSaved: () => void;
+}
 
 /**
  * Returns manual_gross_price when set, otherwise falls back to gross_price.
@@ -87,4 +116,12 @@ export function isInvoiceTrip(trip: ShiftTrip): boolean {
 /** True when neither family (when present) nor payer fixes Selbstzahler vs Rechnung. */
 export function isUnconfiguredPayer(trip: ShiftTrip): boolean {
   return effectiveSelfPay(trip) === null;
+}
+
+/** Shift row has incomplete times (partial entry blocks Abschließen). */
+export function isShiftTimeIncomplete(summary: ShiftDaySummary): boolean {
+  const hasStart = summary.shift_started_at != null;
+  const hasEnd = summary.shift_ended_at != null;
+  if (!hasStart && !hasEnd) return false;
+  return hasStart !== hasEnd;
 }

@@ -7,6 +7,7 @@ import type { ShiftReconciliationWithMeta } from '../types';
 
 type UseShiftReconciliationOpts = {
   initialData?: ShiftReconciliationWithMeta | null;
+  enabled?: boolean;
 };
 
 export function useShiftReconciliationRecord(
@@ -14,7 +15,8 @@ export function useShiftReconciliationRecord(
   date: string | null,
   options?: UseShiftReconciliationOpts
 ) {
-  const enabled = Boolean(driverId && date && date.length >= 10);
+  const canQuery = Boolean(driverId && date && date.length >= 10);
+  const enabled = canQuery && (options?.enabled ?? true);
 
   return useQuery<ShiftReconciliationWithMeta | null>({
     queryKey:

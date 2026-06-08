@@ -1,4 +1,5 @@
 import { tripsService } from '@/features/trips/api/trips.service';
+import { isBillingIncludedRow } from '@/features/invoices/lib/billing-inclusion';
 import type {
   BuilderLineItem,
   FailedSyncItem,
@@ -59,7 +60,7 @@ export async function executeTripWriteBack(
 ): Promise<FailedSyncItem[]> {
   // why: opted-out trips stay on the invoice for audit but must not overwrite trip pricing.
   const included = items.filter(
-    (item) => item.trip_id !== null && item.billingInclusion.included
+    (item) => item.trip_id !== null && isBillingIncludedRow(item)
   );
 
   const entries = included.map((item) => ({

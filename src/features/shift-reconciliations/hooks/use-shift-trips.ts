@@ -5,14 +5,15 @@ import { getShiftTripsForDateAction } from '../actions';
 import { shiftReconciliationKeys } from '../lib/query-keys';
 import type { ShiftTrip } from '../types';
 
-type UseShiftTripsOpts = { initialData?: ShiftTrip[] };
+type UseShiftTripsOpts = { initialData?: ShiftTrip[]; enabled?: boolean };
 
 export function useShiftTrips(
   driverId: string | null,
   date: string | null,
   options?: UseShiftTripsOpts
 ) {
-  const enabled = Boolean(driverId && date && date.length >= 10);
+  const canQuery = Boolean(driverId && date && date.length >= 10);
+  const enabled = canQuery && (options?.enabled ?? true);
 
   return useQuery<ShiftTrip[]>({
     queryKey:

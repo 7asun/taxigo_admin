@@ -58,10 +58,10 @@ import {
   PRICE_RESOLUTION_SOURCE_LABELS_DE,
   pricingStrategyUsedLabelDe
 } from '@/features/invoices/lib/pricing-strategy-labels-de';
-import { lineItemNetAmountForDisplay } from '@/features/invoices/lib/line-item-net-display';
+import { cn } from '@/lib/utils';
 import { normalizeInvoiceRecipientPhone } from '@/features/invoices/components/invoice-pdf/lib/rechnungsempfaenger-pdf';
+import type { ConfirmationDisplayRow } from '../../lib/build-confirmation-display-rows';
 import type { InvoiceBuilderStep4PdfOverlay } from './use-invoice-builder-pdf-preview';
-import type { BuilderLineItem } from '../../types/invoice.types';
 
 /** Step 4 local schema — only the invoice meta fields. */
 const step4Schema = z.object({
@@ -131,7 +131,8 @@ interface Step4ConfirmProps {
   defaultRechnungsempfaengerId?: string | null;
   /** Gleiche ID wie Katalog-Default — für „Manuell überschrieben“ */
   catalogRecipientId?: string | null;
-  lineItems: BuilderLineItem[];
+  /** Billable display rows — not raw BuilderLineItem[]; cancelled trips are a separate shape. */
+  lineItems: ConfirmationDisplayRow[];
   /** Syncs watched fields to the shell PDF preview. */
   onStep4PdfOverlayChange?: (overlay: InvoiceBuilderStep4PdfOverlay) => void;
   /** When false, overlay is not pushed (e.g. Bestätigung section not open). */
@@ -328,28 +329,33 @@ export function Step4Confirm({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lineItems.map((item) => {
+                  {lineItems.map((row) => {
                     const srcLabel =
                       PRICE_RESOLUTION_SOURCE_LABELS_DE[
-                        item.price_resolution.source
-                      ] ?? item.price_resolution.source;
+                        row.price_resolution.source
+                      ] ?? row.price_resolution.source;
                     const stratLabel = pricingStrategyUsedLabelDe(
-                      item.price_resolution.strategy_used
+                      row.price_resolution.strategy_used
                     );
                     const tip = `Preisstrategie: ${stratLabel} · Quelle: ${srcLabel}`;
+                    const net = row.price_resolution.net;
                     return (
-                      <TableRow key={item.position}>
+                      <TableRow
+                        key={row.key}
+                        className={cn(
+                          row.rowType === 'cancelled' && 'text-muted-foreground'
+                        )}
+                      >
                         <TableCell className='text-muted-foreground text-xs'>
-                          {item.position}
+                          {row.position}
                         </TableCell>
                         <TableCell className='max-w-[200px] truncate text-sm'>
-                          {item.description}
+                          {row.description}
                         </TableCell>
                         <TableCell className='text-right text-sm'>
-                          {(() => {
-                            const net = lineItemNetAmountForDisplay(item);
-                            return net !== null ? formatEur(net) : '—';
-                          })()}
+                          {net !== null && net !== undefined
+                            ? formatEur(net)
+                            : '—'}
                         </TableCell>
                         <TableCell>
                           <TooltipProvider>
@@ -382,6 +388,7 @@ export function Step4Confirm({
         <FormProvider {...form}>
           <form
             id='invoice-step4-form'
+            // why: submit sends step4Values (meta fields) only — persist uses hook state, not this table.
             onSubmit={form.handleSubmit(onConfirm)}
             className='space-y-4'
           >

@@ -1,9 +1,8 @@
 'use client';
 
 /**
- * URL: State A = no driver. State B = driver (list + optional inline expand; `?date` without
- * `mode=detail` is list bookmark only). State C = `?driver&date&mode=detail` from the date
- * picker — full-page detail (RSC can prefetch the bundle).
+ * URL: State A = no driver. State B = driver list (two-row inline days).
+ * State C = `?driver&date&mode=detail` — full-page detail (RSC prefetches bundle).
  */
 
 import { useMemo } from 'react';
@@ -44,6 +43,12 @@ export function ShiftReconciliationPageClient({
   const [driverId] = useQueryState('driver', parseAsString);
   const [dateYmd, setDateYmd] = useQueryState('date', parseAsString);
   const [mode, setViewMode] = useQueryState('mode', parseAsString);
+  const [ansicht, setAnsicht] = useQueryState('ansicht', parseAsString);
+
+  const showAllDays = ansicht === 'alle';
+  const setShowAllDays = (value: boolean) => {
+    void setAnsicht(value ? 'alle' : null);
+  };
 
   const selectedDriver = drivers.find((d) => d.id === driverId);
   const isFullDetail = Boolean(
@@ -81,7 +86,11 @@ export function ShiftReconciliationPageClient({
 
   return (
     <div className='space-y-6'>
-      <ShiftReconciliationFilters drivers={drivers} />
+      <ShiftReconciliationFilters
+        drivers={drivers}
+        showAllDays={showAllDays}
+        onShowAllDaysChange={setShowAllDays}
+      />
       {!driverId && (
         <p className='text-muted-foreground text-sm'>
           Bitte einen Fahrer auswählen.
@@ -92,6 +101,8 @@ export function ShiftReconciliationPageClient({
           driverId={driverId}
           driverName={selectedDriver?.full_name ?? 'Fahrer'}
           initialData={listInitialData}
+          showAllDays={showAllDays}
+          onShowAllDaysChange={setShowAllDays}
         />
       )}
       {isFullDetail && dateYmd && (
@@ -101,7 +112,7 @@ export function ShiftReconciliationPageClient({
           driverName={selectedDriver?.full_name ?? 'Fahrer'}
           initialTrips={detailInitial?.trips}
           initialReconciliation={detailInitial?.reconciliation}
-          onAfterConfirm={() => {
+          onAfterComplete={() => {
             void setDateYmd(null);
             void setViewMode(null);
           }}

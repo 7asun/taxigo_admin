@@ -1,9 +1,13 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
 
-import { buildTripWriteBackPatch } from '@/features/invoices/lib/trip-write-back';
+import {
+  buildTripWriteBackPatch,
+  executeTripWriteBack
+} from '@/features/invoices/lib/trip-write-back';
 import { TAX_RATES } from '@/features/invoices/lib/tax-calculator';
 import type { BuilderLineItem } from '@/features/invoices/types/invoice.types';
 import type { PriceResolution } from '@/features/invoices/types/pricing.types';
+import { tripsService } from '@/features/trips/api/trips.service';
 
 function baseItem(
   overrides: Partial<BuilderLineItem> & {
@@ -97,5 +101,53 @@ describe('buildTripWriteBackPatch', () => {
     );
     expect(patch).not.toHaveProperty('driving_distance_km');
     expect(patch.manual_distance_km).toBe(42);
+  });
+});
+
+describe('executeTripWriteBack', () => {
+  const priceResolution: PriceResolution = {
+    gross: 107,
+    net: 100,
+    tax_rate: TAX_RATES.REDUCED,
+    strategy_used: 'manual_trip_price',
+    source: 'manual_gross_price',
+    unit_price_net: 100,
+    quantity: 1,
+    approach_fee_net: 0
+  };
+
+  let updateTripMock: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    updateTripMock = mock(() => Promise.resolve({ id: 'trip-1' }));
+    tripsService.updateTrip = updateTripMock as typeof tripsService.updateTrip;
+  });
+
+  afterEach(() => {
+    updateTripMock.mockClear();
+  });
+
+  test('skips opted-out trips — updateTrip called only for billing-included rows with trip_id', async () => {
+    const included = baseItem({
+      trip_id: 'trip-included',
+      price_resolution: priceResolution
+    });
+    const excluded = baseItem({
+      trip_id: 'trip-excluded',
+      price_resolution: priceResolution,
+      billingInclusion: { included: false, reason: 'Test exclusion' }
+    });
+    const noTripId = baseItem({
+      trip_id: null,
+      price_resolution: priceResolution
+    });
+
+    await executeTripWriteBack([included, excluded, noTripId]);
+
+    expect(updateTripMock).toHaveBeenCalledTimes(1);
+    expect(updateTripMock).toHaveBeenCalledWith(
+      'trip-included',
+      buildTripWriteBackPatch(included)
+    );
   });
 });

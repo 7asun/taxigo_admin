@@ -1,19 +1,18 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { confirmShiftReconciliationAction } from '../actions';
-import type { ConfirmShiftParams } from '../api/shift-reconciliations.service';
+import { completeReconciliationAction } from '../actions';
+import type { CompleteReconciliationParams } from '../api/shift-reconciliations.service';
 import { shiftReconciliationKeys } from '../lib/query-keys';
 
-export function useConfirmShift(driverId: string, date: string) {
+export function useCompleteReconciliation(driverId: string, date: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: ConfirmShiftParams) =>
-      confirmShiftReconciliationAction(params),
-    onSuccess: () => {
-      toast.success('Schicht bestätigt.');
+    mutationFn: (params: CompleteReconciliationParams) =>
+      completeReconciliationAction(params),
+    onSuccess: (result) => {
+      if (!result.success) return;
       void queryClient.invalidateQueries({
         queryKey: shiftReconciliationKeys.record(driverId, date)
       });
@@ -23,9 +22,6 @@ export function useConfirmShift(driverId: string, date: string) {
       void queryClient.invalidateQueries({
         queryKey: shiftReconciliationKeys.summaries(driverId)
       });
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Schicht konnte nicht bestätigt werden.');
     }
   });
 }

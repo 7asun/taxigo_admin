@@ -5,18 +5,24 @@
  * tripsService.updateTrip, so the price engine does not recompute or overwrite
  * the admin’s paper-journal override.
  *
- * Shifts row lookup in confirmShift is best-effort: `shifts` is driver-owned and
- * may be absent for a date — reconciliation must still succeed with shift_id null.
+ * Shifts row lookup in completeReconciliation is best-effort: `shifts` is
+ * driver-owned and may be absent for a date — reconciliation must still succeed
+ * with shift_id null.
  */
 
+import { createAdminShiftForDriver } from '@/features/driver-planning/api/admin-shifts.service';
 import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/server';
 import { toQueryError } from '@/lib/supabase/to-query-error';
+import { breakMinutesToPair } from '../lib/time-helpers';
 import { SHIFT_RECONCILIATION_TRIP_STATUS } from '../lib/constants';
-import type {
-  ShiftDaySummary,
-  ShiftReconciliationWithMeta,
-  ShiftTrip
+import {
+  RECONCILIATION_STATUS,
+  type ReconciliationStatus,
+  type ShiftDaySummary,
+  type ShiftDayType,
+  type ShiftReconciliationWithMeta,
+  type ShiftTrip
 } from '../types';
 
 type AdminContext = {
@@ -99,17 +105,10 @@ type TripQueryRow = {
   dropoff_address: string | null;
   gross_price: number | null;
   manual_gross_price: number | null;
-  /** When `billing_type_id` is null, PostgREST omits or nulls the embed. */
   billing_type: BillingTypeEmbedRow | BillingTypeEmbedRow[] | null;
-  /** PostgREST may return one embedded row as object or array — normalize when reading. */
   payers: TripPayerRow | TripPayerRow[] | null;
 };
 
-/**
- * `undefined` = no `billing_type_id` / no family row. `null` = family set to inherit
- * (use payer). Preserves which case for `resolveAcceptsSelfPayment` (null vs
- * undefined are both "tier-1 not fixed" and fall through the same way).
- */
 function mapBillingTypeAcceptsSelfPayment(
   raw: BillingTypeEmbedRow | BillingTypeEmbedRow[] | null | undefined
 ): boolean | null | undefined {
@@ -211,34 +210,62 @@ export async function updateTripManualPrice(
   if (error) throw toQueryError(error);
 }
 
-export type ConfirmShiftParams = {
+export type CompleteReconciliationParams = {
   driverId: string;
   date: string;
   notes?: string;
 };
 
+async function findShiftForReconciliation(
+  supabase: AdminContext['supabase'],
+  companyId: string,
+  driverId: string,
+  date: string
+): Promise<{ id: string; started_at: string; ended_at: string | null } | null> {
+  const { startISO, endExclusiveISO } = getZonedDayBoundsIso(date);
+  const { data, error } = await supabase
+    .from('shifts')
+    .select('id, started_at, ended_at')
+    .eq('driver_id', driverId)
+    .eq('company_id', companyId)
+    .gte('started_at', startISO)
+    .lt('started_at', endExclusiveISO)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw toQueryError(error);
+  return data;
+}
+
 /**
- * Idempotent confirm for (company, driver, date). Resolves shift_id when a driver
- * `shifts` row exists in the same zoned day window; never fails if absent.
+ * Marks reconciliation completed for (company, driver, date). Resolves shift_id when present.
  */
-export async function confirmShift(params: ConfirmShiftParams): Promise<void> {
+export async function completeReconciliation(
+  params: CompleteReconciliationParams
+): Promise<void> {
   const { supabase, companyId, userId } = await requireAdminContext();
 
   let shiftId: string | null = null;
   try {
-    const { startISO, endExclusiveISO } = getZonedDayBoundsIso(params.date);
-    const { data: shift } = await supabase
-      .from('shifts')
-      .select('id')
-      .eq('driver_id', params.driverId)
-      .eq('company_id', companyId)
-      .gte('started_at', startISO)
-      .lt('started_at', endExclusiveISO)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const shift = await findShiftForReconciliation(
+      supabase,
+      companyId,
+      params.driverId,
+      params.date
+    );
+
+    // WHY D1 Option B: empty Row 1 is allowed (not all drivers are hourly);
+    // only partial entries are blocked when a shift row exists.
+    if (shift && shift.ended_at == null) {
+      throw new Error('IST_ZEIT_INCOMPLETE');
+    }
+
     shiftId = shift?.id ?? null;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === 'IST_ZEIT_INCOMPLETE') {
+      throw err;
+    }
     shiftId = null;
   }
 
@@ -250,11 +277,71 @@ export async function confirmShift(params: ConfirmShiftParams): Promise<void> {
       confirmed_by: userId,
       confirmed_at: new Date().toISOString(),
       notes: params.notes?.trim() ? params.notes.trim() : null,
-      shift_id: shiftId
+      shift_id: shiftId,
+      status: RECONCILIATION_STATUS.COMPLETED
     },
     { onConflict: 'company_id,driver_id,date' }
   );
   if (error) throw toQueryError(error);
+}
+
+/**
+ * WHY D2: admin correction after completion; confirmed_by updated for audit trail.
+ */
+export async function reopenReconciliation(
+  driverId: string,
+  date: string
+): Promise<void> {
+  const { supabase, companyId, userId } = await requireAdminContext();
+
+  const { data, error } = await supabase
+    .from('shift_reconciliations')
+    .update({
+      status: RECONCILIATION_STATUS.OPEN,
+      confirmed_by: userId,
+      confirmed_at: new Date().toISOString()
+    })
+    .eq('company_id', companyId)
+    .eq('driver_id', driverId)
+    .eq('date', date)
+    .select('id')
+    .maybeSingle();
+
+  if (error) throw toQueryError(error);
+  if (!data) throw new Error('RECONCILIATION_NOT_FOUND');
+}
+
+export type SaveIstZeitInlineParams = {
+  driverId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+};
+
+/**
+ * Inline Row 1 save — reuses admin shift upsert (entered_by, Berlin bounds, unique index).
+ */
+export async function saveIstZeitInline(
+  params: SaveIstZeitInlineParams
+): Promise<void> {
+  if (!params.startTime.trim() || !params.endTime.trim()) {
+    throw new Error('IST_ZEIT_INCOMPLETE');
+  }
+
+  const breaks = breakMinutesToPair(
+    params.startTime,
+    params.endTime,
+    params.breakMinutes
+  );
+
+  await createAdminShiftForDriver({
+    driverId: params.driverId,
+    date: params.date,
+    startTime: params.startTime,
+    endTime: params.endTime,
+    breaks
+  });
 }
 
 /**
@@ -268,7 +355,9 @@ export async function getReconciliation(
 
   const { data: row, error } = await supabase
     .from('shift_reconciliations')
-    .select('id, driver_id, date, confirmed_by, confirmed_at, notes, shift_id')
+    .select(
+      'id, driver_id, date, confirmed_by, confirmed_at, notes, shift_id, status'
+    )
     .eq('company_id', companyId)
     .eq('driver_id', driverId)
     .eq('date', date)
@@ -291,27 +380,44 @@ export async function getReconciliation(
     confirmed_at: row.confirmed_at,
     notes: row.notes,
     shift_id: row.shift_id,
+    status: row.status as ReconciliationStatus,
     confirmer_name: confirmer ? displayDriverName(confirmer) : null
   };
 }
 
+function parseReconciliationStatus(raw: unknown): ReconciliationStatus | null {
+  if (raw === RECONCILIATION_STATUS.OPEN) return RECONCILIATION_STATUS.OPEN;
+  if (raw === RECONCILIATION_STATUS.COMPLETED) {
+    return RECONCILIATION_STATUS.COMPLETED;
+  }
+  return null;
+}
+
+function parseDayType(raw: unknown): ShiftDayType {
+  if (raw === 'shift_only' || raw === 'plan_only' || raw === 'trips') {
+    return raw;
+  }
+  return 'trips';
+}
+
 function mapRpcShiftDaySummary(row: Record<string, unknown>): ShiftDaySummary {
   return {
-    shift_date: String(row.shift_date),
+    date: String(row.date),
+    day_type: parseDayType(row.day_type),
     total_trips: Number(row.total_trips),
-    self_pay_count: Number(row.self_pay_count),
-    self_pay_total: Number(row.self_pay_total),
-    invoice_count: Number(row.invoice_count),
-    unconfigured_count: Number(row.unconfigured_count),
-    is_reconciled: Boolean(row.is_reconciled),
-    reconciled_by_name:
-      row.reconciled_by_name === null || row.reconciled_by_name === undefined
-        ? null
-        : String(row.reconciled_by_name),
-    reconciled_at:
-      row.reconciled_at === null || row.reconciled_at === undefined
-        ? null
-        : String(row.reconciled_at)
+    selbstzahler_count: Number(row.selbstzahler_count),
+    rechnung_count: Number(row.rechnung_count),
+    total_revenue: Number(row.total_revenue),
+    shift_started_at:
+      row.shift_started_at == null ? null : String(row.shift_started_at),
+    shift_ended_at:
+      row.shift_ended_at == null ? null : String(row.shift_ended_at),
+    shift_break_minutes:
+      row.shift_break_minutes == null ? null : Number(row.shift_break_minutes),
+    shift_entered_by:
+      row.shift_entered_by == null ? null : String(row.shift_entered_by),
+    reconciliation_status: parseReconciliationStatus(row.reconciliation_status),
+    plan_status: row.plan_status == null ? null : String(row.plan_status)
   };
 }
 
@@ -331,3 +437,8 @@ export async function getShiftDaySummaries(
   const rows = (data ?? []) as Record<string, unknown>[];
   return rows.map(mapRpcShiftDaySummary);
 }
+
+/** @deprecated Use completeReconciliation */
+export const confirmShift = completeReconciliation;
+/** @deprecated Use CompleteReconciliationParams */
+export type ConfirmShiftParams = CompleteReconciliationParams;
