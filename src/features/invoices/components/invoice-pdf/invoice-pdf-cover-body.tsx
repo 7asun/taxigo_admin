@@ -44,6 +44,7 @@ import {
 } from './lib/invoice-pdf-format';
 import { PDF_COLORS, PDF_FONT_SIZES, styles } from './pdf-styles';
 import { formatTaxRate } from '../../lib/tax-calculator';
+import { mainCoverLineItems } from '@/features/invoices/lib/billing-inclusion';
 import { PDF_ZONES } from '../../lib/pdf-layout-constants';
 
 export interface InvoicePdfCoverBodyProps {
@@ -139,7 +140,9 @@ export function InvoicePdfCoverBody({
     }
   );
   const colWidths = calcColumnWidths(mainTableKeys, false);
-  const coercedFlatLineItems = invoice.line_items.map(
+  // why: flat Haupttabelle uses the same slice as grouped/single-row cover — billing-included
+  // normal trips only; opted-out and cancelled rows must not appear on the cover table.
+  const coercedFlatLineItems = mainCoverLineItems(invoice.line_items).map(
     coerceLineItemJsonbSnapshots
   );
 
