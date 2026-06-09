@@ -47,7 +47,9 @@ Metrics routes require any authenticated session (`requireSession()`):
 - `GET /api/trips/metrics`
 - `GET /api/trips/groups/metrics`
 
-Cron route (`GET /api/cron/generate-recurring-trips`) requires `Authorization: Bearer <CRON_SECRET>` (Vercel Cron’s format when `CRON_SECRET` is set in the project). As a fallback for manual calls, the same value may be sent in the `x-cron-secret` header. If `CRON_SECRET` is unset, the handler returns 403 (fail closed). The handler also requires `SUPABASE_SERVICE_ROLE_KEY` for database writes.
+Cron route (`GET /api/cron/generate-recurring-trips`) requires `Authorization: Bearer <CRON_SECRET>` (Vercel Cron’s format when `CRON_SECRET` is set in the project). As a fallback for manual calls, the same value may be sent in the `x-cron-secret` header. If `CRON_SECRET` is unset, the handler returns 403 (fail closed). The handler delegates to [`generateRecurringTrips`](../src/lib/recurring-trip-generator.ts), which uses `SUPABASE_SERVICE_ROLE_KEY` via [`createAdminClient()`](../src/lib/supabase/admin.ts).
+
+**On-demand generation (admin UI):** [`triggerGenerationForRule`](../src/features/trips/api/recurring-rules.actions.ts) runs the same generator after rule create — guarded by `requireAdminContext()` and tenant check on the rule. The browser never receives `CRON_SECRET` or the service role key; generation executes in the server action process.
 
 ## RLS policy summary
 

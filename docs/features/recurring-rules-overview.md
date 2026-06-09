@@ -9,8 +9,9 @@ Cross-client list of recurring trip rules at **`/dashboard/regelfahrten`**: disp
 - **Entry:** **Neue Regelfahrt** in the table toolbar (right side, same slot pattern as `DataTableToolbar` children elsewhere).
 - **Sheet (two steps):**
   1. **Fahrgast wählen** — searchable list (debounced browser Supabase query; empty query shows an alphabetical browse slice). **Weiter** moves on only after a row is selected.
-  2. **Regel** — same fields and validation as [`RecurringRuleSheet`](../../src/features/clients/components/recurring-rule-sheet.tsx) via shared [`RecurringRuleFormBody`](../../src/features/clients/components/recurring-rule-form-body.tsx). **Zurück** returns to step 1 without closing the Sheet; **Hinzufügen** calls `recurringRulesService.createRule`.
-- **After success:** toast `Regel erfolgreich erstellt`, Sheet closes, **`router.refresh()`** re-runs the RSC page so `getAllRules()` returns the new row (no TanStack list key for this table — same idea as [`client-form.tsx`](../../src/features/clients/components/client-form.tsx) after save).
+  2. **Regel** — same fields and validation as [`RecurringRuleSheet`](../../src/features/clients/components/recurring-rule-sheet.tsx) via shared [`RecurringRuleFormBody`](../../src/features/clients/components/recurring-rule-form-body.tsx). **Zurück** returns to step 1 without closing the Sheet; **Hinzufügen** calls `createRecurringRule` then `triggerGenerationForRule`.
+- **After success:** toast includes generated trip count for the Berlin **14-day** window, Sheet closes, **`router.refresh()`** re-runs the RSC page so `getAllRules()` returns the new row (no TanStack list key for this table — same idea as [`client-form.tsx`](../../src/features/clients/components/client-form.tsx) after save).
+- **On-demand generation:** after create, [`triggerGenerationForRule`](../../src/features/trips/api/recurring-rules.actions.ts) runs [`generateRecurringTrips`](../../src/lib/recurring-trip-generator.ts) scoped to the new rule (same logic as nightly cron). Generation failure is **non-fatal** — the rule is saved; the nightly cron at 03:00 UTC recovers.
 
 Implementation: [`create-recurring-rule-sheet.tsx`](../../src/features/recurring-rules/components/create-recurring-rule-sheet.tsx), [`use-client-search.ts`](../../src/features/recurring-rules/hooks/use-client-search.ts).
 
@@ -38,6 +39,32 @@ If `tsc` or the bundler pulls the server module into the client bundle when colu
 - Active/inactive and date-range filters on the toolbar.
 - `recurring_rules` RLS policies (migration task).
 - Server-side pagination beyond URL page slice when row counts grow.
+
+## End-date shortening cleanup
+
+When an admin **shortens** `end_date` on an existing rule (edit in [`RecurringRuleSheet`](../../src/features/clients/components/recurring-rule-sheet.tsx) or [`RecurringRulePanel`](../../src/features/clients/components/recurring-rule-panel.tsx)):
+
+1. The form compares old vs new `end_date` (`yyyy-MM-dd` from `<Input type="date">`).
+2. If pending trips exist with `requested_date > new end_date`, [`ShortenEndDateDialog`](../../src/features/recurring-rules/components/shorten-end-date-dialog.tsx) shows the exact count from [`countFutureTripsAfterDate`](../../src/features/trips/api/recurring-rules.service.ts).
+3. On confirm, [`deleteFutureTripsAfterDate`](../../src/features/trips/api/recurring-rules.actions.ts) runs, then the rule row is updated.
+
+**What is deleted:** `pending` trips only, `requested_date` strictly after the new end date, `ingestion_source` = `recurring_rule` or null.
+
+**What is preserved:** `completed`, `cancelled`, **`assigned`**, and **`in_progress`** trips — even if they lie beyond the new end date. Dispatchers must handle those manually.
+
+**Predicate divergence (intentional):** whole-rule delete via [`deleteRule`](../../src/features/trips/api/recurring-rules.service.ts) uses a **broader** status filter (all non-terminal future trips including assigned/in_progress). End-date shorten is **surgical** — do not unify the predicates without a product review.
+
+| Operation | Date filter | Status filter | Intent |
+| --- | --- | --- | --- |
+| `deleteRule` (+ optional future trips) | `requested_date >= today` (Berlin) | not `completed` / `cancelled` | Rule teardown |
+| `deleteFutureTripsAfterDate` | `requested_date > newEndDate` | `pending` only | Calendar window shrink |
+
+## On-demand generation on create
+
+Shared generator: [`src/lib/recurring-trip-generator.ts`](../../src/lib/recurring-trip-generator.ts) (`RECURRING_TRIP_GENERATION_HORIZON_DAYS = 14`).
+
+- **Nightly cron:** `GET /api/cron/generate-recurring-trips` (Vercel, 03:00 UTC) — all active rules.
+- **After create:** `triggerGenerationForRule(ruleId)` server action — one rule, same Berlin window, no `CRON_SECRET` exposed to the browser (service role runs in-process on the server).
 
 ## Timeless outbound rules (daily-agreement mode)
 

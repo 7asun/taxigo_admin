@@ -1,3 +1,4 @@
+import { applyEndDateShortenCleanupFilters } from '@/features/trips/lib/recurring-trip-cleanup-predicate';
 import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import { createClient } from '@/lib/supabase/client';
 import type { Database } from '@/types/database.types';
@@ -63,15 +64,38 @@ export const recurringRulesService = {
     return data as RecurringRule | null;
   },
 
+  /**
+   * WHY: shown in ShortenEndDateDialog before destructive cleanup — count must match
+   * `deleteFutureTripsAfterDate` exactly (see `applyEndDateShortenCleanupFilters`).
+   */
+  async countFutureTripsAfterDate(
+    ruleId: string,
+    afterYmd: string
+  ): Promise<number> {
+    const supabase = createClient();
+    let query = supabase
+      .from('trips')
+      .select('id', { count: 'exact', head: true });
+    query = applyEndDateShortenCleanupFilters(query, ruleId, afterYmd);
+    const { count, error } = await query;
+    if (error) throw error;
+    return count ?? 0;
+  },
+
   async deleteRule(id: string, deleteFutureTrips: boolean = false) {
     const supabase = createClient();
 
     if (deleteFutureTrips) {
+      // WHY status filter differs from deleteFutureTripsAfterDate (end-date shorten):
+      // Rule delete = teardown → remove all non-terminal future trips (assigned/in_progress too).
+      // End-date shorten = surgical → pending only; assigned/in_progress preserved for dispatcher.
+      // Do NOT change this to .eq('status', 'pending') without a product review.
+      //
       // Find trips linked to this rule that are scheduled for today or the future.
-      // 1. rule_id === id
+      // 1. rule_id === id (authoritative recurring link — no ingestion_source filter;
+      //    that column does not exist in the live DB)
       // 2. requested_date >= today (ISO format YYYY-MM-DD)
       // 3. status is not completion-like (completed, cancelled)
-      // 4. ingestion_source is either 'recurring_rule' (new ones) or NULL (old ones)
       // WHY: toISOString().split('T')[0] is UTC calendar date —
       // near Berlin midnight (00:00–02:00 CEST) it is "yesterday"
       // in UTC while operations are already on the next Berlin day.
@@ -83,8 +107,7 @@ export const recurringRulesService = {
         .delete()
         .eq('rule_id', id)
         .gte('requested_date', today)
-        .not('status', 'in', '("completed","cancelled")')
-        .or('ingestion_source.eq.recurring_rule,ingestion_source.is.null');
+        .not('status', 'in', '("completed","cancelled")');
 
       if (tripError) throw tripError;
     }

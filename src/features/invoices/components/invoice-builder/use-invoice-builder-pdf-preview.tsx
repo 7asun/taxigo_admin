@@ -83,6 +83,8 @@ export interface InvoiceBuilderStep4PdfOverlay {
   introText: string | null;
   outroText: string | null;
   recipientRow: RechnungsempfaengerRow | null | undefined;
+  /** Pre-built ad-hoc snapshot — when set, recipientRow is ignored for preview. */
+  recipientSnapshot?: Record<string, unknown> | null | undefined;
 }
 
 export interface UseInvoiceBuilderPdfPreviewParams {
@@ -253,6 +255,13 @@ export function useInvoiceBuilderPdfPreview(
     ? step4Overlay!.recipientRow
     : defaultRecipientRow;
 
+  // recipientSnapshot present in overlay (even null) means ad-hoc mode is active.
+  // undefined means catalog path — fall back to recipientRow.
+  const resolvedRecipientSnapshot =
+    useStep4Overlay && step4Overlay?.recipientSnapshot !== undefined
+      ? step4Overlay.recipientSnapshot
+      : undefined;
+
   // why: draft building uses billable-only slice; dirty detection uses raw
   // lineItems via buildPreviewDirtyFingerprint — different inputs, different jobs
   const includedLineItemsForDraft = useMemo(
@@ -275,6 +284,7 @@ export function useInvoiceBuilderPdfPreview(
       introText,
       outroText,
       recipientRow,
+      recipientSnapshot: resolvedRecipientSnapshot,
       placeholderInvoiceNumber,
       columnProfile
     });
@@ -291,6 +301,7 @@ export function useInvoiceBuilderPdfPreview(
     introText,
     outroText,
     recipientRow,
+    resolvedRecipientSnapshot,
     placeholderInvoiceNumber,
     columnProfile
   ]);
@@ -409,6 +420,7 @@ export function useInvoiceBuilderPdfPreview(
     step2Values,
     paymentDueDays,
     recipientRow,
+    resolvedRecipientSnapshot,
     payers,
     clients,
     companyId,
@@ -431,6 +443,7 @@ export function useInvoiceBuilderPdfPreview(
     step2Values,
     paymentDueDays,
     recipientRow,
+    resolvedRecipientSnapshot,
     payers,
     clients,
     companyId,

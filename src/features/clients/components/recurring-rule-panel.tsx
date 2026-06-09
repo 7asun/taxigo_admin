@@ -43,12 +43,16 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   recurringRulesService,
-  RecurringRule
+  type RecurringRule,
+  type UpdateRecurringRule
 } from '@/features/trips/api/recurring-rules.service';
 import {
-  createRecurringRule,
-  updateRecurringRule
-} from '@/features/trips/api/recurring-rules.actions';
+  countTripsForShorten,
+  generationHorizonDays,
+  isEndDateShortening,
+  runCreateWithGeneration,
+  runUpdateWithCleanup
+} from '@/features/clients/lib/recurring-rule-submit-flow';
 import {
   RecurringRuleFormBody,
   RuleFormValues,
@@ -62,6 +66,7 @@ import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurrin
 import { formatClientAddress } from '@/features/clients/lib/format-client-address';
 import type { ClientOption } from '@/features/trips/types/trip-form-reference.types';
 import { DeleteRecurringRuleDialog } from '@/features/recurring-rules/components/delete-recurring-rule-dialog';
+import { ShortenEndDateDialog } from '@/features/recurring-rules/components/shorten-end-date-dialog';
 
 interface RecurringRulePanelProps {
   clientId: string;
@@ -89,6 +94,11 @@ export function RecurringRulePanel({
     'pickup'
   );
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
+  const [showShortenDialog, setShowShortenDialog] = React.useState(false);
+  const [shortenTripCount, setShortenTripCount] = React.useState(0);
+  const [shortenNewEnd, setShortenNewEnd] = React.useState<string | null>(null);
+  const [pendingUpdatePayload, setPendingUpdatePayload] =
+    React.useState<UpdateRecurringRule | null>(null);
 
   const form = useForm<RuleFormValues>({
     resolver: zodResolver(ruleFormSchema),
@@ -201,35 +211,96 @@ export function RecurringRulePanel({
         billingTypes
       });
 
-      if (existingRule) {
-        const payload = { ...ruleData };
-        // Coerce sentinel to null for DB consistency
-        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
-          payload.billing_variant_id = null;
-        }
-        const { error } = await updateRecurringRule(existingRule.id, payload);
-        if (error) {
-          throw new Error(error);
-        }
-        toast.success('Regel erfolgreich aktualisiert');
-      } else {
-        const payload = { ...ruleData };
-        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
-          payload.billing_variant_id = null;
-        }
-        const { error } = await createRecurringRule(payload);
-        if (error) {
-          throw new Error(error);
-        }
-        toast.success('Regel erfolgreich erstellt');
+      const payload = { ...ruleData };
+      if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+        payload.billing_variant_id = null;
       }
 
-      onSuccess();
-    } catch (error: any) {
-      toast.error(`Fehler: ${error.message}`);
+      if (existingRule) {
+        const { isShortening, newEnd } = isEndDateShortening(
+          existingRule.end_date,
+          values.end_date
+        );
+
+        if (isShortening && newEnd) {
+          const count = await countTripsForShorten(existingRule.id, newEnd);
+          if (count > 0) {
+            setPendingUpdatePayload(payload);
+            setShortenNewEnd(newEnd);
+            setShortenTripCount(count);
+            setShowShortenDialog(true);
+            return;
+          }
+        }
+
+        const { deleted } = await runUpdateWithCleanup(
+          existingRule.id,
+          payload,
+          null
+        );
+        toast.success(
+          deleted > 0
+            ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
+            : 'Regel erfolgreich aktualisiert'
+        );
+        onSuccess();
+      } else {
+        const { generated, generationError } =
+          await runCreateWithGeneration(payload);
+
+        toast.success(
+          `Regel erstellt. ${generated} Fahrten wurden für die nächsten ${generationHorizonDays()} Tage generiert.`
+        );
+        if (generationError) {
+          toast.warning(
+            'Fahrten konnten nicht generiert werden — sie erscheinen nach dem nächsten nächtlichen Lauf.'
+          );
+        }
+        onSuccess();
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unbekannter Fehler';
+      toast.error(`Fehler: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleShortenConfirm = async () => {
+    if (!existingRule || !pendingUpdatePayload || !shortenNewEnd) return;
+
+    try {
+      setIsSubmitting(true);
+      const { deleted } = await runUpdateWithCleanup(
+        existingRule.id,
+        pendingUpdatePayload,
+        shortenNewEnd
+      );
+      setShowShortenDialog(false);
+      setPendingUpdatePayload(null);
+      setShortenNewEnd(null);
+      toast.success(
+        deleted > 0
+          ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
+          : 'Regel erfolgreich aktualisiert'
+      );
+      onSuccess();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unbekannter Fehler';
+      toast.error(`Fehler: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleShortenCancel = () => {
+    setShowShortenDialog(false);
+    setPendingUpdatePayload(null);
+    setShortenNewEnd(null);
+    setShortenTripCount(0);
+    setIsSubmitting(false);
   };
 
   const panelTitle = isNew ? 'Neue wiederkehrende Fahrt' : 'Regel bearbeiten';
@@ -308,6 +379,18 @@ export function RecurringRulePanel({
         onOpenChange={setShowDeleteDialog}
         onSuccess={onSuccess}
       />
+
+      {existingRule && shortenNewEnd && (
+        <ShortenEndDateDialog
+          newEndDate={shortenNewEnd}
+          tripCount={shortenTripCount}
+          isOpen={showShortenDialog}
+          isConfirming={isSubmitting}
+          onOpenChange={setShowShortenDialog}
+          onConfirm={handleShortenConfirm}
+          onCancel={handleShortenCancel}
+        />
+      )}
     </Panel>
   );
 }

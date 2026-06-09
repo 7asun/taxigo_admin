@@ -27,7 +27,10 @@ import {
 } from '@/components/ui/sheet';
 import { ClientAutoSuggest } from '@/components/ui/client-auto-suggest';
 import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurring-rule-payload';
-import { createRecurringRule } from '@/features/trips/api/recurring-rules.actions';
+import {
+  generationHorizonDays,
+  runCreateWithGeneration
+} from '@/features/clients/lib/recurring-rule-submit-flow';
 import {
   RecurringRuleFormBody,
   RuleFormValues,
@@ -196,11 +199,17 @@ export function CreateRecurringRuleSheet({
         ruleData.billing_variant_id = null;
       }
 
-      const { error } = await createRecurringRule(ruleData);
-      if (error) {
-        throw new Error(error);
+      const { generated, generationError } =
+        await runCreateWithGeneration(ruleData);
+
+      toast.success(
+        `Regel erstellt. ${generated} Fahrten wurden für die nächsten ${generationHorizonDays()} Tage generiert.`
+      );
+      if (generationError) {
+        toast.warning(
+          'Fahrten konnten nicht generiert werden — sie erscheinen nach dem nächsten nächtlichen Lauf.'
+        );
       }
-      toast.success('Regel erfolgreich erstellt');
       onSuccess();
       onOpenChange(false);
     } catch (error: unknown) {
