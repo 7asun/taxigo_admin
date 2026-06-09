@@ -81,6 +81,7 @@ import type {
   ClientPriceTagLike
 } from '../types/pricing.types';
 import type { ClientKmOverrideLike } from '../lib/resolve-effective-distance';
+import type { AdhocRecipientFormValues } from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
 
 /** Shape of the builder's step 2 form values (subset of full builder form). */
 type Step2Values = Pick<
@@ -188,6 +189,10 @@ export function useInvoiceBuilder(
   const [catalogRecipientId, setCatalogRecipientId] = useState<string | null>(
     null
   );
+  /** Hydrated ad-hoc fields when re-opening a draft (undefined = new invoice). */
+  const [defaultAdhocValues, setDefaultAdhocValues] = useState<
+    Partial<AdhocRecipientFormValues> | undefined
+  >(undefined);
 
   const confirmSection3 = useCallback(() => setSection3Confirmed(true), []);
 
@@ -330,6 +335,31 @@ export function useInvoiceBuilder(
       client_id: detail.client_id
     });
     setCatalogRecipientId(detail.rechnungsempfaenger_id ?? null);
+
+    // why: null id alone matches legacy invoices — snapshot presence marks ad-hoc.
+    const isAdhocDraft =
+      detail.rechnungsempfaenger_id == null &&
+      detail.rechnungsempfaenger_snapshot != null;
+    if (isAdhocDraft) {
+      const snap = detail.rechnungsempfaenger_snapshot as Record<
+        string,
+        unknown
+      >;
+      setDefaultAdhocValues({
+        anrede: (snap.anrede as string) ?? null,
+        first_name: (snap.first_name as string) ?? null,
+        last_name: (snap.last_name as string) ?? null,
+        company_name: (snap.company_name as string) ?? null,
+        abteilung: (snap.abteilung as string) ?? null,
+        address_line1: (snap.address_line1 as string) ?? '',
+        address_line2: (snap.address_line2 as string) ?? null,
+        postal_code: (snap.postal_code as string) ?? '',
+        city: (snap.city as string) ?? '',
+        phone: (snap.phone as string) ?? null
+      });
+    } else {
+      setDefaultAdhocValues(undefined);
+    }
 
     const rawPdfOverride = detail.pdf_column_override;
     if (
@@ -936,10 +966,11 @@ export function useInvoiceBuilder(
         | 'rechnungsempfaenger_id'
       >;
       pdfColumnOverride: PdfColumnOverridePayload | null;
+      adhocSnapshot: Record<string, unknown> | null;
     }) => {
       if (!step2Values) throw new Error('Schritt 2 nicht abgeschlossen');
 
-      const { step4Values, pdfColumnOverride } = args;
+      const { step4Values, pdfColumnOverride, adhocSnapshot } = args;
 
       const intro_block_id =
         step4Values.intro_block_id === 'none'
@@ -951,17 +982,28 @@ export function useInvoiceBuilder(
           : step4Values.outro_block_id;
 
       const empRaw = step4Values.rechnungsempfaenger_id;
-      const rechnungsempfaengerId =
-        empRaw === 'none' || empRaw === undefined || empRaw === null
-          ? catalogRecipientId
-          : empRaw;
+      let rechnungsempfaengerId: string | null = null;
+      let rechnungsempfaengerSnapshot:
+        | Record<string, unknown>
+        | null
+        | undefined = undefined;
+
+      if (empRaw === 'adhoc') {
+        rechnungsempfaengerId = null;
+        rechnungsempfaengerSnapshot = adhocSnapshot;
+      } else {
+        rechnungsempfaengerId =
+          empRaw === 'none' || empRaw === undefined || empRaw === null
+            ? (catalogRecipientId ?? null)
+            : empRaw;
+      }
 
       const fullValues: InvoiceBuilderFormValues = {
         ...step2Values,
         intro_block_id,
         outro_block_id,
         payment_due_days: step4Values.payment_due_days,
-        rechnungsempfaenger_id: rechnungsempfaengerId ?? null
+        rechnungsempfaenger_id: rechnungsempfaengerId
       };
 
       let pdfPayload: Record<string, unknown> | null = null;
@@ -977,7 +1019,10 @@ export function useInvoiceBuilder(
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
         total: totals.total,
-        rechnungsempfaengerId: rechnungsempfaengerId ?? null,
+        rechnungsempfaengerId,
+        ...(rechnungsempfaengerSnapshot !== undefined && {
+          rechnungsempfaengerSnapshot
+        }),
         pdfColumnOverride: pdfPayload
       });
 
@@ -1023,6 +1068,7 @@ export function useInvoiceBuilder(
         | 'rechnungsempfaenger_id'
       >;
       pdfColumnOverride: PdfColumnOverridePayload | null;
+      adhocSnapshot: Record<string, unknown> | null;
     }) => {
       // why: invoiceId is guaranteed present in edit mode (this path is only
       // wired through updateInvoice, which the shell calls only when isEditMode).
@@ -1030,8 +1076,6 @@ export function useInvoiceBuilder(
 
       const { step4Values, pdfColumnOverride } = args;
 
-      // Step-4 meta resolution is identical to create: 'none' sentinel -> null,
-      // recipient falls back to the catalog-derived recipient.
       const intro_block_id =
         step4Values.intro_block_id === 'none'
           ? null
@@ -1042,10 +1086,23 @@ export function useInvoiceBuilder(
           : step4Values.outro_block_id;
 
       const empRaw = step4Values.rechnungsempfaenger_id;
-      const rechnungsempfaengerId =
-        empRaw === 'none' || empRaw === undefined || empRaw === null
-          ? catalogRecipientId
-          : empRaw;
+      let rechnungsempfaengerId: string | null | undefined;
+      let rechnungsempfaengerSnapshot:
+        | Record<string, unknown>
+        | null
+        | undefined;
+
+      if (empRaw === 'adhoc') {
+        // why: omit both fields — Step 6 preserves existing ad-hoc snapshot on DB row.
+        rechnungsempfaengerId = undefined;
+        rechnungsempfaengerSnapshot = undefined;
+      } else {
+        rechnungsempfaengerId =
+          empRaw === 'none' || empRaw === undefined || empRaw === null
+            ? (catalogRecipientId ?? null)
+            : empRaw;
+        rechnungsempfaengerSnapshot = undefined;
+      }
 
       let pdfPayload: Record<string, unknown> | null = null;
       if (pdfColumnOverride) {
@@ -1054,10 +1111,6 @@ export function useInvoiceBuilder(
         ) as unknown as Record<string, unknown>;
       }
 
-      // why: serialize ALL normal items (incl. excluded — they persist for audit)
-      // + opted-in cancelled trips appended after lineItems.length, exactly as
-      // insertLineItems does. The RPC ignores each row's invoice_id (it uses
-      // p_invoice_id), so reusing these serializers is safe.
       const normalRows = lineItems.map((item) =>
         lineItemToInsertRow(invoiceId, item)
       );
@@ -1073,7 +1126,10 @@ export function useInvoiceBuilder(
         introBlockId: intro_block_id ?? null,
         outroBlockId: outro_block_id ?? null,
         paymentDueDays: step4Values.payment_due_days,
-        rechnungsempfaengerId: rechnungsempfaengerId ?? null,
+        ...(rechnungsempfaengerId !== undefined && { rechnungsempfaengerId }),
+        ...(rechnungsempfaengerSnapshot !== undefined && {
+          rechnungsempfaengerSnapshot
+        }),
         pdfColumnOverride: pdfPayload,
         lineItemRows: [...normalRows, ...cancelledRows]
       });
@@ -1114,6 +1170,7 @@ export function useInvoiceBuilder(
     cancelledTrips,
     section3Confirmed,
     catalogRecipientId,
+    defaultAdhocValues,
     totals,
     missingPrices,
     excludedTripCount,
@@ -1154,8 +1211,10 @@ export function useInvoiceBuilder(
         | 'payment_due_days'
         | 'rechnungsempfaenger_id'
       >,
-      pdfColumnOverride: PdfColumnOverridePayload | null
-    ) => createMutation.mutate({ step4Values, pdfColumnOverride }),
+      pdfColumnOverride: PdfColumnOverridePayload | null,
+      adhocSnapshot: Record<string, unknown> | null = null
+    ) =>
+      createMutation.mutate({ step4Values, pdfColumnOverride, adhocSnapshot }),
     isCreating: createMutation.isPending,
 
     // Edit-mode save (draft re-open). Inert in create mode (never invoked there).
@@ -1167,8 +1226,10 @@ export function useInvoiceBuilder(
         | 'payment_due_days'
         | 'rechnungsempfaenger_id'
       >,
-      pdfColumnOverride: PdfColumnOverridePayload | null
-    ) => updateMutation.mutate({ step4Values, pdfColumnOverride }),
+      pdfColumnOverride: PdfColumnOverridePayload | null,
+      adhocSnapshot: Record<string, unknown> | null = null
+    ) =>
+      updateMutation.mutate({ step4Values, pdfColumnOverride, adhocSnapshot }),
     isSaving: updateMutation.isPending
   };
 }

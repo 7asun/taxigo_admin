@@ -28,13 +28,31 @@ When trips load, `useInvoiceBuilder` resolves the recipient from the **first tri
 
 ### Step 4 — confirmation block and override
 
-Step 4 shows a read-only **Rechnungsempfänger** block: resolved **name** and **full address** from the catalog row for the effective recipient. The dropdown **Rechnungsempfänger (Anpassung)** only changes **`invoices.rechnungsempfaenger_id`** (and the frozen snapshot) for **this** invoice; it does **not** mutate payer / family / variant assignments.
+Step 4 shows a read-only **Rechnungsempfänger** block: resolved **name** and **full address** from the catalog row for the effective recipient, or from inline ad-hoc fields in **Einmalig** mode.
 
-**„Manuell überschrieben“** appears when the selected UUID in the dropdown is **not** equal to `catalogRecipientId` (the cascade from the first trip). Choosing a different catalog row is an explicit per-invoice override; keeping the pre-selected UUID is not labelled as override.
+**Rechnungsempfänger (Anpassung)** uses a three-mode segmented control:
+
+| Mode | `rechnungsempfaenger_id` | Behaviour |
+|------|--------------------------|-----------|
+| Automatisch | `'none'` | Uses `catalogRecipientId` from the first trip |
+| Aus Katalog | catalog UUID | Per-invoice override from the recipient catalog |
+| Einmalig | `'adhoc'` | One-time address form — no catalog row created |
+
+**„Manuell überschrieben“** appears when a catalog UUID is selected and is **not** equal to `catalogRecipientId`.
+
+Switching away from Einmalig **does not** clear typed `adhoc_*` fields — values are restored when switching back. Fields clear only on a full builder restart.
+
+### Ad-hoc Empfänger (Einmalig)
+
+- Snapshot built by `adhocRecipientFormToSnapshot()` in `rechnungsempfaenger.service.ts` — same snake_case keys as `rechnungsempfaengerRowToSnapshot()`.
+- **`id: null`** in the snapshot is valid — no FK to `rechnungsempfaenger`.
+- **Create:** `rechnungsempfaenger_id = null`, `rechnungsempfaenger_snapshot` = pre-built JSON from Step 4 submit (no `getById`).
+- **Draft hydration:** `rechnungsempfaenger_id == null && rechnungsempfaenger_snapshot != null` → form opens in Einmalig mode with fields from snapshot.
+- **Draft save:** when mode is `'adhoc'`, recipient columns are **omitted** from the update payload so the existing snapshot survives. Re-freeze from edited ad-hoc fields is deferred.
 
 ### Persistence (§14 UStG)
 
-At creation, `createInvoice` sets `rechnungsempfaenger_id` and `rechnungsempfaenger_snapshot` once; both are immutable on issued invoices.
+At creation, `createInvoice` sets `rechnungsempfaenger_id` and `rechnungsempfaenger_snapshot` once; both are immutable on issued invoices. Ad-hoc invoices store the snapshot only (`rechnungsempfaenger_id` stays null).
 
 ## Invoice builder (legacy summary)
 
@@ -50,7 +68,7 @@ Snapshot parsing for the PDF lives in `src/features/invoices/components/invoice-
 
 ## API / service
 
-- `src/features/rechnungsempfaenger/api/rechnungsempfaenger.service.ts` — list, `getById`, CRUD; `rechnungsempfaengerRowToSnapshot()` for invoice insert.
+- `src/features/rechnungsempfaenger/api/rechnungsempfaenger.service.ts` — list, `getById`, CRUD; `rechnungsempfaengerRowToSnapshot()` for catalog invoice insert; `adhocRecipientFormToSnapshot()` for Einmalig mode.
 
 TanStack Query key: `referenceKeys.rechnungsempfaenger()` (see `src/query/README.md`).
 

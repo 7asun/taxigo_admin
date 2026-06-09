@@ -227,6 +227,11 @@ export interface CreateInvoicePayload {
   /** Resolved recipient FK (catalog cascade or step-4 override); snapshot frozen here. */
   rechnungsempfaengerId: string | null;
   /**
+   * Pre-built ad-hoc snapshot (Einmalig). When !== undefined, skips getById and
+   * forces rechnungsempfaenger_id null.
+   */
+  rechnungsempfaengerSnapshot?: Record<string, unknown> | null;
+  /**
    * Per-invoice PDF column override (Step 5). Null = resolve from payer Vorlage /
    * company default / system fallback at PDF time.
    */
@@ -254,10 +259,14 @@ export async function createInvoice(
   // Generate the next sequential invoice number
   const invoiceNumber = await generateNextInvoiceNumber();
 
-  const empId = payload.rechnungsempfaengerId;
+  let empId = payload.rechnungsempfaengerId ?? null;
   // §14 UStG: snapshot frozen at invoice creation — never mutate after this point
   let rechnungsempfaenger_snapshot: Record<string, unknown> | null = null;
-  if (empId) {
+  // why: !== undefined (not != null) — undefined means catalog getById path; null is explicit ad-hoc empty.
+  if (payload.rechnungsempfaengerSnapshot !== undefined) {
+    rechnungsempfaenger_snapshot = payload.rechnungsempfaengerSnapshot;
+    empId = null;
+  } else if (empId) {
     const row = await RechnungsempfaengerService.getById(empId);
     if (row) {
       rechnungsempfaenger_snapshot = rechnungsempfaengerRowToSnapshot(row);
@@ -345,7 +354,9 @@ export interface UpdateDraftInvoicePayload {
   introBlockId: string | null;
   outroBlockId: string | null;
   paymentDueDays: number;
-  rechnungsempfaengerId: string | null;
+  rechnungsempfaengerId?: string | null;
+  /** Pre-built ad-hoc snapshot — when !== undefined, written directly (future re-freeze). */
+  rechnungsempfaengerSnapshot?: Record<string, unknown> | null;
   pdfColumnOverride?: Record<string, unknown> | null;
   /**
    * Line items already serialized into the invoice_line_items column shape
@@ -389,24 +400,7 @@ export async function updateDraftInvoice(
   );
   if (rpcError) throw toQueryError(rpcError);
 
-  // Step B: re-freeze the recipient snapshot from the live recipient row.
-  // why: a draft is not yet an issued §14 UStG document, so the snapshot should
-  // reflect the latest draft state (payer is locked in edit mode, so the recipient
-  // stays within the same payer's catalog).
-  let rechnungsempfaenger_snapshot: Record<string, unknown> | null = null;
-  if (payload.rechnungsempfaengerId) {
-    const row = await RechnungsempfaengerService.getById(
-      payload.rechnungsempfaengerId
-    );
-    if (row) {
-      rechnungsempfaenger_snapshot = rechnungsempfaengerRowToSnapshot(row);
-    }
-  }
-
-  // Step C: update ONLY draft-safe meta fields. The `.eq('status', 'draft')`
-  // mirrors the RPC guard as defence-in-depth — admins can update own-company
-  // invoices via RLS, so this prevents mutating a non-draft even if it slipped
-  // past the route guard. Totals/number/payer/status are intentionally absent.
+  // Step B: conditionally re-freeze recipient — omit columns to preserve ad-hoc snapshots.
   let pdfColumnOverrideForUpdate: Record<string, unknown> | null = null;
   if (payload.pdfColumnOverride != null) {
     const validated = pdfColumnOverrideSchema.safeParse(
@@ -424,17 +418,36 @@ export async function updateDraftInvoice(
     >;
   }
 
+  const updateFields: Record<string, unknown> = {
+    intro_block_id: payload.introBlockId,
+    outro_block_id: payload.outroBlockId,
+    payment_due_days: payload.paymentDueDays,
+    pdf_column_override: pdfColumnOverrideForUpdate,
+    updated_at: new Date().toISOString()
+  };
+
+  if (payload.rechnungsempfaengerId != null) {
+    const row = await RechnungsempfaengerService.getById(
+      payload.rechnungsempfaengerId
+    );
+    updateFields.rechnungsempfaenger_snapshot = row
+      ? rechnungsempfaengerRowToSnapshot(row)
+      : null;
+    updateFields.rechnungsempfaenger_id = payload.rechnungsempfaengerId;
+  } else if (payload.rechnungsempfaengerSnapshot !== undefined) {
+    updateFields.rechnungsempfaenger_snapshot =
+      payload.rechnungsempfaengerSnapshot;
+    updateFields.rechnungsempfaenger_id = null;
+  }
+  // else: omit snapshot + id — existing DB values survive (ad-hoc draft save)
+
+  // Step C: update ONLY draft-safe meta fields. The `.eq('status', 'draft')`
+  // mirrors the RPC guard as defence-in-depth — admins can update own-company
+  // invoices via RLS, so this prevents mutating a non-draft even if it slipped
+  // past the route guard. Totals/number/payer/status are intentionally absent.
   const { error: updError } = await supabase
     .from('invoices')
-    .update({
-      intro_block_id: payload.introBlockId,
-      outro_block_id: payload.outroBlockId,
-      payment_due_days: payload.paymentDueDays,
-      rechnungsempfaenger_id: payload.rechnungsempfaengerId,
-      rechnungsempfaenger_snapshot,
-      pdf_column_override: pdfColumnOverrideForUpdate,
-      updated_at: new Date().toISOString()
-    })
+    .update(updateFields)
     .eq('id', payload.invoiceId)
     .eq('status', 'draft');
 

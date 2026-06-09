@@ -237,6 +237,7 @@ export function InvoiceBuilder({
     createInvoice,
     isCreating,
     catalogRecipientId,
+    defaultAdhocValues,
     excludedTripCount,
     hasInclusionErrors,
     handleLineItemInclusionChange,
@@ -811,16 +812,7 @@ export function InvoiceBuilder({
               isCreating={isSubmitting}
               submitDisabled={isSubmitting || !section4Unlocked}
               hideSubmitButton
-              onConfirm={(step4Values) => {
-                // Phase 9c — layout snapshot: always write the full resolved profile
-                // (main_columns + appendix_columns + main_layout) to pdf_column_override
-                // so the invoice renders exactly as the dispatcher saw in the builder
-                // preview, regardless of later Vorlage changes (§14 UStG snapshot).
-                // When 'Spalten anpassen' is ON, preserve the user's custom column
-                // arrays; otherwise use the preview's resolved columns from
-                // builderColumnProfile. Tier 1 always wins for new invoices.
-                // why: field set must match pdfColumnOverrideSchema (enrich + INSERT guard) —
-                // non-empty main/appendix arrays required; booleans explicit so read/write agree.
+              onConfirm={(step4Values, adhocSnapshot) => {
                 const snapshotOverride: PdfColumnOverridePayload = {
                   main_columns:
                     pdfOverrideRef.current?.main_columns ??
@@ -836,14 +828,14 @@ export function InvoiceBuilder({
                     builderColumnProfile.show_excluded_trips
                   )
                 };
-                // why: same confirm UI for both flows; edit mode persists changes to
-                // the existing draft (RPC + meta), create mode issues a new invoice.
                 if (isEditMode) {
-                  updateInvoice(step4Values, snapshotOverride);
+                  updateInvoice(step4Values, snapshotOverride, adhocSnapshot);
                 } else {
-                  createInvoice(step4Values, snapshotOverride);
+                  createInvoice(step4Values, snapshotOverride, adhocSnapshot);
                 }
               }}
+              isEditMode={isEditMode}
+              defaultAdhocValues={defaultAdhocValues}
               resolvedIntroBlockId={resolvedIntroBlockId}
               resolvedOutroBlockId={resolvedOutroBlockId}
               defaultRechnungsempfaengerId={catalogRecipientId}

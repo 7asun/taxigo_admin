@@ -11,14 +11,17 @@ import {
   SheetTitle,
   SheetDescription
 } from '@/components/ui/sheet';
-import {
-  recurringRulesService,
-  RecurringRule
+import type {
+  RecurringRule,
+  UpdateRecurringRule
 } from '@/features/trips/api/recurring-rules.service';
 import {
-  createRecurringRule,
-  updateRecurringRule
-} from '@/features/trips/api/recurring-rules.actions';
+  countTripsForShorten,
+  generationHorizonDays,
+  isEndDateShortening,
+  runCreateWithGeneration,
+  runUpdateWithCleanup
+} from '@/features/clients/lib/recurring-rule-submit-flow';
 import {
   RecurringRuleFormBody,
   RuleFormValues,
@@ -32,6 +35,7 @@ import { buildRecurringRulePayload } from '@/features/clients/lib/build-recurrin
 import { formatClientAddress } from '@/features/clients/lib/format-client-address';
 import type { ClientOption } from '@/features/trips/types/trip-form-reference.types';
 import { DeleteRecurringRuleDialog } from '@/features/recurring-rules/components/delete-recurring-rule-dialog';
+import { ShortenEndDateDialog } from '@/features/recurring-rules/components/shorten-end-date-dialog';
 
 /**
  * RecurringRuleSheet
@@ -74,6 +78,11 @@ export function RecurringRuleSheet({
   );
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
+  const [showShortenDialog, setShowShortenDialog] = React.useState(false);
+  const [shortenTripCount, setShortenTripCount] = React.useState(0);
+  const [shortenNewEnd, setShortenNewEnd] = React.useState<string | null>(null);
+  const [pendingUpdatePayload, setPendingUpdatePayload] =
+    React.useState<UpdateRecurringRule | null>(null);
 
   const form = useForm<RuleFormValues>({
     resolver: zodResolver(ruleFormSchema),
@@ -159,6 +168,11 @@ export function RecurringRuleSheet({
     }
   };
 
+  const finishSuccess = () => {
+    onSuccess();
+    onOpenChange(false);
+  };
+
   const handleSubmit = async (values: RuleFormValues) => {
     try {
       setIsSubmitting(true);
@@ -169,35 +183,97 @@ export function RecurringRuleSheet({
         billingTypes
       });
 
-      if (initialData) {
-        const payload = { ...ruleData };
-        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
-          payload.billing_variant_id = null;
-        }
-        const { error } = await updateRecurringRule(initialData.id, payload);
-        if (error) {
-          throw new Error(error);
-        }
-        toast.success('Regel erfolgreich aktualisiert');
-      } else {
-        const payload = { ...ruleData };
-        if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
-          payload.billing_variant_id = null;
-        }
-        const { error } = await createRecurringRule(payload);
-        if (error) {
-          throw new Error(error);
-        }
-        toast.success('Regel erfolgreich erstellt');
+      const payload = { ...ruleData };
+      if (values.billing_variant_id === NO_BILLING_VARIANT_SENTINEL) {
+        payload.billing_variant_id = null;
       }
 
-      onSuccess();
-      onOpenChange(false);
-    } catch (error: any) {
-      toast.error(`Fehler: ${error.message}`);
+      if (initialData) {
+        const { isShortening, newEnd } = isEndDateShortening(
+          initialData.end_date,
+          values.end_date
+        );
+
+        if (isShortening && newEnd) {
+          const count = await countTripsForShorten(initialData.id, newEnd);
+          if (count > 0) {
+            setPendingUpdatePayload(payload);
+            setShortenNewEnd(newEnd);
+            setShortenTripCount(count);
+            setShowShortenDialog(true);
+            return;
+          }
+        }
+
+        const { deleted } = await runUpdateWithCleanup(
+          initialData.id,
+          payload,
+          null
+        );
+        toast.success(
+          deleted > 0
+            ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
+            : 'Regel erfolgreich aktualisiert'
+        );
+        finishSuccess();
+      } else {
+        const { generated, generationError } =
+          await runCreateWithGeneration(payload);
+
+        toast.success(
+          `Regel erstellt. ${generated} Fahrten wurden für die nächsten ${generationHorizonDays()} Tage generiert.`
+        );
+        // WHY non-fatal: rule is persisted; nightly cron recovers if generation fails.
+        if (generationError) {
+          toast.warning(
+            'Fahrten konnten nicht generiert werden — sie erscheinen nach dem nächsten nächtlichen Lauf.'
+          );
+        }
+        finishSuccess();
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unbekannter Fehler';
+      toast.error(`Fehler: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleShortenConfirm = async () => {
+    if (!initialData || !pendingUpdatePayload || !shortenNewEnd) return;
+
+    try {
+      setIsSubmitting(true);
+      const { deleted } = await runUpdateWithCleanup(
+        initialData.id,
+        pendingUpdatePayload,
+        shortenNewEnd
+      );
+      setShowShortenDialog(false);
+      setPendingUpdatePayload(null);
+      setShortenNewEnd(null);
+      toast.success(
+        deleted > 0
+          ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
+          : 'Regel erfolgreich aktualisiert'
+      );
+      finishSuccess();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unbekannter Fehler';
+      toast.error(`Fehler: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleShortenCancel = () => {
+    setShowShortenDialog(false);
+    setPendingUpdatePayload(null);
+    setShortenNewEnd(null);
+    setShortenTripCount(0);
+    setIsSubmitting(false);
   };
 
   return (
@@ -271,6 +347,18 @@ export function RecurringRuleSheet({
             onOpenChange(false);
           }}
         />
+
+        {initialData && shortenNewEnd && (
+          <ShortenEndDateDialog
+            newEndDate={shortenNewEnd}
+            tripCount={shortenTripCount}
+            isOpen={showShortenDialog}
+            isConfirming={isSubmitting}
+            onOpenChange={setShowShortenDialog}
+            onConfirm={handleShortenConfirm}
+            onCancel={handleShortenCancel}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );

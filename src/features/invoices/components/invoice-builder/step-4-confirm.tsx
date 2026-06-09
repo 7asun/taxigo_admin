@@ -38,8 +38,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { useRechnungsempfaengerOptions } from '@/features/rechnungsempfaenger/hooks/use-rechnungsempfaenger-options';
+import {
+  adhocRecipientFormToSnapshot,
+  type AdhocRecipientFormValues
+} from '@/features/rechnungsempfaenger/api/rechnungsempfaenger.service';
+import { AddressAutocomplete } from '@/features/trips/components/address-autocomplete';
 import {
   Table,
   TableBody,
@@ -64,17 +70,62 @@ import type { ConfirmationDisplayRow } from '../../lib/build-confirmation-displa
 import type { InvoiceBuilderStep4PdfOverlay } from './use-invoice-builder-pdf-preview';
 
 /** Step 4 local schema — only the invoice meta fields. */
-const step4Schema = z.object({
-  intro_block_id: z.string().optional(),
-  outro_block_id: z.string().optional(),
-  payment_due_days: z
-    .number({ message: 'Bitte eine Zahl eingeben' })
-    .int()
-    .min(1, 'Mindestens 1 Tag')
-    .max(90, 'Maximal 90 Tage'),
-  /** `'none'` = Katalog (erste Fahrt); sonst UUID des Rechnungsempfängers */
-  rechnungsempfaenger_id: z.string().optional()
-});
+const step4Schema = z
+  .object({
+    intro_block_id: z.string().optional(),
+    outro_block_id: z.string().optional(),
+    payment_due_days: z
+      .number({ message: 'Bitte eine Zahl eingeben' })
+      .int()
+      .min(1, 'Mindestens 1 Tag')
+      .max(90, 'Maximal 90 Tage'),
+    /** `'none'` | UUID | `'adhoc'` */
+    rechnungsempfaenger_id: z.string().optional(),
+    adhoc_anrede: z.string().optional(),
+    adhoc_first_name: z.string().optional(),
+    adhoc_last_name: z.string().optional(),
+    adhoc_company_name: z.string().optional(),
+    adhoc_abteilung: z.string().optional(),
+    adhoc_address_line1: z.string().optional(),
+    adhoc_address_line2: z.string().optional(),
+    adhoc_postal_code: z.string().optional(),
+    adhoc_city: z.string().optional(),
+    adhoc_phone: z.string().optional()
+  })
+  .superRefine((data, ctx) => {
+    if (data.rechnungsempfaenger_id !== 'adhoc') return;
+    const hasName =
+      (data.adhoc_company_name?.trim().length ?? 0) > 0 ||
+      (data.adhoc_last_name?.trim().length ?? 0) > 0;
+    if (!hasName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Bitte Firmenname oder Nachname angeben',
+        path: ['adhoc_company_name']
+      });
+    }
+    if (!data.adhoc_address_line1?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pflichtfeld',
+        path: ['adhoc_address_line1']
+      });
+    }
+    if (!data.adhoc_postal_code?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pflichtfeld',
+        path: ['adhoc_postal_code']
+      });
+    }
+    if (!data.adhoc_city?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pflichtfeld',
+        path: ['adhoc_city']
+      });
+    }
+  });
 
 type Step4Values = z.infer<typeof step4Schema>;
 
@@ -110,6 +161,77 @@ function formatRecipientFullAddress(row: RecipientRow): string {
   return parts.join(' · ');
 }
 
+type RecipientMode = 'none' | 'catalog' | 'adhoc';
+
+function recipientModeFromSelect(raw: string | undefined): RecipientMode {
+  if (raw === 'adhoc') return 'adhoc';
+  if (raw === 'none' || raw === undefined || raw === '') return 'none';
+  return 'catalog';
+}
+
+function adhocValuesToDisplayRow(
+  values: Pick<
+    Step4Values,
+    | 'adhoc_anrede'
+    | 'adhoc_first_name'
+    | 'adhoc_last_name'
+    | 'adhoc_company_name'
+    | 'adhoc_abteilung'
+    | 'adhoc_phone'
+    | 'adhoc_address_line1'
+    | 'adhoc_address_line2'
+    | 'adhoc_postal_code'
+    | 'adhoc_city'
+  >
+): RecipientRow | null {
+  const address_line1 = values.adhoc_address_line1?.trim() || null;
+  const city = values.adhoc_city?.trim() || null;
+  if (!address_line1 && !city) return null;
+  const company_name = values.adhoc_company_name?.trim() || null;
+  const first_name = values.adhoc_first_name?.trim() || null;
+  const last_name = values.adhoc_last_name?.trim() || null;
+  const name =
+    company_name ||
+    [first_name, last_name].filter(Boolean).join(' ') ||
+    city ||
+    '';
+  return {
+    name,
+    anrede: values.adhoc_anrede?.trim() || null,
+    first_name,
+    last_name,
+    company_name,
+    abteilung: values.adhoc_abteilung?.trim() || null,
+    phone: values.adhoc_phone?.trim() || null,
+    address_line1,
+    address_line2: values.adhoc_address_line2?.trim() || null,
+    postal_code: values.adhoc_postal_code?.trim() || null,
+    city,
+    country: null
+  };
+}
+
+function adhocSnapshotFromFormValues(
+  values: Step4Values
+): Record<string, unknown> | null {
+  if (values.rechnungsempfaenger_id !== 'adhoc') return null;
+  if (!values.adhoc_address_line1?.trim() || !values.adhoc_city?.trim()) {
+    return null;
+  }
+  return adhocRecipientFormToSnapshot({
+    anrede: values.adhoc_anrede || null,
+    first_name: values.adhoc_first_name || null,
+    last_name: values.adhoc_last_name || null,
+    company_name: values.adhoc_company_name || null,
+    abteilung: values.adhoc_abteilung || null,
+    address_line1: values.adhoc_address_line1,
+    address_line2: values.adhoc_address_line2 || null,
+    postal_code: values.adhoc_postal_code ?? '',
+    city: values.adhoc_city,
+    phone: values.adhoc_phone || null
+  });
+}
+
 interface Step4ConfirmProps {
   subtotal: number;
   taxAmount: number;
@@ -119,7 +241,12 @@ interface Step4ConfirmProps {
   defaultPaymentDays: number;
   missingPrices: boolean;
   isCreating: boolean;
-  onConfirm: (values: Step4Values) => void;
+  isEditMode?: boolean;
+  defaultAdhocValues?: Partial<AdhocRecipientFormValues>;
+  onConfirm: (
+    values: Step4Values,
+    adhocSnapshot: Record<string, unknown> | null
+  ) => void;
   /**
    * Phase 10: resolved default intro block (Vorlage → payer → company default).
    * Synced into the form when this value changes.
@@ -154,6 +281,8 @@ export function Step4Confirm({
   defaultPaymentDays,
   missingPrices,
   isCreating,
+  isEditMode = false,
+  defaultAdhocValues,
   onConfirm,
   resolvedIntroBlockId,
   resolvedOutroBlockId,
@@ -177,11 +306,22 @@ export function Step4Confirm({
       intro_block_id: resolvedIntroBlockId || 'none',
       outro_block_id: resolvedOutroBlockId || 'none',
       payment_due_days: defaultPaymentDays,
-      rechnungsempfaenger_id:
-        defaultRechnungsempfaengerId != null &&
-        defaultRechnungsempfaengerId.length > 0
+      rechnungsempfaenger_id: defaultAdhocValues
+        ? 'adhoc'
+        : defaultRechnungsempfaengerId != null &&
+            defaultRechnungsempfaengerId.length > 0
           ? defaultRechnungsempfaengerId
-          : 'none'
+          : 'none',
+      adhoc_anrede: defaultAdhocValues?.anrede ?? '',
+      adhoc_first_name: defaultAdhocValues?.first_name ?? '',
+      adhoc_last_name: defaultAdhocValues?.last_name ?? '',
+      adhoc_company_name: defaultAdhocValues?.company_name ?? '',
+      adhoc_abteilung: defaultAdhocValues?.abteilung ?? '',
+      adhoc_address_line1: defaultAdhocValues?.address_line1 ?? '',
+      adhoc_address_line2: defaultAdhocValues?.address_line2 ?? '',
+      adhoc_postal_code: defaultAdhocValues?.postal_code ?? '',
+      adhoc_city: defaultAdhocValues?.city ?? '',
+      adhoc_phone: defaultAdhocValues?.phone ?? ''
     }
   });
 
@@ -220,20 +360,90 @@ export function Step4Confirm({
     name: 'outro_block_id'
   });
 
+  const adhocWatched = useWatch({
+    control: form.control,
+    name: [
+      'adhoc_anrede',
+      'adhoc_first_name',
+      'adhoc_last_name',
+      'adhoc_company_name',
+      'adhoc_abteilung',
+      'adhoc_address_line1',
+      'adhoc_address_line2',
+      'adhoc_postal_code',
+      'adhoc_city',
+      'adhoc_phone'
+    ]
+  });
+
+  const [
+    adhocAnrede,
+    adhocFirstName,
+    adhocLastName,
+    adhocCompanyName,
+    adhocAbteilung,
+    adhocAddressLine1,
+    adhocAddressLine2,
+    adhocPostalCode,
+    adhocCity,
+    adhocPhone
+  ] = adhocWatched ?? [];
+
+  const recipientMode = recipientModeFromSelect(empSelectRaw);
+  const isAdhocMode = recipientMode === 'adhoc';
+  const isCatalogMode = recipientMode === 'catalog';
+
   const effectiveRecipientId =
-    empSelectRaw === 'none' || empSelectRaw === undefined || empSelectRaw === ''
-      ? catalogRecipientId
+    isAdhocMode ||
+    empSelectRaw === 'none' ||
+    empSelectRaw === undefined ||
+    empSelectRaw === ''
+      ? isAdhocMode
+        ? null
+        : catalogRecipientId
       : empSelectRaw;
 
-  const effectiveRow = (empfaengerOptions ?? []).find(
-    (r) => r.id === effectiveRecipientId
-  );
+  const effectiveRow = isAdhocMode
+    ? undefined
+    : (empfaengerOptions ?? []).find((r) => r.id === effectiveRecipientId);
+
+  const adhocDisplayRow = useMemo(() => {
+    if (!isAdhocMode) return null;
+    return adhocValuesToDisplayRow({
+      adhoc_anrede: adhocAnrede,
+      adhoc_first_name: adhocFirstName,
+      adhoc_last_name: adhocLastName,
+      adhoc_company_name: adhocCompanyName,
+      adhoc_abteilung: adhocAbteilung,
+      adhoc_address_line1: adhocAddressLine1,
+      adhoc_address_line2: adhocAddressLine2,
+      adhoc_postal_code: adhocPostalCode,
+      adhoc_city: adhocCity,
+      adhoc_phone: adhocPhone
+    });
+  }, [
+    isAdhocMode,
+    adhocAnrede,
+    adhocFirstName,
+    adhocLastName,
+    adhocCompanyName,
+    adhocAbteilung,
+    adhocAddressLine1,
+    adhocAddressLine2,
+    adhocPostalCode,
+    adhocCity,
+    adhocPhone
+  ]);
 
   const isManualOverride =
+    isCatalogMode &&
     typeof empSelectRaw === 'string' &&
-    empSelectRaw !== 'none' &&
     empSelectRaw.length > 0 &&
     (catalogRecipientId == null || empSelectRaw !== catalogRecipientId);
+
+  const adhocPreviewIncomplete =
+    isAdhocMode &&
+    (!adhocDisplayRow || !adhocAddressLine1?.trim() || !adhocCity?.trim());
 
   const paymentDueResolved =
     typeof paymentDaysWatched === 'number' && !Number.isNaN(paymentDaysWatched)
@@ -258,11 +468,37 @@ export function Step4Confirm({
 
   useEffect(() => {
     if (!pdfOverlayEnabled) return;
+    if (isAdhocMode) {
+      const adhocSnap =
+        adhocAddressLine1?.trim() && adhocCity?.trim()
+          ? adhocRecipientFormToSnapshot({
+              anrede: adhocAnrede || null,
+              first_name: adhocFirstName || null,
+              last_name: adhocLastName || null,
+              company_name: adhocCompanyName || null,
+              abteilung: adhocAbteilung || null,
+              address_line1: adhocAddressLine1,
+              address_line2: adhocAddressLine2 || null,
+              postal_code: adhocPostalCode ?? '',
+              city: adhocCity,
+              phone: adhocPhone || null
+            })
+          : null;
+      onStep4PdfOverlayChange?.({
+        paymentDueDays: paymentDueResolved,
+        introText: introContent,
+        outroText: outroContent,
+        recipientRow: null,
+        recipientSnapshot: adhocSnap
+      });
+      return;
+    }
     onStep4PdfOverlayChange?.({
       paymentDueDays: paymentDueResolved,
       introText: introContent,
       outroText: outroContent,
-      recipientRow: effectiveRow
+      recipientRow: effectiveRow,
+      recipientSnapshot: undefined
     });
   }, [
     pdfOverlayEnabled,
@@ -270,7 +506,18 @@ export function Step4Confirm({
     paymentDueResolved,
     introContent,
     outroContent,
-    effectiveRow
+    effectiveRow,
+    isAdhocMode,
+    adhocAnrede,
+    adhocFirstName,
+    adhocLastName,
+    adhocCompanyName,
+    adhocAbteilung,
+    adhocAddressLine1,
+    adhocAddressLine2,
+    adhocPostalCode,
+    adhocCity,
+    adhocPhone
   ]);
 
   return (
@@ -389,19 +636,75 @@ export function Step4Confirm({
           <form
             id='invoice-step4-form'
             // why: submit sends step4Values (meta fields) only — persist uses hook state, not this table.
-            onSubmit={form.handleSubmit(onConfirm)}
+            onSubmit={form.handleSubmit((values) => {
+              onConfirm(values, adhocSnapshotFromFormValues(values));
+            })}
             className='space-y-4'
           >
             {!isLoadingEmpfaenger && (
               <div className='bg-muted/40 space-y-2 rounded-lg border p-4'>
                 <h3 className='text-sm font-medium'>Rechnungsempfänger</h3>
-                {effectiveRecipientId && effectiveRow ? (
+                {isEditMode && isAdhocMode ? (
+                  <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                    <AlertTriangle className='h-4 w-4 text-amber-600' />
+                    <AlertDescription>
+                      Änderungen an der Adresse eines einmaligen Empfängers
+                      werden beim Speichern des Entwurfs noch nicht übernommen.
+                      Löschen Sie den Entwurf und erstellen Sie eine neue
+                      Rechnung, um eine andere Adresse zu verwenden.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {isAdhocMode && adhocDisplayRow ? (
                   <>
                     <div className='flex flex-wrap items-baseline gap-2'>
-                      {/* Build display name from structured fields */}
+                      <p className='text-sm font-medium'>
+                        {adhocDisplayRow.company_name ||
+                          [
+                            adhocDisplayRow.anrede,
+                            adhocDisplayRow.first_name,
+                            adhocDisplayRow.last_name
+                          ]
+                            .filter(Boolean)
+                            .join(' ') ||
+                          adhocDisplayRow.name}
+                      </p>
+                      <span className='text-muted-foreground text-xs'>
+                        Einmalig eingeben
+                      </span>
+                    </div>
+                    {adhocDisplayRow.abteilung ? (
+                      <p className='text-muted-foreground text-xs'>
+                        Abteilung: {adhocDisplayRow.abteilung}
+                      </p>
+                    ) : null}
+                    {(() => {
+                      const tel = normalizeInvoiceRecipientPhone(
+                        adhocDisplayRow.phone
+                      );
+                      return tel ? (
+                        <p className='text-muted-foreground text-xs'>
+                          Tel: {tel}
+                        </p>
+                      ) : null;
+                    })()}
+                    <p className='text-muted-foreground text-xs'>
+                      {formatRecipientFullAddress(adhocDisplayRow)}
+                    </p>
+                  </>
+                ) : isAdhocMode && adhocPreviewIncomplete ? (
+                  <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30'>
+                    <AlertTriangle className='h-4 w-4 text-amber-600' />
+                    <AlertDescription>
+                      Bitte die Pflichtfelder für den einmaligen Empfänger
+                      ausfüllen (Name, Straße, PLZ, Stadt).
+                    </AlertDescription>
+                  </Alert>
+                ) : effectiveRecipientId && effectiveRow ? (
+                  <>
+                    <div className='flex flex-wrap items-baseline gap-2'>
                       <p className='text-sm font-medium'>
                         {(() => {
-                          // Priority: company_name > structured name > legacy name
                           if (effectiveRow.company_name) {
                             return effectiveRow.company_name;
                           }
@@ -422,7 +725,6 @@ export function Step4Confirm({
                         </span>
                       ) : null}
                     </div>
-                    {/* Show additional recipient details if available */}
                     {effectiveRow.abteilung && (
                       <p className='text-muted-foreground text-xs'>
                         Abteilung: {effectiveRow.abteilung}
@@ -483,11 +785,64 @@ export function Step4Confirm({
               control={form.control}
               name='rechnungsempfaenger_id'
               render={({ field }) => (
-                <FormItem>
+                <FormItem className='space-y-3'>
                   <FormLabel>Rechnungsempfänger (Anpassung)</FormLabel>
                   <FormControl>
+                    <ToggleGroup
+                      type='single'
+                      value={recipientModeFromSelect(field.value)}
+                      onValueChange={(mode) => {
+                        if (!mode) return;
+                        if (mode === 'none') {
+                          field.onChange('none');
+                          return;
+                        }
+                        if (mode === 'adhoc') {
+                          field.onChange('adhoc');
+                          return;
+                        }
+                        const current = field.value;
+                        const isUuid =
+                          current && current !== 'none' && current !== 'adhoc';
+                        if (isUuid) return;
+                        const fallback =
+                          catalogRecipientId ??
+                          empfaengerOptions?.[0]?.id ??
+                          'none';
+                        field.onChange(fallback);
+                      }}
+                      variant='outline'
+                      aria-label='Rechnungsempfänger-Modus'
+                      className='h-9 w-full max-w-md'
+                      disabled={isLoadingEmpfaenger || isCreating}
+                    >
+                      <ToggleGroupItem
+                        value='none'
+                        className='flex-1 px-2 text-xs sm:text-sm'
+                      >
+                        Automatisch
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value='catalog'
+                        className='flex-1 px-2 text-xs sm:text-sm'
+                      >
+                        Aus Katalog
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value='adhoc'
+                        className='flex-1 px-2 text-xs sm:text-sm'
+                      >
+                        Einmalig
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </FormControl>
+                  {isCatalogMode ? (
                     <Select
-                      value={field.value}
+                      value={
+                        field.value === 'none' || field.value === 'adhoc'
+                          ? undefined
+                          : field.value
+                      }
                       onValueChange={field.onChange}
                       disabled={isLoadingEmpfaenger || isCreating}
                     >
@@ -495,9 +850,6 @@ export function Step4Confirm({
                         <SelectValue placeholder='Empfänger wählen' />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='none'>
-                          Automatisch (Katalog — erste Fahrt)
-                        </SelectItem>
                         {(empfaengerOptions ?? []).map((r) => (
                           <SelectItem key={r.id} value={r.id}>
                             {r.name}
@@ -505,12 +857,180 @@ export function Step4Confirm({
                         ))}
                       </SelectContent>
                     </Select>
-                  </FormControl>
+                  ) : null}
+                  {isAdhocMode ? (
+                    <div className='grid max-w-md gap-3 sm:grid-cols-2'>
+                      <FormField
+                        control={form.control}
+                        name='adhoc_anrede'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Anrede</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_first_name'
+                        render={({ field: f }) => (
+                          <FormItem>
+                            <FormLabel>Vorname</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_last_name'
+                        render={({ field: f }) => (
+                          <FormItem>
+                            <FormLabel>Nachname</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_company_name'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Firma</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_abteilung'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Abteilung</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_address_line1'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Straße und Hausnummer</FormLabel>
+                            <FormControl>
+                              <AddressAutocomplete
+                                value={f.value ?? ''}
+                                onChange={(result) => {
+                                  if (typeof result === 'string') {
+                                    f.onChange(result);
+                                    return;
+                                  }
+                                  f.onChange(result.address);
+                                }}
+                                onSelectCallback={(result) => {
+                                  const line1 = result.street
+                                    ? [result.street, result.street_number]
+                                        .filter(Boolean)
+                                        .join(' ')
+                                    : result.address;
+                                  f.onChange(line1);
+                                  form.setValue('adhoc_address_line1', line1, {
+                                    shouldValidate: true
+                                  });
+                                  if (result.zip_code) {
+                                    form.setValue(
+                                      'adhoc_postal_code',
+                                      result.zip_code,
+                                      { shouldValidate: true }
+                                    );
+                                  }
+                                  if (result.city) {
+                                    form.setValue('adhoc_city', result.city, {
+                                      shouldValidate: true
+                                    });
+                                  }
+                                }}
+                                placeholder='Straße und Hausnummer suchen...'
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_address_line2'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Adresszusatz</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_postal_code'
+                        render={({ field: f }) => (
+                          <FormItem>
+                            <FormLabel>PLZ</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_city'
+                        render={({ field: f }) => (
+                          <FormItem>
+                            <FormLabel>Stadt</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='adhoc_phone'
+                        render={({ field: f }) => (
+                          <FormItem className='sm:col-span-2'>
+                            <FormLabel>Telefon</FormLabel>
+                            <FormControl>
+                              <Input {...f} value={f.value ?? ''} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  ) : null}
                   <FormDescription>
                     Überschreibt nur diese Rechnung — Katalog-Zuordnungen am
                     Kostenträger bleiben unverändert. Wird mit Adresse
                     eingefroren.
                   </FormDescription>
+                  <FormMessage />
                 </FormItem>
               )}
             />

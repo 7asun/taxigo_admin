@@ -1,6 +1,12 @@
 'use server';
 
+import {
+  assertRuleBelongsToCompany,
+  requireAdminContext
+} from '@/features/trips/api/recurring-rules-admin';
+import { applyEndDateShortenCleanupFilters } from '@/features/trips/lib/recurring-trip-cleanup-predicate';
 import { geocodeRuleAddresses } from '@/lib/geocode-rule-addresses';
+import { generateRecurringTrips } from '@/lib/recurring-trip-generator';
 import { createClient } from '@/lib/supabase/server';
 import type {
   InsertRecurringRule,
@@ -86,4 +92,48 @@ export async function updateRecurringRule(
     return { data: null, error: error.message };
   }
   return { data: data as RecurringRule, error: null };
+}
+
+/**
+ * WHY: isolated from `updateRecurringRule` so cleanup runs only after AlertDialog confirm.
+ * Predicate matches `countFutureTripsAfterDate` via `applyEndDateShortenCleanupFilters`.
+ */
+export async function deleteFutureTripsAfterDate(
+  ruleId: string,
+  afterYmd: string
+): Promise<{ deleted: number; error: string | null }> {
+  try {
+    const ctx = await requireAdminContext();
+    await assertRuleBelongsToCompany(ctx, ruleId);
+
+    let query = ctx.supabase.from('trips').delete().select('id');
+    query = applyEndDateShortenCleanupFilters(query, ruleId, afterYmd);
+    const { data, error } = await query;
+
+    if (error) {
+      return { deleted: 0, error: error.message };
+    }
+    return { deleted: data?.length ?? 0, error: null };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    return { deleted: 0, error: message };
+  }
+}
+
+/**
+ * WHY: server action avoids exposing CRON_SECRET; generation uses service role in-process.
+ */
+export async function triggerGenerationForRule(
+  ruleId: string
+): Promise<{ generated: number; error: string | null }> {
+  try {
+    const ctx = await requireAdminContext();
+    await assertRuleBelongsToCompany(ctx, ruleId);
+
+    const result = await generateRecurringTrips({ ruleId });
+    return { generated: result.generated, error: null };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Unknown error';
+    return { generated: 0, error: message };
+  }
 }

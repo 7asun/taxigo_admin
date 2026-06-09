@@ -219,11 +219,6 @@ export function InvoicePdfRecipientBlock({
       <View style={styles.recipientBlock}>
         {/* Briefkopf: optional standalone Anrede → Firmenname → First + Lastname → Abteilung → Street → Zip + City */}
 
-        {/* Anrede rendered as first standalone line in recipient block, above company/person name */}
-        {anrede && String(anrede).trim() ? (
-          <Text style={styles.addressPersonName}>{anrede}</Text>
-        ) : null}
-
         {/* 1. Firmenname (if exists) */}
         {recipientCompanyName ? (
           <Text style={styles.addressCompanyName}>{recipientCompanyName}</Text>

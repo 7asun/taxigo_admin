@@ -206,6 +206,8 @@ export function buildDraftInvoiceDetailForPdf(params: {
   introText: string | null;
   outroText: string | null;
   recipientRow: RechnungsempfaengerRow | null | undefined;
+  /** Pre-built ad-hoc snapshot — takes precedence over recipientRow when defined. */
+  recipientSnapshot?: Record<string, unknown> | null;
   placeholderInvoiceNumber: string;
   /**
    * Resolved PdfColumnProfile for this draft — same object the real invoice will
@@ -225,6 +227,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     introText,
     outroText,
     recipientRow,
+    recipientSnapshot,
     placeholderInvoiceNumber,
     columnProfile
   } = params;
@@ -280,9 +283,13 @@ export function buildDraftInvoiceDetailForPdf(params: {
         } as NonNullable<InvoiceDetail['client']>))
       : null;
 
-  const snap = recipientRow
-    ? rechnungsempfaengerRowToSnapshot(recipientRow)
-    : null;
+  // why: ad-hoc preview passes a pre-built snapshot — same keys as catalog freeze.
+  const empfaengerSnapshot =
+    recipientSnapshot !== undefined
+      ? recipientSnapshot
+      : recipientRow
+        ? rechnungsempfaengerRowToSnapshot(recipientRow)
+        : null;
 
   const clientReferenceFieldsSnapshot =
     step2.client_id && client
@@ -332,7 +339,7 @@ export function buildDraftInvoiceDetailForPdf(params: {
     cancels_invoice_id: null,
     replaces_invoice_id: null,
     rechnungsempfaenger_id: recipientRow?.id ?? null,
-    rechnungsempfaenger_snapshot: snap,
+    rechnungsempfaenger_snapshot: empfaengerSnapshot,
     client_reference_fields_snapshot: clientReferenceFieldsSnapshot,
     payer,
     client,
