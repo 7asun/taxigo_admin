@@ -26,6 +26,7 @@ Implementation: [`create-recurring-rule-sheet.tsx`](../../src/features/recurring
 | [`src/features/recurring-rules/hooks/use-client-search.ts`](../../src/features/recurring-rules/hooks/use-client-search.ts) | Debounced client search for step 1 (browser Supabase). |
 | [`src/features/recurring-rules/components/recurring-rules-columns.tsx`](../../src/features/recurring-rules/components/recurring-rules-columns.tsx) | Column definitions (`'use client'`). |
 | [`src/features/recurring-rules/lib/recurring-rules-sort-column-ids.ts`](../../src/features/recurring-rules/lib/recurring-rules-sort-column-ids.ts) | `RECURRING_RULES_SORT_COLUMN_IDS` for `getSortingStateParser` — **not** in the client columns module so the RSC page receives a real `Set`. |
+| [`src/features/recurring-rules/lib/recurring-rules-formatters.ts`](../../src/features/recurring-rules/lib/recurring-rules-formatters.ts) | Server-safe pure formatters (`formatRecurringRuleGuestLabel`, `formatRecurringRuleByDayAbbrev`) — safe to import from RSC pages and server utilities; re-exported from `recurring-rules-columns.tsx` for client consumers. |
 | [`src/config/nav-config.ts`](../../src/config/nav-config.ts) | Top-level nav item **Regelfahrten** after **Fahrten**. |
 | [`src/query/keys/recurring.ts`](../../src/query/keys/recurring.ts) | TanStack keys for expiry banner (`recurringKeys`). |
 | [`src/features/dashboard/hooks/use-expiring-recurring-rules.ts`](../../src/features/dashboard/hooks/use-expiring-recurring-rules.ts) | Overview expiry banner data hook. |
