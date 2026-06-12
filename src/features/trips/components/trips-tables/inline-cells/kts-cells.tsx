@@ -13,8 +13,9 @@ import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 
 import type { Trip } from '@/features/trips/api/trips.service';
+import { normalizeKtsPatch } from '@/features/kts/kts.service';
+import { useUpdateKtsMutation } from '@/features/kts/hooks/use-update-kts-mutation';
 import { useTripFieldUpdate } from '@/features/trips/hooks/use-trip-field-update';
-import { useUpdateTripMutation } from '@/features/trips/hooks/use-update-trip-mutation';
 
 /** Aligns with list/kanban payer embed (`name`, `reha_schein_enabled`). */
 export type TripRow = Trip & {
@@ -198,27 +199,18 @@ export function KtsCellGroupProvider({
 }
 
 export function KtsSwitchCell({ trip }: { trip: TripRow }) {
-  const { updateField } = useTripFieldUpdate();
-  const { mutate } = useUpdateTripMutation();
+  const { mutate } = useUpdateKtsMutation();
 
   const ctx = useKtsOptimistic();
   const checked = ctx?.ktsActive ?? !!trip.kts_document_applies;
 
   function handleChange(next: boolean) {
     ctx?.setKtsOptimistic(next);
-    if (next) {
-      updateField(trip.id, 'kts_document_applies', true);
-    } else {
-      // Multi-field cascade: KTS off clears Fehler + Beschreibung (same semantics as detail flow).
-      mutate({
-        id: trip.id,
-        patch: {
-          kts_document_applies: false,
-          kts_fehler: false,
-          kts_fehler_beschreibung: null
-        }
-      });
-    }
+    // why: cascade (Fehler off, beschreibung null, kts_source manual) lives in kts.service — not duplicated here.
+    mutate({
+      id: trip.id,
+      patch: { kts_document_applies: next }
+    });
   }
 
   return (
@@ -233,7 +225,7 @@ export function KtsSwitchCell({ trip }: { trip: TripRow }) {
 }
 
 export function KtsFehlerSwitchCell({ trip }: { trip: TripRow }) {
-  const { mutate } = useUpdateTripMutation();
+  const { mutate } = useUpdateKtsMutation();
   const ctx = useKtsOptimistic();
   const ktsActive = ctx?.ktsActive ?? !!trip.kts_document_applies;
   const checked = ctx?.ktsFehlerActive ?? !!trip.kts_fehler;
@@ -248,15 +240,8 @@ export function KtsFehlerSwitchCell({ trip }: { trip: TripRow }) {
 
   function handleChange(next: boolean) {
     ctx?.setKtsFehlerOptimistic(next);
-    if (next) {
-      mutate({ id: trip.id, patch: { kts_fehler: true } });
-    } else {
-      mutate({
-        id: trip.id,
-        // Clears description together with the Fehler flag (single transaction).
-        patch: { kts_fehler: false, kts_fehler_beschreibung: null }
-      });
-    }
+    // why: beschreibung null when fehler off is applied by normalizeKtsPatch in the service.
+    mutate({ id: trip.id, patch: { kts_fehler: next } });
   }
 
   return (
@@ -288,8 +273,10 @@ export function KtsFehlerTextCell({ trip }: { trip: TripRow }) {
   // 1500ms gives the admin time to finish typing a sentence before the save
   // triggers. 400ms caused visible freezes mid-input.
   const debouncedPersist = useDebouncedCallback((raw: string) => {
-    const v = raw.trim();
-    updateField(trip.id, 'kts_fehler_beschreibung', v || null);
+    const { kts_fehler_beschreibung } = normalizeKtsPatch({
+      kts_fehler_beschreibung: raw.trim() || null
+    });
+    updateField(trip.id, 'kts_fehler_beschreibung', kts_fehler_beschreibung);
   }, 1500);
 
   const v = trip.kts_fehler_beschreibung as string | null | undefined;

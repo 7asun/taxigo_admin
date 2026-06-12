@@ -1,3 +1,4 @@
+import { normalizeKtsPatch } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
@@ -78,6 +79,15 @@ export function buildReturnTripInsert(
       | 'pending'
       | 'assigned') ?? 'pending';
 
+  const rawKts = {
+    kts_document_applies: outbound.kts_document_applies,
+    kts_fehler: outbound.kts_fehler ?? false,
+    kts_fehler_beschreibung: outbound.kts_fehler_beschreibung ?? null,
+    kts_source: outbound.kts_source ?? 'manual'
+  };
+  // why: sanitize corrupt outbound; intentional fehler inheritance when KTS applies is preserved.
+  const normalizedKts = normalizeKtsPatch(rawKts);
+
   return {
     ...route,
     payer_id: outbound.payer_id,
@@ -93,11 +103,8 @@ export function buildReturnTripInsert(
     vehicle_id: outbound.vehicle_id,
     billing_calling_station: outbound.billing_calling_station,
     billing_betreuer: outbound.billing_betreuer,
-    kts_document_applies: outbound.kts_document_applies,
+    ...normalizedKts,
     reha_schein: !!outbound.reha_schein,
-    kts_fehler: outbound.kts_fehler ?? false,
-    kts_fehler_beschreibung: outbound.kts_fehler_beschreibung ?? null,
-    kts_source: outbound.kts_source ?? 'manual',
     no_invoice_required: outbound.no_invoice_required,
     no_invoice_source: outbound.no_invoice_source ?? null,
     fremdfirma_id: null,

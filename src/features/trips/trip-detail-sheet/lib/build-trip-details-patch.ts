@@ -9,6 +9,7 @@
  * `paired-trip-sync.ts` (`buildPartnerSyncPatchFromDrafts` + swapped endpoints).
  */
 
+import { buildKtsPatchFromDrafts } from '@/features/kts/kts.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import type { AddressResult } from '@/features/trips/components/trip-address-passenger';
 import {
@@ -74,13 +75,6 @@ function normalizeNotes(s: string): string {
   return s.trim();
 }
 
-function normalizeKtsFehlerBeschreibungStored(
-  s: string | null | undefined
-): string | null {
-  const t = normalizeNotes(s ?? '');
-  return t ? t : null;
-}
-
 /**
  * Computes the PATCH object and whether it is empty (no DB write needed).
  * May call Google Directions when pickup/dropoff coordinates support metrics.
@@ -98,16 +92,17 @@ export async function buildTripDetailsPatch(
   if (input.billingVariantDraft !== (trip.billing_variant_id ?? '')) {
     patch.billing_variant_id = input.billingVariantDraft || null;
   }
-  const ktsAppliesNext = !!input.ktsDocumentAppliesDraft;
-  const ktsAppliesWas = !!trip.kts_document_applies;
-  const ktsSourceWas = trip.kts_source ?? '';
-  if (
-    ktsAppliesNext !== ktsAppliesWas ||
-    input.ktsSourceForSave !== ktsSourceWas
-  ) {
-    patch.kts_document_applies = ktsAppliesNext;
-    patch.kts_source = input.ktsSourceForSave;
-  }
+  // why: KTS cascade rules live in kts.service — this builder only diffs non-KTS trip fields.
+  Object.assign(
+    patch,
+    buildKtsPatchFromDrafts({
+      trip,
+      ktsDocumentAppliesDraft: input.ktsDocumentAppliesDraft,
+      ktsFehlerDraft: input.ktsFehlerDraft,
+      ktsFehlerBeschreibungDraft: input.ktsFehlerBeschreibungDraft,
+      ktsSourceForSave: input.ktsSourceForSave
+    })
+  );
   const noInvNext = !!input.noInvoiceRequiredDraft;
   const noInvWas = !!trip.no_invoice_required;
   const noInvSrcWas = trip.no_invoice_source ?? '';
@@ -119,24 +114,6 @@ export async function buildTripDetailsPatch(
   const rehaWas = !!trip.reha_schein;
   if (rehaNext !== rehaWas) {
     patch.reha_schein = rehaNext;
-  }
-  const ktsFehlerNext = !!input.ktsFehlerDraft;
-  const ktsFehlerWas = !!trip.kts_fehler;
-  if (ktsFehlerNext !== ktsFehlerWas) {
-    patch.kts_fehler = ktsFehlerNext;
-  }
-  const beschStored = normalizeKtsFehlerBeschreibungStored(
-    trip.kts_fehler_beschreibung
-  );
-  const beschDraft = ktsFehlerNext
-    ? normalizeKtsFehlerBeschreibungStored(input.ktsFehlerBeschreibungDraft)
-    : null;
-  if (!ktsFehlerNext) {
-    if (beschStored !== null) {
-      patch.kts_fehler_beschreibung = null;
-    }
-  } else if (beschDraft !== beschStored) {
-    patch.kts_fehler_beschreibung = beschDraft;
   }
   if (input.wheelchairDraft !== !!trip.is_wheelchair) {
     patch.is_wheelchair = input.wheelchairDraft;

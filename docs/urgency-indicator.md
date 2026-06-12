@@ -37,6 +37,7 @@ The indicator calculates an `UrgencyLevel` based on the difference (in minutes) 
 - **Component**: `src/features/trips/components/urgency-indicator.tsx`
   - A framer-motion powered UI component with `dot` and `badge` variants.
 - **Kanban time chip**: `src/features/trips/hooks/use-urgency-level.ts` + `KANBAN_TIME_CHIP_CLASS` in `urgency-config.ts` — the **entire** time container is tinted by urgency (no dot).
+- **Dashboard Offene Touren**: `src/features/dashboard/components/pending-tours-widget.tsx` — `useUrgencyLevel` + `URGENCY_STYLES[level].rowClass` on each unplanned trip row (border/background only; no dot or tooltip).
 - **Auto-Sync**: The indicator (and hook) refresh every 10 seconds so the visual state stays accurate even if the page isn't reloaded.
 
 ## Design Rules
@@ -82,6 +83,27 @@ const urgencyLevel = useUrgencyLevel(trip.scheduled_at, trip.status);
 ```
 
 When `urgencyLevel !== 'none'`, wrap the chip in a `Tooltip` with `getUrgencyTranslation(urgencyLevel).label`.
+
+### Dashboard Offene Touren (row border only)
+
+Unplanned trip rows use the same `rowClass` map as the Fahrten table / mobile card list — left accent + background tint, no dot:
+
+```tsx
+import { URGENCY_STYLES } from '@/features/trips/constants/urgency-config';
+import { useUrgencyLevel } from '@/features/trips/hooks/use-urgency-level';
+
+const urgencyLevel = useUrgencyLevel(trip.scheduled_at, trip.status);
+
+<div className={cn('… rounded-lg border p-3', URGENCY_STYLES[urgencyLevel].rowClass)}>
+  …
+</div>
+```
+
+Rows without `scheduled_at`, with invalid timestamps, or outside the urgency windows stay neutral because `rowClass` for `none` is empty.
+
+**Post-save freshness:** After the widget saves time/driver, `handleSetTime` **awaits** `invalidateQueries({ queryKey: tripKeys.unplannedRoot })` so list rows and card-description counts reflect the server before the success toast. Urgency borders then tick locally via `useUrgencyLevel` from the refreshed `scheduled_at` in cache — no page reload required.
+
+**Form state after save:** Rows that stay in the list re-sync `dateStr`, `time`, and `driverId` from refreshed trip props (`parseScheduledAtOrFallback` for Berlin date/time) when `scheduled_at` / `driver_id` change — the success path does not clear the time input, which would otherwise show `--:--` until remount.
 
 ### In Cards (Badge variant)
 

@@ -12,7 +12,6 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ClientAutoSuggest } from '@/components/ui/client-auto-suggest';
 import { Switch } from '@/components/ui/switch';
 import { DatePicker } from '@/components/ui/date-time-picker';
@@ -40,6 +39,8 @@ import {
   shouldOfferPairedSyncForDetailsSave,
   shouldOfferPairedSyncForNotesOnlySave
 } from '@/features/trips/trip-detail-sheet/lib/paired-trip-sync';
+import { KtsCorrectionForm } from '@/features/trips/trip-detail-sheet/components/kts-correction-form';
+import { KtsCorrectionTimeline } from '@/features/trips/trip-detail-sheet/components/kts-correction-timeline';
 import { TripSheetTopCallouts } from '@/features/trips/trip-detail-sheet/components/trip-sheet-top-callouts';
 import { TripPriceTooltip } from '@/features/trips/trip-detail-sheet/components/trip-price-tooltip';
 import { RecurringTripEditScopeDialog } from '@/features/trips/trip-detail-sheet/dialogs/recurring-trip-edit-scope-dialog';
@@ -272,6 +273,7 @@ export function TripDetailSheet({
   const [ktsFehlerDraft, setKtsFehlerDraft] = useState(false);
   const [ktsFehlerBeschreibungDraft, setKtsFehlerBeschreibungDraft] =
     useState('');
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false);
   const [ktsCatalogHint, setKtsCatalogHint] = useState<string | null>(null);
   const ktsUserLockedRef = useRef(false);
   const [noInvoiceRequiredDraft, setNoInvoiceRequiredDraft] = useState(false);
@@ -1663,51 +1665,18 @@ export function TripDetailSheet({
                       )}
                   </div>
                   {payerDraft ? (
-                    <div className='col-span-2 flex flex-col gap-3 rounded-lg border border-dashed p-3 sm:flex-row sm:items-start sm:justify-between'>
-                      <div className='min-w-0 flex-1 space-y-1'>
-                        <div className='text-muted-foreground text-xs font-medium'>
-                          KTS / Krankentransportschein
-                        </div>
-                        {ktsCatalogHint && ktsDocumentAppliesDraft ? (
-                          <p className='text-muted-foreground text-[11px]'>
-                            {ktsCatalogHint}
-                          </p>
-                        ) : null}
-                      </div>
-                      {ktsDocumentAppliesDraft ? (
-                        <div className='flex w-full min-w-0 flex-col gap-2 sm:max-w-[min(100%,20rem)] sm:flex-1'>
-                          <div className='flex items-center gap-2'>
-                            <Checkbox
-                              id='trip-detail-kts-fehler'
-                              checked={ktsFehlerDraft}
-                              onCheckedChange={(c) => {
-                                const on = c === true;
-                                setKtsFehlerDraft(on);
-                                if (!on) setKtsFehlerBeschreibungDraft('');
-                              }}
-                              disabled={!isOpen}
-                            />
-                            <Label
-                              htmlFor='trip-detail-kts-fehler'
-                              className='text-muted-foreground cursor-pointer text-xs font-medium'
-                            >
-                              KTS-Fehler
-                            </Label>
+                    <div className='col-span-2 flex flex-col gap-3 rounded-lg border border-dashed p-3'>
+                      <div className='flex items-center justify-between gap-3'>
+                        <div className='space-y-0.5'>
+                          <div className='text-muted-foreground text-xs font-medium'>
+                            KTS / Krankentransportschein
                           </div>
-                          <Textarea
-                            value={ktsFehlerBeschreibungDraft}
-                            onChange={(e) =>
-                              setKtsFehlerBeschreibungDraft(e.target.value)
-                            }
-                            disabled={!isOpen || !ktsFehlerDraft}
-                            placeholder='optional — Kurzbeschreibung des Fehlers'
-                            rows={2}
-                            aria-label='KTS-Fehler Beschreibung'
-                            className='text-xs'
-                          />
+                          {ktsCatalogHint && ktsDocumentAppliesDraft ? (
+                            <p className='text-muted-foreground text-[11px]'>
+                              {ktsCatalogHint}
+                            </p>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <div className='flex shrink-0 justify-end sm:pt-0'>
                         <Switch
                           checked={ktsDocumentAppliesDraft}
                           onCheckedChange={(c) => {
@@ -1716,11 +1685,78 @@ export function TripDetailSheet({
                               setKtsCatalogHint(null);
                               setKtsFehlerDraft(false);
                               setKtsFehlerBeschreibungDraft('');
+                              setShowCorrectionForm(false);
                             }
                             setKtsDocumentAppliesDraft(c);
                           }}
                         />
                       </div>
+                      {ktsDocumentAppliesDraft ? (
+                        <div className='mt-3 flex flex-col gap-2'>
+                          <div className='flex items-center justify-between gap-3'>
+                            <Label
+                              htmlFor='trip-detail-kts-fehler'
+                              className='text-muted-foreground cursor-pointer text-xs font-medium'
+                            >
+                              KTS-Fehler
+                            </Label>
+                            <Switch
+                              id='trip-detail-kts-fehler'
+                              checked={ktsFehlerDraft}
+                              onCheckedChange={(c) => {
+                                const on = c === true;
+                                setKtsFehlerDraft(on);
+                                if (!on) {
+                                  setKtsFehlerBeschreibungDraft('');
+                                  setShowCorrectionForm(false);
+                                }
+                              }}
+                              disabled={!isOpen}
+                            />
+                          </div>
+                          {ktsFehlerDraft ? (
+                            <>
+                              <Textarea
+                                value={ktsFehlerBeschreibungDraft}
+                                onChange={(e) =>
+                                  setKtsFehlerBeschreibungDraft(e.target.value)
+                                }
+                                disabled={!isOpen}
+                                placeholder='optional — Kurzbeschreibung des Fehlers'
+                                rows={2}
+                                aria-label='KTS-Fehler Beschreibung'
+                                className='text-xs'
+                              />
+                              <div className='border-border/60 mt-1 space-y-2 border-t pt-3'>
+                                {/* why: correction workflow only when KTS-Fehler aktiv — avoids fetching kts_corrections for every trip that opens the sheet */}
+                                <KtsCorrectionTimeline tripId={trip.id} />
+                                {showCorrectionForm ? (
+                                  <KtsCorrectionForm
+                                    tripId={trip.id}
+                                    companyId={trip.company_id!}
+                                    onSuccess={() =>
+                                      setShowCorrectionForm(false)
+                                    }
+                                    onCancel={() =>
+                                      setShowCorrectionForm(false)
+                                    }
+                                  />
+                                ) : (
+                                  <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    className='h-8 text-xs'
+                                    onClick={() => setShowCorrectionForm(true)}
+                                  >
+                                    + Korrektur erfassen
+                                  </Button>
+                                )}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {/* trips.reha_schein — nur wenn Kostenträger-Reiter Reha eingeschaltet hat (Spiegelbild Neue Fahrt). */}

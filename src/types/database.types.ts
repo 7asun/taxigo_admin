@@ -1832,6 +1832,57 @@ export type Database = {
           }
         ];
       };
+      kts_corrections: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          notes: string | null;
+          received_at: string | null;
+          sent_at: string;
+          sent_to: string;
+          trip_id: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          notes?: string | null;
+          received_at?: string | null;
+          sent_at: string;
+          sent_to: string;
+          trip_id: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          notes?: string | null;
+          received_at?: string | null;
+          sent_at?: string;
+          sent_to?: string;
+          trip_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'kts_corrections_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'kts_corrections_trip_id_fkey';
+            columns: ['trip_id'];
+            isOneToOne: false;
+            referencedRelation: 'trips';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
       accounts: {
         Row: {
           company_id: string | null;
@@ -1982,6 +2033,16 @@ export type Database = {
       trip_ids_matching_invoice_effective_status: {
         Args: { p_effective: string };
         Returns: string[];
+      };
+      trip_kts_correction_summaries: {
+        Args: { p_trip_ids: string[] };
+        Returns: {
+          correction_count: number;
+          latest_received_at: string | null;
+          latest_sent_at: string;
+          latest_sent_to: string;
+          trip_id: string;
+        }[];
       };
       resolve_client_id_by_name: {
         Args: { p_company_id: string; p_full_name: string };
