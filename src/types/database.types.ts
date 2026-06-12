@@ -199,6 +199,7 @@ export type Database = {
           id: string;
           is_company: boolean;
           is_wheelchair: boolean;
+          kts_patient_id: string | null;
           last_name: string | null;
           notes: string | null;
           phone: string | null;
@@ -230,6 +231,7 @@ export type Database = {
           id?: string;
           is_company?: boolean;
           is_wheelchair?: boolean;
+          kts_patient_id?: string | null;
           last_name?: string | null;
           notes?: string | null;
           phone?: string | null;
@@ -260,6 +262,7 @@ export type Database = {
           id?: string;
           is_company?: boolean;
           is_wheelchair?: boolean;
+          kts_patient_id?: string | null;
           last_name?: string | null;
           notes?: string | null;
           phone?: string | null;
@@ -1472,6 +1475,7 @@ export type Database = {
           kts_document_applies: boolean;
           kts_fehler: boolean;
           kts_fehler_beschreibung: string | null;
+          kts_patient_id: string | null;
           kts_source: string | null;
           reha_schein: boolean;
           fremdfirma_cost: number | null;
@@ -1551,6 +1555,7 @@ export type Database = {
           kts_document_applies?: boolean;
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
+          kts_patient_id?: string | null;
           kts_source?: string | null;
           reha_schein?: boolean;
           fremdfirma_cost?: number | null;
@@ -1628,6 +1633,7 @@ export type Database = {
           kts_document_applies?: boolean;
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
+          kts_patient_id?: string | null;
           kts_source?: string | null;
           reha_schein?: boolean;
           fremdfirma_cost?: number | null;

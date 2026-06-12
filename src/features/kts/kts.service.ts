@@ -20,6 +20,7 @@ interface KtsDraftInput {
   ktsDocumentAppliesDraft: boolean;
   ktsFehlerDraft: boolean;
   ktsFehlerBeschreibungDraft: string;
+  ktsPatientIdDraft: string | null;
   ktsSourceForSave: string;
 }
 
@@ -28,6 +29,13 @@ function trimNotes(s: string): string {
 }
 
 function normalizeKtsFehlerBeschreibungStored(
+  s: string | null | undefined
+): string | null {
+  const t = trimNotes(s ?? '');
+  return t ? t : null;
+}
+
+function normalizeKtsPatientIdStored(
   s: string | null | undefined
 ): string | null {
   const t = trimNotes(s ?? '');
@@ -54,9 +62,20 @@ export function normalizeKtsPatch(
     }
   }
 
+  if ('kts_patient_id' in patch) {
+    const v = patch.kts_patient_id;
+    if (v == null) {
+      result.kts_patient_id = null;
+    } else {
+      const t = String(v).trim();
+      result.kts_patient_id = t ? t : null;
+    }
+  }
+
   if ('kts_document_applies' in patch && patch.kts_document_applies === false) {
     result.kts_fehler = false;
     result.kts_fehler_beschreibung = null;
+    // why: PR4 CSV matching — patient ID snapshot must survive KTS OFF; do not clear kts_patient_id here.
   }
 
   if ('kts_fehler' in patch && patch.kts_fehler === false) {
@@ -113,6 +132,19 @@ export function buildKtsPatchFromDrafts(
     }
   } else if (beschDraft !== beschStored) {
     rawPatch.kts_fehler_beschreibung = beschDraft;
+  }
+
+  const patientStored = normalizeKtsPatientIdStored(trip.kts_patient_id);
+  const patientDraft = normalizeKtsPatientIdStored(input.ktsPatientIdDraft);
+  const patientDiffers = patientDraft !== patientStored;
+  if (
+    patientDiffers &&
+    (ktsAppliesNext ||
+      ktsAppliesWas ||
+      patientDraft !== null ||
+      patientStored !== null)
+  ) {
+    rawPatch.kts_patient_id = patientDraft;
   }
 
   return normalizeKtsPatch(rawPatch);

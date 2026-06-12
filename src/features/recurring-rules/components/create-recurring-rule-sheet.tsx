@@ -59,7 +59,7 @@ async function searchClientsForSheet(query: string): Promise<ClientOption[]> {
   const { data } = await supabase
     .from('clients')
     .select(
-      'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair'
+      'id, first_name, last_name, company_name, is_company, phone, phone_secondary, email, street, street_number, zip_code, city, is_wheelchair, kts_patient_id'
     )
     .or(
       `first_name.ilike.%${query}%,last_name.ilike.%${query}%,company_name.ilike.%${query}%,email.ilike.%${query}%`

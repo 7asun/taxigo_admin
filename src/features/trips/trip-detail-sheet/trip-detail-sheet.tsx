@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type ReactNode
 } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -84,7 +85,8 @@ import {
   Copy,
   PenLine,
   Layers,
-  ChevronDown
+  ChevronDown,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -273,6 +275,7 @@ export function TripDetailSheet({
   const [ktsFehlerDraft, setKtsFehlerDraft] = useState(false);
   const [ktsFehlerBeschreibungDraft, setKtsFehlerBeschreibungDraft] =
     useState('');
+  const [ktsPatientIdDraft, setKtsPatientIdDraft] = useState('');
   const [showCorrectionForm, setShowCorrectionForm] = useState(false);
   const [ktsCatalogHint, setKtsCatalogHint] = useState<string | null>(null);
   const ktsUserLockedRef = useRef(false);
@@ -445,6 +448,9 @@ export function TripDetailSheet({
       if (client.is_wheelchair !== undefined) {
         setWheelchairDraft(!!client.is_wheelchair);
       }
+      if (ktsDocumentAppliesDraft && client.kts_patient_id) {
+        setKtsPatientIdDraft(client.kts_patient_id);
+      }
     } else {
       setClientIdDraft(null);
     }
@@ -521,6 +527,7 @@ export function TripDetailSheet({
     setRehaScheinDraft(!!trip.reha_schein);
     setKtsFehlerDraft(!!trip.kts_fehler);
     setKtsFehlerBeschreibungDraft(trip.kts_fehler_beschreibung ?? '');
+    setKtsPatientIdDraft(trip.kts_patient_id ?? '');
     ktsUserLockedRef.current = false;
     setKtsCatalogHint(null);
     setNoInvoiceRequiredDraft(!!trip.no_invoice_required);
@@ -542,6 +549,7 @@ export function TripDetailSheet({
     trip?.kts_document_applies,
     trip?.kts_fehler,
     trip?.kts_fehler_beschreibung,
+    trip?.kts_patient_id,
     trip?.reha_schein
   ]);
 
@@ -894,6 +902,7 @@ export function TripDetailSheet({
       ktsDocumentAppliesDraft,
       ktsFehlerDraft,
       ktsFehlerBeschreibungDraft,
+      ktsPatientIdDraft,
       noInvoiceRequiredDraft,
       rehaScheinDraft,
       payers,
@@ -963,6 +972,8 @@ export function TripDetailSheet({
         ? ktsFehlerBeschreibungDraft.trim() !==
           (trip.kts_fehler_beschreibung ?? '').trim()
         : (trip.kts_fehler_beschreibung ?? '').trim() !== '') ||
+      normalizeNotes(ktsPatientIdDraft) !==
+        normalizeNotes(trip.kts_patient_id ?? '') ||
       noInvoiceRequiredDraft !== !!trip.no_invoice_required ||
       dateYmdDraft !== currentDateYmd ||
       (!!trip &&
@@ -1034,6 +1045,7 @@ export function TripDetailSheet({
           ktsDocumentAppliesDraft,
           ktsFehlerDraft,
           ktsFehlerBeschreibungDraft,
+          ktsPatientIdDraft: ktsPatientIdDraft.trim() || null,
           ktsSourceForSave,
           noInvoiceRequiredDraft,
           noInvoiceSourceForSave,
@@ -1686,6 +1698,26 @@ export function TripDetailSheet({
                               setKtsFehlerDraft(false);
                               setKtsFehlerBeschreibungDraft('');
                               setShowCorrectionForm(false);
+                            } else {
+                              // why: copy at operational moment (KTS ON), not on every render — guard embed matches linked client.
+                              const embed = trip?.clients;
+                              const embedId =
+                                embed &&
+                                typeof embed === 'object' &&
+                                !Array.isArray(embed) &&
+                                'id' in embed
+                                  ? (embed as ClientOption).id
+                                  : null;
+                              if (
+                                clientIdDraft &&
+                                embedId === clientIdDraft &&
+                                (embed as ClientOption).kts_patient_id &&
+                                !ktsPatientIdDraft.trim()
+                              ) {
+                                setKtsPatientIdDraft(
+                                  (embed as ClientOption).kts_patient_id!
+                                );
+                              }
                             }
                             setKtsDocumentAppliesDraft(c);
                           }}
@@ -1715,45 +1747,109 @@ export function TripDetailSheet({
                             />
                           </div>
                           {ktsFehlerDraft ? (
-                            <>
-                              <Textarea
-                                value={ktsFehlerBeschreibungDraft}
-                                onChange={(e) =>
-                                  setKtsFehlerBeschreibungDraft(e.target.value)
-                                }
-                                disabled={!isOpen}
-                                placeholder='optional — Kurzbeschreibung des Fehlers'
-                                rows={2}
-                                aria-label='KTS-Fehler Beschreibung'
-                                className='text-xs'
-                              />
-                              <div className='border-border/60 mt-1 space-y-2 border-t pt-3'>
-                                {/* why: correction workflow only when KTS-Fehler aktiv — avoids fetching kts_corrections for every trip that opens the sheet */}
-                                <KtsCorrectionTimeline tripId={trip.id} />
-                                {showCorrectionForm ? (
-                                  <KtsCorrectionForm
-                                    tripId={trip.id}
-                                    companyId={trip.company_id!}
-                                    onSuccess={() =>
-                                      setShowCorrectionForm(false)
-                                    }
-                                    onCancel={() =>
-                                      setShowCorrectionForm(false)
-                                    }
-                                  />
-                                ) : (
-                                  <Button
-                                    type='button'
-                                    variant='outline'
-                                    size='sm'
-                                    className='h-8 text-xs'
-                                    onClick={() => setShowCorrectionForm(true)}
+                            <Textarea
+                              value={ktsFehlerBeschreibungDraft}
+                              onChange={(e) =>
+                                setKtsFehlerBeschreibungDraft(e.target.value)
+                              }
+                              disabled={!isOpen}
+                              placeholder='optional — Kurzbeschreibung des Fehlers'
+                              rows={2}
+                              aria-label='KTS-Fehler Beschreibung'
+                              className='text-xs'
+                            />
+                          ) : null}
+                          <div className='space-y-1.5'>
+                            {clientIdDraft ? (
+                              <div className='flex items-center justify-between gap-2'>
+                                <span className='text-muted-foreground text-xs'>
+                                  KTS Patienten-ID
+                                </span>
+                                <div className='flex items-center gap-1'>
+                                  {ktsPatientIdDraft.trim() ? (
+                                    <span className='font-mono text-sm'>
+                                      {ktsPatientIdDraft.trim()}
+                                    </span>
+                                  ) : null}
+                                  {!ktsPatientIdDraft.trim() ? (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            type='button'
+                                            variant='ghost'
+                                            size='icon'
+                                            className='h-6 w-6 text-amber-500 hover:text-amber-600'
+                                            aria-label='Keine Patienten-ID hinterlegt'
+                                          >
+                                            <AlertTriangle className='h-4 w-4' />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side='top'>
+                                          <p>
+                                            Keine Patienten-ID hinterlegt. Bitte
+                                            im Kundenprofil hinterlegen.
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  ) : null}
+                                  <Link
+                                    href={`/dashboard/clients?clientId=${clientIdDraft}`}
                                   >
-                                    + Korrektur erfassen
-                                  </Button>
-                                )}
+                                    <Button
+                                      type='button'
+                                      variant='ghost'
+                                      size='icon'
+                                      className='text-muted-foreground hover:text-foreground size-8'
+                                      aria-label='Kundenprofil öffnen'
+                                    >
+                                      <ExternalLink className='h-4 w-4' />
+                                    </Button>
+                                  </Link>
+                                </div>
                               </div>
-                            </>
+                            ) : (
+                              <>
+                                <Label className='text-muted-foreground text-xs font-medium'>
+                                  KTS Patienten-ID
+                                </Label>
+                                <Input
+                                  value={ktsPatientIdDraft}
+                                  onChange={(e) =>
+                                    setKtsPatientIdDraft(e.target.value)
+                                  }
+                                  disabled={!isOpen}
+                                  placeholder='Patienten-ID eingeben'
+                                  className='h-8 text-sm'
+                                  aria-label='KTS Patienten-ID'
+                                />
+                              </>
+                            )}
+                          </div>
+                          {ktsFehlerDraft ? (
+                            <div className='border-border/60 mt-1 space-y-2 border-t pt-3'>
+                              {/* why: correction workflow only when KTS-Fehler aktiv — avoids fetching kts_corrections for every trip that opens the sheet */}
+                              <KtsCorrectionTimeline tripId={trip.id} />
+                              {showCorrectionForm ? (
+                                <KtsCorrectionForm
+                                  tripId={trip.id}
+                                  companyId={trip.company_id!}
+                                  onSuccess={() => setShowCorrectionForm(false)}
+                                  onCancel={() => setShowCorrectionForm(false)}
+                                />
+                              ) : (
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  size='sm'
+                                  className='h-8 text-xs'
+                                  onClick={() => setShowCorrectionForm(true)}
+                                >
+                                  + Korrektur erfassen
+                                </Button>
+                              )}
+                            </div>
                           ) : null}
                         </div>
                       ) : null}

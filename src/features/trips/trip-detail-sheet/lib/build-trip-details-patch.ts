@@ -52,6 +52,7 @@ export interface BuildTripDetailsPatchInput {
   ktsDocumentAppliesDraft: boolean;
   ktsFehlerDraft: boolean;
   ktsFehlerBeschreibungDraft: string;
+  ktsPatientIdDraft: string | null;
   /** Persisted with `kts_document_applies` (catalog tier vs manual). */
   ktsSourceForSave: string;
   noInvoiceRequiredDraft: boolean;
@@ -100,6 +101,7 @@ export async function buildTripDetailsPatch(
       ktsDocumentAppliesDraft: input.ktsDocumentAppliesDraft,
       ktsFehlerDraft: input.ktsFehlerDraft,
       ktsFehlerBeschreibungDraft: input.ktsFehlerBeschreibungDraft,
+      ktsPatientIdDraft: input.ktsPatientIdDraft,
       ktsSourceForSave: input.ktsSourceForSave
     })
   );

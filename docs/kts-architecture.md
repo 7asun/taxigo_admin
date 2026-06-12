@@ -71,6 +71,7 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 | `kts_fehler` | `boolean NOT NULL` (default `false`) | Marks that the KTS document for this trip is erroneous (operational / QA). Independent of the catalog cascade; not set by `resolveKtsDefault`. |
 | `kts_fehler_beschreibung` | `text` (nullable) | Optional free-text explanation. Persisted as `NULL` whenever `kts_fehler` is false (no stale text). Description may be empty even when `kts_fehler` is true. |
 | `kts_source` | `varchar` (nullable) | How the flag was set: `variant`, `familie`, `payer`, `manual`, `system_default`. |
+| `kts_patient_id` | `text` (nullable) | **PR3:** Snapshot of external patient ID at KTS enable / client link time — stable for PR4 CSV matching; **not cleared** when KTS is turned off. |
 | `base_net_price` | `numeric` (nullable) | **Phase 1 (2026-04):** transport net only; backfilled. For KTS, resolver net is €0; aligned with `net_price` / `gross` via `resolveTripPrice`. |
 | `approach_fee_net` | `numeric` (nullable) | **Phase 1:** Anfahrt net; KTS and taxameter paths use 0 where the resolver omits Anfahrt. |
 
@@ -81,6 +82,24 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 - **Do not** add `kts_review_status` on `trips` in V1; reserve the concept for V2 (`kts_reviews` table below).
 
 **KTS-Fehler (UI v1):** Edited only in the **trip detail sheet** (not Neue Fahrt). Shown in the Fahrten table and on **Fahrten drucken** / PDF-style cards when `kts_fehler` is true. Neue Fahrt keeps schema defaults (`false` / `null`) and may still persist those via `createTrip` when KTS applies (see create-trip submit normalization).
+
+### 3.0 Patient ID (PR3 — `kts_patient_id`)
+
+| Table | Column | Role |
+| ----- | ------ | ---- |
+| `clients` | `kts_patient_id` | **Master** — external patient ID from the accountant billing system; edited in **Kundenprofil** (`ClientForm` KTS section). |
+| `trips` | `kts_patient_id` | **Snapshot** — copied once when KTS is enabled or a linked client is selected; used for PR4 CSV row matching without live joins. |
+
+**Snapshot rationale:** Same pattern as `client_name` / `client_phone` ([`trip-client-linking.md`](trip-client-linking.md)): the trip row keeps the ID that was valid at the operational moment, even if the client master is edited later.
+
+**UI rules (trip detail, when `kts_document_applies`):**
+
+- **Linked client** (`client_id` set): read-only display of the trip snapshot + link to `/dashboard/clients/{id}` (profile is the edit surface).
+- **Name-only trip** (no `client_id`): editable **KTS Patienten-ID** on **Trip aktualisieren**.
+
+**Copy triggers (UI, not on every render):** KTS switch ON (from embedded client when IDs match) and client autosuggest select (when KTS is already ON). `normalizeKtsPatch` does **not** clear `kts_patient_id` when `kts_document_applies` becomes `false`.
+
+Migration: `supabase/migrations/20260610130000_kts_patient_id.sql`.
 
 ### 3.1 Recurring rules
 
@@ -207,10 +226,11 @@ All **edit** paths for trip-level KTS columns delegate to this module. Catalog d
 
 ### `normalizeKtsPatch` cascade rules (canonical)
 
-1. **`kts_document_applies: false`** (key present) → set `kts_fehler: false`, `kts_fehler_beschreibung: null`.
+1. **`kts_document_applies: false`** (key present) → set `kts_fehler: false`, `kts_fehler_beschreibung: null` — **does not** clear `kts_patient_id` (PR4 CSV stability).
 2. **`kts_fehler: false`** (key present) → set `kts_fehler_beschreibung: null`.
 3. **`kts_document_applies: true`** (key present) and **`kts_source` absent** from input patch → set `kts_source: 'manual'`.
 4. **`kts_fehler_beschreibung` present** → trim whitespace; empty string → `null`.
+5. **`kts_patient_id` present** → trim whitespace; empty string → `null`.
 
 Copy/insert paths (Neue Fahrt submit, duplicate, Rückfahrt, recurring cron, bulk CSV) are **out of scope for PR1**; see [`docs/plans/kts-pr1-deferred-paths-audit.md`](plans/kts-pr1-deferred-paths-audit.md).
 
@@ -226,12 +246,23 @@ Architecture: **Option 1** — KTS flags stay on `trips`; new tables are satelli
 | **PR2** (schema shipped) | `kts_corrections` table + RLS + `trip_kts_correction_summaries` RPC — migration `20260610120000_kts_corrections.sql` |
 | **PR2.1** (shipped) | `kts.service.ts` — `fetchTripCorrections`, `insertKtsCorrection`, `closeKtsCorrection`; hook `use-kts-corrections.ts` |
 | **PR2.2** (shipped) | Trip detail — `KtsCorrectionTimeline`, `KtsCorrectionForm` (`kts_fehler` gate) |
-| **PR3** | Accountant gate — block handoff while open correction round exists |
-| **PR4** | `kts_external_invoices` + `kts_external_invoice_trips` — external Beleg recording, CSV matching |
+| **PR3** (shipped) | `kts_patient_id` on `clients` + `trips` — master + snapshot; `ClientForm` + trip detail UI; migration `20260610130000_kts_patient_id.sql` |
+| **PR4** (next) | `kts_external_invoices` + `kts_external_invoice_trips` — external Beleg recording, CSV matching on `trips.kts_patient_id` |
+| **Deferred** | Accountant gate — block handoff while open correction round exists |
 | **PR5** | Bank CSV reconciliation against external invoice numbers |
 | **PR6** (future) | KTS-Abrechnung dashboard (Korrekturen / Beim Steuerberater / Abgeschlossen) |
 
 `kts_reviews` (§8) remains the append-only **workflow status** history; `kts_corrections` (PR2) tracks **per-round logistics** — complementary, not duplicate.
+
+---
+
+## 7.3 Deferred / security backlog
+
+**Why:** `SECURITY DEFINER` RPCs in this project intentionally bypass RLS for aggregation performance; tenant isolation must be enforced **inside the function** (e.g. `current_user_company_id()` + `JOIN trips`), not assumed from caller-supplied UUIDs.
+
+| ID | Item | Status | Reference |
+| -- | ---- | ------ | --------- |
+| **KTS-SEC-01** | `trip_kts_correction_summaries` — in-function tenant guard (`JOIN trips` + `company_id`) | **RESOLVED** (2026-06-10) | [`docs/plans/kts-rpc-tenant-guard-deferred.md`](plans/kts-rpc-tenant-guard-deferred.md); migration `20260610125000_kts_rpc_tenant_guard.sql` |
 
 ---
 
@@ -265,6 +296,8 @@ Die Liste in der ursprünglichen Reihenfolge ist umgesetzt (Migration, Resolver,
 **PR2.1 (2026-06):** correction CRUD in `kts.service.ts` + `useTripCorrections` / insert / close mutations.
 
 **PR2.2 (2026-06):** correction timeline + inline form in trip detail sheet (`kts_fehler` gate).
+
+**PR3 (2026-06):** `kts_patient_id` on `clients` (master) and `trips` (snapshot); `ClientForm` KTS section; trip detail auto-copy on KTS ON / client select; `buildKtsPatchFromDrafts` extension (§3.0).
 
 Bei Schema-Änderungen: `database.types.ts` und ggf. dieses Dokument anpassen.
 

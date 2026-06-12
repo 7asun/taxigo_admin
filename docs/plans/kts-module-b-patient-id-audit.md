@@ -1,8 +1,10 @@
 # KTS Module B — Patient ID Audit
 
 **Date:** 2026-06-10  
+**Status:** **Complete** — implemented in **KTS PR3** (`kts_patient_id` on `clients` + `trips`). See [`docs/kts-architecture.md`](../kts-architecture.md) §3.0 and migration `supabase/migrations/20260610130000_kts_patient_id.sql`.
+
 **Scope:** Read-only audit for introducing **external / KTS patient identifiers** on clients and trips (planned PR2.3+ / Module B).  
-**Constraint:** No code changes — findings only.
+**Constraint:** Audit was read-only; implementation followed this audit in PR3.
 
 **Related:** [`docs/plans/kts-module-b-audit.md`](kts-module-b-audit.md) (import/CSV infrastructure), [`docs/trip-client-linking.md`](../trip-client-linking.md) (client_id vs client_name), [`docs/kts-architecture.md`](../kts-architecture.md).
 
