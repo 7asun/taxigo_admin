@@ -12,7 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { normalizeKtsPatch } from '@/features/kts/kts.service';
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
@@ -268,14 +268,12 @@ function copyRouteAndPassengerFields(
   | 'has_missing_geodata'
   | 'stop_order'
 > {
-  const rawKts = {
+  const normalizedKts = normalizeKtsInsert({
     kts_document_applies: !!source.kts_document_applies,
-    kts_fehler: !!source.kts_fehler,
-    kts_fehler_beschreibung: source.kts_fehler_beschreibung ?? null,
-    kts_source: 'manual' as const
-  };
-  // why: sanitize corrupt source (KTS off + fehler on); valid KTS+fehler copies unchanged.
-  const normalizedKts = normalizeKtsPatch(rawKts);
+    kts_source: 'manual' as const,
+    kts_patient_id: source.kts_patient_id ?? null
+  });
+  // why: duplicate is a new physical document — reset workflow fields, do not inherit source fehler/status.
 
   return {
     pickup_address: source.pickup_address,

@@ -36,6 +36,7 @@ export function useInsertKtsCorrectionMutation() {
       void queryClient.invalidateQueries({
         queryKey: tripKeys.ktsCorrections(payload.tripId)
       });
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
     }
   });
 }
@@ -59,6 +60,7 @@ export function useCloseKtsCorrectionMutation() {
       void queryClient.invalidateQueries({
         queryKey: tripKeys.ktsCorrections(tripId)
       });
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
     }
   });
 }

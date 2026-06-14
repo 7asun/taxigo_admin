@@ -1475,8 +1475,14 @@ export type Database = {
           kts_document_applies: boolean;
           kts_fehler: boolean;
           kts_fehler_beschreibung: string | null;
+          kts_handover_id: string | null;
           kts_patient_id: string | null;
+          kts_belegnummer: string | null;
+          kts_invoice_amount: number | null;
+          kts_eigenanteil: number | null;
+          kts_external_invoice_id: string | null;
           kts_source: string | null;
+          kts_status: Database['public']['Enums']['kts_status'] | null;
           reha_schein: boolean;
           fremdfirma_cost: number | null;
           fremdfirma_id: string | null;
@@ -1555,8 +1561,14 @@ export type Database = {
           kts_document_applies?: boolean;
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
+          kts_handover_id?: string | null;
           kts_patient_id?: string | null;
+          kts_belegnummer?: string | null;
+          kts_invoice_amount?: number | null;
+          kts_eigenanteil?: number | null;
+          kts_external_invoice_id?: string | null;
           kts_source?: string | null;
+          kts_status?: Database['public']['Enums']['kts_status'] | null;
           reha_schein?: boolean;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
@@ -1633,8 +1645,14 @@ export type Database = {
           kts_document_applies?: boolean;
           kts_fehler?: boolean;
           kts_fehler_beschreibung?: string | null;
+          kts_handover_id?: string | null;
           kts_patient_id?: string | null;
+          kts_belegnummer?: string | null;
+          kts_invoice_amount?: number | null;
+          kts_eigenanteil?: number | null;
+          kts_external_invoice_id?: string | null;
           kts_source?: string | null;
+          kts_status?: Database['public']['Enums']['kts_status'] | null;
           reha_schein?: boolean;
           fremdfirma_cost?: number | null;
           fremdfirma_id?: string | null;
@@ -1745,6 +1763,20 @@ export type Database = {
             referencedColumns: ['id'];
           },
           {
+            foreignKeyName: 'trips_kts_external_invoice_id_fkey';
+            columns: ['kts_external_invoice_id'];
+            isOneToOne: false;
+            referencedRelation: 'kts_external_invoices';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'trips_kts_handover_id_fkey';
+            columns: ['kts_handover_id'];
+            isOneToOne: false;
+            referencedRelation: 'kts_handovers';
+            referencedColumns: ['id'];
+          },
+          {
             foreignKeyName: 'trips_linked_trip_id_fkey';
             columns: ['linked_trip_id'];
             isOneToOne: false;
@@ -1834,6 +1866,80 @@ export type Database = {
             columns: ['trip_id'];
             isOneToOne: false;
             referencedRelation: 'trips';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      kts_external_invoices: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          kts_handover_id: string | null;
+          row_count: number;
+          source_filename: string | null;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kts_handover_id?: string | null;
+          row_count?: number;
+          source_filename?: string | null;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kts_handover_id?: string | null;
+          row_count?: number;
+          source_filename?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'kts_external_invoices_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'kts_external_invoices_kts_handover_id_fkey';
+            columns: ['kts_handover_id'];
+            isOneToOne: false;
+            referencedRelation: 'kts_handovers';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
+      kts_handovers: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'kts_handovers_company_id_fkey';
+            columns: ['company_id'];
+            isOneToOne: false;
+            referencedRelation: 'companies';
             referencedColumns: ['id'];
           }
         ];
@@ -2050,6 +2156,28 @@ export type Database = {
           trip_id: string;
         }[];
       };
+      create_kts_handover: {
+        Args: { p_company_id: string; p_trip_ids: string[] };
+        Returns: string;
+      };
+      get_kts_queue_kpis: {
+        Args: { p_company_id: string };
+        Returns: {
+          fehler_aktiv: number;
+          gesamt: number;
+          ueberfaellig: number;
+          ungeprueft: number;
+        }[];
+      };
+      apply_kts_invoice_import: {
+        Args: {
+          p_company_id: string;
+          p_rows: Json;
+          p_handover_id?: string | null;
+          p_source_filename?: string | null;
+        };
+        Returns: string;
+      };
       resolve_client_id_by_name: {
         Args: { p_company_id: string; p_full_name: string };
         Returns: string | null;
@@ -2165,7 +2293,13 @@ export type Database = {
       };
     };
     Enums: {
-      [_ in never]: never;
+      kts_status:
+        | 'ungeprueft'
+        | 'korrekt'
+        | 'fehlerhaft'
+        | 'in_korrektur'
+        | 'uebergeben'
+        | 'abgerechnet';
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -2295,6 +2429,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {}
+    Enums: {
+      kts_status: [
+        'ungeprueft',
+        'korrekt',
+        'fehlerhaft',
+        'in_korrektur',
+        'uebergeben',
+        'abgerechnet'
+      ]
+    }
   }
 } as const;

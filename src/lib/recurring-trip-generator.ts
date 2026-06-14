@@ -41,6 +41,7 @@ import {
   computeTripPrice,
   type PricingContext
 } from '@/features/trips/lib/trip-price-engine';
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 
 /** Berlin forward window for cron and on-demand generation — single source of truth. */
 export const RECURRING_TRIP_GENERATION_HORIZON_DAYS = 14;
@@ -279,7 +280,7 @@ export async function generateRecurringTrips(options?: {
     const link_type = isReturnTrip ? 'return' : outboundLinkType;
     const hasFremdfirma = !!rule.fremdfirma_id;
 
-    return {
+    const payload: TripInsert = {
       company_id: client.company_id,
       client_id: client.id,
       client_name: clientName || '',
@@ -331,6 +332,14 @@ export async function generateRecurringTrips(options?: {
       billing_type_id,
       gross_price: null,
       tax_rate: null
+    };
+
+    return {
+      ...payload,
+      ...normalizeKtsInsert({
+        kts_document_applies: payload.kts_document_applies,
+        kts_source: payload.kts_source ?? null
+      })
     };
   }
 

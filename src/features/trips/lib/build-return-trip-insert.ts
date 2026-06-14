@@ -1,4 +1,4 @@
-import { normalizeKtsPatch } from '@/features/kts/kts.service';
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
@@ -79,14 +79,12 @@ export function buildReturnTripInsert(
       | 'pending'
       | 'assigned') ?? 'pending';
 
-  const rawKts = {
+  const normalizedKts = normalizeKtsInsert({
     kts_document_applies: outbound.kts_document_applies,
-    kts_fehler: outbound.kts_fehler ?? false,
-    kts_fehler_beschreibung: outbound.kts_fehler_beschreibung ?? null,
-    kts_source: outbound.kts_source ?? 'manual'
-  };
-  // why: sanitize corrupt outbound; intentional fehler inheritance when KTS applies is preserved.
-  const normalizedKts = normalizeKtsPatch(rawKts);
+    kts_source: outbound.kts_source ?? 'manual',
+    kts_patient_id: outbound.kts_patient_id ?? null
+  });
+  // why: Rückfahrt is a new document — start at ungeprueft, not outbound error state.
 
   return {
     ...route,

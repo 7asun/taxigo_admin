@@ -14,6 +14,7 @@ import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics'
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { tripKeys } from '@/query/keys';
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { PassengerEntry, AddressGroupEntry } from '@/features/trips/types';
 import type { AddressResult } from '../trip-address-passenger';
 import type {
@@ -1302,11 +1303,10 @@ export function CreateTripForm({
       const tripStatus = (getStatusWhenDriverChanges('pending', driverId) ??
         'pending') as 'pending' | 'assigned';
 
-      const ktsFehlerForDb =
-        !!values.kts_document_applies && !!values.kts_fehler;
-      const ktsFehlerBeschreibungForDb = ktsFehlerForDb
-        ? values.kts_fehler_beschreibung?.trim() || null
-        : null;
+      const ktsFields = normalizeKtsInsert({
+        kts_document_applies: values.kts_document_applies,
+        kts_source: ktsSource
+      });
 
       const submitPayerRow = payers.find((p) => p.id === values.payer_id);
       const rehaScheinForDb =
@@ -1316,10 +1316,7 @@ export function CreateTripForm({
         payer_id: values.payer_id,
         billing_variant_id: values.billing_variant_id || null,
         billing_type_id: ktsVariantRow?.billing_type_id || null,
-        kts_document_applies: values.kts_document_applies,
-        kts_fehler: ktsFehlerForDb,
-        kts_fehler_beschreibung: ktsFehlerBeschreibungForDb,
-        kts_source: ktsSource,
+        ...ktsFields,
         reha_schein: rehaScheinForDb,
         no_invoice_required: catalogSaysNoInvoice && values.no_invoice_required,
         no_invoice_source: noInvoiceSource,
