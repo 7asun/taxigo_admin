@@ -2,6 +2,7 @@ import {
   createSearchParamsCache,
   createSerializer,
   parseAsArrayOf,
+  parseAsBoolean,
   parseAsInteger,
   parseAsString
 } from 'nuqs/server';
@@ -22,6 +23,10 @@ export const searchParams = {
   invoice_status: parseAsString,
   /** KTS list filter: comma-separated combination of kts | kts_fehler | no_kts | no_reha | reha; absent = all trips. */
   kts_filter: parseAsArrayOf(parseAsString, ','),
+  /** KTS queue filter: comma-separated kts_status enum values; absent = no status filter. */
+  kts_status: parseAsArrayOf(parseAsString, ','),
+  /** KTS queue: show only in_korrektur trips with open correction older than KTS_OVERDUE_DAYS. */
+  overdue: parseAsBoolean.withDefault(false),
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
   view: parseAsString.withDefault('list'),

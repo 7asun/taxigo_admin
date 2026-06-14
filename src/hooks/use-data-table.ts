@@ -301,7 +301,7 @@ export function useDataTable<TData>(props: UseDataTableProps<TData>) {
       ...tableProps.defaultColumn,
       enableColumnFilter: false
     },
-    enableRowSelection: true,
+    enableRowSelection: tableProps.enableRowSelection ?? true,
     onRowSelectionChange: setRowSelection,
     onPaginationChange,
     onSortingChange,

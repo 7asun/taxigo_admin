@@ -82,6 +82,7 @@ const formSchema = z.object({
   greeting_style: z.string().optional(),
   notes: z.string().optional(),
   is_wheelchair: z.boolean(),
+  kts_patient_id: z.string().optional(),
   birthdate: z.date().nullable().optional(),
 
   reference_field_rows: z.array(
@@ -183,6 +184,7 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
       greeting_style: initialData?.greeting_style || '',
       notes: initialData?.notes || '',
       is_wheelchair: initialData?.is_wheelchair ?? false,
+      kts_patient_id: initialData?.kts_patient_id ?? '',
       birthdate: initialData?.birthdate
         ? parseYmdToLocalDate(initialData.birthdate)
         : null,
@@ -251,6 +253,7 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
 
         const emailTrimmed = values.email?.trim() ?? '';
         const phoneSecondaryTrimmed = values.phone_secondary?.trim() ?? '';
+        const ktsPatientIdTrimmed = values.kts_patient_id?.trim() ?? '';
 
         const strippedRefs = stripReferenceRowsWithEmptyLabels(
           values.reference_field_rows ?? []
@@ -268,6 +271,7 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
           company_id: companyIdStr,
           email: emailTrimmed ? emailTrimmed : null,
           phone_secondary: phoneSecondaryTrimmed ? phoneSecondaryTrimmed : null,
+          kts_patient_id: ktsPatientIdTrimmed ? ktsPatientIdTrimmed : null,
           reference_fields,
           birthdate: values.birthdate
             ? formatLocalDateToYmd(values.birthdate)
@@ -512,6 +516,21 @@ const ClientForm = forwardRef<ClientFormHandle, ClientFormProps>(
                 showCharCount: true,
                 rows: 4
               }}
+            />
+          </section>
+
+          <Separator className='bg-border/80' />
+
+          {/* why: KTS patient ID is operational clearing data — sits after notes, before invoice reference fields. */}
+          <section className='space-y-4'>
+            <SectionLabel>KTS</SectionLabel>
+            <FormInput
+              control={form.control}
+              name='kts_patient_id'
+              label='KTS Patienten-ID'
+              placeholder='z. B. 123456'
+              description='Wird automatisch auf Fahrten übernommen, wenn KTS aktiv ist.'
+              className='max-w-md'
             />
           </section>
 

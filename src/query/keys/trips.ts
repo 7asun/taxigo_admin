@@ -39,6 +39,14 @@ export const tripKeys = {
   invoiceStatuses: (tripIds: string[]) =>
     [...tripKeys.all, 'invoiceStatuses', tripIds.slice().sort()] as const,
 
+  /** Per-trip KTS correction rounds (detail timeline — PR2.1). */
+  ktsCorrections: (tripId: string) =>
+    [...tripKeys.all, 'kts_corrections', tripId] as const,
+
+  /** Per-trip KTS document status (PR3.2 page — reserved). */
+  ktsStatus: (tripId: string) =>
+    [...tripKeys.detail(tripId), 'kts-status'] as const,
+
   /**
    * Company-scoped Fahrten “Ansichten” presets (RLS). No company id in key —
    * tenant is implicit from the session.

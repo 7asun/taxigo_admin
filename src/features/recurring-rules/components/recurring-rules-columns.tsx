@@ -26,36 +26,18 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import {
+  formatRecurringRuleByDayAbbrev,
+  formatRecurringRuleGuestLabel
+} from '../lib/recurring-rules-formatters';
+
+export {
+  formatRecurringRuleGuestLabel,
+  formatRecurringRuleByDayAbbrev
+} from '../lib/recurring-rules-formatters';
 
 /** Max visible chars for Von/Nach; full text in `title`. */
 export const RECURRING_RULE_ADDRESS_PREVIEW_MAX_LEN = 40;
-
-const DAY_MAP: Record<string, string> = {
-  MO: 'Mo',
-  TU: 'Di',
-  WE: 'Mi',
-  TH: 'Do',
-  FR: 'Fr',
-  SA: 'Sa',
-  SU: 'So'
-};
-
-export function formatRecurringRuleGuestLabel(
-  row: RecurringRuleWithClientEmbed
-): string {
-  const c = row.clients;
-  const last = c?.last_name?.trim() ?? '';
-  const first = c?.first_name?.trim() ?? '';
-  if (!last && !first) return '—';
-  return `${last}, ${first}`;
-}
-
-export function formatRecurringRuleByDayAbbrev(rruleString: string): string {
-  const match = rruleString.match(/BYDAY=([^;]+)/);
-  if (!match) return '';
-  const days = match[1].split(',');
-  return days.map((d) => DAY_MAP[d] ?? d).join(', ');
-}
 
 function truncateWithTitle(
   text: string,

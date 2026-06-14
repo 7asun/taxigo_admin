@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
@@ -267,6 +268,13 @@ function copyRouteAndPassengerFields(
   | 'has_missing_geodata'
   | 'stop_order'
 > {
+  const normalizedKts = normalizeKtsInsert({
+    kts_document_applies: !!source.kts_document_applies,
+    kts_source: 'manual' as const,
+    kts_patient_id: source.kts_patient_id ?? null
+  });
+  // why: duplicate is a new physical document — reset workflow fields, do not inherit source fehler/status.
+
   return {
     pickup_address: source.pickup_address,
     pickup_street: source.pickup_street,
@@ -295,11 +303,7 @@ function copyRouteAndPassengerFields(
     billing_variant_id: source.billing_variant_id,
     billing_betreuer: source.billing_betreuer,
     billing_calling_station: source.billing_calling_station,
-    kts_document_applies: !!source.kts_document_applies,
-    kts_fehler: !!source.kts_fehler,
-    kts_fehler_beschreibung: source.kts_fehler_beschreibung ?? null,
-    kts_source: 'manual',
-    // why: duplicate inherits trip flags for billing-adjacent metadata (boolean like KTS).
+    ...normalizedKts,
     reha_schein: !!source.reha_schein,
     no_invoice_required: !!source.no_invoice_required,
     no_invoice_source: 'manual',

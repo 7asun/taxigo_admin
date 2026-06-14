@@ -66,4 +66,5 @@ export interface ClientOption {
   zip_code: string;
   city: string;
   is_wheelchair?: boolean;
+  kts_patient_id: string | null;
 }

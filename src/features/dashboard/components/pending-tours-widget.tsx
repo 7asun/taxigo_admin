@@ -50,12 +50,46 @@ import {
   parseScheduledAtOrFallback
 } from '@/features/trips/lib/trip-time';
 import { de } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
+import { URGENCY_STYLES } from '@/features/trips/constants/urgency-config';
+import { useUrgencyLevel } from '@/features/trips/hooks/use-urgency-level';
 
 const FILTER_TABS: { value: UnplannedFilter; label: string }[] = [
   { value: 'today', label: 'Heute' },
   { value: 'week', label: 'Woche' },
   { value: 'all', label: 'All' }
 ];
+
+/** Date/time/driver defaults for a row — same priority as mount and post-refetch sync. */
+function getUnplannedRowFormDefaults(trip: UnplannedTrip): {
+  dateStr: string;
+  time: string;
+  driverId: string | null;
+} {
+  let dateStr: string;
+  if (trip.scheduled_at) {
+    dateStr =
+      parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ??
+      todayYmdInBusinessTz();
+  } else if (trip.requested_date) {
+    dateStr = trip.requested_date;
+  } else {
+    const linkedAt = trip.linked_trip?.scheduled_at;
+    dateStr = linkedAt
+      ? (parseScheduledAtOrFallback(linkedAt)?.ymd ?? todayYmdInBusinessTz())
+      : todayYmdInBusinessTz();
+  }
+
+  const time = trip.scheduled_at
+    ? (parseScheduledAtOrFallback(trip.scheduled_at)?.hm ?? '')
+    : '';
+
+  return {
+    dateStr,
+    time,
+    driverId: trip.driver_id ?? null
+  };
+}
 
 export function PendingToursWidget() {
   const [filter, setFilter] = useState<UnplannedFilter>('today');
@@ -155,44 +189,38 @@ function UnplannedTripRow({
   drivers: any[];
 }) {
   const queryClient = useQueryClient();
+  // WHY shared hook + URGENCY_STYLES.rowClass (not local colors): same live cadence and
+  // left-border tint as Fahrten mobile cards — avoids a third urgency palette in the widget.
+  const urgencyLevel = useUrgencyLevel(trip.scheduled_at, trip.status);
+  const urgencyRowClass = URGENCY_STYLES[urgencyLevel].rowClass;
+
   // Use the direction utility so legacy rows without link_type are handled via
   // the linked_trip_id fallback (see src/features/trips/lib/trip-direction.ts).
   const isReturnTrip = getTripDirection(trip) === 'rueckfahrt';
   const linkedPartnerCancelled = trip.linked_trip?.status === 'cancelled';
   const cancelledPartnerLabel = getCancelledPartnerLabel(trip);
 
-  // Pre-fill date/time: own scheduled_at takes priority (trip has time but no
-  // driver), then requested_date (CSV import), then linked outbound trip time,
-  // then today as fallback.
-  // WHY: toISOString().slice(0,10) is UTC calendar date — wrong vs Berlin civil day;
-  // parseScheduledAtOrFallback matches Fahrten ymd for the date input default.
-  const initialDate = (() => {
-    if (trip.scheduled_at) {
-      return (
-        parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ??
-        todayYmdInBusinessTz()
-      );
-    }
-    if (trip.requested_date) return trip.requested_date;
-    const linkedAt = trip.linked_trip?.scheduled_at;
-    if (linkedAt) {
-      return (
-        parseScheduledAtOrFallback(linkedAt)?.ymd ?? todayYmdInBusinessTz()
-      );
-    }
-    return todayYmdInBusinessTz();
-  })();
-
-  const initialTime = trip.scheduled_at
-    ? format(new Date(trip.scheduled_at), 'HH:mm')
-    : '';
-
-  const [dateStr, setDateStr] = useState(initialDate);
-  const [time, setTime] = useState(initialTime);
+  const formDefaults = getUnplannedRowFormDefaults(trip);
+  const [dateStr, setDateStr] = useState(formDefaults.dateStr);
+  const [time, setTime] = useState(formDefaults.time);
   const [driverId, setDriverId] = useState<string | null>(
-    trip.driver_id ?? null
+    formDefaults.driverId
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // WHY sync from trip props: awaited unplanned invalidation refreshes cache but controlled
+  // inputs stay on stale local state — clearing time after save showed `--:--` until remount.
+  useEffect(() => {
+    const next = getUnplannedRowFormDefaults(trip);
+    setDateStr(next.dateStr);
+    setTime(next.time);
+    setDriverId(next.driverId);
+  }, [
+    trip.scheduled_at,
+    trip.requested_date,
+    trip.linked_trip?.scheduled_at,
+    trip.driver_id
+  ]);
 
   const handleSetTime = async () => {
     if (!time) {
@@ -230,7 +258,10 @@ function UnplannedTripRow({
 
       await tripsService.updateTrip(trip.id, updatePayload);
 
-      void queryClient.invalidateQueries({ queryKey: tripKeys.unplannedRoot });
+      // WHY await (not void): urgency borders read cached `trip.scheduled_at`; row removal
+      // needs a fresh unplanned list before we toast — fire-and-forget left stale props until
+      // a background refetch or manual reload.
+      await queryClient.invalidateQueries({ queryKey: tripKeys.unplannedRoot });
       void queryClient.invalidateQueries({
         queryKey: tripKeys.detail(trip.id)
       });
@@ -238,7 +269,6 @@ function UnplannedTripRow({
       toast.success(
         `Abholzeit ${driverId ? 'und Fahrer ' : ''}für ${trip.client_name || 'Fahrt'} gesetzt.`
       );
-      setTime('');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`Fehler: ${message}`);
@@ -254,7 +284,12 @@ function UnplannedTripRow({
     : null;
 
   return (
-    <div className='flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4'>
+    <div
+      className={cn(
+        'flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
+        urgencyRowClass
+      )}
+    >
       {/* Trip Information (Left) */}
       <div className='w-full min-w-0 flex-1 sm:w-auto'>
         <div className='flex flex-wrap items-center gap-1.5'>

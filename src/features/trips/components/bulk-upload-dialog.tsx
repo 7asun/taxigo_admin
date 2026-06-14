@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
 import { tripKeys } from '@/query/keys';
+import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import {
   Dialog,
   DialogContent,
@@ -1017,8 +1018,10 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
                   driver_id: driverId,
                   needs_driver_assignment: needsDriverAssignment,
                   ingestion_source: 'csv_bulk_upload',
-                  kts_document_applies: ktsDocumentApplies,
-                  kts_source: ktsSource,
+                  ...normalizeKtsInsert({
+                    kts_document_applies: ktsDocumentApplies,
+                    kts_source: ktsSource
+                  }),
                   // Parent type must follow the variant FK (create-trip-form + cron), not the CSV
                   // type-name match — otherwise Abrechnungsart typos leave billing_type_id null while
                   // billing_variant_id is set and STEP 2 rules never run. The matched variant’s

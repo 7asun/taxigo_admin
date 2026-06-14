@@ -11,6 +11,7 @@
  * stations, and Stammdaten; driving metrics are recomputed when four coords exist.
  */
 
+import { normalizeKtsPatch } from '@/features/kts/kts.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import type { AddressResult } from '@/features/trips/components/trip-address-passenger';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
@@ -258,12 +259,12 @@ export function buildPartnerSyncPatchFromDrafts(
       input.billingCallingStationDraft
     ),
     billing_betreuer: stationTrimOrNull(input.billingBetreuerDraft),
-    kts_document_applies: input.ktsDocumentAppliesDraft,
-    kts_fehler: input.ktsFehlerDraft,
-    kts_fehler_beschreibung: input.ktsFehlerDraft
-      ? stationTrimOrNull(input.ktsFehlerBeschreibungDraft)
-      : null,
-    kts_source: input.ktsSourceForSave,
+    ...normalizeKtsPatch({
+      kts_document_applies: input.ktsDocumentAppliesDraft,
+      kts_fehler: input.ktsFehlerDraft,
+      kts_fehler_beschreibung: input.ktsFehlerBeschreibungDraft,
+      kts_source: input.ktsSourceForSave
+    }),
     reha_schein: input.rehaScheinForSave,
     no_invoice_required: input.noInvoiceRequiredDraft,
     no_invoice_source: input.noInvoiceSourceForSave

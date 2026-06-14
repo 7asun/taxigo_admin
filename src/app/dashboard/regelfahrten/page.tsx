@@ -19,7 +19,7 @@ import {
 import {
   formatRecurringRuleGuestLabel,
   formatRecurringRuleByDayAbbrev
-} from '@/features/recurring-rules/components/recurring-rules-columns';
+} from '@/features/recurring-rules/lib/recurring-rules-formatters';
 import { getSortingStateParser } from '@/lib/parsers';
 import { formatBillingDisplayLabel } from '@/features/trips/lib/format-billing-display-label';
 import { recurringReturnModeFromRow } from '@/features/trips/lib/recurring-return-mode';

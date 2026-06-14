@@ -40,6 +40,14 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: 'KTS',
+    url: '/dashboard/kts',
+    icon: 'post',
+    shortcut: ['k', 's'],
+    isActive: false,
+    items: []
+  },
+  {
     title: 'Controlling',
     url: '/dashboard/controlling',
     icon: 'controlling',
