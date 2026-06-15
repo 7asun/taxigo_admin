@@ -64,6 +64,7 @@ import {
   billingIncludedLineItems,
   mainCoverLineItems
 } from '@/features/invoices/lib/billing-inclusion';
+import { computeInvoiceCoverKm } from '@/features/invoices/lib/compute-invoice-km';
 import { parseTripMetaSnapshot } from '@/features/invoices/lib/trip-meta-snapshot';
 import { fitSenderLine } from './resolve-sender-font-size';
 import { resolvePdfColumnProfile } from '@/features/invoices/lib/resolve-pdf-column-profile';
@@ -352,6 +353,13 @@ export function InvoicePdfDocument({
   // Stornierte appendix only (see mainCoverLineItems in billing-inclusion.ts).
   const mainLineItems = mainCoverLineItems(invoice.line_items);
 
+  // why: cover KM buckets are derived from the FULL snapshot array (including opted-out and
+  // cancelled rows) so the helper can separate normal vs cancelled-billed km correctly.
+  // Pre-filtering with mainCoverLineItems would lose the cancelled bucket entirely (K3).
+  const { normalBilledKm, cancelledBilledKm } = computeInvoiceCoverKm(
+    invoice.line_items
+  );
+
   // Fahrtendetails appendix: all billing-included rows (normal + opted-in cancelled), sorted by date.
   // Opted-in cancelled trips (is_cancelled_trip = true, billing_included = true) slot in by their
   // trip date alongside normal trips — renderLineItemRow adds the amber billing-reason sub-row.
@@ -566,6 +574,14 @@ export function InvoicePdfDocument({
               : PDF_ZONES.subjectMarginTopOffer // shared 12pt spacing: invoice no-reference-bar matches offer fixed separation
           }
           renderMode={renderMode}
+          normalBilledKm={normalBilledKm}
+          cancelledBilledKm={cancelledBilledKm}
+          showCancelledBilledKmOnCover={
+            effectiveProfile.show_cancelled_billed_km_on_cover
+          }
+          showNormalBilledKmOnCover={
+            effectiveProfile.show_normal_billed_km_on_cover
+          }
         />
 
         <InvoicePdfFooter companyProfile={cp} notes={invoice.notes} />

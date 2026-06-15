@@ -50,6 +50,7 @@ import {
   lineGrossEurForPdfLineItem,
   lineNetEurForPdfLineItem
 } from './invoice-pdf-line-amounts';
+import { computeInvoiceLineKm } from '@/features/invoices/lib/compute-invoice-km';
 
 import { coerceLineItemJsonbSnapshots } from '@/features/invoices/components/invoice-pdf/pdf-column-layout';
 
@@ -293,7 +294,9 @@ export function buildInvoicePdfSummary(
     // so the cover NET column shows the resolver's authoritative value, not a back-derivation.
     group.total_net_for_gross += transportNetEurForPdfLineItem(item);
     group.approach_costs_net += item.approach_fee_net ?? 0;
-    const lineKm = item.effective_distance_km ?? item.distance_km;
+    // why: computeInvoiceLineKm is the single source of truth for billed km
+    // (effective_distance_km with distance_km fallback — K1 in compute-invoice-km.ts).
+    const lineKm = computeInvoiceLineKm(item);
     if (lineKm == null) {
       group.has_null_km = true;
     } else if (!group.has_null_km) {
@@ -389,7 +392,8 @@ export function buildInvoicePdfSingleRow(
     // back-derivation for gross-anchor) — see transportNetEurForPdfLineItem.
     totalNetForGross += transportNetEurForPdfLineItem(item);
     approachNetAccum += item.approach_fee_net ?? 0;
-    const lineKm = item.effective_distance_km ?? item.distance_km;
+    // why: single source of truth for billed km — K1 in compute-invoice-km.ts.
+    const lineKm = computeInvoiceLineKm(item);
     if (lineKm == null) {
       hasNullKm = true;
     } else if (!hasNullKm) {
@@ -500,7 +504,8 @@ export function buildInvoicePdfGroupedByBillingType(
     // reverse-engineered from cent-rounded gross sum.
     g.total_net_for_gross += transportNetEurForPdfLineItem(item);
     g.approach_costs_net += item.approach_fee_net ?? 0;
-    const lineKm = item.effective_distance_km ?? item.distance_km;
+    // why: single source of truth for billed km — K1 in compute-invoice-km.ts.
+    const lineKm = computeInvoiceLineKm(item);
     if (lineKm == null) {
       g.has_null_km = true;
     } else if (!g.has_null_km) {

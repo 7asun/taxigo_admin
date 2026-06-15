@@ -223,7 +223,7 @@ Allows the dispatcher to select a PDF-Vorlage and optionally override the column
 - The dispatcher must click **"Weiter zur Bestätigung"** (`pdfStepAcknowledged`) to unlock Step 5 — this ensures conscious review of the PDF layout before committing.
 - Column overrides selected here are saved to `invoices.pdf_column_override` at invoice creation time (immutable snapshot, same pattern as line items).
 - **Stornierte Fahrten anzeigen** checkbox: gates the passive €0 cancelled-trips appendix block (`show_cancelled_trips`). Semantics unchanged from pre-Feature 1b.
-- **Ausgeschlossene Fahrten anzeigen** checkbox (conditional): only shown when at least one normal trip was opted out in Step 3. Gates the `renderExcludedSection` appendix block (`show_excluded_trips`). Opted-out trips show date, passenger, route, and exclusion reason (amber) — no amount column since they have zero billing impact.
+- **Ausgeschlossene Fahrten anzeigen** checkbox (conditional): only shown when at least one normal trip was opted out in Step 3. Gates the `renderExcludedSection` appendix block (`show_excluded_trips`). Opted-out trips show date, passenger, route, and exclusion reason (amber) — no amount column since they have zero billing impact. The **Begründung** column uses the same constrained wrapping layout as passive **Stornierte Fahrten** (`Stornierungsgrund`): proportional column widths via `calcExcludedColumnWidths`, explicit `width` on `@react-pdf` `Text` nodes, and multiline split on `\n` so long reasons wrap inside the cell without blowing out the table row.
 
 ### Step 5: Bestätigung (`Step4Confirm`)
 
@@ -554,6 +554,36 @@ Feature: per-invoice editable email draft (subject + body) stored on the `invoic
 - **Recipient resolution for salutation:** `rechnungsempfaenger_snapshot` → `payer.name`.
 - **UI:** [`invoice-email-draft.tsx`](../src/features/invoices/components/invoice-detail/invoice-email-draft.tsx) — collapsible panel, inline editable fields, per-field copy button, saves via `useSaveInvoiceEmailDraft` → `saveInvoiceEmailDraft` → invalidates `invoiceKeys.full(id)`.
 - **Does not send email** — copy-paste only by design.
+
+---
+
+## Kilometre (Snapshots)
+
+### What "Gesamtstrecke" means
+
+**Gesamtstrecke** on the PDF cover (and the KM summary on the detail page) shows the billed km for **normal (non-cancelled)** billing-included trips only. It is derived from `invoice_line_items` snapshots — never from live `trips` queries after the invoice has been created.
+
+- **Billed km per row** = `effective_distance_km ?? distance_km` (the helper `computeInvoiceLineKm` in `src/features/invoices/lib/compute-invoice-km.ts`).
+- **Normal billed km** (Gesamtstrecke) = sum over rows where `billing_included = true` and `is_cancelled_trip` is not true.
+- **Cancelled billed km** = sum over rows where `billing_included = true` and `is_cancelled_trip = true`. These are trips that billed at €0 but still have a driven distance.
+
+### Cancelled-but-billed km on the cover
+
+When the Step 4 toggle **"Stornierte, abgerechnete Fahrten als eigene Strecke auf dem Deckblatt anzeigen"** is enabled (`show_cancelled_billed_km_on_cover` in `pdf_column_override`), a second KM line appears directly under Gesamtstrecke on the PDF cover:
+
+> **Strecke stornierte, abgerechnete Fahrten** · _X,X km_
+
+The line is always rendered when the toggle is on — including when the bucket is `0,0 km` — so admins can confirm the toggle is active. A `null` bucket (missing distances) renders as `—`. The toggle is off by default (opt-in per invoice).
+
+This is distinct from `show_cancelled_trips` (which adds a passive €0 row listing in the appendix).
+
+### KM is always from snapshots
+
+All KM display derives from `invoice_line_items.effective_distance_km` (or `distance_km` as a legacy fallback). The central helper `computeInvoiceKmBuckets` / `computeInvoiceCoverKm` in `src/features/invoices/lib/compute-invoice-km.ts` encodes all rules and is the only permitted implementation. Do not write `effective_distance_km ?? distance_km` outside that module.
+
+The detail page (`invoice-detail/index.tsx`) uses `computeInvoiceLineKm` for the per-row km column and always shows both bucket totals in a KM summary block — not gated by the PDF toggle (the detail page is an audit surface).
+
+See [`docs/invoice-km-behaviour.md`](invoice-km-behaviour.md) for the full invariant list.
 
 ---
 

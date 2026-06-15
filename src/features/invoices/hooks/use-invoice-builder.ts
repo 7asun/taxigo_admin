@@ -137,7 +137,10 @@ function pdfColumnProfileFromStoredOverride(
       data.appendix_columns.length > APPENDIX_LANDSCAPE_THRESHOLD,
     source: 'invoice_override',
     show_cancelled_trips: data.show_cancelled_trips ?? false,
-    show_excluded_trips: data.show_excluded_trips ?? false
+    show_excluded_trips: data.show_excluded_trips ?? false,
+    show_cancelled_billed_km_on_cover:
+      data.show_cancelled_billed_km_on_cover ?? false,
+    show_normal_billed_km_on_cover: data.show_normal_billed_km_on_cover ?? false
   };
 }
 
@@ -272,6 +275,23 @@ export function useInvoiceBuilder(
     refetchOnReconnect: false
   });
 
+  // why: branch drafts copy all line items from the original — including rows with
+  // billing_included = false. To distinguish "excluded since original" from "excluded
+  // in this session", we fetch the original invoice's line items and build a lookup.
+  // Reuses getInvoiceDetail keyed with invoiceKeys.full so the React Query cache is
+  // shared with the detail page (one extra request per session, then cached forever).
+  const originalInvoiceId = hydrationQuery.data?.replaces_invoice_id ?? null;
+  const originalInvoiceQuery = useQuery({
+    queryKey: invoiceKeys.full(originalInvoiceId ?? '__none__'),
+    queryFn: () => getInvoiceDetail(originalInvoiceId!),
+    enabled: isEditMode && originalInvoiceId != null,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false
+  });
+
   useEffect(() => {
     if (!isEditMode) return;
     // why: seed exactly once; never overwrite in-progress edits on any re-emit.
@@ -284,7 +304,21 @@ export function useInvoiceBuilder(
     if (detail.payer?.id && editRulesQuery.isLoading) return;
     if (editHydrationTripIds.length > 0 && editWheelchairQuery.isLoading)
       return;
+    // why: wait for the original invoice when this is a branch draft, so
+    // exclusionInherited tagging can happen in the same seed pass.
+    if (originalInvoiceId != null && originalInvoiceQuery.isLoading) return;
     hasHydratedRef.current = true;
+
+    // Build a trip_id → billing_included lookup from the original invoice so we
+    // can flag rows that were already excluded before this branch was created.
+    const originalExcludedTripIds = new Set<string>();
+    if (originalInvoiceQuery.data) {
+      for (const r of originalInvoiceQuery.data.line_items) {
+        if (r.trip_id && r.billing_included === false) {
+          originalExcludedTripIds.add(r.trip_id);
+        }
+      }
+    }
 
     const wheelchairFlags = editWheelchairQuery.data ?? {};
     const rows = detail.line_items ?? [];
@@ -309,13 +343,21 @@ export function useInvoiceBuilder(
     setLineItems(
       normalRows.map((r) => {
         const item = mapLineItemRowToBuilderLineItem(r, mapCtx);
-        if (r.trip_id) {
-          return {
-            ...item,
-            is_wheelchair: wheelchairFlags[r.trip_id] ?? false
-          };
+        const withWheelchair = r.trip_id
+          ? { ...item, is_wheelchair: wheelchairFlags[r.trip_id] ?? false }
+          : item;
+        // why: mark rows whose billing_included = false was inherited from the original
+        // invoice (not set in this session) so Step 3 can show a distinct badge.
+        // Only set when both conditions hold: this row is excluded AND the original had
+        // the same trip excluded. Builder-only — never persisted.
+        if (
+          !withWheelchair.billingInclusion.included &&
+          r.trip_id &&
+          originalExcludedTripIds.has(r.trip_id)
+        ) {
+          return { ...withWheelchair, exclusionInherited: true };
         }
-        return item;
+        return withWheelchair;
       })
     );
     setCancelledTrips(
@@ -399,6 +441,9 @@ export function useInvoiceBuilder(
     editHydrationTripIds.length,
     editWheelchairQuery.isLoading,
     editWheelchairQuery.data,
+    originalInvoiceId,
+    originalInvoiceQuery.isLoading,
+    originalInvoiceQuery.data,
     options?.onEditPdfColumnOverrideHydrated
   ]);
 

@@ -45,6 +45,10 @@ import { usePathname } from 'next/navigation';
 import { useInvoiceDetail } from '../../hooks/use-invoice';
 import { formatTaxRate } from '../../lib/tax-calculator';
 import type { InvoiceStatus } from '../../types/invoice.types';
+import {
+  computeInvoiceLineKm,
+  computeInvoiceCoverKm
+} from '../../lib/compute-invoice-km';
 
 const formatEur = (v: number) =>
   new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(
@@ -309,6 +313,35 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
 
           <Separator />
 
+          {/* KM summary — always show both buckets for one-glance parity with PDF cover.
+              Not gated by show_cancelled_billed_km_on_cover: the detail page is an audit
+              surface and should always reveal what km total the invoice covers. */}
+          {(() => {
+            const { normalBilledKm, cancelledBilledKm } = computeInvoiceCoverKm(
+              invoice.line_items
+            );
+            const fmtKm = (km: number | null) =>
+              km === null
+                ? '—'
+                : `${km.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
+            return (
+              <div className='bg-muted/40 grid grid-cols-2 gap-4 rounded-lg px-4 py-3 text-sm'>
+                <div>
+                  <p className='text-muted-foreground text-xs'>
+                    Gesamtstrecke (abgerechnet)
+                  </p>
+                  <p className='font-medium'>{fmtKm(normalBilledKm)}</p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground text-xs'>
+                    Strecke stornierte, abgerechnete Fahrten
+                  </p>
+                  <p className='font-medium'>{fmtKm(cancelledBilledKm)}</p>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Line items table */}
           <div className='rounded-md border'>
             <Table>
@@ -316,7 +349,12 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
                 <TableRow>
                   <TableHead className='w-8'>#</TableHead>
                   <TableHead>Beschreibung</TableHead>
-                  <TableHead>km</TableHead>
+                  {/* why: show billed km (effective_distance_km ?? distance_km) to match
+                      the PDF cover — routing km (distance_km alone) would diverge from
+                      what was priced and billed. See compute-invoice-km.ts K1. */}
+                  <TableHead title='Abgerechnete Strecke (Snapshot)'>
+                    km
+                  </TableHead>
                   <TableHead>MwSt</TableHead>
                   <TableHead className='text-right'>Betrag</TableHead>
                 </TableRow>
@@ -336,9 +374,10 @@ export function InvoiceDetailView({ invoiceId }: InvoiceDetailViewProps) {
                       )}
                     </TableCell>
                     <TableCell className='text-sm'>
-                      {item.distance_km !== null
-                        ? `${item.distance_km.toFixed(1)}`
-                        : '—'}
+                      {(() => {
+                        const km = computeInvoiceLineKm(item);
+                        return km !== null ? `${km.toFixed(1)}` : '—';
+                      })()}
                     </TableCell>
                     <TableCell className='text-sm'>
                       {formatTaxRate(item.tax_rate)}

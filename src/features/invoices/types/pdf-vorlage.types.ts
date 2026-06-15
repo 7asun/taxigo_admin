@@ -76,7 +76,19 @@ export const pdfColumnOverrideSchema = z.object({
   /** Passive €0 listing of opted-out cancelled trips in appendix — legacy payloads omit ⇒ false. */
   show_cancelled_trips: z.boolean().optional().default(false),
   /** Ausgeschlossene Fahrten appendix section — only shown when ≥1 normal trip was opted out. */
-  show_excluded_trips: z.boolean().optional().default(false)
+  show_excluded_trips: z.boolean().optional().default(false),
+  /**
+   * When true, a second KM line "Strecke stornierte, abgerechnete Fahrten" is rendered on the
+   * cover page directly under Gesamtstrecke. Display-only; does not affect tax snapshots.
+   * Legacy payloads omit this field ⇒ false (default off — admin opt-in).
+   */
+  show_cancelled_billed_km_on_cover: z.boolean().optional().default(false),
+  /**
+   * When true, a KM line "Gesamtstrecke" (normal billed km) is rendered on the cover page.
+   * Display-only; does not affect tax snapshots or km computation.
+   * Legacy payloads omit this field ⇒ false (default off — admin opt-in).
+   */
+  show_normal_billed_km_on_cover: z.boolean().optional().default(false)
 });
 
 export type PdfColumnOverridePayload = z.infer<typeof pdfColumnOverrideSchema>;
@@ -98,6 +110,18 @@ export interface PdfColumnProfile {
    * Only relevant when ≥1 normal trip was opted out of billing in Step 3.
    */
   show_excluded_trips: boolean;
+  /**
+   * When true, render a second KM line on the PDF cover for cancelled-but-billed trips.
+   * Derives from `pdf_column_override.show_cancelled_billed_km_on_cover`.
+   * Default false — admin opts in per invoice.
+   */
+  show_cancelled_billed_km_on_cover: boolean;
+  /**
+   * When true, render the "Gesamtstrecke" (normal billed km) line on the PDF cover.
+   * Derives from `pdf_column_override.show_normal_billed_km_on_cover`.
+   * Default false — admin opts in per invoice.
+   */
+  show_normal_billed_km_on_cover: boolean;
 }
 
 export interface PdfVorlageCreatePayload {
