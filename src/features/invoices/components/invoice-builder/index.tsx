@@ -826,6 +826,12 @@ export function InvoiceBuilder({
                   ),
                   show_excluded_trips: Boolean(
                     builderColumnProfile.show_excluded_trips
+                  ),
+                  show_cancelled_billed_km_on_cover: Boolean(
+                    builderColumnProfile.show_cancelled_billed_km_on_cover
+                  ),
+                  show_normal_billed_km_on_cover: Boolean(
+                    builderColumnProfile.show_normal_billed_km_on_cover
                   )
                 };
                 if (isEditMode) {

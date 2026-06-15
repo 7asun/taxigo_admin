@@ -148,6 +148,12 @@ export function Step4Vorlage({
   const [showCancelledTrips, setShowCancelledTrips] = useState(false);
   /** Ausgeschlossene Fahrten appendix block — only relevant when excludedTripCount > 0. */
   const [showExcludedTrips, setShowExcludedTrips] = useState(false);
+  /** Cover KM second line for cancelled-billed trips — admin opt-in; default off. */
+  const [showCancelledBilledKmOnCover, setShowCancelledBilledKmOnCover] =
+    useState(false);
+  /** Cover Gesamtstrecke (normal billed km) line — admin opt-in; default off. */
+  const [showNormalBilledKmOnCover, setShowNormalBilledKmOnCover] =
+    useState(false);
   /** After the dispatcher changes the Vorlage dropdown, stop applying the edit hydration snapshot. */
   const [userPickedVorlage, setUserPickedVorlage] = useState(false);
 
@@ -159,6 +165,12 @@ export function Step4Vorlage({
     );
     setShowExcludedTrips(
       hydratedPdfColumnOverride.show_excluded_trips ?? false
+    );
+    setShowCancelledBilledKmOnCover(
+      hydratedPdfColumnOverride.show_cancelled_billed_km_on_cover ?? false
+    );
+    setShowNormalBilledKmOnCover(
+      hydratedPdfColumnOverride.show_normal_billed_km_on_cover ?? false
     );
   }, [hydratedPdfColumnOverride, userPickedVorlage]);
 
@@ -219,7 +231,9 @@ export function Step4Vorlage({
             appendix_columns: customColumns.appendix_columns,
             main_layout: inheritedMainLayout,
             show_cancelled_trips: showCancelledTrips,
-            show_excluded_trips: showExcludedTrips
+            show_excluded_trips: showExcludedTrips,
+            show_cancelled_billed_km_on_cover: showCancelledBilledKmOnCover,
+            show_normal_billed_km_on_cover: showNormalBilledKmOnCover
           }
         : userPickedVorlage
           ? null
@@ -230,6 +244,8 @@ export function Step4Vorlage({
       inheritedMainLayout,
       showCancelledTrips,
       showExcludedTrips,
+      showCancelledBilledKmOnCover,
+      showNormalBilledKmOnCover,
       userPickedVorlage,
       hydratedPdfColumnOverride
     ]
@@ -245,7 +261,9 @@ export function Step4Vorlage({
     onColumnProfileChange({
       ...resolved,
       show_cancelled_trips: showCancelledTrips,
-      show_excluded_trips: showExcludedTrips
+      show_excluded_trips: showExcludedTrips,
+      show_cancelled_billed_km_on_cover: showCancelledBilledKmOnCover,
+      show_normal_billed_km_on_cover: showNormalBilledKmOnCover
     });
   }, [
     selectedVorlageId,
@@ -256,6 +274,8 @@ export function Step4Vorlage({
     inheritedMainLayout,
     showCancelledTrips,
     showExcludedTrips,
+    showCancelledBilledKmOnCover,
+    showNormalBilledKmOnCover,
     tier1OverridePayload,
     hydratedPdfColumnOverride,
     userPickedVorlage,
@@ -272,7 +292,9 @@ export function Step4Vorlage({
             appendix_columns: customColumns.appendix_columns,
             main_layout: inheritedMainLayout,
             show_cancelled_trips: showCancelledTrips,
-            show_excluded_trips: showExcludedTrips
+            show_excluded_trips: showExcludedTrips,
+            show_cancelled_billed_km_on_cover: showCancelledBilledKmOnCover,
+            show_normal_billed_km_on_cover: showNormalBilledKmOnCover
           }
         : tier1OverridePayload
     );
@@ -282,6 +304,8 @@ export function Step4Vorlage({
     inheritedMainLayout,
     showCancelledTrips,
     showExcludedTrips,
+    showCancelledBilledKmOnCover,
+    showNormalBilledKmOnCover,
     tier1OverridePayload,
     onPdfOverrideChange
   ]);
@@ -436,13 +460,20 @@ export function Step4Vorlage({
                         appendix_columns: customColumns.appendix_columns,
                         main_layout: inheritedMainLayout,
                         show_cancelled_trips: showCancelledTrips,
-                        show_excluded_trips: showExcludedTrips
+                        show_excluded_trips: showExcludedTrips,
+                        show_cancelled_billed_km_on_cover:
+                          showCancelledBilledKmOnCover,
+                        show_normal_billed_km_on_cover:
+                          showNormalBilledKmOnCover
                       },
                       selectedVorlage,
                       companyDefaultVorlage
                     ),
                     show_cancelled_trips: showCancelledTrips,
-                    show_excluded_trips: showExcludedTrips
+                    show_excluded_trips: showExcludedTrips,
+                    show_cancelled_billed_km_on_cover:
+                      showCancelledBilledKmOnCover,
+                    show_normal_billed_km_on_cover: showNormalBilledKmOnCover
                   });
                   onPdfColumnsReordered?.();
                 }}
@@ -501,13 +532,20 @@ export function Step4Vorlage({
                         appendix_columns: nextAppendix,
                         main_layout: inheritedMainLayout,
                         show_cancelled_trips: showCancelledTrips,
-                        show_excluded_trips: showExcludedTrips
+                        show_excluded_trips: showExcludedTrips,
+                        show_cancelled_billed_km_on_cover:
+                          showCancelledBilledKmOnCover,
+                        show_normal_billed_km_on_cover:
+                          showNormalBilledKmOnCover
                       },
                       selectedVorlage,
                       companyDefaultVorlage
                     ),
                     show_cancelled_trips: showCancelledTrips,
-                    show_excluded_trips: showExcludedTrips
+                    show_excluded_trips: showExcludedTrips,
+                    show_cancelled_billed_km_on_cover:
+                      showCancelledBilledKmOnCover,
+                    show_normal_billed_km_on_cover: showNormalBilledKmOnCover
                   });
                   onPdfColumnsReordered?.();
                 }}
@@ -568,6 +606,49 @@ export function Step4Vorlage({
           </p>
         </div>
       ) : null}
+
+      {/* why: independent toggle for normal billed km (Gesamtstrecke) on the cover — default off
+          so existing invoices are unaffected. The cancelled-km toggle below is independent. */}
+      <div className='space-y-2 border-t pt-4'>
+        <div className='flex items-center gap-2'>
+          <Checkbox
+            id='pdf-show-normal-billed-km'
+            checked={showNormalBilledKmOnCover}
+            disabled={!unlocked}
+            onCheckedChange={(v) => setShowNormalBilledKmOnCover(v === true)}
+          />
+          <Label htmlFor='pdf-show-normal-billed-km' className='font-normal'>
+            Gesamtstrecke (normale Fahrten) auf dem Deckblatt anzeigen
+          </Label>
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          Zeigt die Gesamtstrecke aller normalen, abgerechneten Fahrten auf dem
+          Deckblatt. Beeinflusst den Rechnungsbetrag nicht.
+        </p>
+      </div>
+
+      {/* why: separate from show_cancelled_trips (appendix €0 rows) — this toggle adds a second
+          KM line on the cover page for cancelled-but-billed trips, so admins can communicate
+          the driven distance to payers even when the monetary amount is €0. */}
+      <div className='space-y-2 border-t pt-4'>
+        <div className='flex items-center gap-2'>
+          <Checkbox
+            id='pdf-show-cancelled-billed-km'
+            checked={showCancelledBilledKmOnCover}
+            disabled={!unlocked}
+            onCheckedChange={(v) => setShowCancelledBilledKmOnCover(v === true)}
+          />
+          <Label htmlFor='pdf-show-cancelled-billed-km' className='font-normal'>
+            Stornierte, abgerechnete Fahrten als eigene Strecke auf dem
+            Deckblatt anzeigen
+          </Label>
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          Zeigt direkt unter der Gesamtstrecke eine separate Zeile mit der
+          Strecke stornierter, aber abgerechneter Fahrten. Beeinflusst den
+          Rechnungsbetrag nicht.
+        </p>
+      </div>
     </div>
   );
 }

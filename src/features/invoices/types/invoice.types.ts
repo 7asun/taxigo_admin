@@ -682,6 +682,16 @@ export interface BuilderLineItem {
    */
   billingInclusion: BillingInclusionState;
 
+  /**
+   * Builder-only flag: true when this row was already `billing_included = false`
+   * on the **original** invoice (before the branch draft was created). Set during
+   * edit-mode hydration of branch drafts only; never persisted to DB.
+   *
+   * Drives the "Ausgeschlossen (Ursprungsrechnung)" badge in Step 3 so admins
+   * can tell apart inherited exclusions from ones they made in the current session.
+   */
+  exclusionInherited?: boolean;
+
   // ── Gross override fields (set by admin in Step 3) ──────────────────────────
 
   /**

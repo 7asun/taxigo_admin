@@ -130,6 +130,13 @@ export function resolvePdfColumnProfile(
     // Persisted only on invoices.pdf_column_override; Vorlagen DB rows omit this — derive from parsed override JSON when present so enrich matches issued intent.
     show_cancelled_trips: override?.show_cancelled_trips ?? false,
     // why: only present when admin opted out ≥1 normal trip in Step 3; legacy overrides omit ⇒ false.
-    show_excluded_trips: override?.show_excluded_trips ?? false
+    show_excluded_trips: override?.show_excluded_trips ?? false,
+    // why: display-only toggle for cancelled-billed KM on cover; legacy/new overrides omit ⇒ false (opt-in).
+    show_cancelled_billed_km_on_cover:
+      override?.show_cancelled_billed_km_on_cover ?? false,
+    // why: display-only toggle for normal billed KM (Gesamtstrecke) on cover; default off so existing
+    // invoices are unaffected and admins opt in per invoice.
+    show_normal_billed_km_on_cover:
+      override?.show_normal_billed_km_on_cover ?? false
   };
 }

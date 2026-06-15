@@ -614,7 +614,12 @@ export function Step3LineItems({
                                     variant='outline'
                                     className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
                                   >
-                                    Ausgeschlossen
+                                    {/* why: distinguish rows excluded on the original invoice from
+                                        ones the admin excluded in the current session, so branch-draft
+                                        admins don't wonder why trips are already opted out. */}
+                                    {item.exclusionInherited
+                                      ? 'Ausgeschlossen (Ursprungsrechnung)'
+                                      : 'Ausgeschlossen'}
                                   </Badge>
                                   {item.billingInclusion.reason ? (
                                     <span className='truncate text-[10px] text-amber-600'>

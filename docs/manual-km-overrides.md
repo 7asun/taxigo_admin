@@ -50,7 +50,25 @@ Pure implementation: [`src/features/invoices/lib/resolve-effective-distance.ts`]
 - **Writeback:** On successful invoice create, `trips.manual_distance_km` is set fire-and-forget for lines with `isManualKmOverride` and `manualDistanceKm`; `driving_distance_km` is never written.
 - **Phase 3 repricing:** Changing committed km in Step 3 re-runs `resolveTripPrice` against `resolved_rule` (frozen billing rule snapshot) when the line is not Taxameter (`price_resolution.source !== 'manual_gross_price'`). **Reset KM** restores `originalPriceResolution` and routing-based distance fields like gross reset.
 
+## How overrides flow into invoice KM display
+
+Once an invoice is created, all KM display derives exclusively from `invoice_line_items` snapshot columns — never from live `trips` re-queries.
+
+The display pipeline for a saved invoice line item is:
+
+1. `invoice_line_items.effective_distance_km` — the override-resolved value frozen at insert.
+2. Fallback to `invoice_line_items.distance_km` (routing snapshot) for legacy rows where `effective_distance_km` was not persisted.
+
+This fallback chain is encoded in **`computeInvoiceLineKm(item)`** from `src/features/invoices/lib/compute-invoice-km.ts`. All KM aggregation in PDF summary builders, the cover Gesamtstrecke block, and the detail page km column use this helper. Do not replicate the `effective_distance_km ?? distance_km` expression outside that module.
+
+For invoice-level totals, `computeInvoiceKmBuckets` splits the line items into:
+- `normalBilledKm` — sum of billed km for billing-included non-cancelled rows.
+- `cancelledBilledKm` — sum of billed km for billing-included cancelled rows (€0 trips).
+
+See [`docs/invoice-km-behaviour.md`](invoice-km-behaviour.md) for the full invariant list.
+
 ## Related docs
 
 - [pricing-engine.md](pricing-engine.md) — `buildLineItemsFromTrips` effective km before tax/pricing.
-- [invoices-module.md](invoices-module.md) — Line item snapshots and Storno mirroring.
+- [invoices-module.md](invoices-module.md) — Line item snapshots, Storno mirroring, and KM semantics.
+- [invoice-km-behaviour.md](invoice-km-behaviour.md) — KM invariants K1–K7.

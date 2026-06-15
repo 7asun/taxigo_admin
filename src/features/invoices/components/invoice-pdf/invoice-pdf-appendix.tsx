@@ -57,6 +57,53 @@ const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
 const CANCELLED_SECTION_HELPER =
   'Diese Fahrten wurden storniert und sind nicht im Rechnungsbetrag enthalten.';
 
+/**
+ * Ausgeschlossene Fahrten appendix columns — explicit default widths for proportional
+ * scaling (same usable-width algorithm as calcColumnWidths / Stornierte Fahrten).
+ */
+const EXCLUDED_APPENDIX_COLUMNS = [
+  { key: 'datum', label: 'Datum', defaultWidthPt: 52, minWidthPt: 40 },
+  { key: 'fahrgast', label: 'Fahrgast', defaultWidthPt: 110, minWidthPt: 80 },
+  { key: 'von', label: 'Von', defaultWidthPt: 110, minWidthPt: 80 },
+  { key: 'nach', label: 'Nach', defaultWidthPt: 110, minWidthPt: 80 },
+  {
+    key: 'begruendung',
+    label: 'Begründung',
+    defaultWidthPt: 180,
+    minWidthPt: 120
+  }
+] as const;
+
+/** Portrait appendix row usable width — kept in sync with pdf-column-layout.ts. */
+const EXCLUDED_TABLE_PORTRAIT_USABLE_PT = 499;
+/** Landscape appendix row usable width — kept in sync with pdf-column-layout.ts. */
+const EXCLUDED_TABLE_LANDSCAPE_USABLE_PT = 754;
+
+type ExcludedAppendixColumnKey =
+  (typeof EXCLUDED_APPENDIX_COLUMNS)[number]['key'];
+
+/** Scales excluded column defaults to portrait/landscape usable width (mirrors calcColumnWidths). */
+function calcExcludedColumnWidths(
+  isLandscape: boolean
+): Record<ExcludedAppendixColumnKey, number> {
+  const usable = isLandscape
+    ? EXCLUDED_TABLE_LANDSCAPE_USABLE_PT
+    : EXCLUDED_TABLE_PORTRAIT_USABLE_PT;
+  const totalDefault = EXCLUDED_APPENDIX_COLUMNS.reduce(
+    (sum, col) => sum + col.defaultWidthPt,
+    0
+  );
+  const scale = totalDefault > 0 ? usable / totalDefault : 1;
+  const result = {} as Record<ExcludedAppendixColumnKey, number>;
+  for (const col of EXCLUDED_APPENDIX_COLUMNS) {
+    result[col.key] = Math.max(
+      Math.round(col.defaultWidthPt * scale),
+      col.minWidthPt
+    );
+  }
+  return result;
+}
+
 export function InvoicePdfAppendix({
   invoiceNumber,
   invoiceCreatedAtIso,
@@ -224,16 +271,12 @@ export function InvoicePdfAppendix({
     if (excludedTrips.length === 0) return null;
 
     const EM_DASH = '—';
-    const EXCLUDED_COLUMNS = [
-      { key: 'datum', label: 'Datum', widthPt: 52 },
-      { key: 'fahrgast', label: 'Fahrgast', widthPt: 110 },
-      { key: 'von', label: 'Von', widthPt: 110 },
-      { key: 'nach', label: 'Nach', widthPt: 110 },
-      { key: 'begruendung', label: 'Begründung', widthPt: null }
-    ] as const;
+    // why: proportional widths + explicit Begründung minWidth — same defensive layout as
+    // renderCancelledSection so long exclusion reasons wrap inside the cell, not the row.
+    const excludedColWidths = calcExcludedColumnWidths(landscape);
 
     function excludedCellValue(
-      key: (typeof EXCLUDED_COLUMNS)[number]['key'],
+      key: ExcludedAppendixColumnKey,
       row: ExcludedTripRow
     ): string {
       switch (key) {
@@ -274,31 +317,36 @@ export function InvoicePdfAppendix({
         </Text>
 
         <View style={styles.tableHeader}>
-          {EXCLUDED_COLUMNS.map((col, idx) => (
-            <View
-              key={`ex-h-${col.key}-${idx}`}
-              style={{
-                width: col.widthPt ?? undefined,
-                flexGrow: col.widthPt == null ? 1 : 0,
-                minWidth: 0,
-                overflow: 'hidden',
-                flexWrap: 'nowrap',
-                paddingRight: 4,
-                justifyContent: 'center'
-              }}
-            >
-              <Text
-                // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
-                numberOfLines={1}
-                style={[
-                  styles.tableHeaderText,
-                  { textAlign: 'left', fontSize: PDF_FONT_SIZES.xs }
-                ]}
+          {EXCLUDED_APPENDIX_COLUMNS.map((col, idx) => {
+            const w = excludedColWidths[col.key];
+            const isReasonCol = col.key === 'begruendung';
+            return (
+              <View
+                key={`ex-h-${col.key}-${idx}`}
+                style={{
+                  // why: Begründung expands to fill remaining row width after fixed cols.
+                  ...(isReasonCol
+                    ? { minWidth: w, flexGrow: 1, width: undefined }
+                    : { width: w, flexGrow: 0, minWidth: 0 }),
+                  overflow: 'hidden',
+                  flexWrap: 'nowrap',
+                  paddingRight: 4,
+                  justifyContent: 'center'
+                }}
               >
-                {col.label}
-              </Text>
-            </View>
-          ))}
+                <Text
+                  // @ts-expect-error @react-pdf Text supports line cap; package types omit numberOfLines
+                  numberOfLines={1}
+                  style={[
+                    styles.tableHeaderText,
+                    { textAlign: 'left', fontSize: PDF_FONT_SIZES.xs }
+                  ]}
+                >
+                  {col.label}
+                </Text>
+              </View>
+            );
+          })}
         </View>
 
         {excludedTrips.map((row, idx) => (
@@ -308,37 +356,91 @@ export function InvoicePdfAppendix({
             wrap={false}
           >
             <View style={styles.tableRow}>
-              {EXCLUDED_COLUMNS.map((col, colIdx) => {
+              {EXCLUDED_APPENDIX_COLUMNS.map((col, colIdx) => {
+                const w = excludedColWidths[col.key];
                 const raw = excludedCellValue(col.key, row);
-                const isReason = col.key === 'begruendung';
+                const hasNl = raw.includes('\n');
+                const isReasonCol = col.key === 'begruendung';
+                const reasonEmpty = isReasonCol && raw === EM_DASH;
+                const baseText = {
+                  fontSize: PDF_FONT_SIZES.xs,
+                  textAlign: 'left' as const,
+                  color: isReasonCol
+                    ? PDF_COLORS.billingReason
+                    : PDF_COLORS.text,
+                  ...(reasonEmpty ? styles.appendixMoneyMuted : {})
+                };
+
                 return (
                   <View
                     key={`ex-${idx}-${col.key}-${colIdx}`}
                     style={{
-                      width: col.widthPt ?? undefined,
-                      flexGrow: col.widthPt == null ? 1 : 0,
-                      minWidth: 0,
+                      // why: Begründung uses computed width as minWidth + flexGrow so it
+                      // expands; fixed cols get explicit width from calcExcludedColumnWidths.
+                      ...(isReasonCol
+                        ? { minWidth: w, flexGrow: 1 }
+                        : { width: w, flexGrow: 0, minWidth: 0 }),
                       // why: overflow:hidden + flexWrap:nowrap clips multi-line reason text in
-                      // react-pdf; elastic cells with flexGrow:1 wrap correctly without them.
-                      ...(isReason
+                      // react-pdf; elastic Begründung cell wraps correctly without them.
+                      ...(isReasonCol
                         ? {}
-                        : { overflow: 'hidden', flexWrap: 'nowrap' as const }),
+                        : {
+                            overflow: 'hidden',
+                            flexWrap: 'nowrap' as const
+                          }),
                       paddingRight: 4,
-                      justifyContent: 'center'
+                      // why: justifyContent:center causes react-pdf to render overflowing wrapped
+                      // text above the cell boundary into the preceding row — flex-start anchors
+                      // the text to the top of the cell and wraps downward correctly.
+                      justifyContent: isReasonCol
+                        ? ('flex-start' as const)
+                        : ('center' as const)
                     }}
                   >
-                    <Text
-                      style={{
-                        fontSize: PDF_FONT_SIZES.xs,
-                        textAlign: 'left',
-                        // why: exclusion reason in amber per plan invariant (PDF_COLORS.billingReason)
-                        color: isReason
-                          ? PDF_COLORS.billingReason
-                          : PDF_COLORS.text
-                      }}
-                    >
-                      {raw}
-                    </Text>
+                    {hasNl ? (
+                      <View
+                        style={
+                          isReasonCol
+                            ? { width: w }
+                            : { minWidth: 0, width: '100%' }
+                        }
+                      >
+                        {raw.split('\n').map((line, li) => (
+                          <Text
+                            key={li}
+                            style={
+                              isReasonCol
+                                ? {
+                                    ...baseText,
+                                    // why: react-pdf cannot resolve percentage widths against
+                                    // flex-computed parent widths — explicit pixel width on Text
+                                    // is required to constrain wrapping.
+                                    width: w
+                                  }
+                                : baseText
+                            }
+                          >
+                            {line}
+                          </Text>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text
+                        style={
+                          isReasonCol
+                            ? {
+                                ...baseText,
+                                // why: react-pdf cannot resolve percentage widths against
+                                // flex-computed parent widths — explicit pixel width on Text
+                                // is required to constrain wrapping.
+                                width: w
+                              }
+                            : baseText
+                        }
+                      >
+                        {raw}
+                      </Text>
+                    )}
                   </View>
                 );
               })}

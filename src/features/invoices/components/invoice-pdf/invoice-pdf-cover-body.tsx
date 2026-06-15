@@ -47,6 +47,12 @@ import { formatTaxRate } from '../../lib/tax-calculator';
 import { mainCoverLineItems } from '@/features/invoices/lib/billing-inclusion';
 import { PDF_ZONES } from '../../lib/pdf-layout-constants';
 
+/** Formats a KM value for the cover Gesamtstrecke block. */
+function formatCoverKm(km: number | null): string {
+  if (km === null) return '—';
+  return `${km.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
+}
+
 export interface InvoicePdfCoverBodyProps {
   invoiceNumber: string;
   salutation: string;
@@ -71,6 +77,29 @@ export interface InvoicePdfCoverBodyProps {
    * keeps no-bar invoices from sitting too tight under the header if `headerRow.marginBottom` is tuned.
    */
   subjectSectionMarginTop?: number;
+  /**
+   * Billed km for normal (non-cancelled) billing-included trips.
+   * Derived from computeInvoiceCoverKm in InvoicePdfDocument.
+   * Null when any contributing row has missing distance (renders as dash).
+   */
+  normalBilledKm: number | null;
+  /**
+   * Billed km for cancelled billing-included trips (euro-0 trips billed by request).
+   * Null when any contributing row has missing distance.
+   */
+  cancelledBilledKm: number | null;
+  /**
+   * When true, render a second KM line under Gesamtstrecke.
+   * Controlled by the Step 4 toggle show_cancelled_billed_km_on_cover.
+   * Always renders when on, even when cancelledBilledKm === 0.
+   */
+  showCancelledBilledKmOnCover: boolean;
+  /**
+   * When true, render the Gesamtstrecke (normal billed km) line on the cover.
+   * Controlled by the Step 4 toggle show_normal_billed_km_on_cover.
+   * When false, no KM line for normal trips is shown.
+   */
+  showNormalBilledKmOnCover: boolean;
 }
 
 function MultilineCellText({
@@ -118,7 +147,11 @@ export function InvoicePdfCoverBody({
   introText,
   outroText,
   isStorno,
-  subjectSectionMarginTop = PDF_ZONES.subjectMarginTopDefault // cover body internal fallback — overridden by InvoicePdfDocument conditional
+  subjectSectionMarginTop = PDF_ZONES.subjectMarginTopDefault, // cover body internal fallback — overridden by InvoicePdfDocument conditional
+  normalBilledKm,
+  cancelledBilledKm,
+  showCancelledBilledKmOnCover,
+  showNormalBilledKmOnCover
 }: InvoicePdfCoverBodyProps) {
   // isStorno is invoice.cancels_invoice_id != null (Storno document); only then use §14 Abs. 9 intro.
   const defaultIntroText = isStorno
@@ -291,6 +324,45 @@ export function InvoicePdfCoverBody({
               })}
             </View>
           ))}
+
+      {/* why: invoice-level KM block sits between the main table and money totals so admins
+          see "how many km drove this invoice" independently of layout mode. Both lines are
+          individually opt-in via Step 4 toggles — default off so existing PDFs are unchanged.
+          The block is only rendered when at least one of the two toggles is on. */}
+      {showNormalBilledKmOnCover || showCancelledBilledKmOnCover ? (
+        <View
+          style={[
+            styles.totalsSection,
+            { marginTop: PDF_ZONES.totalsSectionMarginTop } // reuse section spacing for visual consistency
+          ]}
+          wrap={false}
+        >
+          {/* why: Gesamtstrecke gated by showNormalBilledKmOnCover — default off so existing
+              invoices don't suddenly gain a KM line. Admins opt in per invoice in Step 4. */}
+          {showNormalBilledKmOnCover ? (
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>Gesamtstrecke</Text>
+              <Text style={styles.totalsValue}>
+                {formatCoverKm(normalBilledKm)}
+              </Text>
+            </View>
+          ) : null}
+          {/* why: second line always rendered when toggle is on, even when cancelledBilledKm === 0,
+              so admins can confirm the flag is active and the bucket is genuinely empty. */}
+          {showCancelledBilledKmOnCover ? (
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>
+                Strecke stornierte, abgerechnete Fahrten
+              </Text>
+              <Text style={styles.totalsValue}>
+                {cancelledBilledKm === null
+                  ? '—'
+                  : formatCoverKm(cancelledBilledKm)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View
         style={[
