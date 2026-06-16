@@ -265,7 +265,9 @@ export function InvoicePdfAppendix({
 
   /**
    * Excluded normal trips — gated by show_excluded_trips in parent.
-   * Shows exclusion reason in amber; no amount column (these are €0 impact).
+   * Table only: page title comes from fixed appendix header (`groupLabel`); no inner
+   * section heading or helper copy (parity with Fahrtendetails / other appendix pages).
+   * Begründung stays amber; no amount column (€0 impact).
    */
   function renderExcludedSection() {
     if (excludedTrips.length === 0) return null;
@@ -294,28 +296,9 @@ export function InvoicePdfAppendix({
     }
 
     return (
-      <View style={{ marginTop: 14 }}>
-        <Text
-          style={{
-            fontSize: PDF_FONT_SIZES.sm,
-            fontWeight: 'bold',
-            color: PDF_COLORS.text,
-            marginBottom: 4
-          }}
-        >
-          Ausgeschlossene Fahrten
-        </Text>
-        <Text
-          style={{
-            fontSize: PDF_FONT_SIZES.xs,
-            color: PDF_COLORS.muted,
-            marginBottom: 8
-          }}
-        >
-          Diese Fahrten wurden manuell ausgeschlossen und sind nicht im
-          Rechnungsbetrag enthalten.
-        </Text>
-
+      // why: no marginTop on the dedicated Ausgeschlossene page — shared fixed header already
+      // identifies the appendix; table starts immediately like Fahrtendetails (no inner H2).
+      <View style={{ marginTop: coercedLineItems.length > 0 ? 14 : 0 }}>
         <View style={styles.tableHeader}>
           {EXCLUDED_APPENDIX_COLUMNS.map((col, idx) => {
             const w = excludedColWidths[col.key];
