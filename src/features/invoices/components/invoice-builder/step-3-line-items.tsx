@@ -19,7 +19,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import {
@@ -74,6 +74,7 @@ import type {
   BuilderLineItem,
   BuilderCancelledTripRow
 } from '../../types/invoice.types';
+import { PassengerSearchBar } from './passenger-search-bar';
 
 type EditingState = {
   position: number;
@@ -261,6 +262,19 @@ export function Step3LineItems({
   const [showScrollFade, setShowScrollFade] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const [passengerSearch, setPassengerSearch] = useState('');
+
+  // why: debounce lives in PassengerSearchBar — filteredLineItems trails local input by ~300ms; do not move debounce here without updating intro copy too.
+  const filteredLineItems = useMemo(() => {
+    const q = passengerSearch.trim().toLocaleLowerCase('de-DE');
+    if (!q) return lineItems;
+    return lineItems.filter((item) =>
+      (item.client_name ?? '').toLocaleLowerCase('de-DE').includes(q)
+    );
+  }, [lineItems, passengerSearch]);
+
+  const isSearchActive = passengerSearch.trim().length > 0;
+
   const editingRef = useRef<EditingState>(null);
   const kmEditingRef = useRef<KmEditingState>(null);
   const kmCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,6 +286,12 @@ export function Step3LineItems({
       if (kmDebounceTimerRef.current) clearTimeout(kmDebounceTimerRef.current);
     };
   }, []);
+
+  // Reset search when the trip set reloads (Step 2 re-fetch) so a stale filter
+  // does not hide rows on the new result set.
+  useEffect(() => {
+    setPassengerSearch('');
+  }, [lineItems]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -288,7 +308,7 @@ export function Step3LineItems({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [lineItems, openRows]);
+  }, [lineItems, openRows, filteredLineItems]);
 
   // Guard: same-row only — defer commit on blur so Bruttopreis ↔ Anfahrt tabbing
   // does not commit mid-edit; clearing the timer on focus **must** be gated by row
@@ -460,8 +480,10 @@ export function Step3LineItems({
       <div className='space-y-4'>
         {lineItems.length > 0 ? (
           <p className='text-muted-foreground text-sm'>
-            {lineItems.length} Fahrten gefunden. Bruttopreis und Anfahrt können
-            bearbeitet werden.
+            {isSearchActive
+              ? `${filteredLineItems.length} von ${lineItems.length} Fahrten.`
+              : `${lineItems.length} Fahrten gefunden.`}{' '}
+            Bruttopreis und Anfahrt können bearbeitet werden.
           </p>
         ) : null}
 
@@ -500,13 +522,28 @@ export function Step3LineItems({
           </Alert>
         )}
 
+        {lineItems.length > 0 && (
+          <PassengerSearchBar
+            value={passengerSearch}
+            onChange={setPassengerSearch}
+            totalCount={lineItems.length}
+            filteredCount={filteredLineItems.length}
+            className='w-full'
+          />
+        )}
+
         <div className='flex flex-col overflow-hidden rounded-md border'>
           <div className='relative'>
             <div
               ref={scrollContainerRef}
               className='divide-border max-h-[calc(100vh-20rem)] divide-y overflow-x-hidden overflow-y-auto'
             >
-              {lineItems.map((item) => {
+              {lineItems.length > 0 && filteredLineItems.length === 0 ? (
+                <p className='text-muted-foreground px-4 py-8 text-center text-sm'>
+                  Keine Fahrten für „{passengerSearch.trim()}".
+                </p>
+              ) : null}
+              {filteredLineItems.map((item) => {
                 const isEditingThisRow = editing?.position === item.position;
                 const isKmEditingThisRow =
                   kmEditing?.position === item.position;
@@ -581,10 +618,11 @@ export function Step3LineItems({
                       )}
                     >
                       <div className='grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-2 px-4 py-2.5 pr-9 transition-colors'>
-                        {/* Inclusion rail: checkbox + its consequences (opt-out badge, advisory
-                            warnings) in one vertical stack so inclusion state and reason read at a
-                            glance. row-span-2 keeps the rail aligned to the full right-hand block. */}
-                        <div className='row-span-2 flex flex-col items-start gap-1.5 pt-0.5'>
+                        {/* Inclusion rail: checkbox + advisory warnings only.
+                            w-5 pins the auto track to checkbox width (20px) so the
+                            `auto` column never expands. Opt-out badge/reason moved
+                            to a full-width row below the grid (see below). */}
+                        <div className='row-span-2 flex w-5 shrink-0 flex-col items-start gap-1.5 pt-0.5'>
                           <Checkbox
                             checked={item.billingInclusion.included}
                             aria-label={
@@ -605,51 +643,28 @@ export function Step3LineItems({
                               }
                             }}
                           />
-                          {/* Stays outside CollapsibleContent so warnings remain visible when collapsed. */}
-                          {(isOptedOut || item.warnings.length > 0) && (
-                            <div className='flex w-full min-w-0 flex-wrap items-center gap-1.5'>
-                              {isOptedOut ? (
-                                <div className='flex max-w-full min-w-0 items-center gap-1'>
-                                  <Badge
-                                    variant='outline'
-                                    className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
-                                  >
-                                    {/* why: distinguish rows excluded on the original invoice from
-                                        ones the admin excluded in the current session, so branch-draft
-                                        admins don't wonder why trips are already opted out. */}
-                                    {item.exclusionInherited
-                                      ? 'Ausgeschlossen (Ursprungsrechnung)'
-                                      : 'Ausgeschlossen'}
-                                  </Badge>
-                                  {item.billingInclusion.reason ? (
-                                    <span className='truncate text-[10px] text-amber-600'>
-                                      {item.billingInclusion.reason}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                              {item.warnings.length > 0 ? (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type='button'
-                                      className='text-amber-500'
-                                      aria-label='Hinweise zu dieser Position'
-                                    >
-                                      <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p className='text-xs'>
-                                      {item.warnings
-                                        .map((w) => getWarningLabel(w))
-                                        .join(' · ')}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              ) : null}
-                            </div>
-                          )}
+                          {/* Advisory warnings stay here so they remain visible when
+                              collapsed, regardless of opt-out state. */}
+                          {item.warnings.length > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type='button'
+                                  className='text-amber-500'
+                                  aria-label='Hinweise zu dieser Position'
+                                >
+                                  <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className='text-xs'>
+                                  {item.warnings
+                                    .map((w) => getWarningLabel(w))
+                                    .join(' · ')}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
                         </div>
 
                         {/* Row 1 — informational only; one type size/weight for #, client, date */}
@@ -761,7 +776,7 @@ export function Step3LineItems({
                                     : '—'}
                               </span>
                             )}
-                            {item.isManualKmOverride ? (
+                            {!isOptedOut && item.isManualKmOverride ? (
                               <div className='flex items-center gap-1'>
                                 <Badge
                                   variant='outline'
@@ -783,6 +798,7 @@ export function Step3LineItems({
                                   variant='ghost'
                                   size='icon'
                                   className='h-6 w-6'
+                                  disabled={isOptedOut}
                                   aria-label='Manuellen KM zurücksetzen'
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -854,6 +870,7 @@ export function Step3LineItems({
                                   variant='ghost'
                                   size='icon'
                                   className='h-6 w-6'
+                                  disabled={isOptedOut}
                                   aria-label='MwSt zurücksetzen'
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -936,6 +953,7 @@ export function Step3LineItems({
                                     variant='ghost'
                                     size='icon'
                                     className='h-6 w-6'
+                                    disabled={isOptedOut}
                                     aria-label='Taxameter-Preis zurücksetzen'
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -950,6 +968,30 @@ export function Step3LineItems({
                           </div>
                         </div>
                       </div>
+
+                      {/* Opt-out badge + reason — rendered as a full-width row below
+                          the grid so the `auto` column stays exactly 20px (w-5) and
+                          long badge/reason text wraps without widening the grid. */}
+                      {isOptedOut && (
+                        <div className='flex flex-col items-start gap-0.5 px-4 pb-1'>
+                          <Badge
+                            variant='outline'
+                            className='h-4 shrink-0 border-amber-400 px-1 text-[10px] text-amber-700'
+                          >
+                            {/* why: distinguish rows excluded on the original invoice from
+                                ones the admin excluded in the current session, so branch-draft
+                                admins don't wonder why trips are already opted out. */}
+                            {item.exclusionInherited
+                              ? 'Ausgeschlossen (Ursprungsrechnung)'
+                              : 'Ausgeschlossen'}
+                          </Badge>
+                          {item.billingInclusion.reason ? (
+                            <span className='line-clamp-2 text-[10px] leading-tight text-amber-600'>
+                              {item.billingInclusion.reason}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
 
                       <CollapsibleTrigger asChild>
                         <button
