@@ -66,29 +66,17 @@ import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-stor
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { cn } from '@/lib/utils';
 import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import {
+  KTS_FILTER_OPTION_ROWS,
+  type KtsFilterValue,
+  parseKtsFilterParam,
+  getKtsFilterTriggerLabel
+} from '@/features/trips/lib/kts-filter';
 import type { DateRange } from 'react-day-picker';
 
 interface TripsFiltersBarProps {
   totalItems: number;
 }
-
-/** Allowed `kts_filter` URL tokens (comma-joined); absence of param = no KTS filter. */
-const KTS_FILTER_VALUES = [
-  'kts',
-  'kts_fehler',
-  'no_kts',
-  'no_reha',
-  'reha'
-] as const;
-type KtsFilterValue = (typeof KTS_FILTER_VALUES)[number];
-
-const KTS_FILTER_OPTION_ROWS: { value: KtsFilterValue; label: string }[] = [
-  { value: 'kts', label: 'Nur KTS' },
-  { value: 'kts_fehler', label: 'Nur KTS-Fehler' },
-  { value: 'reha', label: 'Nur Reha-Schein' },
-  { value: 'no_kts', label: 'Kein KTS' },
-  { value: 'no_reha', label: 'Kein Reha-Schein' }
-];
 
 /** Absent param → []; present but empty "" → []. */
 function parseCommaSeparatedIds(param: string | null): string[] {
@@ -123,11 +111,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const currentView = searchParams.get('view') ?? 'list';
   const ktsParam = searchParams.get('kts_filter');
   const selectedKtsFilterValues = useMemo(
-    () =>
-      parseCommaSeparatedIds(ktsParam).filter((v): v is KtsFilterValue =>
-        // Drop crafted/legacy tokens so the bar matches the RSC allowlist — avoids “filter stuck on” when URL is invalid.
-        KTS_FILTER_VALUES.includes(v as KtsFilterValue)
-      ),
+    () => parseKtsFilterParam(ktsParam),
     [ktsParam]
   );
 
@@ -365,18 +349,10 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     updateFilters({ billing_variant_id: null });
   };
 
-  const ktsTriggerLabel = useMemo(() => {
-    const n = selectedKtsFilterValues.length;
-    if (n === 0) return 'KTS: Kein Filter';
-    if (n === 1) {
-      return (
-        KTS_FILTER_OPTION_ROWS.find(
-          (o) => o.value === selectedKtsFilterValues[0]
-        )?.label ?? 'KTS'
-      );
-    }
-    return `${n} KTS-Filter`;
-  }, [selectedKtsFilterValues]);
+  const ktsTriggerLabel = useMemo(
+    () => getKtsFilterTriggerLabel(selectedKtsFilterValues),
+    [selectedKtsFilterValues]
+  );
 
   const ktsSelection = useMemo(
     () => new Set(selectedKtsFilterValues),

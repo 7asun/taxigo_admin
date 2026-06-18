@@ -26,6 +26,10 @@ import {
 } from '@/features/trips/lib/trip-business-date';
 import type { EffectiveTripInvoiceStatus } from '@/features/trips/lib/effective-trip-invoice-status';
 import { resolveInvoiceStatusTripFilter } from '@/features/trips/lib/resolve-invoice-status-trip-filter';
+import {
+  normalizeKtsFilterValues,
+  buildKtsTripFilterPlan
+} from '@/features/trips/lib/kts-filter';
 
 /** URL `invoice_status` values — pre-filter via `resolveInvoiceStatusTripFilter` (RPC). */
 const INVOICE_STATUS_FILTER_VALUES = new Set([
@@ -33,15 +37,6 @@ const INVOICE_STATUS_FILTER_VALUES = new Set([
   'draft',
   'sent',
   'paid'
-]);
-
-/** URL `kts_filter` tokens that map to PostgREST branches; unknown entries are ignored (symmetry with client strip). */
-const TRIPS_KTS_FILTER_QUERY_VALUES = new Set([
-  'kts',
-  'kts_fehler',
-  'no_kts',
-  'no_reha',
-  'reha'
 ]);
 
 type TripsListingPageProps = {
@@ -66,8 +61,8 @@ export default async function TripsListingPage({
   const search = searchParamsCache.get('search');
   const scheduledAt = searchParamsCache.get('scheduled_at');
   const invoiceStatus = searchParamsCache.get('invoice_status');
-  const ktsFilterValues = (searchParamsCache.get('kts_filter') ?? []).filter(
-    (v) => TRIPS_KTS_FILTER_QUERY_VALUES.has(v)
+  const ktsFilterValues = normalizeKtsFilterValues(
+    searchParamsCache.get('kts_filter')
   );
 
   const supabase = await createClient();
@@ -144,50 +139,53 @@ export default async function TripsListingPage({
     if (billingVariantIds?.length) {
       query = query.in('billing_variant_id', billingVariantIds);
     }
-    // KTS filter — comma-separated modes; invalid tokens stripped above (client parity).
-    if (ktsFilterValues.length > 0) {
-      const ktsTokens = [...new Set(ktsFilterValues)];
+    // KTS filter — translate the semantic plan into Supabase query calls.
+    // The plan is produced by `buildKtsTripFilterPlan` which owns the AND vs OR decision.
+    const ktsPlan = buildKtsTripFilterPlan(ktsFilterValues);
+    if (ktsPlan.mode === 'single') {
+      // Single token: use chained `.eq` calls so PostgREST emits the same filter shape as
+      // the pre-multi-select listing (no `or(...)` wrapper overhead).
+      const t = ktsPlan.token;
+      if (t === 'kts') {
+        query = query.eq('kts_document_applies', true);
+      } else if (t === 'kts_fehler') {
+        query = query.eq('kts_document_applies', true).eq('kts_fehler', true);
+      } else if (t === 'no_kts') {
+        query = query.eq('kts_document_applies', false);
+      } else if (t === 'no_reha') {
+        query = query.eq('reha_schein', false);
+      } else if (t === 'reha') {
+        query = query.eq('reha_schein', true);
+      }
+    } else if (ktsPlan.mode === 'missing-both') {
+      // Hard invariant: no_kts + no_reha selected alone → AND, not OR.
+      // Trips where BOTH KTS and Reha-Schein are absent.
+      query = query.eq('kts_document_applies', false).eq('reha_schein', false);
+    } else if (ktsPlan.mode === 'any-of') {
+      // Multiple tokens (may include the negative pair when includeMissingBoth is true).
+      // Build per-token PostgREST expressions and OR them together; the negative pair
+      // is grouped as a nested AND so its intersection semantics are preserved.
+      const orParts: string[] = [];
+      const remainingTokens = ktsPlan.includeMissingBoth
+        ? ktsPlan.tokens.filter((t) => t !== 'no_kts' && t !== 'no_reha')
+        : ktsPlan.tokens;
 
-      // Each URL token maps to one PostgREST filter expression.
-      const ktsConditions: string[] = [];
-      if (ktsFilterValues.includes('kts')) {
-        ktsConditions.push('kts_document_applies.eq.true');
-      }
-      if (ktsFilterValues.includes('kts_fehler')) {
-        ktsConditions.push(
-          'and(kts_document_applies.eq.true,kts_fehler.eq.true)'
-        );
-      }
-      if (ktsFilterValues.includes('no_kts')) {
-        ktsConditions.push('kts_document_applies.eq.false');
-      }
-      if (ktsFilterValues.includes('no_reha')) {
-        ktsConditions.push('reha_schein.eq.false');
-      }
-      if (ktsFilterValues.includes('reha')) {
-        ktsConditions.push('reha_schein.eq.true');
+      for (const t of remainingTokens) {
+        if (t === 'kts') orParts.push('kts_document_applies.eq.true');
+        else if (t === 'kts_fehler')
+          orParts.push('and(kts_document_applies.eq.true,kts_fehler.eq.true)');
+        else if (t === 'no_kts') orParts.push('kts_document_applies.eq.false');
+        else if (t === 'no_reha') orParts.push('reha_schein.eq.false');
+        else if (t === 'reha') orParts.push('reha_schein.eq.true');
       }
 
-      const uniqueKtsConditions = [...new Set(ktsConditions)];
+      if (ktsPlan.includeMissingBoth) {
+        // Negative pair grouped as AND inside the OR list.
+        orParts.push('and(kts_document_applies.eq.false,reha_schein.eq.false)');
+      }
 
-      if (uniqueKtsConditions.length === 1 && ktsTokens.length === 1) {
-        // Single mode: keep the same `.eq` / chained `.eq` shape as the pre–multi-select listing so
-        // PostgREST emits identical filters for one active KTS option (no `or(...)` wrapper).
-        const only = ktsTokens[0];
-        if (only === 'kts') {
-          query = query.eq('kts_document_applies', true);
-        } else if (only === 'kts_fehler') {
-          query = query.eq('kts_document_applies', true).eq('kts_fehler', true);
-        } else if (only === 'no_kts') {
-          query = query.eq('kts_document_applies', false);
-        } else if (only === 'no_reha') {
-          query = query.eq('reha_schein', false);
-        } else if (only === 'reha') {
-          query = query.eq('reha_schein', true);
-        }
-      } else if (uniqueKtsConditions.length > 1) {
-        // Multiple modes: OR — user wants trips matching *any* selected state (e.g. no KTS OR no Reha).
-        query = query.or(uniqueKtsConditions.join(','));
+      if (orParts.length > 0) {
+        query = query.or(orParts.join(','));
       }
     }
     if (

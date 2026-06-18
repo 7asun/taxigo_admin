@@ -131,3 +131,14 @@ To add a filter (e.g. KTS / boolean):
 4. Optionally extend **`kanbanKey`** in `trips-listing.tsx` (**L282–L291**) if Kanban should remount when the new param changes.
 
 `tripKeys` changes are **only** needed if new client queries should invalidate together with trips — **not** required for RSC list filtering by URL alone.
+
+---
+
+## Implementation Status (applied — kts-filter-fix)
+
+The KTS filter logic has been centralized and the `no_kts + no_reha` multi-select bug has been fixed. Key changes:
+
+- **New helper**: `src/features/trips/lib/kts-filter.ts` — single source of truth for the `kts_filter` token contract, normalization, labels, and the semantic server filter plan. Line numbers in this audit file that reference the old inline constants in `trips-filters-bar.tsx` and `trips-listing.tsx` are no longer accurate.
+- **Client** (`trips-filters-bar.tsx`): imports `KTS_FILTER_OPTION_ROWS`, `KtsFilterValue`, `parseKtsFilterParam`, `getKtsFilterTriggerLabel` from the helper; local duplicates removed.
+- **Server** (`trips-listing.tsx`): `TRIPS_KTS_FILTER_QUERY_VALUES` removed; uses `normalizeKtsFilterValues` + `buildKtsTripFilterPlan` from the helper. The `no_kts + no_reha` case now emits a chained `.eq(...).eq(...)` (AND) instead of an `or(...)` (OR).
+- **Tests**: `src/features/trips/lib/__tests__/kts-filter.test.ts` — 23 passing bun tests.
