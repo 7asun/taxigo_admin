@@ -41,6 +41,39 @@ If `tsc` or the bundler pulls the server module into the client bundle when colu
 - `recurring_rules` RLS policies (migration task).
 - Server-side pagination beyond URL page slice when row counts grow.
 
+## Regel-Update: Synchronisation bestehender Fahrten
+
+When an admin saves a time change (e.g. 13:45 → 13:30) in `RecurringRulePanel` or `RecurringRuleSheet`, `runUpdateWithCleanup` automatically patches `scheduled_at` on all matching future trips after the rule row is updated.
+
+**Trigger fields:** changes to `pickup_time`, `return_time`, or `return_mode`. All other fields (billing, addresses, date range) do not trigger a resync.
+
+**Affected trips:** only trips with:
+- `rule_id = <updated rule>`
+- `status = 'pending'` — completed, assigned, and invoiced trips are immutable
+- `requested_date >= today` (Berlin civil date, never raw UTC)
+
+**Exception guard:** trips with a matching row in `recurring_rule_exceptions` (same `rule_id`, `exception_date = requested_date`, `original_pickup_time` keyed using the pre-update rule times) are skipped. Their `scheduled_at` is derived from the exception override and must not be overwritten by a rule-level resync.
+
+**Toast copy (German):**
+- `resynced > 0` → `Regel aktualisiert. N Fahrten wurden auf die neue Zeit aktualisiert.`
+- `deleted > 0` (shorten only, no schedule change) → `Regel aktualisiert. N Fahrten wurden gelöscht.`
+- Otherwise → `Regel erfolgreich aktualisiert`
+
+**Explicitly NOT synced:**
+- `assigned`, `completed`, `cancelled`, or `invoiced` trips
+- Address-only or billing-only saves (different concern; geocoding is separate)
+- Trips with an active exception in `recurring_rule_exceptions`
+- Shorten-end-date paths (`handleShortenConfirm`) where `existingRule` is not passed — resync is intentionally skipped there unless schedule also changed
+
+**Implementation files:**
+| File | Role |
+|------|------|
+| [`src/features/trips/lib/recurring-trip-schedule.ts`](../../src/features/trips/lib/recurring-trip-schedule.ts) | `computeResyncScheduledAt`, `exceptionOriginalPickupTimeKey`, `clockToHhMmSs` |
+| [`src/features/trips/api/recurring-rules.actions.ts`](../../src/features/trips/api/recurring-rules.actions.ts) | `resyncFutureRecurringTrips` server action |
+| [`src/features/clients/lib/recurring-rule-submit-flow.ts`](../../src/features/clients/lib/recurring-rule-submit-flow.ts) | `hasScheduleChange` + extended `runUpdateWithCleanup` |
+
+**Deferred:** resyncing non-pending trips, address-change resync (geocoding), UI confirmation dialog for large resync counts, updating `recurring_rule_exceptions` rows when rule time changes.
+
 ## End-date shortening cleanup
 
 When an admin **shortens** `end_date` on an existing rule (edit in [`RecurringRuleSheet`](../../src/features/clients/components/recurring-rule-sheet.tsx) or [`RecurringRulePanel`](../../src/features/clients/components/recurring-rule-panel.tsx)):

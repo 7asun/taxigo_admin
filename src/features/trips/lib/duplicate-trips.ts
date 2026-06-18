@@ -5,7 +5,8 @@
  * are expanded from the selection, inserted outbound-first, then linked like bulk/Rückfahrt flows.
  *
  * `explicitPerLegUnifiedTimes`: optional outbound/return ISOs per leg; validated to a single pair.
- * Schedule math lives in `duplicate-trip-schedule.ts` (no Supabase).
+ * Schedule primitives live in `duplicate-trip-schedule.ts`; schedule decisions in
+ * `derive-duplicate-schedules.ts`. Neither has Supabase dependencies.
  *
  * @see docs/trips-duplicate.md
  */
@@ -20,12 +21,8 @@ import {
   type ComputeTripPriceInput,
   type PricingContext
 } from '@/features/trips/lib/trip-price-engine';
-import {
-  computePreserveScheduleForLeg,
-  computeReturnScheduleForDuplicate,
-  computeTimeOpenSchedule,
-  type DuplicateTripsPayload
-} from '@/features/trips/lib/duplicate-trip-schedule';
+import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-schedule';
+import { deriveDuplicateSchedules } from '@/features/trips/lib/derive-duplicate-schedules';
 import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import { getTripDirection } from '@/features/trips/lib/trip-direction';
 import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
@@ -461,27 +458,9 @@ export async function executeDuplicateTrips(
 
   for (const unit of units) {
     if (unit.kind === 'single') {
-      let schedule: {
-        scheduled_at: string | null;
-        requested_date: string | null;
-      };
-      if (payload.scheduleMode === 'time_open') {
-        schedule = computeTimeOpenSchedule(payload.targetDateYmd);
-      } else if (payload.scheduleMode === 'unified_time') {
-        const iso = payload.unifiedScheduledAtIso;
-        if (!iso) {
-          throw new Error('Bitte eine Abholzeit festlegen.');
-        }
-        schedule = {
-          scheduled_at: iso,
-          requested_date: instantToYmdInBusinessTz(new Date(iso).getTime())
-        };
-      } else {
-        schedule = computePreserveScheduleForLeg(
-          unit.trip,
-          payload.targetDateYmd
-        );
-      }
+      // WHY: All schedule-mode × unit-kind decisions are delegated to deriveDuplicateSchedules
+      // so the I/O layer cannot drift from the payload contract in docs/trips-duplicate.md.
+      const { outbound: schedule } = deriveDuplicateSchedules(payload, unit);
 
       const insert = buildDuplicateInsert(
         unit.trip,
@@ -512,52 +491,15 @@ export async function executeDuplicateTrips(
     }
 
     // Pair: outbound first, then return, then stamp outbound link_type for findPairedTrip / Zeitabsprache.
-    let outSchedule: {
-      scheduled_at: string | null;
-      requested_date: string | null;
-    };
-    if (payload.scheduleMode === 'time_open') {
-      outSchedule = computeTimeOpenSchedule(payload.targetDateYmd);
-    } else if (payload.scheduleMode === 'unified_time') {
-      // Missing outbound ISO is allowed only when `explicitPerLegUnifiedTimes` (detail pair).
-      const iso = payload.unifiedScheduledAtIso;
-      if (iso) {
-        outSchedule = {
-          scheduled_at: iso,
-          requested_date: instantToYmdInBusinessTz(new Date(iso).getTime())
-        };
-      } else {
-        outSchedule = {
-          scheduled_at: null,
-          requested_date: payload.targetDateYmd
-        };
-      }
-    } else {
-      outSchedule = computePreserveScheduleForLeg(
-        unit.outbound,
-        payload.targetDateYmd
+    // WHY: All schedule-mode × unit-kind decisions are delegated to deriveDuplicateSchedules
+    // so the I/O layer cannot drift from the payload contract in docs/trips-duplicate.md.
+    const { outbound: outSchedule, return: retSchedule } =
+      deriveDuplicateSchedules(payload, unit);
+    if (!retSchedule) {
+      throw new Error(
+        'Internal error: deriveDuplicateSchedules returned no return schedule for a pair.'
       );
     }
-
-    const retSchedule =
-      payload.scheduleMode === 'unified_time' &&
-      payload.unifiedReturnScheduledAtIso
-        ? (() => {
-            const retIso = payload.unifiedReturnScheduledAtIso;
-            const retMs = new Date(retIso).getTime();
-            return {
-              scheduled_at: retIso,
-              requested_date: instantToYmdInBusinessTz(retMs)
-            };
-          })()
-        : computeReturnScheduleForDuplicate(
-            unit.outbound,
-            unit.ret,
-            outSchedule,
-            payload.scheduleMode,
-            payload.targetDateYmd,
-            payload.unifiedScheduledAtIso
-          );
 
     const outInsert = buildDuplicateInsert(
       unit.outbound,

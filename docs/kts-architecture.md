@@ -104,6 +104,8 @@ Implement **one** pure function used everywhere (Neue Fahrt, Trip-Detail, bulk C
 
 **Copy triggers (UI, not on every render):** KTS switch ON (from embedded client when IDs match) and client autosuggest select (when KTS is already ON). `normalizeKtsPatch` does **not** clear `kts_patient_id` when `kts_document_applies` becomes `false`.
 
+**CSV import backfill (PR4.1.1 v3):** `apply_kts_invoice_import` also writes back `kts_patient_id` in the same commit transaction — null-only on trips; null-only on the linked client master when `trips.client_id` is set. See §3.7.
+
 Migration: `supabase/migrations/20260610130000_kts_patient_id.sql`.
 
 ### 3.1 Recurring rules
@@ -243,7 +245,13 @@ Each `p_rows` element: `{ trip_id, belegnummer, invoice_amount, eigenanteil }` �
 
 **Does not require** `kts_status = uebergeben` — admin may invoice trips that were not formally handed over.
 
-**PR4.1.1 (migration `20260610173000`):** `apply_kts_invoice_import` v2 writes back `kts_patient_id` from the CSV Schein-ID when admin approves a match and the trip has no existing patient ID (optional `patient_id` per row; COALESCE never overwrites with null).
+**PR4.1.1 v2 (migration `20260610173000`):** `apply_kts_invoice_import` v2 added optional `patient_id` per row; `COALESCE(NULLIF(btrim(...), ''), t.kts_patient_id)` prevents null overwrite, but could clobber an existing trip ID with a different CSV value.
+
+**PR4.1.1 v3 (migration `20260610174000`):** Hardens both targets in the same transaction:
+
+- **`trips.kts_patient_id` (null-only / no-clobber):** guarded `CASE` with `btrim` normalization — writes only when the trip field is currently empty; keeps existing value unchanged if it differs from the CSV ID; whitespace-only differences are treated as equal (not a conflict).
+- **`clients.kts_patient_id` (client master, same transaction):** when `trips.client_id` is set and `clients.kts_patient_id` is empty, the same CSV Schein-ID is also written to the client master. No-clobber is enforced by the `WHERE` clause (only targets empty client rows). Both writes roll back together on any error.
+- **App-layer gate:** `use-kts-csv-import.ts` sends `patientId` only for **matched** (exact) rows; low-confidence rows send `null` regardless of whether the admin checked them.
 
 **Indexes:** `idx_trips_kts_external_invoice_id`, `idx_trips_company_kts_patient_id` (partial, KTS + patient id). No Berlin-date expression index in PR4 — PR4.1 matches dates in TypeScript; add server-side index if candidate RPC is added later.
 

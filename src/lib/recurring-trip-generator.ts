@@ -20,7 +20,10 @@ import {
   getZonedDayBoundsIso,
   instantToYmdInBusinessTz
 } from '@/features/trips/lib/trip-business-date';
-import { buildScheduledAt } from '@/features/trips/lib/trip-time';
+import {
+  clockToHhMmSs,
+  scheduledIsoFromBerlinCalendarAndClock
+} from '@/features/trips/lib/recurring-trip-schedule';
 import {
   geocodeAddressLineToStructured,
   type GeocodedAddressLineResult
@@ -54,25 +57,6 @@ export type GenerateRecurringTripsResult = {
   skipped: number;
   errors: number;
 };
-
-function clockToHhMmSs(clock: string): string {
-  const s = clock.trim();
-  if (s.length >= 8 && s[2] === ':') {
-    return s.slice(0, 8);
-  }
-  if (s.length === 5) {
-    return `${s}:00`;
-  }
-  return s;
-}
-
-function scheduledIsoFromBerlinCalendarAndClock(
-  dateStr: string,
-  timeHhMmSs: string
-): string {
-  const t = clockToHhMmSs(timeHhMmSs);
-  return buildScheduledAt(dateStr, t);
-}
 
 export async function generateRecurringTrips(options?: {
   ruleId?: string;

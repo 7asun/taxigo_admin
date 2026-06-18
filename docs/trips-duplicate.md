@@ -45,6 +45,8 @@ Der `POST`-Body wird von `parseDuplicateTripsPayload` validiert (siehe [`duplica
 | `unifiedReturnScheduledAtIso` | `string` (ISO), optional | Wenn gesetzt: **Rückfahrt**-Instant; der Server setzt die Rückfahrt dann **direkt** und ruft `computeReturnScheduleForDuplicate` für dieses Bein nicht auf. |
 | `explicitPerLegUnifiedTimes` | `boolean`, nur **`true`** | Nur **Detail-Blatt** + **genau ein** Hin-/Rück-Paar in der Anfrage + `unified_time`. Dann sind `unifiedScheduledAtIso` und `unifiedReturnScheduledAtIso` **jeweils optional** (fehlen/leer = Kopie **ohne** feste `scheduled_at` für diese Seite, `requested_date` = gewähltes Datum). Andere Kombinationen (Bulk, mehrere Paare) lehnt `executeDuplicateTrips` ab. |
 
+**Wichtig:** Bei `explicitPerLegUnifiedTimes: true` bedeutet ein **fehlendes** `unifiedReturnScheduledAtIso` explizit „Rückfahrt bleibt zeitoffen“ (`scheduled_at = null`) — auch wenn die Vorlage bei der Rückfahrt eine Uhrzeit hatte. Das ist absichtlich anders als im Bulk-Flow ohne `explicitPerLegUnifiedTimes`, wo eine fehlende Rückfahrt-ISO im `unified_time`-Modus zur Delta-Berechnung führen kann.
+
 **Ohne** `explicitPerLegUnifiedTimes` (Liste, Einzelfahrt, ältere Clients): `unified_time` verlangt weiterhin `unifiedScheduledAtIso`; optionales `unifiedReturnScheduledAtIso` wie oben.
 
 ---
@@ -102,17 +104,48 @@ Details zu `link_type`: [trip-linking-and-cancellation.md](./trip-linking-and-ca
 
 ---
 
+## Modul-Architektur (drei Schichten)
+
+Die server-seitige Logik ist bewusst in drei Schichten aufgeteilt, damit jede Schicht unabhängig getestet und geändert werden kann:
+
+| Schicht | Datei | Verantwortung |
+|---------|-------|---------------|
+| **Primitives** | [`duplicate-trip-schedule.ts`](../src/features/trips/lib/duplicate-trip-schedule.ts) | Uhrzeitrechnung (wall-clock, delta, Timezone), `parseDuplicateTripsPayload` — **kein Supabase** |
+| **Decisions** | [`derive-duplicate-schedules.ts`](../src/features/trips/lib/derive-duplicate-schedules.ts) | `scheduleMode` × `DuplicateUnit`-Semantik → `deriveDuplicateSchedules` — **kein Supabase** |
+| **I/O** | [`duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts) | Expansion, Paar-Partitionierung, Insert-Reihenfolge, Pricing, Metrics, Link-Backfill |
+
+**Warum diese Aufteilung?** `executeDuplicateTrips` ist eine Supabase-I/O-Funktion. Wenn die Zeitentscheidungen inline in der I/O-Schicht lagen, driftete jede Änderung am Payload-Kontrakt (dokumentiert in diesem Dokument, validiert durch `parseDuplicateTripsPayload`) unbemerkt. Die Decisions-Schicht ist rein (keine Nebeneffekte) und vollständig durch `derive-duplicate-schedules.test.ts` abgedeckt — ohne Live-DB-Verbindung.
+
+Die **`explicitPerLegUnifiedTimes`-Open-Return-Regel** (fehlendes `unifiedReturnScheduledAtIso` = Rückfahrt bleibt zeitoffen) ist server-seitig in `deriveReturnSchedule` in `derive-duplicate-schedules.ts` verankert; die I/O-Schicht delegiert dorthin, statt die Entscheidung selbst zu treffen.
+
+---
+
 ## Technische Dateien
 
 | Pfad | Rolle |
 |------|--------|
-| [`src/features/trips/lib/duplicate-trip-schedule.ts`](../src/features/trips/lib/duplicate-trip-schedule.ts) | Zeitlogik + `parseDuplicateTripsPayload` (`includeLinkedLeg`, `explicitPerLegUnifiedTimes`, ISO-Felder; ohne Supabase) |
-| [`src/features/trips/lib/duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts) | Expansion (`fetchTripsExpandedForDuplicate`), Paar-Partitionierung, Insert-Reihenfolge, `createdIds` |
+| [`src/features/trips/lib/duplicate-trip-schedule.ts`](../src/features/trips/lib/duplicate-trip-schedule.ts) | Primitives: Uhrzeitrechnung, `parseDuplicateTripsPayload` (ohne Supabase) |
+| [`src/features/trips/lib/derive-duplicate-schedules.ts`](../src/features/trips/lib/derive-duplicate-schedules.ts) | Schedule-Semantik: `deriveDuplicateSchedules` — `scheduleMode` × `DuplicateUnit` (ohne Supabase) |
+| [`src/features/trips/lib/duplicate-trips.ts`](../src/features/trips/lib/duplicate-trips.ts) | I/O: Expansion (`fetchTripsExpandedForDuplicate`), Paar-Partitionierung, Insert-Reihenfolge, `createdIds` |
 | [`src/app/api/trips/duplicate/route.ts`](../src/app/api/trips/duplicate/route.ts) | Auth, `company_id`-Prüfung, Service-Role-Inserts |
 | [`src/features/trips/api/trips.service.ts`](../src/features/trips/api/trips.service.ts) | `duplicateTrips` (Client `fetch`) |
 | [`src/features/trips/components/trips-tables/duplicate-trips-dialog.tsx`](../src/features/trips/components/trips-tables/duplicate-trips-dialog.tsx) | Dialog (`variant`: `bulk` \| `detail`, optional `linkedPartnerPreview`, `onSuccess` mit `ids`) |
 | [`src/features/trips/components/trips-tables/trips-pagination-bulk-actions.tsx`](../src/features/trips/components/trips-tables/trips-pagination-bulk-actions.tsx) | Bulk-Leiste **„Duplizieren“** |
 | [`src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx`](../src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx) | **Aktionen**-Menü, Einbindung Dialog, Navigation nach Erfolg |
+
+---
+
+## Zeituhr leeren: Fahrt auf "zeitoffen" zurücksetzen
+
+Ab Step 3 kann ein Admin-Nutzer eine Fahrt, die eine feste `scheduled_at`-Zeit hat, durch Leeren des Uhrzeitfeldes im Detail-Blatt-Header wieder in den zeitoffenen Zustand versetzen:
+
+1. Detail-Blatt der Fahrt öffnen.
+2. Uhrzeitfeld im Header leeren (löschen).
+3. **Fahrt aktualisieren** — `scheduled_at` wird auf `null` gesetzt; `requested_date` bleibt auf dem korrekten Kalendertag (Datum-Picker-Wert > `trip.requested_date` > Geschäftstag des alten `scheduled_at`).
+
+**Warum relevant für Duplizierung?** Step 1 hat den Fehler behoben, dass duplizierte Rückfahrten fälschlicherweise eine Uhrzeit geerbt haben. Vor Step 1 erstellte fehlerhafte Zeilen können nun durch diesen UI-Pfad korrigiert werden, ohne direkten Datenbankzugriff.
+
+Technisch: `build-trip-details-patch.ts` enthält einen neuen Branch, der `scheduled_at: null` setzt, wenn `timeDraft` leer ist und `trip.scheduled_at` bisher nicht null war. Die `detailsDirty`-Bedingung in `trip-detail-sheet.tsx` erkennt diesen Zustand und aktiviert den Speichern-Button.
 
 ---
 

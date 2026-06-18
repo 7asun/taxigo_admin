@@ -32,8 +32,10 @@
 import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { tripKeys } from '@/query/keys';
 import {
   Panel,
   PanelHeader,
@@ -82,6 +84,7 @@ export function RecurringRulePanel({
   onSuccess
 }: RecurringRulePanelProps) {
   const isNew = ruleId === 'new';
+  const queryClient = useQueryClient();
 
   const [existingRule, setExistingRule] = React.useState<RecurringRule | null>(
     null
@@ -233,16 +236,24 @@ export function RecurringRulePanel({
           }
         }
 
-        const { deleted } = await runUpdateWithCleanup(
+        const { deleted, resynced } = await runUpdateWithCleanup(
           existingRule.id,
           payload,
-          null
+          null,
+          existingRule
         );
         toast.success(
-          deleted > 0
-            ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
-            : 'Regel erfolgreich aktualisiert'
+          resynced > 0
+            ? `Regel aktualisiert. ${resynced} Fahrten wurden auf die neue Zeit aktualisiert.`
+            : deleted > 0
+              ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
+              : 'Regel erfolgreich aktualisiert'
         );
+        // WHY scoped to resynced > 0: billing/label-only saves don't change scheduled_at,
+        // so busting the trips cache is unnecessary and would trigger avoidable network calls.
+        if (resynced > 0) {
+          void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+        }
         onSuccess();
       } else {
         const { generated, generationError } =

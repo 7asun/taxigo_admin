@@ -36,7 +36,7 @@ const WARNING_LABELS: Record<
   multi_invoice: {
     label: 'Mehrere Rechnungen',
     explanation:
-      'Dieser Bankumsatz enthält mehrere Rechnungsnummern. Bitte prüfen und manuell als bezahlt markieren.'
+      'Dieser Bankumsatz enthält mehrere Rechnungsnummern, die nicht automatisch zugeordnet werden konnten. Bitte prüfen und manuell als bezahlt markieren.'
   },
   amount_mismatch: {
     label: 'Betrag stimmt nicht überein',
@@ -201,19 +201,13 @@ export function WarningRowsDialog({
                       </TableCell>
                       <TableCell className='align-top break-words whitespace-normal'>
                         <p>{row.bankRow.verwendungszweck || '—'}</p>
-                        {row.multiInvoiceResolved &&
-                          multiInvoices &&
-                          multiInvoices.length > 0 && (
-                            <div className='mt-2 space-y-1'>
-                              <p className='font-mono text-sm tabular-nums'>
-                                {formatMultiInvoiceSummary(multiInvoices)}
-                              </p>
-                              <p className='text-xs text-emerald-600 dark:text-emerald-400'>
-                                Beträge stimmen überein — beide Rechnungen
-                                können als bezahlt markiert werden.
-                              </p>
-                            </div>
-                          )}
+                        {multiInvoices && multiInvoices.length > 0 && (
+                          <div className='mt-2 space-y-1'>
+                            <p className='font-mono text-sm tabular-nums'>
+                              {formatMultiInvoiceSummary(multiInvoices)}
+                            </p>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className='text-right align-top whitespace-nowrap tabular-nums'>
                         {formatEur(row.bankRow.betrag)}

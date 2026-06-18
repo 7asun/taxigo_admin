@@ -584,19 +584,22 @@ export async function getInvoicesByNumbers(
   const supabase = createClient();
   const { data, error } = await supabase
     .from('invoices')
-    .select('id, invoice_number, total, status, payer:payers(name)')
+    .select(
+      'id, invoice_number, total, status, payer_id, payer:payers(id, name)'
+    )
     .in('invoice_number', numbers);
 
   if (error) throw toQueryError(error);
 
   return (data ?? []).map((row) => {
-    const payer = row.payer as { name?: string } | null;
+    const payer = row.payer as { id?: string; name?: string } | null;
     return {
       id: row.id as string,
       invoiceNumber: row.invoice_number as string,
       total: Number(row.total),
       status: row.status as string,
-      payerName: payer?.name?.trim() ?? '—'
+      payerName: payer?.name?.trim() ?? '—',
+      payerId: (payer?.id ?? row.payer_id ?? '') as string
     };
   });
 }
