@@ -260,14 +260,31 @@ All buckets (matched, lowConfidence, unmatched, bereitsImportiert) flow through 
 
 ---
 
+## v3 hardening (PR4.1.1 — post-audit)
+
+**Problem with v2:** `COALESCE(NULLIF(btrim(r.patient_id), ''), t.kts_patient_id)` prevents null overwrite but can clobber an existing trip ID with a different CSV value (e.g. re-import row with different Schein-ID). Client master (`clients.kts_patient_id`) was never touched.
+
+**v3 fixes (migration `20260610174000_kts_invoice_import_rpc_v3.sql`):**
+
+1. **trips.kts_patient_id — null-only / no-clobber:** `COALESCE` replaced with a guarded `CASE` that writes only when the trip field is currently empty, keeps existing value if it conflicts, and uses `btrim` normalization on both sides so whitespace-only differences are treated as equal.
+2. **clients.kts_patient_id — client master backfill (same transaction):** new `UPDATE clients` after the trip update — writes when `trips.client_id` is set and `clients.kts_patient_id` is empty. No-clobber enforced by `WHERE` clause (empty clients only).
+3. **App-layer gate:** `use-kts-csv-import.ts` `onConfirm` now sends `patientId` only for matched (exact) bucket rows; low-confidence rows send `null`.
+
+**RPC signature and grants:** unchanged from v2 (same function identity — `CREATE OR REPLACE`).
+
+**Deploy:** apply `20260610174000_kts_invoice_import_rpc_v3.sql` after v2 (or alongside if v2 was not yet deployed).
+
+---
+
 ## File index
 
 | Layer | File | PR4.1.1 patient_id |
 |-------|------|-------------------|
 | RPC v1 | `supabase/migrations/20260610172000_kts_invoice_import_rpc.sql` | No writeback |
-| RPC v2 | `supabase/migrations/20260610173000_kts_invoice_import_rpc_v2.sql` | COALESCE writeback |
-| Service type + mapping | `src/features/kts/kts.service.ts` | Implemented |
+| RPC v2 | `supabase/migrations/20260610173000_kts_invoice_import_rpc_v2.sql` | COALESCE writeback (can clobber) |
+| RPC v3 | `supabase/migrations/20260610174000_kts_invoice_import_rpc_v3.sql` | Null-only / no-clobber; client master backfill |
+| Service type + mapping | `src/features/kts/kts.service.ts` | Implemented (no change for v3) |
 | Mutation hook | `src/features/kts/hooks/use-kts-invoice-import.ts` | Pass-through only |
-| Commit mapping | `src/features/kts/hooks/use-kts-csv-import.ts` | Implemented |
+| Commit mapping | `src/features/kts/hooks/use-kts-csv-import.ts` | v3: matched-only patientId gate |
 | Dialog UI | `src/features/kts/components/kts-csv-import-dialog.tsx` | Delegates to hook |
-| Preview types + matching | `src/features/kts/lib/kts-csv-import-utils.ts` | Implemented |
+| Preview types + matching | `src/features/kts/lib/kts-csv-import-utils.ts` | Implemented (no change for v3) |

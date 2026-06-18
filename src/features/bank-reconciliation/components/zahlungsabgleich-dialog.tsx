@@ -37,7 +37,8 @@ export function ZahlungsabgleichDialog({
     step,
     readyRows,
     warningRows,
-    selectedReadyIds,
+    selectedReadyKeys,
+    selectedReadyCount,
     selectedWarningIds,
     toggleRow,
     toggleWarningRow,
@@ -60,10 +61,6 @@ export function ZahlungsabgleichDialog({
     }
     onOpenChange(next);
   };
-
-  const selectedReadyCount = readyRows.filter((r) =>
-    selectedReadyIds.has(r.rowKey)
-  ).length;
 
   const successCount = results.filter((r) => r.success).length;
   const failureCount = results.filter((r) => !r.success).length;
@@ -105,7 +102,7 @@ export function ZahlungsabgleichDialog({
             {step === 'reviewing' && (
               <ReviewTable
                 readyRows={readyRows}
-                selectedReadyIds={selectedReadyIds}
+                selectedReadyKeys={selectedReadyKeys}
                 warningRows={warningRows}
                 ignoredCount={ignoredCount}
                 onToggleRow={toggleRow}

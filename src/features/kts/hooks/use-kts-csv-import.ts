@@ -193,6 +193,12 @@ export function useKtsCsvImport() {
         throw new Error('Unternehmen konnte nicht ermittelt werden.');
       }
 
+      // why: only matched (exact) rows may carry a Schein-ID to the RPC — low-confidence
+      // rows are ambiguous and must not backfill kts_patient_id on either trips or clients.
+      // The RPC v3 enforces null-only / no-clobber server-side as defense-in-depth, but the
+      // app layer must not send patientId for non-exact buckets by default.
+      const matchedRowKeys = new Set(matchResult.matched.map((r) => r.rowKey));
+
       await importMutation.mutateAsync({
         companyId,
         rows: checkedRows.map((row) => ({
@@ -200,8 +206,7 @@ export function useKtsCsvImport() {
           belegnummer: row.belegnummer,
           invoiceAmount: row.gesamtpreis,
           eigenanteil: row.eigenanteil,
-          // why: PR4.1.1 writeback — admin-approved Schein-ID enables Step 1 match on next import.
-          patientId: row.patientId
+          patientId: matchedRowKeys.has(row.rowKey) ? row.patientId : null
         })),
         sourceFilename
       });

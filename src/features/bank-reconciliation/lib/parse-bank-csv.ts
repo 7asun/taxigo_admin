@@ -8,6 +8,7 @@ import {
   InvalidBankCsvFormatError,
   type BankRow
 } from '../types/reconciliation.types';
+import { extractAndNormaliseInvoiceNumbers } from './normalise-invoice-number';
 
 /** Noon UTC avoids Berlin TZ shifting date-only bank values on display. */
 export const NOON_UTC_SUFFIX = 'T12:00:00.000Z';
@@ -18,14 +19,14 @@ const COL_VERWENDUNGSZWECK = 4;
 const COL_BEGUENSTIGTER = 11;
 const COL_BETRAG = 14;
 
-// why: word boundaries prevent partial matches; legacy RE-YYYY-NNNN not handled (see module doc)
+/**
+ * @deprecated Use extractAndNormaliseInvoiceNumbers() which handles all
+ * payer-format variants. This export is kept for backward compatibility only.
+ */
 export const INVOICE_NUMBER_REGEX = /\bRE-\d{4}-\d{2}-\d{4}\b/g;
 
 export function extractInvoiceNumbers(verwendungszweck: string): string[] {
-  const matches = [
-    ...verwendungszweck.matchAll(new RegExp(INVOICE_NUMBER_REGEX.source, 'g'))
-  ].map((m) => m[0]);
-  return [...new Set(matches)];
+  return extractAndNormaliseInvoiceNumbers(verwendungszweck);
 }
 
 function parseGermanAmount(raw: string): number {

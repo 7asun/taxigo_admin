@@ -988,6 +988,8 @@ export function TripDetailSheet({
             next.toISOString() !== new Date(trip.scheduled_at!).toISOString()
           );
         })()) ||
+      // User cleared the time field on a trip that had a scheduled_at — moves to date-only state.
+      (!!trip.scheduled_at && !timeDraft.trim()) ||
       (detailPayerRehaGate && rehaScheinDraft !== !!trip.reha_schein) ||
       (!detailPayerRehaGate && !!trip.reha_schein));
 

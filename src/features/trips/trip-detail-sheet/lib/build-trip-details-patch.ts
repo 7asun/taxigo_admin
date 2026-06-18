@@ -16,6 +16,7 @@ import {
   buildScheduledAt,
   parseScheduledAt
 } from '@/features/trips/lib/trip-time';
+import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
 
 export function clientDisplayNameFromParts(
@@ -256,6 +257,25 @@ export async function buildTripDetailsPatch(
     if (nextIso !== new Date(trip.scheduled_at).toISOString()) {
       patch.scheduled_at = nextIso;
     }
+  }
+
+  // WHY: Clearing the time field is a valid user intent — it moves the trip from a timed
+  // state to date-only / "offen" state so dispatchers can record a calendar booking without
+  // committing to a specific departure time. This is the only path that sets scheduled_at
+  // to null via the UI; previously there was no such path. requested_date is preserved (in
+  // priority order: date-picker value → existing requested_date → business-calendar day of
+  // the old scheduled_at) so the trip stays on the correct calendar day for scheduling and
+  // display without requiring a separate date correction.
+  if (
+    trip.scheduled_at &&
+    !input.timeDraft.trim() &&
+    !('scheduled_at' in patch)
+  ) {
+    patch.scheduled_at = null;
+    patch.requested_date =
+      input.dateYmdDraft ||
+      trip.requested_date ||
+      instantToYmdInBusinessTz(new Date(trip.scheduled_at).getTime());
   }
 
   const pickupLat =
