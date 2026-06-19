@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch';
 
 import { useTripFieldUpdate } from '@/features/trips/hooks/use-trip-field-update';
 
-import type { TripRow } from './kts-cells';
+import type { TripRow } from '@/features/trips/types/trip-row';
 
 export function RehaScheinSwitchCell({ trip }: { trip: TripRow }) {
   const { updateField } = useTripFieldUpdate();

@@ -5,12 +5,19 @@ This document describes how editable cells work on the dashboard trips **list** 
 ## Folder layout
 
 ```
+src/features/trips/types/
+  trip-row.ts              # Shared TripRow type (Trip + payer embed); import from here, not kts-cells.tsx
+
+src/features/trips/lib/
+  trip-assignment-flags.ts # Pure flag helpers: hasKtsRehaOverlap — no React, no URL semantics
+
 src/features/trips/components/trips-tables/
   columns.tsx              # Column definitions — imports cells only from ./inline-cells
   inline-cells/
-    index.ts               # Barrel — re-export domain groups
-    kts-cells.tsx         # KTS document / Fehler / Fehler-Text
-    reha-cells.tsx        # Reha-Schein (gated by payer)
+    index.ts                             # Barrel — re-export domain groups
+    kts-cells.tsx                        # KTS document / Fehler / Fehler-Text
+    reha-cells.tsx                       # Reha-Schein (gated by payer)
+    assignment-conflict-indicator.tsx    # Presentational overlap badge (KTS + Reha)
 ```
 
 **Rule:** `columns.tsx` must import cell components **only** from `./inline-cells`, not from deep paths. That lets you split or merge `*-cells.tsx` files without churn in the column map.
@@ -37,12 +44,25 @@ Examples of multi-field patches in `kts-cells.tsx`:
 
 | Column id | Component | Notes |
 |-----------|-----------|--------|
-| `kts_document_applies` | `KtsSwitchCell` | Always a switch. |
+| `kts_document_applies` | `KtsSwitchCell` + `AssignmentConflictIndicator` | Switch always present; amber triangle overlay when KTS and Reha-Schein are both active. |
 | `kts_fehler` | `KtsFehlerSwitchCell` | `—` when `!kts_document_applies`. |
 | `kts_fehler_beschreibung` | `KtsFehlerTextCell` | Debounced 400 ms; read-only display (tooltip + truncate) when KTS off or Fehler off. |
-| `reha_schein` | `RehaScheinSwitchCell` | `—` when payer has no `reha_schein_enabled` (embed). |
+| `reha_schein` | `RehaScheinSwitchCell` | `—` when payer has no `reha_schein_enabled` (embed). Hidden by default; overlap indicator lives in KTS column for default visibility. |
 
 **Price engine:** `kts_document_applies` is included in `shouldRecalculatePrice`; toggling KTS in the grid can trigger the same optional price recomputation as elsewhere.
+
+## KTS/Reha overlap indicator
+
+When `kts_document_applies = true` AND `reha_schein = true`, a small amber `AlertTriangle` icon appears in the top-right corner of the KTS cell as an absolutely positioned overlay. It carries `aria-label` and `sr-only` text: `"KTS und Reha-Schein gleichzeitig aktiv"`.
+
+**Rule:** `hasKtsRehaOverlap(trip)` in [`src/features/trips/lib/trip-assignment-flags.ts`](../src/features/trips/lib/trip-assignment-flags.ts) is the single source of truth for the overlap condition. Never inline the boolean check in a cell or column definition.
+
+**Design constraints:**
+- `AssignmentConflictIndicator` renders `null` when there is no overlap — zero DOM output for the ~99 % of non-overlap rows.
+- The indicator is `absolute` positioned inside a `relative` wrapper div added to the KTS column cell. It takes no space in the normal document flow; the KTS switch position and column width are identical on overlap and non-overlap rows.
+- Amber is intentional: this is an informational signal, not an error. Destructive (red) is reserved for actual data errors.
+- The indicator does NOT follow optimistic KTS/Reha toggles in real time; it updates after the next server refresh. Optimistic sync is deferred (see audit doc).
+- Do NOT reuse `AssignmentConflictIndicator` outside the trips table without considering whether the same `relative` wrapper pattern applies.
 
 ## Payer embed
 

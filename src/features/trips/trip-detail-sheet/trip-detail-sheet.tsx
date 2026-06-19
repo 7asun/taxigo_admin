@@ -127,7 +127,7 @@ import {
   getRescheduleDisabledReason
 } from '@/features/trips/trip-reschedule';
 import { tripsService } from '@/features/trips/api/trips.service';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import {
   tripStatusBadge,
   tripStatusLabels,
@@ -624,16 +624,8 @@ export function TripDetailSheet({
       setIsUpdatingDriver(true);
       try {
         const newDriverId = driverId === 'unassigned' ? null : driverId;
-        const payload: { driver_id: string | null; status?: string } = {
-          driver_id: newDriverId
-        };
-        const derivedStatus = getStatusWhenDriverChanges(
-          trip.status,
-          newDriverId,
-          { fremdfirmaId: trip.fremdfirma_id }
-        );
-        if (derivedStatus) payload.status = derivedStatus;
-        await tripsService.updateTrip(trip.id, payload);
+        const patch = buildAssignmentPatch(trip, { driver_id: newDriverId });
+        await tripsService.updateTrip(trip.id, patch);
         toast.success('Fahrer aktualisiert');
         // Invalidate detail query for the trip sheet
         void queryClient.invalidateQueries({

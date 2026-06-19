@@ -37,7 +37,8 @@ import {
   getRuleFormDefaults,
   ruleFormSchema,
   NO_BILLING_VARIANT_SENTINEL,
-  handleRuleFormInvalid
+  handleRuleFormInvalid,
+  validateRecurringRuleStationFields
 } from '@/features/clients/components/recurring-rule-form-body';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
@@ -187,6 +188,22 @@ export function CreateRecurringRuleSheet({
 
     try {
       setIsSubmitting(true);
+
+      // why: station fields are optional in Zod (payer-flag controls visibility),
+      // so requiredness is enforced here at submit time, matching the one-off trip pattern.
+      const stationErrors = validateRecurringRuleStationFields(values, payers);
+      if (stationErrors) {
+        if (stationErrors.pickup_station)
+          form.setError('pickup_station', {
+            message: stationErrors.pickup_station
+          });
+        if (stationErrors.dropoff_station)
+          form.setError('dropoff_station', {
+            message: stationErrors.dropoff_station
+          });
+        toast.error('Bitte alle Pflichtfelder ausfüllen.');
+        return;
+      }
 
       const ruleData = buildRecurringRulePayload(values, {
         clientId: selectedClient.id,

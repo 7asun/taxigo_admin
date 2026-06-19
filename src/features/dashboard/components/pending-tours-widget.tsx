@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { useQueryClient } from '@tanstack/react-query';
 import { tripKeys } from '@/query/keys';
 import { tripsService } from '@/features/trips/api/trips.service';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import { toast } from 'sonner';
 import {
   PlusCircle,
@@ -53,6 +53,7 @@ import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { URGENCY_STYLES } from '@/features/trips/constants/urgency-config';
 import { useUrgencyLevel } from '@/features/trips/hooks/use-urgency-level';
+import { isTripUnassignedForDispatch } from '@/features/trips/lib/trip-assignee';
 
 const FILTER_TABS: { value: UnplannedFilter; label: string }[] = [
   { value: 'today', label: 'Heute' },
@@ -133,7 +134,7 @@ export function PendingToursWidget() {
           {(() => {
             const noTime = trips.filter((t) => !t.scheduled_at).length;
             const noDriver = trips.filter(
-              (t) => t.scheduled_at && !t.driver_id
+              (t) => t.scheduled_at && isTripUnassignedForDispatch(t)
             ).length;
             const parts: string[] = [];
             if (noTime > 0) parts.push(`${noTime} ohne Zeit`);
@@ -248,13 +249,12 @@ function UnplannedTripRow({
       }
 
       const updatePayload: Parameters<typeof tripsService.updateTrip>[1] = {
-        scheduled_at: scheduledAtIso,
-        driver_id: driverId
+        scheduled_at: scheduledAtIso
       };
-      const derivedStatus = getStatusWhenDriverChanges(trip.status, driverId, {
-        fremdfirmaId: trip.fremdfirma_id
-      });
-      if (derivedStatus) updatePayload.status = derivedStatus;
+      Object.assign(
+        updatePayload,
+        buildAssignmentPatch(trip, { driver_id: driverId })
+      );
 
       await tripsService.updateTrip(trip.id, updatePayload);
 

@@ -9,7 +9,7 @@
  *                          badge reflects the correct state before Save.
  */
 
-import { getStatusWhenDriverChanges } from './trip-status';
+import { getStatusWhenAssignmentChanges } from './trip-assignee';
 import type { KanbanTrip, PendingChange } from './kanban-types';
 
 // ─── chunkItemsByGroup ────────────────────────────────────────────────────────
@@ -90,10 +90,13 @@ export function deriveStatusForPending(
   serverTrips: KanbanTrip[]
 ): string | undefined {
   if (newDriverId === undefined) return undefined;
-  const serverStatus =
-    serverTrips.find((t) => t.id === tripId)?.status ?? 'pending';
+  const serverTrip = serverTrips.find((t) => t.id === tripId);
+  const serverStatus = serverTrip?.status ?? 'pending';
   const currentStatus = pendingChanges[tripId]?.status ?? serverStatus;
   return (
-    getStatusWhenDriverChanges(currentStatus, newDriverId) ?? currentStatus
+    getStatusWhenAssignmentChanges(currentStatus, {
+      driver_id: newDriverId ?? serverTrip?.driver_id ?? null,
+      fremdfirma_id: serverTrip?.fremdfirma_id ?? null
+    }) ?? currentStatus
   );
 }

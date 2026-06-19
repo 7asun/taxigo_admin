@@ -30,6 +30,8 @@ import {
   normalizeKtsFilterValues,
   buildKtsTripFilterPlan
 } from '@/features/trips/lib/kts-filter';
+import { parseAssigneeParam } from '@/features/trips/lib/trip-assignee';
+import { ASSIGNEE_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 
 /** URL `invoice_status` values — pre-filter via `resolveInvoiceStatusTripFilter` (RPC). */
 const INVOICE_STATUS_FILTER_VALUES = new Set([
@@ -96,16 +98,14 @@ export default async function TripsListingPage({
     *,
     payer:payers(name, reha_schein_enabled),
     billing_variant:billing_variants(name, code, billing_types(name, color)),
-    driver:accounts!trips_driver_id_fkey(name),
-    fremdfirma:fremdfirmen(id, name, default_payment_mode)
+    ${ASSIGNEE_JOIN_FRAGMENT}
   `;
 
     const tripsKanbanSelect = `
     *,
     payer:payers(name, reha_schein_enabled),
     billing_variant:billing_variants(name, code, billing_types(name, color)),
-    driver:accounts!trips_driver_id_fkey(name),
-    fremdfirma:fremdfirmen(id, name, default_payment_mode),
+    ${ASSIGNEE_JOIN_FRAGMENT},
     invoice_line_items!invoice_line_items_trip_id_fkey(
       invoice_id,
       invoices(status, paid_at, sent_at)
@@ -126,12 +126,23 @@ export default async function TripsListingPage({
         query = query.eq('status', status);
       }
     }
-    if (driverId && driverId !== 'all') {
-      if (driverId === 'unassigned') {
-        query = query.is('driver_id', null);
-      } else {
-        query = query.eq('driver_id', driverId);
-      }
+    const assigneeFilter = parseAssigneeParam(driverId);
+    switch (assigneeFilter.kind) {
+      case 'unassigned':
+        // Genuinely unassigned — Fremdfirma rows also have driver_id null.
+        query = query.is('driver_id', null).is('fremdfirma_id', null);
+        break;
+      case 'fremdfirma_all':
+        query = query.not('fremdfirma_id', 'is', null);
+        break;
+      case 'fremdfirma':
+        query = query.eq('fremdfirma_id', assigneeFilter.id);
+        break;
+      case 'driver':
+        query = query.eq('driver_id', assigneeFilter.id);
+        break;
+      case 'all':
+        break;
     }
     if (payerIds?.length) {
       query = query.in('payer_id', payerIds);

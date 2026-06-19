@@ -138,6 +138,49 @@ Persistent countdown on **`/dashboard/overview`**, rendered **above** the timele
 
 **Deferred:** inline badge on timeless rows, Regelfahrten row highlight, Fahrten/Kanban badges (see [recurring-rule-expiry-alert-audit.md](../plans/recurring-rule-expiry-alert-audit.md)).
 
+## Route Station Fields (Daueraufträge)
+
+Recurring rules support optional **route/passenger station codes** (`pickup_station` / `dropoff_station`). These are the same station codes stored on `trips.pickup_station` / `trips.dropoff_station` — **not** `billing_calling_station` / `billing_betreuer` (which are billing metadata and unrelated).
+
+### Payer-level gate
+
+The station fields are hidden by default. They appear and become **required** only when the selected payer has **`payers.recurring_rules_station_enabled = true`**.
+
+Admins toggle this flag in the **Kostenträger** settings sheet → **Stationen (Daueraufträge)** switch. The toggle invalidates both the `[PAYERS_QUERY_KEY]` and `referenceKeys.payers()` caches so the recurring-rule form picks up the change immediately on next payer selection.
+
+### Form behavior
+
+- When `recurring_rules_station_enabled = false`: station fields are hidden; the stored value in `recurring_rules.pickup_station` / `recurring_rules.dropoff_station` is always persisted as `null`.
+- When `recurring_rules_station_enabled = true`: both **Abfahrtsstation** and **Zielstation** inputs are shown near the corresponding address fields. Both are required before save.
+- Validation is enforced at submit time (in `handleSubmit` in each shell), not by the static Zod schema — because the requirement depends on a runtime payer flag.
+- Empty strings and whitespace-only values are coerced to `null` before persistence (no empty-string storage).
+- All three recurring-rule entry points behave identically: [`RecurringRuleSheet`](../../src/features/clients/components/recurring-rule-sheet.tsx), [`RecurringRulePanel`](../../src/features/clients/components/recurring-rule-panel.tsx), [`CreateRecurringRuleSheet`](../../src/features/recurring-rules/components/create-recurring-rule-sheet.tsx).
+
+### Trip generation (copy / swap)
+
+When [`generateRecurringTrips`](../../src/lib/recurring-trip-generator.ts) materialises trips from a rule:
+- **Outbound trips**: `trips.pickup_station = rule.pickup_station`, `trips.dropoff_station = rule.dropoff_station`.
+- **Return trips**: stations are **swapped** — the return passenger boards at the outbound dropoff station and alights at the outbound pickup station.
+- **Null rule stations**: generated trips receive `null` station values (no effect on payers with the gate off).
+
+The swap is implemented by [`deriveStationsForTrip`](../../src/lib/recurring-trip-generator.ts) (exported, unit-tested).
+
+### Already-generated trips
+
+Already-generated trips are **not backfilled** when a rule's station values change. Only trips generated after the rule save will carry the new station values. Existing trips retain their original (or null) station values.
+
+### Implementation files
+
+| File | Role |
+|------|------|
+| [`supabase/migrations/20260618120000_recurring_rules_stations.sql`](../../supabase/migrations/20260618120000_recurring_rules_stations.sql) | Adds `pickup_station`, `dropoff_station` to `recurring_rules`; adds `recurring_rules_station_enabled` to `payers`. |
+| [`src/features/payers/api/payers.service.ts`](../../src/features/payers/api/payers.service.ts) | `updatePayerRecurringRulesStationEnabled` — single-column updater for the payer gate. |
+| [`src/features/payers/components/payer-details-sheet.tsx`](../../src/features/payers/components/payer-details-sheet.tsx) | Immediate-save **Stationen (Daueraufträge)** switch. |
+| [`src/features/clients/components/recurring-rule-form-body.tsx`](../../src/features/clients/components/recurring-rule-form-body.tsx) | Station fields in the form body; `validateRecurringRuleStationFields` shared helper. |
+| [`src/features/clients/lib/build-recurring-rule-payload.ts`](../../src/features/clients/lib/build-recurring-rule-payload.ts) | Trims and persists station values; empty/whitespace → null. |
+| [`src/lib/recurring-trip-generator.ts`](../../src/lib/recurring-trip-generator.ts) | `deriveStationsForTrip` — pure helper for outbound copy / return swap. |
+| [`src/features/trips/lib/__tests__/recurring-rule-stations.test.ts`](../../src/features/trips/lib/__tests__/recurring-rule-stations.test.ts) | Focused tests: `deriveStationsForTrip`, `buildRecurringRulePayload` normalization, `validateRecurringRuleStationFields`. |
+
 ## Known gaps
 
 RLS on `recurring_rules` is not defined in tracked migrations; behaviour on production depends on the live DB. See [recurring-rules-overview-audit.md](../plans/recurring-rules-overview-audit.md).

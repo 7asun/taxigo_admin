@@ -35,7 +35,8 @@ import {
   KtsSwitchCell,
   KtsFehlerSwitchCell,
   KtsFehlerTextCell,
-  RehaScheinSwitchCell
+  RehaScheinSwitchCell,
+  AssignmentConflictIndicator
 } from './inline-cells';
 
 /** de-DE currency for list prices (Fahrten table). */
@@ -517,9 +518,18 @@ export const columns: ColumnDef<any>[] = [
       <DataTableColumnHeader column={column} title='KTS' />
     ),
     cell: ({ row }) => (
-      <KtsCellGroupProvider key={row.original.id} trip={row.original}>
-        <KtsSwitchCell trip={row.original} />
-      </KtsCellGroupProvider>
+      // `relative` creates the positioning context for AssignmentConflictIndicator's
+      // absolute corner icon. It adds no intrinsic width: KtsSwitchCell's own
+      // `flex justify-center px-1` div (Switch w-8 = 32px + px-1 = 8px → 40px)
+      // still determines the column's min-content width, same as before.
+      // Reha is hidden by default, so the overlap indicator must live in this
+      // always-visible KTS column to be reachable without toggling column visibility.
+      <div className='relative'>
+        <KtsCellGroupProvider key={row.original.id} trip={row.original}>
+          <KtsSwitchCell trip={row.original} />
+          <AssignmentConflictIndicator trip={row.original} />
+        </KtsCellGroupProvider>
+      </div>
     ),
     meta: { label: 'KTS', variant: 'text' },
     enableColumnFilter: false
@@ -558,7 +568,19 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Reha' />
     ),
-    cell: ({ row }) => <RehaScheinSwitchCell trip={row.original} />,
+    cell: ({ row }) => (
+      // The indicator is intentionally duplicated in both the KTS and Reha cells so
+      // the overlap signal is visible regardless of which column the admin has toggled
+      // on. Reha is hidden by default; KTS is always visible — having it in both cells
+      // guarantees the admin cannot miss the overlap no matter their column layout.
+      // `relative` mirrors the KTS column pattern: RehaScheinSwitchCell's own
+      // `flex justify-center px-1` div (Switch w-8 = 32px + px-1 = 8px → 40px)
+      // still drives the column width; the indicator is absolute and out of flow.
+      <div className='relative'>
+        <RehaScheinSwitchCell trip={row.original} />
+        <AssignmentConflictIndicator trip={row.original} />
+      </div>
+    ),
     meta: { label: 'Reha-Schein', variant: 'text' },
     enableColumnFilter: false
   },

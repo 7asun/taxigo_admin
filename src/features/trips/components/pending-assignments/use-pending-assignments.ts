@@ -11,6 +11,8 @@ import {
   parseScheduledAtOrFallback,
   TripTimeError
 } from '@/features/trips/lib/trip-time';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import { FREMDFIRMA_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +26,11 @@ export type DispatchTrip = Pick<
   | 'dropoff_address'
   | 'scheduled_at'
   | 'greeting_style'
+  | 'status'
+  | 'driver_id'
+  | 'fremdfirma_id'
+  | 'fremdfirma_payment_mode'
+  | 'fremdfirma_cost'
 > & {
   requested_date?: string | null;
   linked_trip?: { scheduled_at?: string | null } | null;
@@ -91,8 +98,7 @@ export function useDispatchInbox(
     }
 
     // ── Run all queries + drivers in parallel ──────────────────────────
-    const TRIP_FIELDS =
-      'id, client_name, pickup_address, dropoff_address, scheduled_at, requested_date, status, greeting_style, linked_trip:trips!linked_trip_id(scheduled_at)';
+    const TRIP_FIELDS = `id, client_name, pickup_address, dropoff_address, scheduled_at, requested_date, status, driver_id, fremdfirma_id, fremdfirma_payment_mode, fremdfirma_cost, greeting_style, linked_trip:trips!linked_trip_id(scheduled_at), ${FREMDFIRMA_JOIN_FRAGMENT}`;
 
     const driversQueryBase = supabase
       .from('accounts')
@@ -104,6 +110,7 @@ export function useDispatchInbox(
       .from('trips')
       .select(TRIP_FIELDS)
       .is('driver_id', null)
+      .is('fremdfirma_id', null)
       .not('scheduled_at', 'is', null)
       .neq('status', 'cancelled')
       .order('scheduled_at', { ascending: true })
@@ -113,6 +120,7 @@ export function useDispatchInbox(
       .from('trips')
       .select(TRIP_FIELDS)
       .is('driver_id', null)
+      .is('fremdfirma_id', null)
       .is('scheduled_at', null)
       .neq('status', 'cancelled')
       .order('created_at', { ascending: false })
@@ -133,6 +141,7 @@ export function useDispatchInbox(
           .select(TRIP_FIELDS)
           .eq('needs_driver_assignment', true)
           .is('driver_id', null)
+          .is('fremdfirma_id', null)
           .neq('status', 'cancelled')
           .order('scheduled_at', { ascending: true, nullsFirst: false })
           .limit(50)
@@ -180,7 +189,12 @@ export function useDispatchInbox(
         scheduled_at: t.scheduled_at ?? null,
         requested_date: t.requested_date ?? null,
         linked_trip: t.linked_trip ?? null,
-        tripDate: computedTripDate
+        tripDate: computedTripDate,
+        status: t.status ?? 'pending',
+        driver_id: t.driver_id ?? null,
+        fremdfirma_id: t.fremdfirma_id ?? null,
+        fremdfirma_payment_mode: t.fremdfirma_payment_mode ?? null,
+        fremdfirma_cost: t.fremdfirma_cost ?? null
       };
     };
 
@@ -235,9 +249,11 @@ export function useDispatchInbox(
 
       const updates: Partial<Trip> = {};
 
-      if (driverId) {
-        updates.driver_id = driverId;
-        updates.needs_driver_assignment = false;
+      if (driverId && trip) {
+        Object.assign(
+          updates,
+          buildAssignmentPatch(trip, { driver_id: driverId })
+        );
       }
 
       // Berlin civil day + `buildScheduledAt`: same UTC contract as Kanban / detail sheet (not UTC-slice YMD).

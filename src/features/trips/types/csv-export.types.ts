@@ -1,9 +1,11 @@
 /**
  * CSV Export Types for Fahrten Page
  *
- * Type definitions for the trip CSV export feature including
- * export configuration, available columns, and step state management.
+ * Typed filter contract shared by the export wizard, preview route, and download route.
  */
+
+import type { KtsFilterValue } from '@/features/trips/lib/kts-filter';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 
 /** Step identifiers for the export dialog wizard */
 export type ExportStep =
@@ -13,29 +15,48 @@ export type ExportStep =
   | 'preview'
   | 'downloading';
 
-/** Configuration for a trip CSV export */
-export interface CsvExportConfig {
-  /** Selected payer ID, or null for all payers */
-  payerId: string | null;
-  /** Selected billing type ID, or null for all types (only applies when payer is selected) */
-  billingTypeId: string | null;
-  /** Start date in YYYY-MM-DD format */
+export type ExportMode = 'manual' | 'table-view';
+
+/** Status tokens offered in the export filter step (matches trips list filter bar). */
+export const EXPORT_STATUS_FILTER_VALUES = [
+  'pending',
+  'assigned',
+  'in_progress',
+  'completed',
+  'cancelled'
+] as const;
+
+export type ExportStatusFilterValue =
+  (typeof EXPORT_STATUS_FILTER_VALUES)[number];
+
+/** Assignee filter for CSV export — mirrors list semantics without URL encoding. */
+export type ExportAssigneeFilter =
+  | { type: 'driver'; driverId: string }
+  | { type: 'fremdfirma'; fremdfirmaId: string }
+  | { type: 'unassigned' };
+
+/**
+ * Shared export filter contract used by wizard state, preview query params, and POST body.
+ * `payerIds` stays an array so URL prefill can preserve multi-payer list filters even though
+ * the wizard payer control is single-select today.
+ */
+export interface ExportFilters {
+  payerIds: string[];
+  billingVariantIds: string[];
+  assigneeFilter: ExportAssigneeFilter | null;
+  statusFilter: ExportStatusFilterValue[];
+  ktsFilter: KtsFilterValue[];
   dateFrom: string;
-  /** End date in YYYY-MM-DD format */
   dateTo: string;
-  /** Selected column keys to include in export */
-  columns: string[];
-  /** Whether to include header row */
-  includeHeaders: boolean;
 }
+
+/** Re-export KTS tokens so export feature code has one import path. */
+export type { KtsFilterValue };
 
 /** Available column definition for the column selector */
 export interface ExportColumn {
-  /** Unique key for the column (matches database field or joined field) */
   key: string;
-  /** Display label in German */
   label: string;
-  /** Category for grouping in the UI */
   category:
     | 'trip-info'
     | 'passenger'
@@ -45,26 +66,44 @@ export interface ExportColumn {
     | 'driver'
     | 'metadata'
     | 'technical';
-  /** Database field path (for joined fields like payer.name) */
-  accessor?: string;
 }
 
-/** Response from the export API */
+/** POST /api/trips/export request body */
+export interface CsvExportRequest {
+  filters: ExportFilters;
+  columns: string[];
+  includeHeaders?: boolean;
+}
+
+/** Response from the export API (legacy JSON shape — route returns raw CSV today). */
 export interface CsvExportResponse {
-  /** CSV content as string */
   csv: string;
-  /** Suggested filename */
   filename: string;
-  /** Number of rows exported */
   rowCount: number;
 }
 
-/** Request body for the export API */
-export interface CsvExportRequest {
-  payerId?: string | null;
-  billingTypeId?: string | null;
+/** @deprecated Use ExportFilters via CsvExportRequest.filters */
+export interface CsvExportConfig {
+  payerId: string | null;
+  billingTypeId: string | null;
   dateFrom: string;
   dateTo: string;
   columns: string[];
-  includeHeaders?: boolean;
+  includeHeaders: boolean;
+}
+
+/** Default export filters when the dialog opens without URL prefill. */
+export function createDefaultExportFilters(): ExportFilters {
+  // WHY: business TZ matches the table's date display and avoids TZ skew for admins in non-local timezones.
+  const today = todayYmdInBusinessTz();
+
+  return {
+    dateFrom: today,
+    dateTo: today,
+    payerIds: [],
+    billingVariantIds: [],
+    assigneeFilter: null,
+    statusFilter: [],
+    ktsFilter: []
+  };
 }

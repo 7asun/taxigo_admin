@@ -3,8 +3,14 @@
 import * as React from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
-import { FileDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { ChevronDown, FileDown, Table2 } from 'lucide-react';
 
 // Dynamic import for the dialog to reduce initial bundle size
 const CsvExportDialog = dynamic(
@@ -18,7 +24,7 @@ const CsvExportDialog = dynamic(
     ssr: false,
     loading: () => (
       <div
-        className='bg-muted/40 border-border h-9 w-[140px] shrink-0 animate-pulse rounded-md border'
+        className='bg-muted/40 border-border h-9 w-[148px] shrink-0 animate-pulse rounded-md border'
         aria-hidden
       />
     )
@@ -26,28 +32,47 @@ const CsvExportDialog = dynamic(
 );
 
 /**
- * Download CSV Button
- *
- * Button component that opens the CSV export dialog when clicked.
+ * CSV export entry — dropdown with manual wizard vs table-view quick export.
  * Placed next to the Bulk Upload button in the Fahrten page header.
  */
 export function DownloadCsvButton() {
-  const [dialogOpen, setDialogOpen] = React.useState(false);
+  // Separate open state per mode so resetting one dialog does not clobber the other instance.
+  const [manualOpen, setManualOpen] = React.useState(false);
+  const [tableViewOpen, setTableViewOpen] = React.useState(false);
 
   return (
     <>
-      <Button
-        variant='outline'
-        className='gap-2'
-        aria-label='CSV Export'
-        title='CSV Export'
-        onClick={() => setDialogOpen(true)}
-      >
-        <FileDown className='h-4 w-4 shrink-0' />
-        <span className='hidden sm:inline'>CSV Export</span>
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant='outline' className='gap-2'>
+            <FileDown className='h-4 w-4 shrink-0' />
+            <span className='hidden sm:inline'>CSV erstellen</span>
+            <ChevronDown className='h-4 w-4 shrink-0' />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end'>
+          <DropdownMenuItem onClick={() => setManualOpen(true)}>
+            <FileDown className='mr-2 h-4 w-4' />
+            CSV Export
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setTableViewOpen(true)}>
+            <Table2 className='mr-2 h-4 w-4' />
+            Tabellenansicht exportieren
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <CsvExportDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CsvExportDialog
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        mode='manual'
+      />
+      <CsvExportDialog
+        open={tableViewOpen}
+        onOpenChange={setTableViewOpen}
+        mode='table-view'
+      />
     </>
   );
 }

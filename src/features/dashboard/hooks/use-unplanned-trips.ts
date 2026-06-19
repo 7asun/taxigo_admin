@@ -6,6 +6,7 @@ import { startOfWeek, endOfWeek } from 'date-fns';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { tripKeys, type UnplannedTripsFilter } from '@/query/keys';
 import { createDebouncedInvalidateByQueryKey } from '@/query/realtime-bridge';
+import { ASSIGNEE_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 
 export type UnplannedTrip = Trip & {
   requested_date?: string | null;
@@ -47,8 +48,9 @@ export async function fetchUnplannedTrips(
 
   const { data: unplannedRows, error: fetchError } = await supabase
     .from('trips')
-    .select('*, requested_date')
-    .or('scheduled_at.is.null,driver_id.is.null')
+    .select(`*, requested_date, ${ASSIGNEE_JOIN_FRAGMENT}`)
+    // Fremdfirma rows have driver_id null — only count as unplanned when both assignee FKs are null.
+    .or('scheduled_at.is.null,and(driver_id.is.null,fremdfirma_id.is.null)')
     .not('status', 'in', '("cancelled","completed")')
     .order('created_at', { ascending: false });
 

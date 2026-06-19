@@ -26,6 +26,7 @@ import { useFremdfirmenQuery } from '@/features/trips/hooks/use-trip-reference-q
 import type { RuleFormValues } from './recurring-rule-form-body';
 import { resolveKtsDefault } from '@/features/trips/lib/resolve-kts-default';
 import { resolveNoInvoiceRequiredDefault } from '@/features/trips/lib/resolve-no-invoice-required';
+import { useBillingUiForPayer } from '@/features/trips/hooks/use-billing-ui-for-payer';
 import { FREMDFIRMA_PAYMENT_MODE_OPTIONS } from '@/features/fremdfirmen/lib/fremdfirma-payment-mode-labels';
 import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
 
@@ -44,6 +45,8 @@ export function RecurringRuleBillingFields({
   const watchedBillingVariantId = form.watch('billing_variant_id');
   const { payers, billingTypes, isLoading } = useTripFormData(watchedPayerId);
 
+  // why: family select state must be local to track the user's in-progress family
+  // choice before a variant is picked; shared helper drives the derived flags.
   const [billingFamilyId, setBillingFamilyId] = React.useState('');
   const [ktsCatalogHint, setKtsCatalogHint] = React.useState<string | null>(
     null
@@ -143,45 +146,31 @@ export function RecurringRuleBillingFields({
     }
   }, [fremdEnabled, fremdIdWatch, noInvWatch, fremdModeWatch, form]);
 
-  const selectedFamilyId = billingFamilyId;
+  // why: reuses shared computeBillingUiDerived rather than duplicating the same
+  // Map + filter pattern that already lives in use-billing-ui-for-payer.ts.
+  const {
+    families,
+    effectiveFamilyId,
+    variantsInEffectiveFamily,
+    showFamilySelect,
+    needVariantDropdown,
+    singleVariantInScope
+  } = useBillingUiForPayer(watchedPayerId, billingTypes, billingFamilyId);
 
-  const families = React.useMemo(() => {
-    const map = new Map<string, string>();
-    for (const v of billingTypes) {
-      if (!map.has(v.billing_type_id)) {
-        map.set(v.billing_type_id, v.billing_type_name);
-      }
-    }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [billingTypes]);
-
-  const effectiveFamilyId =
-    families.length === 1 ? (families[0]?.id ?? '') : selectedFamilyId;
-
-  const variantsInEffectiveFamily = React.useMemo(() => {
-    if (!effectiveFamilyId) return [];
-    return billingTypes.filter((v) => v.billing_type_id === effectiveFamilyId);
-  }, [billingTypes, effectiveFamilyId]);
-
+  // Keep local billingFamilyId in sync when variant selection changes (e.g. on load).
   React.useEffect(() => {
     if (!watchedBillingVariantId) return;
     const v = billingTypes.find((b) => b.id === watchedBillingVariantId);
     if (v) setBillingFamilyId(v.billing_type_id);
   }, [watchedBillingVariantId, billingTypes]);
 
+  // Auto-select variant when there is only one option in the effective family.
   React.useEffect(() => {
     if (!watchedPayerId || !effectiveFamilyId) return;
     if (variantsInEffectiveFamily.length !== 1) return;
     const only = variantsInEffectiveFamily[0];
     form.setValue('billing_variant_id', only.id);
   }, [watchedPayerId, effectiveFamilyId, variantsInEffectiveFamily, form]);
-
-  const showFamilySelect = families.length > 1;
-  const needVariantDropdown =
-    !!watchedPayerId &&
-    billingTypes.length > 0 &&
-    variantsInEffectiveFamily.length > 1 &&
-    (families.length === 1 || !!selectedFamilyId);
 
   const handleFamilyChange = (familyId: string) => {
     setBillingFamilyId(familyId);
@@ -196,9 +185,6 @@ export function RecurringRuleBillingFields({
     !watchedPayerId ||
     billingTypes.length === 0 ||
     (!showFamilySelect && !needVariantDropdown);
-
-  const singleVariantInScope =
-    !!effectiveFamilyId && variantsInEffectiveFamily.length === 1;
 
   const selectedBillingType = watchedBillingVariantId
     ? billingTypes.find((b) => b.id === watchedBillingVariantId)
@@ -251,7 +237,7 @@ export function RecurringRuleBillingFields({
           <FormItem className='min-w-0'>
             <FormLabel className='text-xs'>Abrechnungsfamilie</FormLabel>
             <Select
-              value={selectedFamilyId || undefined}
+              value={billingFamilyId || undefined}
               onValueChange={handleFamilyChange}
             >
               <FormControl>
@@ -273,7 +259,7 @@ export function RecurringRuleBillingFields({
         {watchedPayerId &&
           billingTypes.length > 0 &&
           needVariantDropdown &&
-          (!showFamilySelect || selectedFamilyId) && (
+          (!showFamilySelect || billingFamilyId) && (
             <FormField
               control={form.control}
               name='billing_variant_id'

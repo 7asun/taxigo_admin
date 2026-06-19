@@ -30,7 +30,7 @@ export async function fetchPayers(): Promise<PayerOption[]> {
   const { data, error } = await supabase
     .from('payers')
     .select(
-      'id, name, kts_default, no_invoice_required_default, reha_schein_enabled'
+      'id, name, kts_default, no_invoice_required_default, reha_schein_enabled, recurring_rules_station_enabled'
     )
     .order('name');
 
@@ -70,24 +70,30 @@ export async function fetchBillingVariantsForPayer(
 
   if (error) throw toQueryError(error);
 
-  type TypeRow = {
+  return flattenBillingTypeRows((data || []) as BillingTypeRow[]);
+}
+
+type BillingTypeRow = {
+  id: string;
+  name: string;
+  color: string;
+  behavior_profile: unknown;
+  payer_id: string;
+  billing_variants: {
     id: string;
     name: string;
-    color: string;
-    behavior_profile: unknown;
-    payer_id: string;
-    billing_variants: {
-      id: string;
-      name: string;
-      code: string;
-      sort_order: number;
-      kts_default: boolean | null;
-      no_invoice_required_default: boolean | null;
-    }[];
-  };
+    code: string;
+    sort_order: number;
+    kts_default: boolean | null;
+    no_invoice_required_default: boolean | null;
+  }[];
+};
 
+function flattenBillingTypeRows(
+  data: BillingTypeRow[] | null
+): BillingVariantOption[] {
   const out: BillingVariantOption[] = [];
-  for (const bt of (data || []) as TypeRow[]) {
+  for (const bt of data ?? []) {
     const variants = [...(bt.billing_variants || [])].sort((a, b) => {
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       return a.name.localeCompare(b.name);
@@ -108,6 +114,38 @@ export async function fetchBillingVariantsForPayer(
     }
   }
   return out;
+}
+
+/**
+ * All billing variants across payers — for export filter UI when no single payer scopes the list.
+ */
+export async function fetchAllBillingVariants(): Promise<
+  BillingVariantOption[]
+> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('billing_types')
+    .select(
+      `
+      id,
+      name,
+      color,
+      behavior_profile,
+      payer_id,
+      billing_variants (
+        id,
+        name,
+        code,
+        sort_order,
+        kts_default,
+        no_invoice_required_default
+      )
+    `
+    )
+    .order('name');
+
+  if (error) throw toQueryError(error);
+  return flattenBillingTypeRows((data || []) as BillingTypeRow[]);
 }
 
 export async function fetchActiveFremdfirmen(): Promise<FremdfirmaOption[]> {

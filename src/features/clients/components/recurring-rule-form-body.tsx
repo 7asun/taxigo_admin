@@ -74,7 +74,10 @@ import {
   type RecurringRuleReturnMode
 } from '@/features/trips/lib/recurring-return-mode';
 import { RecurringRuleBillingFields } from './recurring-rule-billing-fields';
-import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
+import type {
+  FremdfirmaPaymentMode,
+  PayerOption
+} from '@/features/trips/types/trip-form-reference.types';
 import { toast } from 'sonner';
 
 /**
@@ -153,6 +156,11 @@ export const ruleFormSchema = z
     ]),
     pickup_address: z.string().min(1, 'Abholadresse ist erforderlich'),
     dropoff_address: z.string().min(1, 'Zieladresse ist erforderlich'),
+    // Route/passenger station codes — shown and required only when
+    // payers.recurring_rules_station_enabled is true (payer-gated, not billing metadata).
+    // Validated at submit-time in each shell via validateRecurringRuleStationFields().
+    pickup_station: z.string().optional(),
+    dropoff_station: z.string().optional(),
     return_mode: z.enum(['none', 'time_tbd', 'exact']),
     return_time: z.string().optional(),
     start_date: z.string().min(1, 'Startdatum ist erforderlich'),
@@ -191,6 +199,41 @@ export const ruleFormSchema = z
 
 export type RuleFormValues = z.infer<typeof ruleFormSchema>;
 
+/**
+ * Submit-time station validation used identically by all three recurring-rule
+ * shells (RecurringRuleSheet, RecurringRulePanel, CreateRecurringRuleSheet).
+ *
+ * why: pickup_station / dropoff_station are optional in the Zod schema because
+ * their requirement depends on payers.recurring_rules_station_enabled — a
+ * runtime payer flag, not a static schema rule. This mirrors the one-off trip
+ * form pattern where station requirements are resolved at submit time from
+ * billing behavior, not via a schema factory.
+ *
+ * Returns a field error when the payer gate is on and neither station is filled;
+ * returns null when validation passes (gate off, or at least one station set).
+ */
+export const RECURRING_RULE_STATION_AT_LEAST_ONE_ERROR =
+  'Mindestens eine Station muss angegeben werden.';
+
+export function validateRecurringRuleStationFields(
+  values: RuleFormValues,
+  payers: PayerOption[]
+): { pickup_station?: string; dropoff_station?: string } | null {
+  const payer = payers.find((p) => p.id === values.payer_id);
+  if (!payer?.recurring_rules_station_enabled) return null;
+
+  const pickupFilled = Boolean(values.pickup_station?.trim());
+  const dropoffFilled = Boolean(values.dropoff_station?.trim());
+
+  // WHY: home→hospital rules have a station only on the dropoff side;
+  // requiring both would force admins to enter a placeholder for home addresses.
+  if (!pickupFilled && !dropoffFilled) {
+    return { pickup_station: RECURRING_RULE_STATION_AT_LEAST_ONE_ERROR };
+  }
+
+  return null;
+}
+
 // ─── Default values helper ───────────────────────────────────────────────────
 
 export function getRuleFormDefaults(
@@ -199,6 +242,8 @@ export function getRuleFormDefaults(
     pickup_time: string | null;
     pickup_address: string;
     dropoff_address: string;
+    pickup_station?: string | null;
+    dropoff_station?: string | null;
     return_mode?: string | null;
     return_trip: boolean;
     return_time?: string | null;
@@ -232,6 +277,8 @@ export function getRuleFormDefaults(
       pickup_time: '',
       pickup_address: '',
       dropoff_address: '',
+      pickup_station: '',
+      dropoff_station: '',
       return_mode: 'exact',
       return_time: '15:00',
       start_date: format(new Date(), 'yyyy-MM-dd'),
@@ -266,6 +313,8 @@ export function getRuleFormDefaults(
       : '',
     pickup_address: initialData.pickup_address,
     dropoff_address: initialData.dropoff_address,
+    pickup_station: initialData.pickup_station ?? '',
+    dropoff_station: initialData.dropoff_station ?? '',
     return_mode: returnMode,
     return_time:
       returnMode === 'exact'
@@ -301,13 +350,22 @@ export function RecurringRuleFormBody({
   const watchedReturnMode = form.watch(
     'return_mode'
   ) as RecurringRuleReturnMode;
-  const { billingTypes } = useTripFormData(watchedPayerId);
+  const { billingTypes, payers } = useTripFormData(watchedPayerId);
 
   const billingBehavior = React.useMemo(() => {
     const v = billingTypes.find((b) => b.id === watchedBillingVariantId);
     if (!v) return null;
     return normalizeBillingTypeBehavior(v.behavior_profile);
   }, [billingTypes, watchedBillingVariantId]);
+
+  // why: payer flag controls station field visibility — payer-gated, not billing-family-gated.
+  // Data comes through the existing useTripFormData pipeline (no separate query needed).
+  const selectedPayer = React.useMemo(
+    () => payers.find((p) => p.id === watchedPayerId) ?? null,
+    [payers, watchedPayerId]
+  );
+  const stationsEnabled =
+    selectedPayer?.recurring_rules_station_enabled ?? false;
 
   const isReturnModeLocked = Boolean(
     billingBehavior &&
@@ -540,6 +598,61 @@ export function RecurringRuleFormBody({
               </FormItem>
             )}
           />
+
+          {/* Route/passenger station fields — shown only when the payer gate is on.
+              These are NOT billing_calling_station / billing_betreuer (billing metadata).
+              Outbound trips copy these values; return trips swap them. */}
+          {stationsEnabled && (
+            <div className='grid grid-cols-2 gap-3'>
+              <FormField
+                control={form.control}
+                name='pickup_station'
+                render={({ field, fieldState }) => (
+                  <FormItem>
+                    <FormLabel className='text-xs'>
+                      Abfahrtsstation{' '}
+                      <span className='text-destructive'>*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ''}
+                        placeholder='z. B. Mitte'
+                        className={cn(
+                          'h-9 text-sm',
+                          fieldState.error && 'border-destructive'
+                        )}
+                      />
+                    </FormControl>
+                    <FormMessage className='text-xs' />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='dropoff_station'
+                render={({ field, fieldState }) => (
+                  <FormItem>
+                    <FormLabel className='text-xs'>
+                      Zielstation <span className='text-destructive'>*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ''}
+                        placeholder='z. B. Nord'
+                        className={cn(
+                          'h-9 text-sm',
+                          fieldState.error && 'border-destructive'
+                        )}
+                      />
+                    </FormControl>
+                    <FormMessage className='text-xs' />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── Rückfahrt (parity with Neue Fahrt) ───────────────── */}

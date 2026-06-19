@@ -35,6 +35,10 @@ export const referenceKeys = {
   billingVariants: (payerId: string) =>
     [...referenceKeys.root, 'billingVariants', payerId] as const,
 
+  /** All billing variants company-wide — used by CSV export when zero or multiple payers are selected. */
+  billingVariantsAll: () =>
+    [...referenceKeys.root, 'billingVariants', 'all'] as const,
+
   /** Active Fremdfirmen (`is_active = true`) for trip + recurring forms. */
   fremdfirmen: () => [...referenceKeys.root, 'fremdfirmen'] as const,
 

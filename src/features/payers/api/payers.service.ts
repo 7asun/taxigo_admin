@@ -45,7 +45,7 @@ export class PayersService {
     const { data, error } = await supabase
       .from('payers')
       .select(
-        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, reha_schein_enabled, revision_invoices_enabled, billing_types(count)'
+        'id, name, number, kts_default, no_invoice_required_default, accepts_self_payment, rechnungsempfaenger_id, pdf_vorlage_id, manual_km_enabled, reha_schein_enabled, revision_invoices_enabled, recurring_rules_station_enabled, billing_types(count)'
       )
       .order('name');
 
@@ -514,6 +514,27 @@ export async function updatePayerRevisionInvoicesEnabled(
   const { error } = await supabase
     .from('payers')
     .update({ revision_invoices_enabled: enabled })
+    .eq('id', payerId);
+  if (error) throw toQueryError(error);
+}
+
+/**
+ * Toggles the per-payer gate that shows pickup_station / dropoff_station as required
+ * route fields on recurring-rule forms. Generated trips copy (outbound) or swap (return)
+ * these station values. Does not affect billing_calling_station / billing_betreuer.
+ *
+ * why: single-column update mirrors the reha_schein / revision_invoices updaters so the
+ * payer settings sheet can flip the flag independently without going through the broader
+ * updatePayer path.
+ */
+export async function updatePayerRecurringRulesStationEnabled(
+  payerId: string,
+  enabled: boolean,
+  supabase: SupabaseClient<Database>
+): Promise<void> {
+  const { error } = await supabase
+    .from('payers')
+    .update({ recurring_rules_station_enabled: enabled })
     .eq('id', payerId);
   if (error) throw toQueryError(error);
 }

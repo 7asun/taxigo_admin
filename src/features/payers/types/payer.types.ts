@@ -96,6 +96,12 @@ export interface Payer {
   reha_schein_enabled: boolean;
   /** When true, DRAFT invoices for this payer can be re-opened/edited in the builder. */
   revision_invoices_enabled: boolean;
+  /**
+   * When true, recurring-rule forms show pickup_station / dropoff_station as required
+   * route/passenger fields. Generated trips copy (outbound) or swap (return) these values.
+   * Has no effect on billing_calling_station / billing_betreuer.
+   */
+  recurring_rules_station_enabled: boolean;
 }
 
 export interface PayerWithBillingCount extends Payer {

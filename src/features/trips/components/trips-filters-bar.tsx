@@ -36,7 +36,10 @@ import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
@@ -61,6 +64,11 @@ import {
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useFremdfirmenQuery } from '@/features/trips/hooks/use-trip-reference-queries';
+import {
+  formatFremdfirmaAssigneeParam,
+  FREMDFIRMA_ALL_ASSIGNEE_PARAM
+} from '@/features/trips/lib/trip-assignee';
 import { useTripsRscRefresh } from '@/features/trips/providers';
 import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
 import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
@@ -165,6 +173,7 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const { drivers, payers, billingVariants } = useTripFormData(
     singlePayerIdForBilling
   );
+  const { data: fremdfirmen = [] } = useFremdfirmenQuery();
 
   const [payerPickerOpen, setPayerPickerOpen] = useState(false);
   const [billingPickerOpen, setBillingPickerOpen] = useState(false);
@@ -238,6 +247,17 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       ...drivers.map((d) => ({ label: d.name, value: d.id }))
     ],
     [drivers]
+  );
+
+  const fremdfirmaFilterOptions = useMemo(
+    () => [
+      { label: 'Alle Fremdfirmen', value: FREMDFIRMA_ALL_ASSIGNEE_PARAM },
+      ...fremdfirmen.map((f) => ({
+        label: f.name,
+        value: formatFremdfirmaAssigneeParam(f.id)
+      }))
+    ],
+    [fremdfirmen]
   );
 
   const statusOptions = [
@@ -494,6 +514,25 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
               {opt.label}
             </SelectItem>
           ))}
+          {fremdfirmaFilterOptions.length > 0 ? (
+            <>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel className='text-muted-foreground text-xs'>
+                  Fremdfirmen
+                </SelectLabel>
+                {fremdfirmaFilterOptions.map((opt) => (
+                  <SelectItem
+                    key={opt.value}
+                    value={opt.value}
+                    className='text-xs'
+                  >
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </>
+          ) : null}
         </SelectContent>
       </Select>
 

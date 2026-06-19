@@ -25,7 +25,7 @@ import type { DuplicateTripsPayload } from '@/features/trips/lib/duplicate-trip-
 import { deriveDuplicateSchedules } from '@/features/trips/lib/derive-duplicate-schedules';
 import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 import { getTripDirection } from '@/features/trips/lib/trip-direction';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import type { Database } from '@/types/database.types';
 import { resolveDrivingMetricsWithCache } from '@/lib/google-directions';
 
@@ -341,9 +341,18 @@ function buildDuplicateInsert(
   link: { link_type: string | null; linked_trip_id: string | null },
   createdBy: string | null
 ): InsertTrip {
+  const assignment = buildAssignmentPatch(
+    {
+      status: 'pending',
+      driver_id: null,
+      fremdfirma_id: null,
+      fremdfirma_payment_mode: null,
+      fremdfirma_cost: null
+    },
+    { driver_id: null }
+  );
   const status =
-    (getStatusWhenDriverChanges('pending', null) as 'pending' | undefined) ??
-    'pending';
+    (assignment.status as 'pending' | 'assigned' | undefined) ?? 'pending';
 
   return {
     ...copyRouteAndPassengerFields(source),
@@ -361,7 +370,7 @@ function buildDuplicateInsert(
     linked_trip_id: link.linked_trip_id,
     status,
     stop_updates: [],
-    needs_driver_assignment: false,
+    needs_driver_assignment: assignment.needs_driver_assignment,
     ingestion_source: 'trip_duplicate',
     actual_pickup_at: null,
     actual_dropoff_at: null,

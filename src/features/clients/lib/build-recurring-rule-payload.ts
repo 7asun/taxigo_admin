@@ -96,6 +96,10 @@ export function buildRecurringRulePayload(
     pickup_time: values.pickup_time ? `${values.pickup_time}:00` : null,
     pickup_address: values.pickup_address,
     dropoff_address: values.dropoff_address,
+    // why: trim whitespace and coerce empty strings to null — never persist an empty string
+    // for station codes. When the payer gate is off, the form sends '' which becomes null here.
+    pickup_station: values.pickup_station?.trim() || null,
+    dropoff_station: values.dropoff_station?.trim() || null,
     return_mode: values.return_mode,
     return_trip: values.return_mode !== 'none',
     return_time:
