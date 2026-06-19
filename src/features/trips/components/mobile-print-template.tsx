@@ -27,6 +27,8 @@ export interface TripData {
   kts_fehler_beschreibung?: string | null;
   is_wheelchair: boolean;
   driver?: { name: string } | null;
+  fremdfirma_id?: string | null;
+  fremdfirma?: { name: string; default_payment_mode?: string | null } | null;
   billing_variant?: {
     name: string;
     code?: string | null;

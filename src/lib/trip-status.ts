@@ -1,6 +1,8 @@
 /**
  * trip-status.ts — centralised trip status color and label utilities.
  *
+ * Assignment-to-status derivation lives in trip-assignee.ts (buildAssignmentPatch).
+ *
  * Rule (docs/color-system.md): ALL status color logic lives here.
  * Components must never define their own status color classes.
  *

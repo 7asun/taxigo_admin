@@ -4,3 +4,4 @@
  */
 export * from './kts-cells';
 export * from './reha-cells';
+export * from './assignment-conflict-indicator';

@@ -12,6 +12,11 @@ export interface PayerOption {
   no_invoice_required_default: boolean | null;
   /** When true, trip forms show the Reha-Schein switch (`payers.reha_schein_enabled`). */
   reha_schein_enabled: boolean;
+  /**
+   * When true, recurring-rule forms show pickup_station / dropoff_station as required
+   * route/passenger fields. Payer flag controls visibility only — not billing metadata.
+   */
+  recurring_rules_station_enabled: boolean;
 }
 
 /**

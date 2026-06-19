@@ -14,7 +14,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { useDriversQuery } from '@/features/trips/hooks/use-trip-reference-queries';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import { resolveTripAssignee } from '@/features/trips/lib/trip-assignee';
+import { TripAssigneeBadge } from '@/features/trips/components/trip-assignee-badge';
 
 /** Minimum time the “loading” UI stays visible before the select appears (trial UX). */
 const DRIVER_CELL_MIN_LOADING_MS = 250;
@@ -86,13 +88,7 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
 
     setIsUpdating(true);
 
-    const payload: { driver_id: string | null; status?: string } = {
-      driver_id: newDriverId
-    };
-    const derivedStatus = getStatusWhenDriverChanges(trip.status, newDriverId, {
-      fremdfirmaId: trip.fremdfirma_id
-    });
-    if (derivedStatus) payload.status = derivedStatus;
+    const patch = buildAssignmentPatch(trip, { driver_id: newDriverId });
 
     const supabase = createClient();
 
@@ -100,7 +96,7 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
       if (trip.group_id) {
         const { error } = await supabase
           .from('trips')
-          .update(payload)
+          .update(patch)
           .eq('group_id', trip.group_id);
 
         if (error) throw error;
@@ -108,7 +104,7 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
       } else {
         const { error } = await supabase
           .from('trips')
-          .update(payload)
+          .update(patch)
           .eq('id', trip.id);
 
         if (error) throw error;
@@ -133,15 +129,9 @@ export function DriverSelectCell({ trip }: DriverSelectCellProps) {
     return <Skeleton className='h-8 w-32' />;
   }
 
-  if (trip.fremdfirma_id) {
-    return (
-      <span
-        className='max-w-[11rem] text-center text-xs leading-tight font-medium'
-        title='Abrechnungsart siehe Spalte „Abrechnung Fremdfirma“'
-      >
-        Extern · {trip.fremdfirma?.name ?? 'Fremdfirma'}
-      </span>
-    );
+  const assignee = resolveTripAssignee(trip);
+  if (assignee.kind === 'fremdfirma') {
+    return <TripAssigneeBadge assignee={assignee} />;
   }
 
   return (

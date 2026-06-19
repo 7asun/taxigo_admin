@@ -769,6 +769,7 @@ export type Database = {
           manual_km_enabled: boolean;
           reha_schein_enabled: boolean;
           revision_invoices_enabled: boolean;
+          recurring_rules_station_enabled: boolean;
           name: string;
           no_invoice_required_default: boolean | null;
           number: string;
@@ -783,6 +784,7 @@ export type Database = {
           manual_km_enabled?: boolean;
           reha_schein_enabled?: boolean;
           revision_invoices_enabled?: boolean;
+          recurring_rules_station_enabled?: boolean;
           name: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -797,6 +799,7 @@ export type Database = {
           manual_km_enabled?: boolean;
           reha_schein_enabled?: boolean;
           revision_invoices_enabled?: boolean;
+          recurring_rules_station_enabled?: boolean;
           name?: string;
           no_invoice_required_default?: boolean | null;
           number?: string;
@@ -919,6 +922,8 @@ export type Database = {
           fremdfirma_id: string | null;
           fremdfirma_payment_mode: string | null;
           fremdfirma_cost: number | null;
+          pickup_station: string | null;
+          dropoff_station: string | null;
         };
         Insert: {
           id?: string;
@@ -948,6 +953,8 @@ export type Database = {
           fremdfirma_id?: string | null;
           fremdfirma_payment_mode?: string | null;
           fremdfirma_cost?: number | null;
+          pickup_station?: string | null;
+          dropoff_station?: string | null;
         };
         Update: {
           id?: string;
@@ -977,6 +984,8 @@ export type Database = {
           fremdfirma_id?: string | null;
           fremdfirma_payment_mode?: string | null;
           fremdfirma_cost?: number | null;
+          pickup_station?: string | null;
+          dropoff_station?: string | null;
         };
         Relationships: [
           {

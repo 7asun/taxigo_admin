@@ -12,17 +12,24 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { EXPORT_COLUMNS } from './csv-export-constants';
+import { EXPORT_COLUMN_DEFS } from '@/features/trips/lib/export-columns.registry';
+import { KTS_FILTER_OPTION_ROWS } from '@/features/trips/lib/kts-filter';
+import type { ExportFilters } from '@/features/trips/types/csv-export.types';
 import type {
   PayerOption,
   BillingVariantOption
 } from '@/features/trips/types/trip-form-reference.types';
 
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Offen',
+  assigned: 'Zugewiesen',
+  in_progress: 'In Fahrt',
+  completed: 'Abgeschlossen',
+  cancelled: 'Storniert'
+};
+
 interface PreviewStepProps {
-  payerId: string | null;
-  billingTypeId: string | null;
-  dateFrom: string;
-  dateTo: string;
+  filters: ExportFilters;
   selectedColumns: string[];
   payers: PayerOption[];
   billingVariants: BillingVariantOption[];
@@ -34,17 +41,84 @@ interface PreviewStepProps {
   isExporting: boolean;
 }
 
-/**
- * Step 4: Export Preview - Data Table View
- *
- * Shows actual sample data rows in a table format with selected columns.
- * Displays up to 5 sample rows so users can verify the export data before downloading.
- */
+function formatDisplayDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'boolean') return value ? 'Ja' : 'Nein';
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return JSON.stringify(value);
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function buildFilterSummary(
+  filters: ExportFilters,
+  payers: PayerOption[],
+  billingVariants: BillingVariantOption[]
+): string {
+  const parts: string[] = [];
+
+  if (filters.payerIds.length === 0) {
+    parts.push('Alle Kostenträger');
+  } else if (filters.payerIds.length === 1) {
+    parts.push(
+      payers.find((p) => p.id === filters.payerIds[0])?.name ?? '1 Kostenträger'
+    );
+  } else {
+    parts.push(`${filters.payerIds.length} Kostenträger`);
+  }
+
+  if (filters.billingVariantIds.length === 1) {
+    const variant = billingVariants.find(
+      (v) => v.id === filters.billingVariantIds[0]
+    );
+    if (variant) {
+      parts.push(`${variant.billing_type_name} · ${variant.name}`);
+    }
+  } else if (filters.billingVariantIds.length > 1) {
+    parts.push(`${filters.billingVariantIds.length} Abrechnungsarten`);
+  }
+
+  if (filters.assigneeFilter?.type === 'unassigned') {
+    parts.push('Nicht zugewiesen');
+  } else if (filters.assigneeFilter?.type === 'driver') {
+    parts.push('Fahrer gefiltert');
+  } else if (filters.assigneeFilter?.type === 'fremdfirma') {
+    parts.push('Fremdfirma gefiltert');
+  }
+
+  if (filters.statusFilter.length > 0) {
+    parts.push(
+      filters.statusFilter.map((s) => STATUS_LABELS[s] ?? s).join(', ')
+    );
+  }
+
+  if (filters.ktsFilter.length > 0) {
+    parts.push(
+      filters.ktsFilter
+        .map(
+          (token) =>
+            KTS_FILTER_OPTION_ROWS.find((row) => row.value === token)?.label ??
+            token
+        )
+        .join(', ')
+    );
+  }
+
+  parts.push(
+    `${formatDisplayDate(filters.dateFrom)} - ${formatDisplayDate(filters.dateTo)}`
+  );
+
+  return parts.join(' · ');
+}
+
 export function PreviewStep({
-  payerId,
-  billingTypeId,
-  dateFrom,
-  dateTo,
+  filters,
   selectedColumns,
   payers,
   billingVariants,
@@ -55,37 +129,14 @@ export function PreviewStep({
   onExport,
   isExporting
 }: PreviewStepProps) {
-  const selectedPayer = payers.find((p) => p.id === payerId);
-  const selectedBillingVariant = billingVariants.find(
-    (v) => v.id === billingTypeId
-  );
-
-  // Get column definitions for selected columns
   const selectedColumnDefs = selectedColumns
-    .map((key) => EXPORT_COLUMNS.find((c) => c.key === key))
+    .map((key) => EXPORT_COLUMN_DEFS.find((c) => c.key === key))
     .filter(Boolean);
 
-  // Format date for display (YYYY-MM-DD -> DD.MM.YYYY)
-  const formatDisplayDate = (dateStr: string): string => {
-    const [year, month, day] = dateStr.split('-');
-    return `${day}.${month}.${year}`;
-  };
-
-  // Helper to format cell value for display
-  const formatCellValue = (value: unknown): string => {
-    if (value === null || value === undefined) return '-';
-    if (typeof value === 'boolean') return value ? 'Ja' : 'Nein';
-    if (typeof value === 'object') {
-      // Handle joined data objects
-      if (Array.isArray(value)) return JSON.stringify(value);
-      return JSON.stringify(value);
-    }
-    return String(value);
-  };
+  const filterSummary = buildFilterSummary(filters, payers, billingVariants);
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
-      {/* Export Summary Header */}
       <div className='bg-muted shrink-0 space-y-2 rounded-lg p-3'>
         <div className='flex items-center justify-between'>
           <h3 className='flex items-center gap-2 text-sm font-medium'>
@@ -112,19 +163,10 @@ export function PreviewStep({
           </Badge>
         </div>
 
-        {/* Selected filters summary */}
-        <p className='text-muted-foreground text-xs'>
-          {selectedPayer ? selectedPayer.name : 'Alle Kostenträger'}
-          {billingTypeId &&
-            selectedBillingVariant &&
-            ` · ${selectedBillingVariant.billing_type_name} · ${selectedBillingVariant.name}`}
-          {` · ${formatDisplayDate(dateFrom)} - ${formatDisplayDate(dateTo)}`}
-        </p>
+        <p className='text-muted-foreground text-xs'>{filterSummary}</p>
       </div>
 
-      {/* Scrollable Content Area */}
       <div className='my-4 min-h-0 flex-1'>
-        {/* Data Table Preview */}
         {isLoadingPreview ? (
           <div className='flex h-full flex-col items-center justify-center rounded-md border py-8'>
             <span className='h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent' />
@@ -201,7 +243,6 @@ export function PreviewStep({
         )}
       </div>
 
-      {/* Navigation buttons - Fixed at bottom */}
       <div className='flex shrink-0 gap-2'>
         <Button
           type='button'

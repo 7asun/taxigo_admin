@@ -17,7 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { useFremdfirmenQuery } from '@/features/trips/hooks/use-trip-reference-queries';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
 import { tripKeys } from '@/query/keys';
 import { toast } from 'sonner';
@@ -119,29 +119,6 @@ export function TripFremdfirmaSection({
     }
   };
 
-  const applyFremdfirmaPayload = (next: {
-    fremdfirma_id: string | null;
-    fremdfirma_payment_mode: FremdfirmaPaymentMode | null;
-    fremdfirma_cost: number | null;
-  }) => {
-    const payload: Record<string, unknown> = {
-      fremdfirma_id: next.fremdfirma_id,
-      fremdfirma_payment_mode: next.fremdfirma_payment_mode,
-      fremdfirma_cost: next.fremdfirma_cost,
-      driver_id: next.fremdfirma_id ? null : trip.driver_id,
-      needs_driver_assignment: next.fremdfirma_id
-        ? false
-        : !(trip.driver_id ?? null)
-    };
-    const derived = getStatusWhenDriverChanges(
-      trip.status,
-      next.fremdfirma_id ? null : (trip.driver_id ?? null),
-      { fremdfirmaId: next.fremdfirma_id }
-    );
-    if (derived) payload.status = derived;
-    return payload;
-  };
-
   const handleToggleFremd = (on: boolean) => {
     runWithRecurringScope(async () => {
       if (!on) {
@@ -152,7 +129,7 @@ export function TripFremdfirmaSection({
           setPaymentMode('');
           setCostStr('');
           await persist(
-            applyFremdfirmaPayload({
+            buildAssignmentPatch(trip, {
               fremdfirma_id: null,
               fremdfirma_payment_mode: null,
               fremdfirma_cost: null
@@ -183,7 +160,7 @@ export function TripFremdfirmaSection({
           noInvoiceRequired && mode !== 'self_payer' ? 'self_payer' : mode;
         setPaymentMode(effMode);
         await persist(
-          applyFremdfirmaPayload({
+          buildAssignmentPatch(trip, {
             fremdfirma_id: id,
             fremdfirma_payment_mode: effMode,
             fremdfirma_cost: parseCost(costStr)
@@ -200,7 +177,7 @@ export function TripFremdfirmaSection({
     }
     runWithRecurringScope(async () => {
       await persist(
-        applyFremdfirmaPayload({
+        buildAssignmentPatch(trip, {
           fremdfirma_id: vendorId,
           fremdfirma_payment_mode: paymentMode,
           fremdfirma_cost: showCostField ? parseCost(costStr) : null

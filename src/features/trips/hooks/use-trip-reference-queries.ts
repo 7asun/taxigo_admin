@@ -5,6 +5,7 @@ import { referenceKeys } from '@/query/keys';
 import {
   fetchActiveDrivers,
   fetchActiveFremdfirmen,
+  fetchAllBillingVariants,
   fetchBillingVariantsForPayer,
   fetchPayers
 } from '@/features/trips/api/trip-reference-data';
@@ -47,6 +48,18 @@ export function useBillingVariantsForPayerQuery(
     queryKey: referenceKeys.billingVariants(isRealPayer ? payerId : '__none__'),
     queryFn: () => fetchBillingVariantsForPayer(payerId!),
     enabled: isRealPayer,
+    staleTime: TRIP_REFERENCE_STALE_TIME_MS
+  });
+}
+
+/**
+ * Company-wide billing variants — enabled when export filter has zero or multiple payers selected.
+ */
+export function useBillingVariantsQuery(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: referenceKeys.billingVariantsAll(),
+    queryFn: fetchAllBillingVariants,
+    enabled: options?.enabled ?? true,
     staleTime: TRIP_REFERENCE_STALE_TIME_MS
   });
 }

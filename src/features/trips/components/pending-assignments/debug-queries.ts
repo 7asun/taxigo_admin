@@ -8,8 +8,11 @@ const supabase = createClient(
 async function check() {
   const { data, error } = await supabase
     .from('trips')
-    .select('id, client_name, scheduled_at, requested_date, driver_id, status')
+    .select(
+      'id, client_name, scheduled_at, requested_date, driver_id, fremdfirma_id, status'
+    )
     .is('driver_id', null)
+    .is('fremdfirma_id', null)
     .neq('status', 'cancelled')
     .order('scheduled_at', { ascending: false })
     .limit(20);

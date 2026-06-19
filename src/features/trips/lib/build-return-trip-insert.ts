@@ -1,7 +1,7 @@
 import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 
 export interface BuildReturnTripInsertParams {
   /** UTC ISO from `buildScheduledAt` — never `Date#toISOString()` from browser-local wall time. */
@@ -74,10 +74,19 @@ export function buildReturnTripInsert(
   params: BuildReturnTripInsertParams
 ): InsertTrip {
   const route = swapRouteEndpoints(outbound);
-  const derivedStatus =
-    (getStatusWhenDriverChanges('pending', params.driverId) as
-      | 'pending'
-      | 'assigned') ?? 'pending';
+  const assignment = buildAssignmentPatch(
+    {
+      status: 'pending',
+      driver_id: null,
+      fremdfirma_id: null,
+      fremdfirma_payment_mode: null,
+      fremdfirma_cost: null
+    },
+    { driver_id: params.driverId ?? null }
+  );
+  const derivedStatus = (assignment.status ?? 'pending') as
+    | 'pending'
+    | 'assigned';
 
   const normalizedKts = normalizeKtsInsert({
     kts_document_applies: outbound.kts_document_applies,
@@ -116,7 +125,7 @@ export function buildReturnTripInsert(
     // WHY not `Date#toISOString()`: callers’ `Date` came from `DateTimePicker` in the runtime TZ;
     // persisting that instant mis-aligned non-Berlin dispatchers vs Fahrten/cron Berlin semantics.
     scheduled_at: params.scheduledAtIso,
-    driver_id: params.driverId,
+    driver_id: assignment.driver_id,
     status: derivedStatus,
     stop_updates: [],
     created_by: params.createdBy,

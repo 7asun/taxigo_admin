@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { resolveTripsFilterDateYmd } from '@/lib/driver-availability';
@@ -40,7 +41,11 @@ import {
   syncTripIds
 } from '@/features/trips/stores/use-kanban-pending-store';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import {
+  buildAssignmentPatch,
+  FREMDFIRMA_ALL_ASSIGNEE_PARAM,
+  isTripFremdfirma
+} from '@/features/trips/lib/trip-assignee';
 import { getItem, setItem, STORAGE_KEYS } from '@/lib/kanban-local-storage';
 import {
   buildColumns,
@@ -119,6 +124,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   const [groupBy, setGroupBy] = useState<GroupByMode>('driver');
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [fremdfirmaBannerDismissed, setFremdfirmaBannerDismissed] =
+    useState(false);
   const [zoom, setZoom] = useState(1);
   const [columnOrderByMode, setColumnOrderByMode] = useState<
     Partial<Record<GroupByMode, string[]>>
@@ -208,9 +215,17 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     [trips, pendingChanges]
   );
 
-  // Filter out cancelled trips for display in the kanban board
+  // Internal planning only — Fremdfirma trips are delegated externally.
+  const hiddenFremdfirmaCount = useMemo(
+    () => effectiveTrips.filter((trip) => isTripFremdfirma(trip)).length,
+    [effectiveTrips]
+  );
+
   const visibleTrips = useMemo(
-    () => effectiveTrips.filter((trip) => trip.status !== 'cancelled'),
+    () =>
+      effectiveTrips.filter(
+        (trip) => trip.status !== 'cancelled' && !isTripFremdfirma(trip)
+      ),
     [effectiveTrips]
   );
 
@@ -489,23 +504,22 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
       await Promise.all(
         Object.entries(pendingChanges).map(([id, change]) => {
           const trip = trips.find((t) => t.id === id);
-          const status =
-            change.status ??
-            // Only derive status from driver_id when it is explicitly staged.
-            // Passing driver_id=undefined (group_id-only change) must NOT trigger
-            // getStatusWhenDriverChanges, because that would pass null and reset
-            // an already-assigned trip back to 'pending'.
-            (change.driver_id !== undefined
-              ? getStatusWhenDriverChanges(
-                  trip?.status ?? 'pending',
-                  change.driver_id,
-                  { fremdfirmaId: trip?.fremdfirma_id }
-                )
-              : undefined);
           const payload: Parameters<typeof tripsService.updateTrip>[1] = {};
-          if (change.driver_id !== undefined)
-            payload.driver_id = change.driver_id;
-          if (status !== undefined) payload.status = status;
+
+          // Only patch assignee fields when driver_id was explicitly staged.
+          // Time/payer/group-only saves must not call buildAssignmentPatch — it
+          // would merge current state and could emit driver_id: null, clearing
+          // an existing driver assignment.
+          if (change.driver_id !== undefined && trip) {
+            const assignmentPatch = buildAssignmentPatch(trip, {
+              driver_id: change.driver_id
+            });
+            Object.assign(payload, assignmentPatch);
+            if (change.status !== undefined) {
+              payload.status = change.status;
+            }
+          }
+
           if (change.payer_id !== undefined) payload.payer_id = change.payer_id;
           if (change.scheduled_at !== undefined)
             payload.scheduled_at = change.scheduled_at;
@@ -621,6 +635,27 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   const boardContent = (
     <>
       {header}
+      {hiddenFremdfirmaCount > 0 && !fremdfirmaBannerDismissed ? (
+        <div className='bg-muted/60 text-muted-foreground flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-xs'>
+          <span>
+            {hiddenFremdfirmaCount} Fremdfirma-Fahrten sind ausgeblendet ·{' '}
+            <Link
+              href={`/dashboard/trips?driver_id=${encodeURIComponent(FREMDFIRMA_ALL_ASSIGNEE_PARAM)}`}
+              className='text-foreground underline-offset-2 hover:underline'
+            >
+              Zu Fahrten
+            </Link>
+          </span>
+          <button
+            type='button'
+            className='hover:text-foreground shrink-0 px-1'
+            aria-label='Hinweis schließen'
+            onClick={() => setFremdfirmaBannerDismissed(true)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {boardArea}
     </>
   );

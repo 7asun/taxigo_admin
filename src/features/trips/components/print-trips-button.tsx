@@ -22,6 +22,8 @@ import {
   buildItemsByColumn
 } from '@/features/trips/lib/kanban-columns';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
+import { resolveTripAssignee } from '@/features/trips/lib/trip-assignee';
+import { ASSIGNEE_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 import { BoardLandscapeOnlyPrintTemplate } from './board-landscape-only-print-template';
 import { BoardOverviewPrintTemplate } from './board-overview-print-template';
 import { MobilePrintTemplate, type TripData } from './mobile-print-template';
@@ -71,7 +73,7 @@ export function PrintTripsButton() {
         .select(
           `
           *,
-          driver:accounts!trips_driver_id_fkey(name),
+          ${ASSIGNEE_JOIN_FRAGMENT},
           billing_variant:billing_variants(*, billing_types(name, color))
         `
         )
@@ -145,12 +147,18 @@ export function PrintTripsButton() {
         if (list?.length) overviewItems[col.id] = list as TripData[];
       }
 
-      // 3. Group trips by driver
+      // Group by canonical assignee — Fremdfirma rows must not land under "Nicht zugewiesen".
       const groups: Record<string, any[]> = {};
       printableTrips.forEach((trip) => {
-        const driverName = trip.driver?.name || 'Nicht zugewiesen';
-        if (!groups[driverName]) groups[driverName] = [];
-        groups[driverName].push(trip);
+        const assignee = resolveTripAssignee(trip);
+        const groupKey =
+          assignee.kind === 'fremdfirma'
+            ? `Extern · ${assignee.label}`
+            : assignee.kind === 'driver'
+              ? assignee.label
+              : 'Nicht zugewiesen';
+        if (!groups[groupKey]) groups[groupKey] = [];
+        groups[groupKey].push(trip);
       });
 
       toast.info(

@@ -12,15 +12,12 @@ import {
 import { cn } from '@/lib/utils';
 import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 
-import type { Trip } from '@/features/trips/api/trips.service';
 import { normalizeKtsPatch } from '@/features/kts/kts.service';
 import { useUpdateKtsMutation } from '@/features/kts/hooks/use-update-kts-mutation';
 import { useTripFieldUpdate } from '@/features/trips/hooks/use-trip-field-update';
+import type { TripRow } from '@/features/trips/types/trip-row';
 
-/** Aligns with list/kanban payer embed (`name`, `reha_schein_enabled`). */
-export type TripRow = Trip & {
-  payer: { name: string; reha_schein_enabled: boolean } | null;
-};
+export type { TripRow };
 
 // ─── Shared optimistic KTS columns (separate table cells, one logical row) ───
 // Each column mounts its own Provider; per-trip-id stores + useSyncExternalStore

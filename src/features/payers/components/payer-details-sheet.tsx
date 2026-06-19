@@ -68,7 +68,8 @@ import { PAYERS_QUERY_KEY } from '../hooks/use-payers';
 import {
   updatePayerManualKmEnabled,
   updatePayerRehaScheinEnabled,
-  updatePayerRevisionInvoicesEnabled
+  updatePayerRevisionInvoicesEnabled,
+  updatePayerRecurringRulesStationEnabled
 } from '../api/payers.service';
 import { useAllInvoiceTextBlocks } from '@/features/invoices/hooks/use-invoice-text-blocks';
 import { updatePayerTextBlocks } from '@/features/invoices/api/invoice-text-blocks.api';
@@ -115,6 +116,8 @@ export function PayerDetailsSheet({
   const [manualKmToggleBusy, setManualKmToggleBusy] = useState(false);
   const [rehaScheinToggleBusy, setRehaScheinToggleBusy] = useState(false);
   const [revisionInvoicesToggleBusy, setRevisionInvoicesToggleBusy] =
+    useState(false);
+  const [recurringStationToggleBusy, setRecurringStationToggleBusy] =
     useState(false);
   const [isAddFamilyOpen, setIsAddFamilyOpen] = useState(false);
   const [variantDialog, setVariantDialog] = useState<{
@@ -251,6 +254,31 @@ export function PayerDetailsSheet({
       toast.error('Speichern fehlgeschlagen');
     } finally {
       setRehaScheinToggleBusy(false);
+    }
+  };
+
+  /**
+   * why: payer-level gate that shows route station fields (pickup_station /
+   * dropoff_station) on recurring-rule forms. Mirrors the reha/revision toggles:
+   * auto-save on flip, same invalidation keys so the recurring-rule form picks
+   * up the change on next payer selection without a separate query.
+   */
+  const handleRecurringRulesStationEnabledChange = async (checked: boolean) => {
+    if (!displayPayer) return;
+    setRecurringStationToggleBusy(true);
+    try {
+      await updatePayerRecurringRulesStationEnabled(
+        displayPayer.id,
+        checked,
+        supabase
+      );
+      await queryClient.invalidateQueries({ queryKey: [PAYERS_QUERY_KEY] });
+      await queryClient.invalidateQueries({ queryKey: referenceKeys.payers() });
+      toast.success('Einstellung gespeichert');
+    } catch {
+      toast.error('Speichern fehlgeschlagen');
+    } finally {
+      setRecurringStationToggleBusy(false);
     }
   };
 
@@ -602,6 +630,34 @@ export function PayerDetailsSheet({
                   disabled={isUpdating || revisionInvoicesToggleBusy}
                   onCheckedChange={(v) =>
                     void handleRevisionInvoicesEnabledChange(v)
+                  }
+                />
+              </div>
+            </div>
+
+            <div className='bg-card rounded-xl border p-5 shadow-sm'>
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='min-w-0 flex-1'>
+                  <label
+                    htmlFor='payer-recurring-station-enabled'
+                    className='text-muted-foreground mb-1 block text-xs font-medium tracking-wide uppercase'
+                  >
+                    Stationen (Daueraufträge)
+                  </label>
+                  <p className='text-muted-foreground text-xs'>
+                    Zeigt Abfahrts- und Zielstation als Pflichtfelder in
+                    Dauerauftragsformularen. Generierte Fahrten erhalten die
+                    Stationswerte automatisch (Rückfahrt: getauscht).
+                  </p>
+                </div>
+                <Switch
+                  id='payer-recurring-station-enabled'
+                  checked={
+                    displayPayer.recurring_rules_station_enabled ?? false
+                  }
+                  disabled={isUpdating || recurringStationToggleBusy}
+                  onCheckedChange={(v) =>
+                    void handleRecurringRulesStationEnabledChange(v)
                   }
                 />
               </div>

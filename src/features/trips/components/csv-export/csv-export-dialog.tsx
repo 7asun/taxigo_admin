@@ -12,9 +12,19 @@ import {
 } from '@/components/ui/dialog';
 import { FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import {
+  useBillingVariantsForPayerQuery,
+  useBillingVariantsQuery,
+  usePayersQuery
+} from '@/features/trips/hooks/use-trip-reference-queries';
+import { useExportFilterPrefill } from '@/features/trips/hooks/use-export-filter-prefill';
+import { buildExportPreviewSearchParams } from '@/features/trips/lib/export-query';
 import type { ExportStep } from '@/features/trips/types/csv-export.types';
-import { PayerBillingStep } from './payer-billing-step';
+import {
+  createDefaultExportFilters,
+  type ExportFilters
+} from '@/features/trips/types/csv-export.types';
+import { ExportFilterStep } from './export-filter-step';
 import { DateRangeStep } from './date-range-step';
 import { ColumnSelectorStep } from './column-selector-step';
 import { PreviewStep } from './preview-step';
@@ -25,33 +35,24 @@ interface CsvExportDialogProps {
 }
 
 /**
- * CSV Export Dialog
- *
- * Multi-step wizard for exporting trips to CSV:
- * 1. Payer & Billing Type selection (combined step)
- * 2. Date range selection
- * 3. Column selector
- * 4. Preview (shows summary and trip count)
+ * CSV Export Dialog — multi-step wizard with shared ExportFilters state.
+ * Prefills from current Fahrten URL filters when opened via `useExportFilterPrefill`.
  */
 export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
-  // Current step in the wizard
-  const [step, setStep] = React.useState<ExportStep>('payer');
+  const prefillFilters = useExportFilterPrefill();
 
-  // Filter state
-  const [payerId, setPayerId] = React.useState<string | null>(null);
-  const [billingTypeId, setBillingTypeId] = React.useState<string | null>(null);
-  const [dateFrom, setDateFrom] = React.useState<string>(getDefaultDateFrom());
-  const [dateTo, setDateTo] = React.useState<string>(getDefaultDateTo());
+  const [step, setStep] = React.useState<ExportStep>('payer');
+  const [filters, setFilters] = React.useState<ExportFilters>(
+    createDefaultExportFilters
+  );
   const [selectedColumns, setSelectedColumns] = React.useState<string[]>([]);
 
-  // Preview state - stores the count of trips matching current filters and sample data
   const [previewCount, setPreviewCount] = React.useState<number | null>(null);
   const [sampleTrips, setSampleTrips] = React.useState<
     Array<Record<string, unknown>>
   >([]);
   const [isLoadingPreview, setIsLoadingPreview] = React.useState(false);
 
-  // Export state
   const [isExporting, setIsExporting] = React.useState(false);
   const [exportResult, setExportResult] = React.useState<{
     success: boolean;
@@ -59,26 +60,32 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
     error?: string;
   } | null>(null);
 
-  // Load payers and billing variants
-  const { payers, billingVariants, isLoading } = useTripFormData(payerId);
+  const payersQuery = usePayersQuery();
+  const singlePayerId =
+    filters.payerIds.length === 1 ? filters.payerIds[0]! : null;
+  const payerVariantsQuery = useBillingVariantsForPayerQuery(singlePayerId);
+  const allVariantsQuery = useBillingVariantsQuery({
+    enabled: filters.payerIds.length !== 1
+  });
 
-  // Reset state when dialog opens
+  const payers = payersQuery.data ?? [];
+  const billingVariants =
+    filters.payerIds.length === 1
+      ? (payerVariantsQuery.data ?? [])
+      : (allVariantsQuery.data ?? []);
+
   React.useEffect(() => {
     if (open) {
       setStep('payer');
-      setPayerId(null);
-      setBillingTypeId(null);
-      setDateFrom(getDefaultDateFrom());
-      setDateTo(getDefaultDateTo());
+      setFilters(prefillFilters);
       setSelectedColumns([]);
       setPreviewCount(null);
       setSampleTrips([]);
       setExportResult(null);
     }
-  }, [open]);
+  }, [open, prefillFilters]);
 
-  // Combined payer/billing step - go directly to date range
-  const handleNextFromPayerBilling = () => {
+  const handleNextFromFilters = () => {
     setStep('date-range');
   };
 
@@ -87,7 +94,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
   };
 
   const handleNextFromColumnSelector = () => {
-    // Load preview count before showing preview step
     void loadPreviewCount();
     setStep('preview');
   };
@@ -95,7 +101,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
   const handleBack = () => {
     if (step === 'date-range') {
       setStep('payer');
-      setBillingTypeId(null);
     } else if (step === 'column-selector') {
       setStep('date-range');
     } else if (step === 'preview') {
@@ -105,46 +110,27 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
     }
   };
 
-  /**
-   * Load preview count and sample data from API.
-   * Calls the preview endpoint to get count and up to 5 sample rows.
-   */
   const loadPreviewCount = async () => {
     setIsLoadingPreview(true);
     try {
-      const params = new URLSearchParams();
-      if (payerId) params.set('payer_id', payerId);
-      if (billingTypeId) params.set('billing_variant_id', billingTypeId);
-      params.set('date_from', dateFrom);
-      params.set('date_to', dateTo);
-
-      console.log('Fetching preview with params:', params.toString());
-
+      const params = buildExportPreviewSearchParams(filters);
       const response = await fetch(
         `/api/trips/export/preview?${params.toString()}`,
-        {
-          method: 'GET'
-        }
+        { method: 'GET' }
       );
-
-      console.log('Preview API response status:', response.status);
 
       if (response.ok) {
         const data = (await response.json()) as {
           count: number;
           sampleTrips: Array<Record<string, unknown>>;
         };
-        console.log('Preview API data:', data);
         setPreviewCount(data.count);
         setSampleTrips(data.sampleTrips);
       } else {
-        const errorText = await response.text();
-        console.error('Preview API error:', response.status, errorText);
         setPreviewCount(null);
         setSampleTrips([]);
       }
-    } catch (err) {
-      console.error('Preview fetch error:', err);
+    } catch {
       setPreviewCount(null);
       setSampleTrips([]);
     } finally {
@@ -152,7 +138,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
     }
   };
 
-  // Export handler - performs the actual CSV download
   const handleExport = async () => {
     if (selectedColumns.length === 0) {
       toast.error('Bitte wählen Sie mindestens eine Spalte aus.');
@@ -167,10 +152,7 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payerId,
-          billingTypeId,
-          dateFrom,
-          dateTo,
+          filters,
           columns: selectedColumns,
           includeHeaders: true
         })
@@ -185,34 +167,38 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
         );
       }
 
-      // Generate filename with format: dd.mm.yy-dd.mm.yy_Fahrten_Kostenträger_Abrechnungs.csv
       const formatDateForFilename = (dateStr: string): string => {
-        if (!dateStr) return '';
         const [year, month, day] = dateStr.split('-');
-        return `${day}.${month}.${year.slice(2)}`; // dd.mm.yy format
+        return `${day}.${month}.${year.slice(2)}`;
       };
 
       const datePart =
-        dateFrom === dateTo
-          ? formatDateForFilename(dateFrom)
-          : `${formatDateForFilename(dateFrom)}-${formatDateForFilename(dateTo)}`;
+        filters.dateFrom === filters.dateTo
+          ? formatDateForFilename(filters.dateFrom)
+          : `${formatDateForFilename(filters.dateFrom)}-${formatDateForFilename(filters.dateTo)}`;
 
-      const payerPart = payerId
-        ? (
-            payers.find((p) => p.id === payerId)?.name || 'Kostenträger'
-          ).replace(/[^a-zA-Z0-9äöüÄÖÜß\-]/g, '_')
-        : 'Alle';
+      const payerPart =
+        filters.payerIds.length === 1
+          ? (
+              payers.find((p) => p.id === filters.payerIds[0])?.name ||
+              'Kostenträger'
+            ).replace(/[^a-zA-Z0-9äöüÄÖÜß\-]/g, '_')
+          : filters.payerIds.length > 1
+            ? `${filters.payerIds.length}_Kostentraeger`
+            : 'Alle';
 
-      const billingPart = billingTypeId
-        ? (
-            billingVariants.find((v) => v.id === billingTypeId)?.name ||
-            'Abrechnung'
-          ).replace(/[^a-zA-Z0-9äöüÄÖÜß\-]/g, '_')
-        : 'Abrechnung';
+      const billingPart =
+        filters.billingVariantIds.length === 1
+          ? (
+              billingVariants.find((v) => v.id === filters.billingVariantIds[0])
+                ?.name || 'Abrechnung'
+            ).replace(/[^a-zA-Z0-9äöüÄÖÜß\-]/g, '_')
+          : filters.billingVariantIds.length > 1
+            ? `${filters.billingVariantIds.length}_Abrechnungen`
+            : 'Abrechnung';
 
       const filename = `${datePart}_Fahrten_${payerPart}_${billingPart}.csv`;
 
-      // Download the CSV file via browser
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -226,7 +212,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
       setExportResult({ success: true });
       toast.success('CSV-Export erfolgreich heruntergeladen!');
 
-      // Close dialog after short delay
       setTimeout(() => {
         onOpenChange(false);
       }, 1500);
@@ -240,11 +225,10 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
     }
   };
 
-  // Step titles for dialog header
   const stepTitle = React.useMemo(() => {
     switch (step) {
       case 'payer':
-        return 'Kostenträger & Abrechnung';
+        return 'Export-Filter';
       case 'date-range':
         return 'Zeitraum auswählen';
       case 'column-selector':
@@ -261,7 +245,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
       <DialogContent
         className={cn(
           'transition-all duration-300',
-          // Ensure wide preview tables don't resize the dialog/footer; content scrolls instead.
           'flex max-h-[85vh] w-full flex-col overflow-hidden',
           step === 'preview'
             ? 'sm:max-w-[90vw] lg:max-w-[1200px]'
@@ -275,7 +258,7 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
           </DialogTitle>
           <DialogDescription>
             {step === 'payer' &&
-              'Wählen Sie einen Kostenträger und optional eine Abrechnungsart.'}
+              'Legen Sie Kostenträger, Abrechnung, Zuweisung, Status und KTS-Filter fest.'}
             {step === 'date-range' && 'Legen Sie den Zeitraum fest.'}
             {step === 'column-selector' &&
               'Wählen Sie die zu exportierenden Spalten.'}
@@ -284,8 +267,7 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className='flex min-h-0 flex-1 flex-col gap-4 py-4'>
-          {/* Export result message */}
+        <div className='flex min-h-0 flex-1 touch-pan-y flex-col gap-4 overflow-y-auto overscroll-contain py-4'>
           {exportResult?.success && (
             <Alert className='border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20'>
               <CheckCircle2 className='h-4 w-4 text-emerald-600' />
@@ -306,98 +288,58 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
             </Alert>
           )}
 
-          {/* Step content */}
-          {isLoading ? (
-            <div className='flex flex-col items-center justify-center py-8'>
-              <span className='h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent' />
-              <p className='text-muted-foreground mt-4 text-sm'>
-                Lade Daten...
-              </p>
-            </div>
-          ) : (
-            <>
-              {step === 'payer' && (
-                <PayerBillingStep
-                  payers={payers}
-                  billingVariants={billingVariants}
-                  selectedPayerId={payerId}
-                  selectedBillingTypeId={billingTypeId}
-                  onPayerChange={setPayerId}
-                  onBillingTypeChange={setBillingTypeId}
-                  onNext={handleNextFromPayerBilling}
-                  onCancel={() => onOpenChange(false)}
-                />
-              )}
+          <>
+            {step === 'payer' && (
+              <ExportFilterStep
+                filters={filters}
+                onFiltersChange={setFilters}
+                onNext={handleNextFromFilters}
+                onCancel={() => onOpenChange(false)}
+              />
+            )}
 
-              {step === 'date-range' && (
-                <DateRangeStep
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  onDateRangeChange={(from, to) => {
-                    setDateFrom(from);
-                    setDateTo(to);
-                  }}
-                  onNext={handleNextFromDateRange}
-                  onBack={handleBack}
-                />
-              )}
+            {step === 'date-range' && (
+              <DateRangeStep
+                dateFrom={filters.dateFrom}
+                dateTo={filters.dateTo}
+                onDateRangeChange={(from, to) => {
+                  setFilters((prev) => ({
+                    ...prev,
+                    dateFrom: from,
+                    dateTo: to
+                  }));
+                }}
+                onNext={handleNextFromDateRange}
+                onBack={handleBack}
+              />
+            )}
 
-              {step === 'column-selector' && (
-                <ColumnSelectorStep
-                  selectedColumns={selectedColumns}
-                  onColumnsChange={setSelectedColumns}
-                  onNext={handleNextFromColumnSelector}
-                  onBack={handleBack}
-                />
-              )}
+            {step === 'column-selector' && (
+              <ColumnSelectorStep
+                selectedColumns={selectedColumns}
+                onColumnsChange={setSelectedColumns}
+                onNext={handleNextFromColumnSelector}
+                onBack={handleBack}
+              />
+            )}
 
-              {step === 'preview' && (
-                <PreviewStep
-                  payerId={payerId}
-                  billingTypeId={billingTypeId}
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  selectedColumns={selectedColumns}
-                  payers={payers}
-                  billingVariants={billingVariants}
-                  previewCount={previewCount}
-                  isLoadingPreview={isLoadingPreview}
-                  sampleTrips={sampleTrips}
-                  onBack={handleBack}
-                  onExport={handleExport}
-                  isExporting={isExporting}
-                />
-              )}
-            </>
-          )}
+            {step === 'preview' && (
+              <PreviewStep
+                filters={filters}
+                selectedColumns={selectedColumns}
+                payers={payers}
+                billingVariants={billingVariants}
+                previewCount={previewCount}
+                isLoadingPreview={isLoadingPreview}
+                sampleTrips={sampleTrips}
+                onBack={handleBack}
+                onExport={handleExport}
+                isExporting={isExporting}
+              />
+            )}
+          </>
         </div>
       </DialogContent>
     </Dialog>
   );
-}
-
-/**
- * Get default start date (30 days ago) in YYYY-MM-DD format.
- */
-function getDefaultDateFrom(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  return formatDate(d);
-}
-
-/**
- * Get default end date (today) in YYYY-MM-DD format.
- */
-function getDefaultDateTo(): string {
-  return formatDate(new Date());
-}
-
-/**
- * Format date to YYYY-MM-DD for input[type="date"].
- */
-function formatDate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }

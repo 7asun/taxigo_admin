@@ -58,6 +58,29 @@ export type GenerateRecurringTripsResult = {
   errors: number;
 };
 
+/**
+ * Derives the route/passenger station codes for a generated trip from its rule.
+ *
+ * Outbound trips copy the rule stations directly.
+ * Return trips swap them — the return passenger's pickup is the outbound dropoff station.
+ *
+ * These are NOT billing_calling_station / billing_betreuer (billing metadata).
+ * Exported for focused unit tests — the logic is pure and has no side effects.
+ */
+export function deriveStationsForTrip(
+  rule: { pickup_station: string | null; dropoff_station: string | null },
+  isReturnTrip: boolean
+): { pickup_station: string | null; dropoff_station: string | null } {
+  return {
+    pickup_station: isReturnTrip
+      ? (rule.dropoff_station ?? null)
+      : (rule.pickup_station ?? null),
+    dropoff_station: isReturnTrip
+      ? (rule.pickup_station ?? null)
+      : (rule.dropoff_station ?? null)
+  };
+}
+
 export async function generateRecurringTrips(options?: {
   ruleId?: string;
   supabase?: SupabaseClient<Database>;
@@ -296,7 +319,7 @@ export async function generateRecurringTrips(options?: {
       pickup_city: pickupGeo?.city ?? null,
       pickup_lat: pickupGeo?.lat ?? null,
       pickup_lng: pickupGeo?.lng ?? null,
-      pickup_station: null,
+      ...deriveStationsForTrip(rule, isReturnTrip),
       dropoff_address: dropoffAddress,
       dropoff_street: dropoffGeo?.street ?? null,
       dropoff_street_number: dropoffGeo?.street_number ?? null,
@@ -304,7 +327,6 @@ export async function generateRecurringTrips(options?: {
       dropoff_city: dropoffGeo?.city ?? null,
       dropoff_lat: dropoffGeo?.lat ?? null,
       dropoff_lng: dropoffGeo?.lng ?? null,
-      dropoff_station: null,
       driving_distance_km,
       driving_duration_seconds,
       has_missing_geodata: !geodataOk,

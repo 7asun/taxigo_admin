@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { fetchDrivingMetrics } from '@/features/trips/lib/fetch-driving-metrics';
-import { getStatusWhenDriverChanges } from '@/features/trips/lib/trip-status';
+import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { tripKeys } from '@/query/keys';
 import { normalizeKtsInsert } from '@/features/kts/kts.service';
@@ -1300,7 +1300,30 @@ export function CreateTripForm({
         values.driver_id && values.driver_id !== '__none__'
           ? values.driver_id
           : null;
-      const tripStatus = (getStatusWhenDriverChanges('pending', driverId) ??
+      const assignment = buildAssignmentPatch(
+        {
+          status: 'pending',
+          driver_id: null,
+          fremdfirma_id: null,
+          fremdfirma_payment_mode: null,
+          fremdfirma_cost: null
+        },
+        { driver_id: driverId }
+      );
+      const tripStatus = (assignment.status ?? 'pending') as
+        | 'pending'
+        | 'assigned';
+      const unassignedAssignment = buildAssignmentPatch(
+        {
+          status: 'pending',
+          driver_id: null,
+          fremdfirma_id: null,
+          fremdfirma_payment_mode: null,
+          fremdfirma_cost: null
+        },
+        { driver_id: null }
+      );
+      const unassignedTripStatus = (unassignedAssignment.status ??
         'pending') as 'pending' | 'assigned';
 
       const ktsFields = normalizeKtsInsert({
@@ -1326,7 +1349,7 @@ export function CreateTripForm({
         billing_betreuer: askBillingExtras
           ? values.billing_betreuer?.trim() || null
           : null,
-        driver_id: driverId,
+        driver_id: assignment.driver_id,
         notes: values.notes || null,
         status: tripStatus,
         company_id: companyId,
@@ -1453,8 +1476,7 @@ export function CreateTripForm({
               pricingContextMap.get(`${values.payer_id}:null`) ??
                 emptyPricingCtx
             ),
-            status: (getStatusWhenDriverChanges('pending', null) ??
-              'pending') as 'pending' | 'assigned',
+            status: unassignedTripStatus,
             is_wheelchair: values.is_wheelchair,
             client_id: null,
             client_name: null,
@@ -1631,8 +1653,7 @@ export function CreateTripForm({
                       `${values.payer_id}:${returnClientId ?? 'null'}`
                     ) ?? emptyPricingCtx
                   ),
-                  status: (getStatusWhenDriverChanges('pending', null) ??
-                    'pending') as 'pending' | 'assigned',
+                  status: unassignedTripStatus,
                   is_wheelchair: p.is_wheelchair,
                   client_id: returnClientId,
                   client_name:

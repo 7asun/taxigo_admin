@@ -25,6 +25,8 @@ import { TripsPaginationBulkActions } from './trips-pagination-bulk-actions';
 import { DataTablePagination } from '@/components/ui/table/data-table-pagination';
 import type { Table as TanstackTable } from '@tanstack/react-table';
 import { parseTripAddressForDisplay } from '@/features/trips/lib/format-trip-address-display-line';
+import { resolveTripAssignee } from '@/features/trips/lib/trip-assignee';
+import { TripAssigneeBadge } from '@/features/trips/components/trip-assignee-badge';
 
 interface TripsMobileCardListProps<TData> {
   table: TanstackTable<TData>;
@@ -80,6 +82,7 @@ export function TripsMobileCardList<TData>({
           const dropoff = parseTripAddressForDisplay(trip.dropoff_address);
           const status = trip.status as TripStatus;
           const rowClass = getRowClassName?.(tableRow.original) ?? '';
+          const assignee = resolveTripAssignee(trip);
 
           return (
             <Card
@@ -138,6 +141,7 @@ export function TripsMobileCardList<TData>({
                           />
                         )}
                       </div>
+                      <TripAssigneeBadge assignee={assignee} />
                     </div>
                     {trip.greeting_style ? (
                       <span className='text-muted-foreground shrink-0 pt-0.5 text-sm'>
