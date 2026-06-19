@@ -36,6 +36,7 @@ interface PreviewStepProps {
   previewCount: number | null;
   isLoadingPreview: boolean;
   sampleTrips: Array<Record<string, unknown>>;
+  showBack?: boolean;
   onBack: () => void;
   onExport: () => void;
   isExporting: boolean;
@@ -125,6 +126,7 @@ export function PreviewStep({
   previewCount,
   isLoadingPreview,
   sampleTrips,
+  showBack = true,
   onBack,
   onExport,
   isExporting
@@ -244,21 +246,29 @@ export function PreviewStep({
       </div>
 
       <div className='flex shrink-0 gap-2'>
-        <Button
-          type='button'
-          variant='outline'
-          className='min-w-0 flex-1'
-          onClick={onBack}
-          disabled={isExporting}
-        >
-          <ChevronLeft className='mr-1 h-4 w-4' />
-          Zurück
-        </Button>
+        {showBack ? (
+          <Button
+            type='button'
+            variant='outline'
+            className='min-w-0 flex-1'
+            onClick={onBack}
+            disabled={isExporting}
+          >
+            <ChevronLeft className='mr-1 h-4 w-4' />
+            Zurück
+          </Button>
+        ) : null}
         <Button
           type='button'
           className='min-w-0 flex-1'
           onClick={onExport}
-          disabled={isExporting || previewCount === 0 || previewCount === null}
+          disabled={
+            // Guard export until preview fetch completes (table-view cold-open lands here while loading).
+            isLoadingPreview ||
+            isExporting ||
+            previewCount === 0 ||
+            previewCount === null
+          }
         >
           {isExporting ? (
             <>

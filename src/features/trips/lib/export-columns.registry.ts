@@ -425,3 +425,46 @@ export function flattenTripForExportPreview(
   }
   return out;
 }
+
+/**
+ * Maps visible table column IDs to their corresponding export registry keys. Table columns
+ * with no export equivalent map to []. Export-only keys (IDs, subfields, metadata) are
+ * always included via EXPORT_ONLY_KEYS.
+ */
+export const TABLE_COLUMN_TO_EXPORT_KEYS: Record<string, string[]> = {
+  scheduled_at: ['scheduled_date', 'scheduled_time'],
+  time: [], // duplicate of scheduled_at — skip
+  name: ['client_name'],
+  pickup_address: ['pickup_address'],
+  dropoff_address: ['dropoff_address'],
+  driver_id: ['driver_id', 'driver_name'],
+  status: ['status'],
+  gross_price: [], // no export equivalent — skip
+  invoice_status: [], // no export equivalent — skip
+  payer_name: ['payer_name'],
+  fremdfirma: [], // no export equivalent — skip
+  fremdfirma_abrechnung: [], // no export equivalent — skip
+  billing_type: ['billing_variant_name', 'billing_family_name'],
+  billing_calling_station: ['billing_calling_station'],
+  billing_betreuer: ['billing_betreuer'],
+  kts_document_applies: ['kts_document_applies'],
+  kts_fehler: [], // no export equivalent — skip
+  kts_fehler_beschreibung: [], // no export equivalent — skip
+  reha_schein: [], // no export equivalent — skip
+  net_price: ['net_price'],
+  tax_rate: [] // no export equivalent — skip
+};
+
+// UI-only columns — never map to export keys
+export const TABLE_COLUMNS_UI_ONLY = new Set(['select', 'actions']);
+
+// WHY: only these three keys are always included in table-view export regardless of column
+// visibility. They are required for record identification and time reference. All other
+// export-only fields (GPS, address subfields, metadata, vehicle_id, etc.) must be explicitly
+// selected by the admin in manual export mode or made visible in the table before using
+// table-view export.
+export const EXPORT_ONLY_KEYS: string[] = [
+  'id',
+  'scheduled_date',
+  'scheduled_time'
+];

@@ -19,7 +19,15 @@ import {
 } from '@/features/trips/hooks/use-trip-reference-queries';
 import { useExportFilterPrefill } from '@/features/trips/hooks/use-export-filter-prefill';
 import { buildExportPreviewSearchParams } from '@/features/trips/lib/export-query';
-import type { ExportStep } from '@/features/trips/types/csv-export.types';
+import {
+  EXPORT_ONLY_KEYS,
+  TABLE_COLUMN_TO_EXPORT_KEYS
+} from '@/features/trips/lib/export-columns.registry';
+import { useTripsTableStore } from '@/features/trips/stores/use-trips-table-store';
+import type {
+  ExportMode,
+  ExportStep
+} from '@/features/trips/types/csv-export.types';
 import {
   createDefaultExportFilters,
   type ExportFilters
@@ -29,16 +37,49 @@ import { DateRangeStep } from './date-range-step';
 import { ColumnSelectorStep } from './column-selector-step';
 import { PreviewStep } from './preview-step';
 
+/**
+ * Export-only keys are always appended because they have no table visibility toggle — omitting
+ * them would silently drop system-critical fields like IDs and GPS coords from every table-view export.
+ */
+function resolveTableViewColumns(
+  columnVisibility: Record<string, boolean>
+): string[] {
+  // Default hidden columns per table initialState
+  const DEFAULT_HIDDEN = new Set(['net_price', 'tax_rate', 'reha_schein']);
+
+  const mappedKeys = Object.entries(TABLE_COLUMN_TO_EXPORT_KEYS).flatMap(
+    ([tableColId, exportKeys]) => {
+      if (exportKeys.length === 0) return [];
+      const explicitValue = columnVisibility[tableColId];
+      const isVisible =
+        explicitValue === true
+          ? true
+          : explicitValue === false
+            ? false
+            : !DEFAULT_HIDDEN.has(tableColId);
+      return isVisible ? exportKeys : [];
+    }
+  );
+
+  return [...new Set([...mappedKeys, ...EXPORT_ONLY_KEYS])];
+}
+
 interface CsvExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: ExportMode;
 }
 
 /**
  * CSV Export Dialog — multi-step wizard with shared ExportFilters state.
  * Prefills from current Fahrten URL filters when opened via `useExportFilterPrefill`.
+ * `mode === 'table-view'` skips filter/column steps and lands on preview with visible table columns.
  */
-export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
+export function CsvExportDialog({
+  open,
+  onOpenChange,
+  mode = 'manual'
+}: CsvExportDialogProps) {
   const prefillFilters = useExportFilterPrefill();
 
   const [step, setStep] = React.useState<ExportStep>('payer');
@@ -74,16 +115,63 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
       ? (payerVariantsQuery.data ?? [])
       : (allVariantsQuery.data ?? []);
 
-  React.useEffect(() => {
-    if (open) {
-      setStep('payer');
-      setFilters(prefillFilters);
-      setSelectedColumns([]);
+  const loadPreviewCount = async (filtersOverride?: ExportFilters) => {
+    setIsLoadingPreview(true);
+    try {
+      const activeFilters = filtersOverride ?? filters;
+      const params = buildExportPreviewSearchParams(activeFilters);
+      const response = await fetch(
+        `/api/trips/export/preview?${params.toString()}`,
+        { method: 'GET' }
+      );
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          count: number;
+          sampleTrips: Array<Record<string, unknown>>;
+        };
+        setPreviewCount(data.count);
+        setSampleTrips(data.sampleTrips);
+      } else {
+        setPreviewCount(null);
+        setSampleTrips([]);
+      }
+    } catch {
       setPreviewCount(null);
       setSampleTrips([]);
-      setExportResult(null);
+    } finally {
+      setIsLoadingPreview(false);
     }
-  }, [open, prefillFilters]);
+  };
+
+  React.useEffect(() => {
+    if (!open) return;
+
+    setPreviewCount(null);
+    setSampleTrips([]);
+    setExportResult(null);
+    setFilters(prefillFilters);
+
+    if (mode === 'manual') {
+      setStep('payer');
+      setSelectedColumns([]);
+      setIsLoadingPreview(false);
+      return;
+    }
+
+    // table-view: admin already filtered the table — skip configuration, honour column visibility.
+    // Columns + loading flag are set before preview mounts so Export stays disabled until fetch completes.
+    // WHY: Spalten writes to TanStack via toggleVisibility(); the Zustand mirror can lag. Read live table state at open time.
+    const storeState = useTripsTableStore.getState();
+    const liveVisibility =
+      storeState.table?.getState().columnVisibility ??
+      storeState.columnVisibility;
+    // WHY: honours the admin's column visibility configuration so table-view export matches what is visible on screen.
+    setSelectedColumns(resolveTableViewColumns(liveVisibility));
+    setIsLoadingPreview(true);
+    setStep('preview');
+    void loadPreviewCount(prefillFilters);
+  }, [open, prefillFilters, mode]);
 
   const handleNextFromFilters = () => {
     setStep('date-range');
@@ -107,34 +195,6 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
       setStep('column-selector');
       setPreviewCount(null);
       setSampleTrips([]);
-    }
-  };
-
-  const loadPreviewCount = async () => {
-    setIsLoadingPreview(true);
-    try {
-      const params = buildExportPreviewSearchParams(filters);
-      const response = await fetch(
-        `/api/trips/export/preview?${params.toString()}`,
-        { method: 'GET' }
-      );
-
-      if (response.ok) {
-        const data = (await response.json()) as {
-          count: number;
-          sampleTrips: Array<Record<string, unknown>>;
-        };
-        setPreviewCount(data.count);
-        setSampleTrips(data.sampleTrips);
-      } else {
-        setPreviewCount(null);
-        setSampleTrips([]);
-      }
-    } catch {
-      setPreviewCount(null);
-      setSampleTrips([]);
-    } finally {
-      setIsLoadingPreview(false);
     }
   };
 
@@ -263,7 +323,9 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
             {step === 'column-selector' &&
               'Wählen Sie die zu exportierenden Spalten.'}
             {step === 'preview' &&
-              'Überprüfen Sie die Export-Einstellungen vor dem Download.'}
+              (mode === 'table-view'
+                ? 'Export basiert auf der aktuellen Tabellenansicht.'
+                : 'Überprüfen Sie die Export-Einstellungen vor dem Download.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -332,6 +394,7 @@ export function CsvExportDialog({ open, onOpenChange }: CsvExportDialogProps) {
                 previewCount={previewCount}
                 isLoadingPreview={isLoadingPreview}
                 sampleTrips={sampleTrips}
+                showBack={mode !== 'table-view'}
                 onBack={handleBack}
                 onExport={handleExport}
                 isExporting={isExporting}

@@ -24,6 +24,19 @@ Both API routes scope `company_id` outside `applyExportFilters`, then share the 
 
 Opening the dialog merges `useExportFilterPrefill()` over `createDefaultExportFilters()`.
 
+## Export modes
+
+Entry point: **CSV erstellen** dropdown in the Fahrten page header (`DownloadCsvButton`).
+
+| Mode | Opens via | Wizard behaviour |
+|------|-----------|------------------|
+| `manual` (default) | Dropdown item **CSV Export** | Full wizard: filter → date range → column selector → preview |
+| `table-view` | **Tabellenansicht exportieren** | Skips filter and column steps; lands on preview with URL-prefilled `ExportFilters`, all `EXPORT_COLUMN_DEFS` keys pre-selected, preview count fetched immediately |
+
+`CsvExportDialog` accepts optional `mode?: ExportMode` (defaults to `'manual'`). Two dialog instances in `DownloadCsvButton` use separate `open` state so mode-specific resets do not conflict.
+
+**Deferred:** `invoice_status` is not mapped into export filters — table-view does not warn when that list filter is active.
+
 ## Filter contract
 
 ```typescript
@@ -78,8 +91,8 @@ Date bounds use `getZonedDayBoundsIso()` from `trip-business-date.ts` (Europe/Be
 ## Deferred (not in this refactor)
 
 - SELECT projection optimization (still fetches `*` + joins)
-- Invoice status export filter
+- Invoice status export filter / table-view warning when `invoice_status` URL filter is active
 - Additional DB columns beyond current selector whitelist
-- One-click “export exactly current table view” beyond URL prefill
+- "Letzten Export wiederholen" quick action
 
 See also: [`docs/plans/csv-export-audit.md`](../plans/csv-export-audit.md)

@@ -5,6 +5,7 @@
  */
 
 import type { KtsFilterValue } from '@/features/trips/lib/kts-filter';
+import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 
 /** Step identifiers for the export dialog wizard */
 export type ExportStep =
@@ -13,6 +14,8 @@ export type ExportStep =
   | 'column-selector'
   | 'preview'
   | 'downloading';
+
+export type ExportMode = 'manual' | 'table-view';
 
 /** Status tokens offered in the export filter step (matches trips list filter bar). */
 export const EXPORT_STATUS_FILTER_VALUES = [
@@ -89,26 +92,18 @@ export interface CsvExportConfig {
   includeHeaders: boolean;
 }
 
-function formatDefaultDate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 /** Default export filters when the dialog opens without URL prefill. */
 export function createDefaultExportFilters(): ExportFilters {
-  const today = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
+  // WHY: business TZ matches the table's date display and avoids TZ skew for admins in non-local timezones.
+  const today = todayYmdInBusinessTz();
 
   return {
+    dateFrom: today,
+    dateTo: today,
     payerIds: [],
     billingVariantIds: [],
     assigneeFilter: null,
     statusFilter: [],
-    ktsFilter: [],
-    dateFrom: formatDefaultDate(from),
-    dateTo: formatDefaultDate(today)
+    ktsFilter: []
   };
 }

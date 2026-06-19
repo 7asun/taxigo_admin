@@ -4,7 +4,11 @@ import { useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { parseKtsFilterParam } from '@/features/trips/lib/kts-filter';
-import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import {
+  instantToYmdInBusinessTz,
+  isYmdString,
+  todayYmdInBusinessTz
+} from '@/features/trips/lib/trip-business-date';
 import { parseAssigneeParam } from '@/features/trips/lib/trip-assignee';
 import {
   createDefaultExportFilters,
@@ -50,11 +54,19 @@ function parseAssigneeFromUrl(
   }
 }
 
+/**
+ * WHY: mirrors trips-listing.tsx date parsing so table-view export always reflects
+ * the same date scope the user sees in the table.
+ */
 function parseDateRangeFromScheduledAt(scheduledAt: string | null): {
-  dateFrom?: string;
-  dateTo?: string;
+  dateFrom: string;
+  dateTo: string;
 } {
-  if (!scheduledAt) return {};
+  const today = todayYmdInBusinessTz();
+
+  if (!scheduledAt) {
+    return { dateFrom: today, dateTo: today };
+  }
 
   const parts = scheduledAt.split(',');
   if (parts.length === 2) {
@@ -68,13 +80,17 @@ function parseDateRangeFromScheduledAt(scheduledAt: string | null): {
     }
   }
 
+  if (isYmdString(scheduledAt)) {
+    return { dateFrom: scheduledAt, dateTo: scheduledAt };
+  }
+
   const ts = Number(scheduledAt);
   if (!Number.isNaN(ts)) {
     const ymd = instantToYmdInBusinessTz(ts);
     return { dateFrom: ymd, dateTo: ymd };
   }
 
-  return {};
+  return { dateFrom: today, dateTo: today };
 }
 
 /**

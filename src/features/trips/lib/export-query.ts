@@ -14,7 +14,10 @@ import {
   normalizeKtsFilterValues,
   type KtsFilterValue
 } from '@/features/trips/lib/kts-filter';
-import { getZonedDayBoundsIso } from '@/features/trips/lib/trip-business-date';
+import {
+  getZonedDayBoundsIso,
+  todayYmdInBusinessTz
+} from '@/features/trips/lib/trip-business-date';
 import {
   EXPORT_STATUS_FILTER_VALUES,
   type ExportAssigneeFilter,
@@ -280,9 +283,18 @@ export function applyExportFilters<T>(query: T, filters: ExportFilters): T {
   const { startISO: fromISO } = getZonedDayBoundsIso(filters.dateFrom);
   const { endExclusiveISO: toISO } = getZonedDayBoundsIso(filters.dateTo);
 
-  let next = q.or(
-    `and(scheduled_at.gte.${fromISO},scheduled_at.lt.${toISO}),and(scheduled_at.is.null,requested_date.gte.${filters.dateFrom},requested_date.lte.${filters.dateTo})`
-  ) as ChainableQuery;
+  const dateBranches = [
+    `and(scheduled_at.gte.${fromISO},scheduled_at.lt.${toISO})`,
+    `and(scheduled_at.is.null,requested_date.gte.${filters.dateFrom},requested_date.lte.${filters.dateTo})`
+  ];
+  // WHY: mirrors the list view backlog branch so single-day table-view export includes the same undated trips the admin sees on screen.
+  if (
+    filters.dateFrom === filters.dateTo &&
+    filters.dateFrom === todayYmdInBusinessTz()
+  ) {
+    dateBranches.push(`and(scheduled_at.is.null,requested_date.is.null)`);
+  }
+  let next = q.or(dateBranches.join(',')) as ChainableQuery;
 
   if (filters.payerIds.length > 0) {
     next = next.in('payer_id', filters.payerIds) as ChainableQuery;
