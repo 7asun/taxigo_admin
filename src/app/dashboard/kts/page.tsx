@@ -1,5 +1,6 @@
 import PageContainer from '@/components/layout/page-container';
 import { DataTableSkeleton } from '@/components/ui/table/data-table-skeleton';
+import KtsAbrechnungListingPage from '@/features/kts/components/kts-abrechnung-listing-page';
 import KtsListingPage from '@/features/kts/components/kts-listing-page';
 import { TripsRealtimeSync } from '@/features/trips/components/trips-realtime-sync';
 import { searchParamsCache } from '@/lib/searchparams';
@@ -20,6 +21,8 @@ type KtsPageProps = {
 
 export default async function KtsPage({ searchParams }: KtsPageProps) {
   await searchParamsCache.parse(searchParams);
+  const view = searchParamsCache.get('view');
+  const isAbrechnung = view === 'abrechnung';
 
   return (
     <KtsPageShell>
@@ -29,13 +32,17 @@ export default async function KtsPage({ searchParams }: KtsPageProps) {
           <Suspense
             fallback={
               <DataTableSkeleton
-                columnCount={6}
+                columnCount={isAbrechnung ? 7 : 6}
                 rowCount={10}
-                filterCount={2}
+                filterCount={isAbrechnung ? 3 : 2}
               />
             }
           >
-            <KtsListingPage searchParams={searchParams} />
+            {isAbrechnung ? (
+              <KtsAbrechnungListingPage searchParams={searchParams} />
+            ) : (
+              <KtsListingPage searchParams={searchParams} />
+            )}
           </Suspense>
         </div>
         <TripsRealtimeSync />

@@ -7,12 +7,14 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { ktsAbrechnungKpiKey } from '@/features/kts/hooks/use-kts-abrechnung-kpis';
+import { ktsKpiKey } from '@/features/kts/hooks/use-kts-kpis';
 import {
   applyKtsInvoiceImport,
   fetchKtsCandidateTrips,
+  ktsAbrechnungKey,
   type ApplyKtsInvoiceImportPayload
 } from '@/features/kts/kts.service';
-import { ktsKpiKey } from '@/features/kts/hooks/use-kts-kpis';
 import { fetchKtsCompanyId } from '@/features/kts/lib/fetch-kts-company-id';
 import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
 import { createClient } from '@/lib/supabase/client';
@@ -57,6 +59,8 @@ export function useApplyKtsInvoiceImportMutation() {
       }
       void queryClient.invalidateQueries({ queryKey: tripKeys.all });
       void queryClient.invalidateQueries({ queryKey: ktsKpiKey });
+      void queryClient.invalidateQueries({ queryKey: ktsAbrechnungKey });
+      void queryClient.invalidateQueries({ queryKey: ktsAbrechnungKpiKey });
       if (rscRefresh) {
         await rscRefresh.refreshTripsPage();
       }

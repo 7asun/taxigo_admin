@@ -26,7 +26,6 @@ import {
   ListFilter,
   PlusCircle,
   RotateCcw,
-  Settings2,
   XCircle
 } from 'lucide-react';
 import { CheckIcon, CaretSortIcon } from '@radix-ui/react-icons';
@@ -178,6 +177,8 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
   const [payerPickerOpen, setPayerPickerOpen] = useState(false);
   const [billingPickerOpen, setBillingPickerOpen] = useState(false);
   const [ktsPickerOpen, setKtsPickerOpen] = useState(false);
+  // WHY: visual parity with KTS/Kostenträger; no functional effect on toggle behaviour.
+  const [columnsPickerOpen, setColumnsPickerOpen] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const hasAdvancedFilters = useMemo((): boolean => {
@@ -436,18 +437,30 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
     </Select>
   );
 
+  // pattern: controlled Popover → Button trigger → Command multiselect
+  // WHY: all filter popovers in this bar follow this shell so a future
+  // shared FilterPopover component can be extracted with a clear contract.
   const renderColumnVisibilityPopover = (triggerClassName: string) =>
     currentView === 'list' && table ? (
-      <Popover>
+      <Popover open={columnsPickerOpen} onOpenChange={setColumnsPickerOpen}>
         <PopoverTrigger asChild>
-          {/* Match SelectTrigger / Input: h-10 touch row, md:h-9 (shadcn default height) */}
-          <Button variant='outline' className={cn('px-3', triggerClassName)}>
-            <Settings2 className='h-3.5 w-3.5 shrink-0' />
-            <span className='truncate'>Spalten</span>
+          <Button
+            type='button'
+            variant='outline'
+            className={cn(
+              'min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal md:h-9 md:min-h-0 md:w-auto md:shrink-0',
+              triggerClassName
+            )}
+          >
+            <PlusCircle className='mr-1 size-4 shrink-0' />
+            <span className='min-w-0 flex-1 truncate text-left'>Spalten</span>
             <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align='start' className='w-48 p-0'>
+        <PopoverContent
+          className='w-[min(calc(100vw-2rem),18rem)] p-0'
+          align='start'
+        >
           <Command>
             <CommandInput
               placeholder='Spalte suchen...'
@@ -457,26 +470,34 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
               <CommandEmpty className='py-2 text-center text-xs'>
                 Keine Spalten gefunden.
               </CommandEmpty>
-              <CommandGroup>
-                {hidableColumns.map((column) => (
-                  <CommandItem
-                    key={column.id}
-                    onSelect={() =>
-                      column.toggleVisibility(!column.getIsVisible())
-                    }
-                    className='text-xs'
-                  >
-                    <span className='truncate'>
-                      {(column.columnDef.meta as any)?.label ?? column.id}
-                    </span>
-                    <CheckIcon
-                      className={cn(
-                        'ml-auto size-3.5 shrink-0',
-                        column.getIsVisible() ? 'opacity-100' : 'opacity-0'
-                      )}
-                    />
-                  </CommandItem>
-                ))}
+              <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+                {hidableColumns.map((column) => {
+                  const label =
+                    (column.columnDef.meta as { label?: string } | undefined)
+                      ?.label ?? column.id;
+                  return (
+                    <CommandItem
+                      key={column.id}
+                      value={label}
+                      onSelect={() =>
+                        column.toggleVisibility(!column.getIsVisible())
+                      }
+                      className='text-xs'
+                    >
+                      <div
+                        className={cn(
+                          'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                          column.getIsVisible()
+                            ? 'bg-primary text-primary-foreground'
+                            : 'opacity-50 [&_svg]:invisible'
+                        )}
+                      >
+                        <CheckIcon className='size-3' />
+                      </div>
+                      <span className='truncate'>{label}</span>
+                    </CommandItem>
+                  );
+                })}
               </CommandGroup>
             </CommandList>
           </Command>
@@ -558,6 +579,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         </SelectContent>
       </Select>
 
+      {/* pattern: controlled Popover → Button trigger → Command multiselect */}
+      {/* WHY: all filter popovers in this bar follow this shell so a future */}
+      {/* shared FilterPopover component can be extracted with a clear contract. */}
       <Popover open={ktsPickerOpen} onOpenChange={setKtsPickerOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -650,6 +674,9 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
         </PopoverContent>
       </Popover>
 
+      {/* pattern: controlled Popover → Button trigger → Command multiselect */}
+      {/* WHY: all filter popovers in this bar follow this shell so a future */}
+      {/* shared FilterPopover component can be extracted with a clear contract. */}
       <Popover open={payerPickerOpen} onOpenChange={setPayerPickerOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -741,99 +768,104 @@ export function TripsFiltersBar({ totalItems }: TripsFiltersBarProps) {
       </Popover>
 
       {selectedPayerIds.length === 1 && billingVariants.length > 0 && (
-        <Popover open={billingPickerOpen} onOpenChange={setBillingPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type='button'
-              variant='outline'
-              className='h-10 min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'
-            >
-              {selectedBillingVariantIds.length > 0 ? (
-                <span
-                  role='button'
-                  tabIndex={0}
-                  className='focus-visible:ring-ring mr-1 inline-flex shrink-0 rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
-                  aria-label='Abrechnungsfilter zurücksetzen'
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    clearBillingFilter();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
+        <>
+          {/* pattern: controlled Popover → Button trigger → Command multiselect */}
+          {/* WHY: all filter popovers in this bar follow this shell so a future */}
+          {/* shared FilterPopover component can be extracted with a clear contract. */}
+          <Popover open={billingPickerOpen} onOpenChange={setBillingPickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type='button'
+                variant='outline'
+                className='h-10 min-h-10 w-full min-w-0 justify-between gap-1.5 text-xs font-normal sm:min-w-[120px] md:h-9 md:min-h-0 md:w-auto md:shrink-0'
+              >
+                {selectedBillingVariantIds.length > 0 ? (
+                  <span
+                    role='button'
+                    tabIndex={0}
+                    className='focus-visible:ring-ring mr-1 inline-flex shrink-0 rounded-sm opacity-70 hover:opacity-100 focus-visible:ring-1 focus-visible:outline-none'
+                    aria-label='Abrechnungsfilter zurücksetzen'
+                    onClick={(e) => {
                       e.stopPropagation();
                       clearBillingFilter();
-                    }
-                  }}
-                >
-                  <XCircle className='size-4' />
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        clearBillingFilter();
+                      }
+                    }}
+                  >
+                    <XCircle className='size-4' />
+                  </span>
+                ) : (
+                  <PlusCircle className='mr-1 size-4 shrink-0' />
+                )}
+                <span className='min-w-0 flex-1 truncate text-left'>
+                  {billingTriggerLabel}
                 </span>
-              ) : (
-                <PlusCircle className='mr-1 size-4 shrink-0' />
-              )}
-              <span className='min-w-0 flex-1 truncate text-left'>
-                {billingTriggerLabel}
-              </span>
-              <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            className='w-[min(calc(100vw-2rem),20rem)] p-0'
-            align='start'
-          >
-            <Command>
-              <CommandInput
-                placeholder='Abrechnung suchen…'
-                className='h-8 text-xs'
-              />
-              <CommandList>
-                <CommandEmpty className='py-2 text-center text-xs'>
-                  Keine Abrechnung gefunden.
-                </CommandEmpty>
-                <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
-                  {billingVariants.map((bv) => {
-                    const isSelected = billingSelection.has(bv.id);
-                    return (
-                      <CommandItem
-                        key={bv.id}
-                        value={`${bv.billing_type_name} ${bv.name} ${bv.code} ${bv.id}`}
-                        onSelect={() => toggleBillingVariantId(bv.id)}
-                        className='text-xs'
-                      >
-                        <div
-                          className={cn(
-                            'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
-                            isSelected
-                              ? 'bg-primary text-primary-foreground'
-                              : 'opacity-50 [&_svg]:invisible'
-                          )}
+                <CaretSortIcon className='ml-1 h-3.5 w-3.5 shrink-0 opacity-50' />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className='w-[min(calc(100vw-2rem),20rem)] p-0'
+              align='start'
+            >
+              <Command>
+                <CommandInput
+                  placeholder='Abrechnung suchen…'
+                  className='h-8 text-xs'
+                />
+                <CommandList>
+                  <CommandEmpty className='py-2 text-center text-xs'>
+                    Keine Abrechnung gefunden.
+                  </CommandEmpty>
+                  <CommandGroup className='max-h-[18.75rem] overflow-y-auto'>
+                    {billingVariants.map((bv) => {
+                      const isSelected = billingSelection.has(bv.id);
+                      return (
+                        <CommandItem
+                          key={bv.id}
+                          value={`${bv.billing_type_name} ${bv.name} ${bv.code} ${bv.id}`}
+                          onSelect={() => toggleBillingVariantId(bv.id)}
+                          className='text-xs'
                         >
-                          <CheckIcon className='size-3' />
-                        </div>
-                        <span className='truncate'>
-                          {bv.billing_type_name} · {bv.name}
-                        </span>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-                {selectedBillingVariantIds.length > 0 ? (
-                  <>
-                    <CommandSeparator />
-                    <CommandGroup>
-                      <CommandItem
-                        onSelect={() => clearBillingFilter()}
-                        className='justify-center text-center text-xs'
-                      >
-                        Auswahl löschen
-                      </CommandItem>
-                    </CommandGroup>
-                  </>
-                ) : null}
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+                          <div
+                            className={cn(
+                              'border-primary mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border',
+                              isSelected
+                                ? 'bg-primary text-primary-foreground'
+                                : 'opacity-50 [&_svg]:invisible'
+                            )}
+                          >
+                            <CheckIcon className='size-3' />
+                          </div>
+                          <span className='truncate'>
+                            {bv.billing_type_name} · {bv.name}
+                          </span>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                  {selectedBillingVariantIds.length > 0 ? (
+                    <>
+                      <CommandSeparator />
+                      <CommandGroup>
+                        <CommandItem
+                          onSelect={() => clearBillingFilter()}
+                          className='justify-center text-center text-xs'
+                        >
+                          Auswahl löschen
+                        </CommandItem>
+                      </CommandGroup>
+                    </>
+                  ) : null}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </>
       )}
     </>
   );

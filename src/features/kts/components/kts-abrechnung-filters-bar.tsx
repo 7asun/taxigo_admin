@@ -13,42 +13,47 @@ import {
   CommandSeparator
 } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger
 } from '@/components/ui/popover';
-import { Switch } from '@/components/ui/switch';
 import { useTripsRscRefresh } from '@/features/trips/providers';
-import type { KtsStatus } from '@/features/kts/kts.service';
 import {
+  ABRECHNUNG_GROUP_STATUS_VALUES,
   KTS_STATUS_DOT,
   KTS_STATUS_LABELS,
-  KTS_STATUS_VALUES
+  type AbrechnungGroupStatus
 } from '@/lib/kts-status';
 import { cn } from '@/lib/utils';
 
-interface KtsFiltersBarProps {
+interface KtsAbrechnungFiltersBarProps {
   totalItems: number;
 }
 
-interface KtsStatusFilterProps {
-  selectedStatuses: string[];
-  onToggle: (status: KtsStatus) => void;
-  onClear: () => void;
+const DEFAULT_ABRECHNUNG_STATUSES: AbrechnungGroupStatus[] = [
+  'abgerechnet',
+  'ruecklaufer'
+];
+
+function parseCommaSeparated(param: string | null): string[] {
+  return param?.split(',').filter(Boolean) ?? [];
 }
 
-function KtsStatusFilter({
+function AbrechnungStatusFilter({
   selectedStatuses,
   onToggle,
   onClear
-}: KtsStatusFilterProps) {
+}: {
+  selectedStatuses: string[];
+  onToggle: (status: AbrechnungGroupStatus) => void;
+  onClear: () => void;
+}) {
   const triggerLabel =
     selectedStatuses.length === 0
       ? 'Status'
       : selectedStatuses.length === 1
-        ? KTS_STATUS_LABELS[selectedStatuses[0] as KtsStatus]
+        ? KTS_STATUS_LABELS[selectedStatuses[0] as AbrechnungGroupStatus]
         : `Status (${selectedStatuses.length})`;
 
   return (
@@ -89,7 +94,7 @@ function KtsStatusFilter({
         <Command shouldFilter={false}>
           <CommandList>
             <CommandGroup>
-              {KTS_STATUS_VALUES.map((status) => {
+              {ABRECHNUNG_GROUP_STATUS_VALUES.map((status) => {
                 const isSelected = selectedStatuses.includes(status);
                 return (
                   <CommandItem
@@ -139,15 +144,9 @@ function KtsStatusFilter({
   );
 }
 
-function parseCommaSeparated(param: string | null): string[] {
-  return param?.split(',').filter(Boolean) ?? [];
-}
-
-function isBearbeitungView(view: string | null): boolean {
-  return !view || view === 'list' || view === 'bearbeitung';
-}
-
-export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
+export function KtsAbrechnungFiltersBar({
+  totalItems
+}: KtsAbrechnungFiltersBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -156,11 +155,13 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
 
   const search = searchParams.get('search') ?? '';
   const ktsStatusParam = searchParams.get('kts_status');
+  const importedFrom = searchParams.get('imported_from') ?? '';
+  const importedTo = searchParams.get('imported_to') ?? '';
+
   const selectedStatuses = useMemo(
     () => parseCommaSeparated(ktsStatusParam),
     [ktsStatusParam]
   );
-  const overdue = searchParams.get('overdue') === 'true';
 
   const [localSearch, setLocalSearch] = useState(search);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,15 +171,15 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
   }, [search]);
 
   /**
-   * why: default queue view is ungeprueft — admin starts with unchecked papers (like Fahrten defaults to today).
-   * One-time on mount; empty deps so we do not fight filter updates.
-   * Gated off on Abrechnung tab — that view uses KtsAbrechnungFiltersBar defaults instead.
+   * why: default Abrechnung view shows actionable groups only (abgerechnet + ruecklaufer).
+   * Reuses kts_status URL key with group_status semantics — separate from Bearbeitung queue filters.
    */
   useEffect(() => {
-    if (!isBearbeitungView(searchParams.get('view'))) return;
+    if (searchParams.get('view') !== 'abrechnung') return;
     if (searchParams.get('kts_status') != null) return;
+
     const params = new URLSearchParams(searchParams.toString());
-    params.set('kts_status', 'ungeprueft');
+    params.set('kts_status', DEFAULT_ABRECHNUNG_STATUSES.join(','));
     params.set('page', '1');
     const next = `${pathname}?${params.toString()}`;
     startTransition(() => {
@@ -188,17 +189,12 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
   }, []);
 
   const updateFilters = (
-    updates: Record<string, string | string[] | null | undefined | boolean>
+    updates: Record<string, string | string[] | null | undefined>
   ) => {
     const params = new URLSearchParams(searchParams.toString());
 
     Object.entries(updates).forEach(([key, value]) => {
       if (value === undefined) return;
-      if (key === 'overdue') {
-        if (value === true) params.set('overdue', 'true');
-        else params.delete('overdue');
-        return;
-      }
       if (value === null || value === '') {
         params.delete(key);
       } else if (Array.isArray(value)) {
@@ -217,7 +213,7 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
     void refreshTripsPage();
   };
 
-  const toggleStatus = (status: KtsStatus) => {
+  const toggleStatus = (status: AbrechnungGroupStatus) => {
     const next = new Set(selectedStatuses);
     if (next.has(status)) next.delete(status);
     else next.add(status);
@@ -236,24 +232,27 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
     }, 350);
   };
 
+  const defaultStatusKey = DEFAULT_ABRECHNUNG_STATUSES.join(',');
   const hasActiveFilters =
     selectedStatuses.length > 0 ||
     Boolean(search.trim()) ||
-    overdue ||
-    (ktsStatusParam != null && ktsStatusParam !== 'ungeprueft');
+    Boolean(importedFrom) ||
+    Boolean(importedTo) ||
+    (ktsStatusParam != null && ktsStatusParam !== defaultStatusKey);
 
   const resetFilters = () => {
     updateFilters({
-      kts_status: ['ungeprueft'],
+      kts_status: DEFAULT_ABRECHNUNG_STATUSES,
       search: null,
-      overdue: false
+      imported_from: null,
+      imported_to: null
     });
     setLocalSearch('');
   };
 
   return (
-    <div className='flex min-w-0 shrink-0 items-center gap-2'>
-      <KtsStatusFilter
+    <div className='flex min-w-0 shrink-0 flex-wrap items-center gap-2'>
+      <AbrechnungStatusFilter
         selectedStatuses={selectedStatuses}
         onToggle={toggleStatus}
         onClear={clearStatusFilter}
@@ -261,7 +260,7 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
 
       <div className='relative min-w-0 flex-1 md:max-w-xs'>
         <Input
-          placeholder='Fahrgast oder KTS-Patient-ID…'
+          placeholder='Belegnummer…'
           value={localSearch}
           onChange={(e) => handleSearchChange(e.target.value)}
           className='h-9 pr-8 text-xs'
@@ -278,16 +277,22 @@ export function KtsFiltersBar({ totalItems }: KtsFiltersBarProps) {
         ) : null}
       </div>
 
-      <div className='flex items-center gap-2'>
-        <Switch
-          id='kts-overdue-filter'
-          checked={overdue}
-          onCheckedChange={(checked) => updateFilters({ overdue: checked })}
-        />
-        <Label htmlFor='kts-overdue-filter' className='text-xs font-normal'>
-          Überfällig
-        </Label>
-      </div>
+      <Input
+        type='date'
+        value={importedFrom}
+        onChange={(e) =>
+          updateFilters({ imported_from: e.target.value || null })
+        }
+        className='h-9 w-[140px] text-xs'
+        aria-label='Importiert ab'
+      />
+      <Input
+        type='date'
+        value={importedTo}
+        onChange={(e) => updateFilters({ imported_to: e.target.value || null })}
+        className='h-9 w-[140px] text-xs'
+        aria-label='Importiert bis'
+      />
 
       <div className='flex-1' />
 

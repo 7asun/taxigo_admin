@@ -69,7 +69,12 @@ export function KtsActionsCell({
     }
   };
 
-  if (status === 'uebergeben' || status === 'abgerechnet') {
+  if (
+    status === 'uebergeben' ||
+    status === 'abgerechnet' ||
+    status === 'ruecklaufer' ||
+    status === 'bezahlt'
+  ) {
     return <span className='text-muted-foreground text-xs'>—</span>;
   }
 

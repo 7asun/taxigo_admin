@@ -26,6 +26,11 @@ export const KTS_STATUS_FEHLERHAFT = 'fehlerhaft' as KtsStatus;
 export const KTS_STATUS_IN_KORREKTUR = 'in_korrektur' as KtsStatus;
 export const KTS_STATUS_UEBERGEBEN = 'uebergeben' as KtsStatus;
 export const KTS_STATUS_ABGERECHNET = 'abgerechnet' as KtsStatus;
+export const KTS_STATUS_RUECKLAUFER = 'ruecklaufer' as KtsStatus;
+export const KTS_STATUS_BEZAHLT = 'bezahlt' as KtsStatus;
+
+/** React Query key root for Abrechnung tab groups and expand-row trip fetches. */
+export const ktsAbrechnungKey = ['kts', 'abrechnung'] as const;
 
 function isKtsErrorStatus(status: KtsStatus): boolean {
   return status === KTS_STATUS_FEHLERHAFT || status === KTS_STATUS_IN_KORREKTUR;
@@ -555,6 +560,191 @@ export async function applyKtsInvoiceImport(
   }
 
   return { importId: data };
+}
+
+// --- PR4.2 Abrechnung group transitions ---
+
+export interface MarkBelegnummerResult {
+  success: boolean;
+  updated?: number;
+  error?: string;
+  blocked?: number;
+  reason?: string | null;
+}
+
+function parseMarkBelegnummerResult(data: unknown): MarkBelegnummerResult {
+  if (!data || typeof data !== 'object') {
+    return { success: false, error: 'invalid_response' };
+  }
+  const row = data as Record<string, unknown>;
+  return {
+    success: row.success === true,
+    updated: typeof row.updated === 'number' ? row.updated : undefined,
+    error: typeof row.error === 'string' ? row.error : undefined,
+    blocked: typeof row.blocked === 'number' ? row.blocked : undefined,
+    reason: typeof row.reason === 'string' ? row.reason : null
+  };
+}
+
+function mapMarkBelegnummerError(err: unknown): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('unauthorized')) {
+    return new Error('Sie haben keine Berechtigung für diese Aktion.');
+  }
+  if (msg.includes('must not be empty')) {
+    return new Error('Belegnummer fehlt.');
+  }
+  return new Error('Aktion fehlgeschlagen. Bitte erneut versuchen.');
+}
+
+export async function markBelegnummerBezahlt(
+  supabase: SupabaseClient,
+  payload: { companyId: string; belegnummer: string }
+): Promise<MarkBelegnummerResult> {
+  const { data, error } = await supabase.rpc('mark_belegnummer_bezahlt', {
+    p_company_id: payload.companyId,
+    p_belegnummer: payload.belegnummer
+  });
+
+  if (error) {
+    throw mapMarkBelegnummerError(error);
+  }
+
+  return parseMarkBelegnummerResult(data);
+}
+
+export async function markBelegnummerRuecklaufer(
+  supabase: SupabaseClient,
+  payload: { companyId: string; belegnummer: string; reason?: string | null }
+): Promise<MarkBelegnummerResult> {
+  const { data, error } = await supabase.rpc('mark_belegnummer_ruecklaufer', {
+    p_company_id: payload.companyId,
+    p_belegnummer: payload.belegnummer,
+    p_reason: payload.reason ?? null
+  });
+
+  if (error) {
+    throw mapMarkBelegnummerError(error);
+  }
+
+  return parseMarkBelegnummerResult(data);
+}
+
+/** Manual escape hatch: ruecklaufer → abgerechnet without CSV reimport. */
+export async function markBelegnummerAbgerechnet(
+  supabase: SupabaseClient,
+  payload: { companyId: string; belegnummer: string }
+): Promise<MarkBelegnummerResult> {
+  const { data, error } = await supabase.rpc('mark_belegnummer_abgerechnet', {
+    p_company_id: payload.companyId,
+    p_belegnummer: payload.belegnummer
+  });
+
+  if (error) {
+    throw mapMarkBelegnummerError(error);
+  }
+
+  return parseMarkBelegnummerResult(data);
+}
+
+export interface KtsAbrechnungKpis {
+  total_belege: number;
+  total_invoiced: number;
+  total_bezahlt: number;
+  total_offen: number;
+}
+
+export async function fetchKtsAbrechnungGroups(
+  supabase: SupabaseClient,
+  payload: {
+    companyId: string;
+    statusFilter?: string[] | null;
+    search?: string | null;
+    importedFrom?: string | null;
+    importedTo?: string | null;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<
+  Array<{
+    kts_belegnummer: string;
+    trip_count: number;
+    gesamtbetrag: number;
+    eigenanteil_gesamt: number;
+    earliest_trip: string | null;
+    latest_trip: string | null;
+    import_id: string | null;
+    source_filename: string | null;
+    imported_at: string | null;
+    import_count: number;
+    has_multiple_imports: boolean;
+    group_status: string;
+  }>
+> {
+  const { data, error } = await supabase.rpc('get_kts_abrechnung_groups', {
+    p_company_id: payload.companyId,
+    p_status_filter: payload.statusFilter ?? null,
+    p_search: payload.search ?? null,
+    p_imported_from: payload.importedFrom ?? null,
+    p_imported_to: payload.importedTo ?? null,
+    p_limit: payload.limit ?? 50,
+    p_offset: payload.offset ?? 0
+  });
+
+  if (error) {
+    throw new Error('Abrechnungsbelege konnten nicht geladen werden.');
+  }
+
+  return data ?? [];
+}
+
+export async function fetchKtsAbrechnungGroupsCount(
+  supabase: SupabaseClient,
+  payload: {
+    companyId: string;
+    statusFilter?: string[] | null;
+    search?: string | null;
+    importedFrom?: string | null;
+    importedTo?: string | null;
+  }
+): Promise<number> {
+  const { data, error } = await supabase.rpc(
+    'get_kts_abrechnung_groups_count',
+    {
+      p_company_id: payload.companyId,
+      p_status_filter: payload.statusFilter ?? null,
+      p_search: payload.search ?? null,
+      p_imported_from: payload.importedFrom ?? null,
+      p_imported_to: payload.importedTo ?? null
+    }
+  );
+
+  if (error) {
+    throw new Error('Abrechnungsbelege konnten nicht gezählt werden.');
+  }
+
+  return Number(data ?? 0);
+}
+
+export async function fetchKtsAbrechnungKpis(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<KtsAbrechnungKpis> {
+  const { data, error } = await supabase.rpc('get_kts_abrechnung_kpis', {
+    p_company_id: companyId
+  });
+
+  if (error) {
+    throw new Error('Abrechnungs-KPIs konnten nicht geladen werden.');
+  }
+
+  const row = data?.[0];
+  return {
+    total_belege: Number(row?.total_belege ?? 0),
+    total_invoiced: Number(row?.total_invoiced ?? 0),
+    total_bezahlt: Number(row?.total_bezahlt ?? 0),
+    total_offen: Number(row?.total_offen ?? 0)
+  };
 }
 
 // --- Correction rounds ---
