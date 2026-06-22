@@ -27,6 +27,9 @@ export const searchParams = {
   kts_status: parseAsArrayOf(parseAsString, ','),
   /** KTS queue: show only in_korrektur trips with open correction older than KTS_OVERDUE_DAYS. */
   overdue: parseAsBoolean.withDefault(false),
+  /** KTS Abrechnung tab: import batch date range (ISO YYYY-MM-DD). Abrechnung-only — no other page reads these. */
+  imported_from: parseAsString,
+  imported_to: parseAsString,
   scheduled_at: parseAsString, // for date filtering
   sort: parseAsString,
   view: parseAsString.withDefault('list'),

@@ -1490,6 +1490,7 @@ export type Database = {
           kts_invoice_amount: number | null;
           kts_eigenanteil: number | null;
           kts_external_invoice_id: string | null;
+          kts_ruecklaufer_reason: string | null;
           kts_source: string | null;
           kts_status: Database['public']['Enums']['kts_status'] | null;
           reha_schein: boolean;
@@ -1576,6 +1577,7 @@ export type Database = {
           kts_invoice_amount?: number | null;
           kts_eigenanteil?: number | null;
           kts_external_invoice_id?: string | null;
+          kts_ruecklaufer_reason?: string | null;
           kts_source?: string | null;
           kts_status?: Database['public']['Enums']['kts_status'] | null;
           reha_schein?: boolean;
@@ -1660,6 +1662,7 @@ export type Database = {
           kts_invoice_amount?: number | null;
           kts_eigenanteil?: number | null;
           kts_external_invoice_id?: string | null;
+          kts_ruecklaufer_reason?: string | null;
           kts_source?: string | null;
           kts_status?: Database['public']['Enums']['kts_status'] | null;
           reha_schein?: boolean;
@@ -2178,6 +2181,66 @@ export type Database = {
           ungeprueft: number;
         }[];
       };
+      get_kts_abrechnung_groups: {
+        Args: {
+          p_company_id: string;
+          p_status_filter?: string[] | null;
+          p_search?: string | null;
+          p_imported_from?: string | null;
+          p_imported_to?: string | null;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: {
+          eigenanteil_gesamt: number;
+          earliest_trip: string | null;
+          gesamtbetrag: number;
+          group_status: string;
+          has_multiple_imports: boolean;
+          import_count: number;
+          import_id: string | null;
+          imported_at: string | null;
+          kts_belegnummer: string;
+          latest_trip: string | null;
+          source_filename: string | null;
+          trip_count: number;
+        }[];
+      };
+      get_kts_abrechnung_groups_count: {
+        Args: {
+          p_company_id: string;
+          p_status_filter?: string[] | null;
+          p_search?: string | null;
+          p_imported_from?: string | null;
+          p_imported_to?: string | null;
+        };
+        Returns: number;
+      };
+      get_kts_abrechnung_kpis: {
+        Args: { p_company_id: string };
+        Returns: {
+          total_belege: number;
+          total_bezahlt: number;
+          total_invoiced: number;
+          total_offen: number;
+        }[];
+      };
+      mark_belegnummer_abgerechnet: {
+        Args: { p_belegnummer: string; p_company_id: string };
+        Returns: Json;
+      };
+      mark_belegnummer_bezahlt: {
+        Args: { p_belegnummer: string; p_company_id: string };
+        Returns: Json;
+      };
+      mark_belegnummer_ruecklaufer: {
+        Args: {
+          p_belegnummer: string;
+          p_company_id: string;
+          p_reason?: string | null;
+        };
+        Returns: Json;
+      };
       apply_kts_invoice_import: {
         Args: {
           p_company_id: string;
@@ -2308,7 +2371,9 @@ export type Database = {
         | 'fehlerhaft'
         | 'in_korrektur'
         | 'uebergeben'
-        | 'abgerechnet';
+        | 'abgerechnet'
+        | 'ruecklaufer'
+        | 'bezahlt';
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -2445,7 +2510,9 @@ export const Constants = {
         'fehlerhaft',
         'in_korrektur',
         'uebergeben',
-        'abgerechnet'
+        'abgerechnet',
+        'ruecklaufer',
+        'bezahlt'
       ]
     }
   }
