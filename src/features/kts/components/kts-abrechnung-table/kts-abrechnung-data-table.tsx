@@ -63,7 +63,8 @@ export function KtsAbrechnungDataTable({
                       <TableHead
                         key={header.id}
                         colSpan={header.colSpan}
-                        className='bg-background'
+                        className='bg-background !text-center'
+                        style={{ width: header.getSize() }}
                       >
                         {header.isPlaceholder
                           ? null
@@ -82,7 +83,11 @@ export function KtsAbrechnungDataTable({
                     <React.Fragment key={row.id}>
                       <TableRow className='hover:bg-muted/50'>
                         {row.getVisibleCells().map((cell) => (
-                          <TableCell key={cell.id}>
+                          <TableCell
+                            key={cell.id}
+                            className='p-0'
+                            style={{ width: cell.column.getSize() }}
+                          >
                             {flexRender(
                               cell.column.columnDef.cell,
                               cell.getContext()

@@ -2,6 +2,8 @@ import React from 'react';
 import { SidebarTrigger } from '../ui/sidebar';
 import { Separator } from '../ui/separator';
 import { Breadcrumbs } from '../breadcrumbs';
+// Self-contained header widget — TanStack Query + dialog board; no Fahrten RSC refresh.
+import { TripsOverviewWidgetTrigger } from '@/features/trips/components/trips-overview-widget';
 import { PendingAssignmentsPopover } from '@/features/trips/components/pending-assignments/pending-assignments-popover';
 import { CreateTripDialogButton } from '@/features/trips/components/create-trip-dialog-button';
 import SearchInput from '../search-input';
@@ -19,6 +21,7 @@ export default function Header() {
 
       <div className='flex shrink-0 items-center gap-2 px-4'>
         <CreateTripDialogButton />
+        <TripsOverviewWidgetTrigger />
         <div className='hidden md:flex'>
           <SearchInput />
         </div>

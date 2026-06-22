@@ -109,10 +109,6 @@ export function KtsAbrechnungExpandRow({
         </div>
       ) : null}
 
-      {importLine ? (
-        <p className='text-muted-foreground text-xs'>{importLine}</p>
-      ) : null}
-
       <div className='overflow-x-auto rounded-md border'>
         <Table>
           <TableHeader>
@@ -120,8 +116,8 @@ export function KtsAbrechnungExpandRow({
               <TableHead className='text-xs'>Termin</TableHead>
               <TableHead className='text-xs'>Fahrgast</TableHead>
               <TableHead className='text-xs'>KTS-Patient-ID</TableHead>
-              <TableHead className='text-right text-xs'>Betrag</TableHead>
-              <TableHead className='text-right text-xs'>Eigenanteil</TableHead>
+              <TableHead className='text-center text-xs'>Betrag</TableHead>
+              <TableHead className='text-center text-xs'>Eigenanteil</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -151,12 +147,12 @@ export function KtsAbrechnungExpandRow({
                   <TableCell className='font-mono text-xs tabular-nums'>
                     {trip.kts_patient_id ?? '—'}
                   </TableCell>
-                  <TableCell className='text-right text-xs tabular-nums'>
+                  <TableCell className='text-center text-xs tabular-nums'>
                     {trip.kts_invoice_amount != null
                       ? formatKtsInvoiceAmount(trip.kts_invoice_amount)
                       : '—'}
                   </TableCell>
-                  <TableCell className='text-right text-xs tabular-nums'>
+                  <TableCell className='text-center text-xs tabular-nums'>
                     {trip.kts_eigenanteil != null
                       ? formatKtsInvoiceAmount(trip.kts_eigenanteil)
                       : '—'}
@@ -179,64 +175,71 @@ export function KtsAbrechnungExpandRow({
           {bezahltError ? (
             <p className='text-destructive text-xs'>{bezahltError}</p>
           ) : null}
-          <div className='flex flex-wrap items-center gap-2'>
-            <Button
-              type='button'
-              size='sm'
-              className='gap-1.5'
-              disabled={anyPending}
-              onClick={() => void handleMarkBezahlt()}
-            >
-              {bezahltMutation.isPending ? (
-                <Loader2 className='h-3.5 w-3.5 animate-spin' />
-              ) : (
-                <Check className='h-3.5 w-3.5' />
-              )}
-              Als bezahlt markieren
-            </Button>
-            {!showRuecklauferInput ? (
+          <div className='flex items-center justify-between gap-4'>
+            <div className='flex flex-wrap items-center gap-2'>
               <Button
                 type='button'
                 size='sm'
-                variant='outline'
                 className='gap-1.5'
                 disabled={anyPending}
-                onClick={() => setShowRuecklauferInput(true)}
+                onClick={() => void handleMarkBezahlt()}
               >
-                <AlertTriangle className='h-3.5 w-3.5' />
-                Rückläufer melden
+                {bezahltMutation.isPending ? (
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <Check className='h-3.5 w-3.5' />
+                )}
+                Als bezahlt markieren
               </Button>
-            ) : (
-              <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
-                <Input
-                  value={ruecklauferReason}
-                  onChange={(e) => setRuecklauferReason(e.target.value)}
-                  placeholder='Grund (optional)'
-                  className='h-8 max-w-xs text-xs'
-                />
+              {!showRuecklauferInput ? (
                 <Button
                   type='button'
                   size='sm'
-                  variant='destructive'
+                  variant='outline'
+                  className='gap-1.5'
                   disabled={anyPending}
-                  onClick={() => void handleMarkRuecklaufer()}
+                  onClick={() => setShowRuecklauferInput(true)}
                 >
-                  Bestätigen
+                  <AlertTriangle className='h-3.5 w-3.5' />
+                  Rückläufer melden
                 </Button>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='ghost'
-                  disabled={anyPending}
-                  onClick={() => {
-                    setShowRuecklauferInput(false);
-                    setRuecklauferReason('');
-                  }}
-                >
-                  Abbrechen
-                </Button>
-              </div>
-            )}
+              ) : (
+                <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
+                  <Input
+                    value={ruecklauferReason}
+                    onChange={(e) => setRuecklauferReason(e.target.value)}
+                    placeholder='Grund (optional)'
+                    className='h-8 max-w-xs text-xs'
+                  />
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='destructive'
+                    disabled={anyPending}
+                    onClick={() => void handleMarkRuecklaufer()}
+                  >
+                    Bestätigen
+                  </Button>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    disabled={anyPending}
+                    onClick={() => {
+                      setShowRuecklauferInput(false);
+                      setRuecklauferReason('');
+                    }}
+                  >
+                    Abbrechen
+                  </Button>
+                </div>
+              )}
+            </div>
+            {importLine ? (
+              <span className='text-muted-foreground shrink-0 text-right text-xs'>
+                {importLine}
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}

@@ -1,5 +1,7 @@
 # Trips Widget Audit
 
+> **IMPLEMENTED** — see [docs/features/trips-overview-widget.md](../features/trips-overview-widget.md)
+
 ## Scope Notes
 
 The prompt names an older/nonexistent `src/features/admin/...` structure. I could not confirm any of these files in this repo:
