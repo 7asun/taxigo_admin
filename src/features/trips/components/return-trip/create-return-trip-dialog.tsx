@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import type { Trip } from '@/features/trips/api/trips.service';
+import type { Trip, UpdateTrip } from '@/features/trips/api/trips.service';
 import { findPairedTrip } from '@/features/trips/api/recurring-exceptions.actions';
 import { canCreateLinkedReturn } from '@/features/trips/lib/can-create-linked-return';
 import { createLinkedReturnForOutbound } from '@/features/trips/lib/create-linked-return';
@@ -31,6 +32,7 @@ import {
   buildScheduledAt,
   TripTimeError
 } from '@/features/trips/lib/trip-time';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 
 export interface CreateReturnTripDialogProps {
   open: boolean;
@@ -70,6 +72,7 @@ export function CreateReturnTripDialog({
   drivers,
   onSuccess
 }: CreateReturnTripDialogProps) {
+  const queryClient = useQueryClient();
   const [scope, setScope] = React.useState<Scope>('single');
   const [scheduledAt, setScheduledAt] = React.useState<Date | undefined>(() =>
     defaultReturnDateTime(anchorTrip)
@@ -156,14 +159,37 @@ export function CreateReturnTripDialog({
         );
       }
 
+      const createdReturns: Array<{
+        outboundId: string;
+        outboundPatch: Pick<UpdateTrip, 'linked_trip_id' | 'link_type'>;
+      }> = [];
+
       for (const row of eligible) {
-        await createLinkedReturnForOutbound(row.outbound as Trip, {
-          scheduledAtIso,
-          driverId: resolvedDriverId,
-          companyId,
-          createdBy: user?.id ?? null
+        const created = await createLinkedReturnForOutbound(
+          row.outbound as Trip,
+          {
+            scheduledAtIso,
+            driverId: resolvedDriverId,
+            companyId,
+            createdBy: user?.id ?? null
+          }
+        );
+        // Mirror outbound patch from create-linked-return.ts (lines 58–61)
+        createdReturns.push({
+          outboundId: row.outbound.id,
+          outboundPatch: {
+            linked_trip_id: created.id,
+            link_type: 'outbound'
+          }
         });
       }
+
+      // WHY: link metadata is planning-affecting — always bust widgets
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: createdReturns.map((r) => r.outboundId),
+        patch: createdReturns.map((r) => r.outboundPatch),
+        includePlanningWidgets: true
+      });
 
       toast.success(
         eligible.length === 1

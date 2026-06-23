@@ -1,7 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { FieldPath, FieldValues, UseFormReturn } from 'react-hook-form';
+import {
+  FieldPath,
+  FieldValues,
+  UseFormReturn,
+  ControllerRenderProps
+} from 'react-hook-form';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { CalendarIcon } from 'lucide-react';
@@ -145,6 +150,121 @@ interface FormBirthdatePickerProps<
   form: UseFormReturn<TFieldValues>;
 }
 
+function BirthdateFieldControl<
+  TFieldValues extends FieldValues = FieldValues,
+  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
+>({
+  form,
+  name,
+  label,
+  description,
+  required,
+  disabled,
+  className,
+  field
+}: FormBirthdatePickerProps<TFieldValues, TName> & {
+  field: ControllerRenderProps<TFieldValues, TName>;
+}) {
+  const [popoverOpen, setPopoverOpen] = React.useState(false);
+  const [inputValue, setInputValue] = React.useState('');
+
+  React.useEffect(() => {
+    if ((field.value as unknown) instanceof Date) {
+      setInputValue(formatBirthdateForInput(field.value as Date));
+    } else {
+      setInputValue('');
+    }
+  }, [field.value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+
+    const parsed = parseGermanBirthdateString(val);
+    if (parsed) {
+      field.onChange(parsed);
+      form.clearErrors(name);
+    } else if (val.trim() === '') {
+      field.onChange(null);
+      form.clearErrors(name);
+    }
+  };
+
+  const handleBlur = () => {
+    const val = inputValue.trim();
+    if (val === '') {
+      field.onChange(null);
+      form.clearErrors(name);
+      return;
+    }
+    const parsed = parseGermanBirthdateString(val);
+    if (parsed) {
+      field.onChange(parsed);
+      setInputValue(formatBirthdateForInput(parsed));
+      form.clearErrors(name);
+    } else {
+      form.setError(name, {
+        type: 'manual',
+        message: 'Ungültiges Datum (z. B. 15.05.1990 oder 15.05.)'
+      });
+    }
+  };
+
+  const handleCalendarSelect = (date: Date | undefined) => {
+    field.onChange(date || null);
+    form.clearErrors(name);
+    setPopoverOpen(false);
+  };
+
+  return (
+    <FormItem className={cn('flex flex-col', className)}>
+      {label && (
+        <FormLabel>
+          {label}
+          {required && <span className='ml-1 text-red-500'>*</span>}
+        </FormLabel>
+      )}
+      <div className='relative flex items-center'>
+        <Input
+          type='text'
+          placeholder='TT.MM.JJJJ oder TT.MM.'
+          value={inputValue}
+          onChange={handleInputChange}
+          onBlur={handleBlur}
+          disabled={disabled}
+          className='h-10 pr-10 md:h-9'
+        />
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen} modal={false}>
+          <PopoverTrigger asChild>
+            <Button
+              type='button'
+              variant='ghost'
+              size='icon'
+              disabled={disabled}
+              className='text-muted-foreground hover:text-foreground absolute top-0 right-0 h-full w-10 hover:bg-transparent'
+            >
+              <CalendarIcon className='h-4 w-4 opacity-50' />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className='w-auto p-0' align='end'>
+            <Calendar
+              mode='single'
+              selected={(field.value as Date | null) || undefined}
+              onSelect={handleCalendarSelect}
+              captionLayout='dropdown'
+              fromYear={1900}
+              toYear={new Date().getFullYear()}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+      {description && <FormDescription>{description}</FormDescription>}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
 export function FormBirthdatePicker<
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
@@ -157,115 +277,22 @@ export function FormBirthdatePicker<
   disabled,
   className
 }: FormBirthdatePickerProps<TFieldValues, TName>) {
-  const [popoverOpen, setPopoverOpen] = React.useState(false);
-  const [inputValue, setInputValue] = React.useState('');
-
   return (
     <FormField
       control={form.control}
       name={name}
-      render={({ field }) => {
-        // Sync local text input value when the underlying form field value changes
-        React.useEffect(() => {
-          if ((field.value as unknown) instanceof Date) {
-            setInputValue(formatBirthdateForInput(field.value));
-          } else {
-            setInputValue('');
-          }
-        }, [field.value]);
-
-        const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-          const val = e.target.value;
-          setInputValue(val);
-
-          const parsed = parseGermanBirthdateString(val);
-          if (parsed) {
-            field.onChange(parsed);
-            form.clearErrors(name);
-          } else if (val.trim() === '') {
-            field.onChange(null);
-            form.clearErrors(name);
-          }
-        };
-
-        const handleBlur = () => {
-          const val = inputValue.trim();
-          if (val === '') {
-            field.onChange(null);
-            form.clearErrors(name);
-            return;
-          }
-          const parsed = parseGermanBirthdateString(val);
-          if (parsed) {
-            field.onChange(parsed);
-            setInputValue(formatBirthdateForInput(parsed));
-            form.clearErrors(name);
-          } else {
-            form.setError(name, {
-              type: 'manual',
-              message: 'Ungültiges Datum (z. B. 15.05.1990 oder 15.05.)'
-            });
-          }
-        };
-
-        const handleCalendarSelect = (date: Date | undefined) => {
-          field.onChange(date || null);
-          form.clearErrors(name);
-          setPopoverOpen(false);
-        };
-
-        return (
-          <FormItem className={cn('flex flex-col', className)}>
-            {label && (
-              <FormLabel>
-                {label}
-                {required && <span className='ml-1 text-red-500'>*</span>}
-              </FormLabel>
-            )}
-            <div className='relative flex items-center'>
-              <Input
-                type='text'
-                placeholder='TT.MM.JJJJ oder TT.MM.'
-                value={inputValue}
-                onChange={handleInputChange}
-                onBlur={handleBlur}
-                disabled={disabled}
-                className='h-10 pr-10 md:h-9'
-              />
-              <Popover
-                open={popoverOpen}
-                onOpenChange={setPopoverOpen}
-                modal={false}
-              >
-                <PopoverTrigger asChild>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon'
-                    disabled={disabled}
-                    className='text-muted-foreground hover:text-foreground absolute top-0 right-0 h-full w-10 hover:bg-transparent'
-                  >
-                    <CalendarIcon className='h-4 w-4 opacity-50' />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className='w-auto p-0' align='end'>
-                  <Calendar
-                    mode='single'
-                    selected={field.value || undefined}
-                    onSelect={handleCalendarSelect}
-                    captionLayout='dropdown'
-                    fromYear={1900}
-                    toYear={new Date().getFullYear()}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            {description && <FormDescription>{description}</FormDescription>}
-            <FormMessage />
-          </FormItem>
-        );
-      }}
+      render={({ field }) => (
+        <BirthdateFieldControl
+          form={form}
+          name={name}
+          label={label}
+          description={description}
+          required={required}
+          disabled={disabled}
+          className={className}
+          field={field}
+        />
+      )}
     />
   );
 }

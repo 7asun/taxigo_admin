@@ -52,7 +52,7 @@ import {
   buildItemsByColumn
 } from '@/features/trips/lib/kanban-columns';
 import { deriveStatusForPending } from '@/features/trips/lib/kanban-grouping';
-import { tripKeys } from '@/query/keys';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import type {
   KanbanTrip,
   GroupByMode,
@@ -501,37 +501,45 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     if (Object.keys(pendingChanges).length === 0) return;
     setIsSaving(true);
     try {
-      await Promise.all(
-        Object.entries(pendingChanges).map(([id, change]) => {
-          const trip = trips.find((t) => t.id === id);
-          const payload: Parameters<typeof tripsService.updateTrip>[1] = {};
+      const entries = Object.entries(pendingChanges).map(([id, change]) => {
+        const trip = trips.find((t) => t.id === id);
+        const payload: Parameters<typeof tripsService.updateTrip>[1] = {};
 
-          // Only patch assignee fields when driver_id was explicitly staged.
-          // Time/payer/group-only saves must not call buildAssignmentPatch — it
-          // would merge current state and could emit driver_id: null, clearing
-          // an existing driver assignment.
-          if (change.driver_id !== undefined && trip) {
-            const assignmentPatch = buildAssignmentPatch(trip, {
-              driver_id: change.driver_id
-            });
-            Object.assign(payload, assignmentPatch);
-            if (change.status !== undefined) {
-              payload.status = change.status;
-            }
+        // Only patch assignee fields when driver_id was explicitly staged.
+        // Time/payer/group-only saves must not call buildAssignmentPatch — it
+        // would merge current state and could emit driver_id: null, clearing
+        // an existing driver assignment.
+        if (change.driver_id !== undefined && trip) {
+          const assignmentPatch = buildAssignmentPatch(trip, {
+            driver_id: change.driver_id
+          });
+          Object.assign(payload, assignmentPatch);
+          if (change.status !== undefined) {
+            payload.status = change.status;
           }
+        }
 
-          if (change.payer_id !== undefined) payload.payer_id = change.payer_id;
-          if (change.scheduled_at !== undefined)
-            payload.scheduled_at = change.scheduled_at;
-          if (change.group_id !== undefined) payload.group_id = change.group_id;
-          if (change.stop_order !== undefined)
-            payload.stop_order = change.stop_order;
-          return tripsService.updateTrip(id, payload);
-        })
+        if (change.payer_id !== undefined) payload.payer_id = change.payer_id;
+        if (change.scheduled_at !== undefined)
+          payload.scheduled_at = change.scheduled_at;
+        if (change.group_id !== undefined) payload.group_id = change.group_id;
+        if (change.stop_order !== undefined)
+          payload.stop_order = change.stop_order;
+
+        return { id, payload };
+      });
+
+      await Promise.all(
+        entries.map(({ id, payload }) => tripsService.updateTrip(id, payload))
       );
-      // Invalidate React Query cache to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
-      // This operates at the client-side cache layer, separate from the RSC refresh below
-      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+
+      // WHY: 'auto' — Kanban saves may be reorder-only; inspect the patch
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: entries.map((e) => e.id),
+        patch: entries.map((e) => e.payload),
+        includePlanningWidgets: 'auto',
+        includeTripList: false
+      });
       // RSC refresh handles the server component layer
       await refreshTripsPage();
       clearPendingChanges();

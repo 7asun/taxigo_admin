@@ -2,14 +2,15 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { tripKeys } from '@/query/keys';
+import { invalidateAfterTripSave } from '../lib/invalidate-after-trip-save';
 import { tripsService, type Trip, type UpdateTrip } from '../api/trips.service';
 
 /**
  * Updates a single trip via `tripsService.updateTrip` with an **optimistic** merge into
- * `tripKeys.detail(id)`, then reconciles via `invalidateQueries` on settle (success or error).
+ * `tripKeys.detail(id)`, then reconciles via `invalidateAfterTripSave` on settle (success or error).
  *
- * `tripKeys.all` is invalidated on settle so dashboard stats ("Fahrten heute", "Umsatz heute")
- * stay consistent — same as before, but not merged optimistically.
+ * List + detail invalidation and planning-widget busting are owned by the shared helper
+ * (`includePlanningWidgets: 'auto'` inspects the patch).
  */
 export function useUpdateTripMutation() {
   const queryClient = useQueryClient();
@@ -39,9 +40,15 @@ export function useUpdateTripMutation() {
       }
     },
 
-    onSettled: (_data, _err, { id }) => {
-      void queryClient.invalidateQueries({ queryKey: tripKeys.detail(id) });
-      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+    onSettled: async (_data, _err, { id, patch }) => {
+      // WHY: 'auto' busts widget roots only for planning-relevant patches (scheduled_at,
+      // driver_id, status, …). Notes/KTS/Reha/billing writes skip widget invalidation.
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: [id],
+        patch,
+        includePlanningWidgets: 'auto',
+        includeTripList: true
+      });
     }
   });
 }

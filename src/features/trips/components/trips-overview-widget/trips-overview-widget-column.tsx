@@ -1,6 +1,7 @@
 'use client';
 
 import type { DraggableAttributes } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import { TripAssigneeBadge } from '@/features/trips/components/trip-assignee-badge';
 import { KanbanDriverColumnHeader } from '@/features/trips/components/kanban/kanban-driver-column-header';
 import { TripCard } from '@/features/trips/components/kanban/kanban-trip-card';
@@ -23,6 +24,7 @@ interface TripsOverviewWidgetColumnProps {
   column: WidgetColumn;
   items: KanbanTrip[];
   groupLabels: Record<string, string>;
+  onCardClick?: (trip: KanbanTrip) => void;
 }
 
 const noopTimeChange: OnTimeChange = () => {};
@@ -31,13 +33,17 @@ const noopUngroup: OnUngroup = () => {};
 
 /**
  * One driver column in the widget board — reuses Kanban card/header visuals.
- * Driver reassignment is deferred to v2 DnD (`useWidgetTripAssignment` + onDragEnd).
+ * Grouped trips stay disableDrag to preserve group integrity (group drag deferred to v3).
  */
 export function TripsOverviewWidgetColumn({
   column,
   items,
-  groupLabels
+  groupLabels,
+  onCardClick
 }: TripsOverviewWidgetColumnProps) {
+  const droppableId = column.id ?? 'unassigned';
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+
   return (
     <div className='bg-muted/40 flex h-full w-[17rem] min-w-[200px] shrink-0 flex-col rounded-lg border'>
       <div className='shrink-0'>
@@ -52,7 +58,13 @@ export function TripsOverviewWidgetColumn({
         />
       </div>
 
-      <div className='flex min-h-0 flex-1 flex-col gap-2 px-2 pt-2 pb-8'>
+      <div
+        ref={setNodeRef}
+        className={cn(
+          'flex min-h-0 flex-1 flex-col gap-2 px-2 pt-2 pb-8',
+          isOver && 'ring-primary/40 ring-2'
+        )}
+      >
         {items.length === 0 ? (
           <div className='text-muted-foreground flex flex-1 items-center justify-center text-xs'>
             Keine Fahrten
@@ -61,6 +73,7 @@ export function TripsOverviewWidgetColumn({
           chunkItemsByGroup(items).map((chunk, chunkIdx) =>
             chunk.trips.map((trip) => {
               const isFremdfirma = isTripFremdfirma(trip);
+              const isNonDraggable = isFremdfirma || Boolean(trip.group_id);
               const assignee: TripAssignee = isFremdfirma
                 ? resolveTripAssignee({
                     driver_id: trip.driver_id,
@@ -79,6 +92,18 @@ export function TripsOverviewWidgetColumn({
               const groupLabel =
                 trip.group_id != null ? groupLabels[trip.group_id] : undefined;
 
+              const card = (
+                <TripCard
+                  trip={trip}
+                  columnId={column.id}
+                  groupLabel={groupLabel}
+                  disableDrag={isNonDraggable}
+                  onTimeChange={noopTimeChange}
+                  onStopOrderChange={noopStopOrderChange}
+                  onUngroup={noopUngroup}
+                />
+              );
+
               return (
                 <div
                   key={`${chunk.type}-${trip.id}-${chunkIdx}`}
@@ -87,15 +112,16 @@ export function TripsOverviewWidgetColumn({
                     isFremdfirma && 'rounded-md border border-dashed opacity-75'
                   )}
                 >
-                  <TripCard
-                    trip={trip}
-                    columnId={column.id}
-                    groupLabel={groupLabel}
-                    disableDrag
-                    onTimeChange={noopTimeChange}
-                    onStopOrderChange={noopStopOrderChange}
-                    onUngroup={noopUngroup}
-                  />
+                  {onCardClick && !isNonDraggable ? (
+                    <div
+                      className='cursor-pointer md:cursor-default'
+                      onClick={() => onCardClick(trip)}
+                    >
+                      {card}
+                    </div>
+                  ) : (
+                    card
+                  )}
 
                   {isFremdfirma ? (
                     <TripAssigneeBadge

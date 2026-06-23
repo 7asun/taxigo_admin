@@ -20,11 +20,14 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { useDriversQuery } from '@/features/trips/hooks/use-trip-reference-queries';
 import { useTripsOverviewWidget } from '@/features/trips/hooks/use-trips-overview-widget';
+import { useWidgetTripAssignment } from '@/features/trips/hooks/use-widget-trip-assignment';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
 import { todayYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
+import { useIsNarrowScreen } from '@/hooks/use-is-narrow-screen';
 import { cn } from '@/lib/utils';
 import { TripsOverviewWidgetBoard } from './trips-overview-widget-board';
 import { TripsOverviewWidgetDateNav } from './trips-overview-widget-date-nav';
+import { TripsOverviewWidgetReassignDrawer } from './trips-overview-widget-reassign-drawer';
 
 interface TripsOverviewWidgetDialogProps {
   open: boolean;
@@ -218,7 +221,10 @@ export function TripsOverviewWidgetDialog({
     enabled: open
   });
   const { data: drivers = [] } = useDriversQuery();
+  const { assignDriver, isAssigning } = useWidgetTripAssignment();
+  const isNarrow = useIsNarrowScreen(768);
   const [selectedDriverIds, setSelectedDriverIds] = useState<string[]>([]);
+  const [selectedTrip, setSelectedTrip] = useState<KanbanTrip | null>(null);
 
   const kanbanTrips = trips as KanbanTrip[];
 
@@ -239,6 +245,12 @@ export function TripsOverviewWidgetDialog({
       qualifyingDriverIdsKey.length > 0 ? qualifyingDriverIdsKey.split(',') : []
     );
   }, [qualifyingDriverIdsKey]);
+
+  // Desktop: drag is the primary reassignment path; tap-to-drawer would conflict.
+  const handleCardClick = (trip: KanbanTrip) => {
+    if (!isNarrow) return;
+    setSelectedTrip(trip);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -284,6 +296,23 @@ export function TripsOverviewWidgetDialog({
               selectedDriverIds={selectedDriverIds}
               isLoading={isLoading}
               isError={isError}
+              onAssign={(trip, newDriverId) =>
+                assignDriver({ trip, newDriverId })
+              }
+              onCardClick={handleCardClick}
+            />
+            <TripsOverviewWidgetReassignDrawer
+              trip={selectedTrip}
+              drivers={drivers}
+              onAssign={(trip, newDriverId) => {
+                assignDriver({ trip, newDriverId });
+                setSelectedTrip(null);
+              }}
+              isPending={isAssigning}
+              open={selectedTrip !== null}
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) setSelectedTrip(null);
+              }}
             />
           </div>
         </div>

@@ -357,7 +357,7 @@ export async function generateRecurringTrips(options?: {
   }): Promise<string | null> {
     let query = supabase
       .from('trips')
-      .select('id')
+      .select('id, created_at')
       .eq('client_id', q.client_id)
       .eq('rule_id', q.rule_id)
       .eq('requested_date', q.requested_date);
@@ -368,9 +368,47 @@ export async function generateRecurringTrips(options?: {
       query = query.eq('link_type', 'return');
     }
 
-    const { data, error } = await query.maybeSingle();
-    if (error || !data) return null;
-    return data.id;
+    const { data, error } = await query.limit(2);
+
+    if (error) {
+      // WHY: surface DB errors explicitly — swallowing causes silent duplicate
+      // inserts whenever the dedup query fails
+      console.error(
+        '[generate-recurring-trips] dedup lookup failed:',
+        error,
+        'key:',
+        q
+      );
+      return null;
+    }
+
+    if (!data || data.length === 0) return null;
+
+    if (data.length > 1) {
+      // WHY: ≥2 rows means duplicates already exist for this dedup key. Return
+      // the most recently created row so cron skips insert and links to the
+      // canonical (latest) row. The unique index prevents new duplicates once
+      // applied — this branch handles surviving duplicates until cleaned.
+      console.warn(
+        '[generate-recurring-trips] multiple rows found for dedup key — ' +
+          'returning latest to skip insert.',
+        'rule_id:',
+        q.rule_id,
+        'client_id:',
+        q.client_id,
+        'requested_date:',
+        q.requested_date,
+        'leg:',
+        q.leg
+      );
+      return data.reduce((latest, row) => {
+        const rowAt = row.created_at ?? '';
+        const latestAt = latest.created_at ?? '';
+        return rowAt > latestAt ? row : latest;
+      }).id;
+    }
+
+    return data[0].id;
   }
 
   async function insertIfAbsent(
@@ -646,6 +684,28 @@ export async function generateRecurringTrips(options?: {
         console.error(
           '[generate-recurring-trips] outbound link update failed:',
           linkOutError
+        );
+      }
+
+      // WHY: return must always be repointed to the current outboundId, not
+      // just on fresh inserts. insertIfAbsent may return an existing return
+      // whose linked_trip_id still points at a previous duplicate outbound.
+      // Both sides must be updated together on every successful pairing.
+      // (v5c will extract linkTripPairBidirectional() once all callers are
+      // migrated in one pass.)
+      const { error: linkRetError } = await supabase
+        .from('trips')
+        .update({
+          linked_trip_id: outboundId,
+          link_type: 'return'
+        })
+        .eq('id', returnId);
+
+      if (linkRetError) {
+        errorCount++;
+        console.error(
+          '[generate-recurring-trips] return link update failed:',
+          linkRetError
         );
       }
     }

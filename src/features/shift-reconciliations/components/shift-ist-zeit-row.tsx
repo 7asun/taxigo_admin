@@ -179,7 +179,12 @@ function ClearShiftButton({
   );
 }
 
-export function ShiftIstZeitRow({
+export function ShiftIstZeitRow(props: IstZeitRowProps) {
+  if (!props.showIstZeit) return null;
+  return <ShiftIstZeitRowContent {...props} />;
+}
+
+function ShiftIstZeitRowContent({
   driverId,
 
   date,
@@ -192,16 +197,8 @@ export function ShiftIstZeitRow({
 
   totalRevenue,
 
-  showIstZeit,
-
   onSaved
 }: IstZeitRowProps) {
-  // WHY showIstZeit: Option B — always true now; Option A path swaps to
-
-  // driver.requires_shift_times here only (see types.ts IstZeitRowProps).
-
-  if (!showIstZeit) return null;
-
   const mutation = useSaveIstZeitInline(driverId, date);
 
   const saveInFlight = useRef(false);

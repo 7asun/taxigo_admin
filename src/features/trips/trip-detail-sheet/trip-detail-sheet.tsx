@@ -627,13 +627,11 @@ export function TripDetailSheet({
         const patch = buildAssignmentPatch(trip, { driver_id: newDriverId });
         await tripsService.updateTrip(trip.id, patch);
         toast.success('Fahrer aktualisiert');
-        // Invalidate detail query for the trip sheet
-        void queryClient.invalidateQueries({
-          queryKey: tripKeys.detail(trip.id)
+        await refreshAfterTripSave({
+          tripIds: [trip.id],
+          patch,
+          includePlanningWidgets: 'auto'
         });
-        // Invalidate all trips to refresh dashboard stats ("Fahrten heute", "Umsatz heute")
-        void queryClient.invalidateQueries({ queryKey: tripKeys.all });
-        await refreshAfterTripSave();
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         toast.error(`Fehler beim Zuweisen des Fahrers: ${msg}`);
@@ -785,6 +783,7 @@ export function TripDetailSheet({
           id: trip.id,
           patch: currentPatch as UpdateTrip
         });
+        let savedPartnerPatch: UpdateTrip | undefined;
         if (syncPartner && linkedPartner) {
           const ktsRowP = billingVariants.find(
             (b) => b.id === billingVariantDraft
@@ -856,16 +855,26 @@ export function TripDetailSheet({
             id: linkedPartner.id,
             patch: partnerPatch as UpdateTrip
           });
-          void queryClient.invalidateQueries({
-            queryKey: tripKeys.detail(linkedPartner.id)
-          });
+          savedPartnerPatch = partnerPatch as UpdateTrip;
         }
         toast.success(
           syncPartner && linkedPartner
             ? 'Beide Fahrten aktualisiert'
             : 'Fahrt aktualisiert'
         );
-        await refreshAfterTripSave();
+        if (syncPartner && linkedPartner && savedPartnerPatch) {
+          await refreshAfterTripSave({
+            tripIds: [trip.id, linkedPartner.id],
+            patch: [currentPatch as UpdateTrip, savedPartnerPatch],
+            includePlanningWidgets: 'auto'
+          });
+        } else {
+          await refreshAfterTripSave({
+            tripIds: [trip.id],
+            patch: [currentPatch as UpdateTrip],
+            includePlanningWidgets: 'auto'
+          });
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         toast.error(`Speichern fehlgeschlagen: ${message}`);
