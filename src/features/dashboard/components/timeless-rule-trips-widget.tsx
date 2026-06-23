@@ -186,7 +186,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
             <div className='text-muted-foreground h-8 text-xs leading-8'>—</div>
           ) : pair.outbound.scheduled_at ? (
             <div className='text-muted-foreground h-8 text-xs leading-8'>
-              bereits geplant: {formatHm(pair.outbound.scheduled_at)}
+              geplant: {formatHm(pair.outbound.scheduled_at)}
             </div>
           ) : (
             <Input
@@ -208,7 +208,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
             <div className='text-muted-foreground h-8 text-xs leading-8'>—</div>
           ) : pair.return.scheduled_at ? (
             <div className='text-muted-foreground h-8 text-xs leading-8'>
-              bereits geplant: {formatHm(pair.return.scheduled_at)}
+              geplant: {formatHm(pair.return.scheduled_at)}
             </div>
           ) : (
             <Input
