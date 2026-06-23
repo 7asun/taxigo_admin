@@ -672,11 +672,11 @@ export function useSaveTripPlanningPatch(
 | Reschedule to different `requested_date` | May move between widgets — **desired** | None |
 | Overview + sheet open simultaneously | Refetch causes row count change — widgets already handle empty state | Low layout shift |
 
-**Callers still missing widget invalidation (working tree):**
+**Callers still missing widget invalidation (resolved in v4b):**
 
-1. `applyNotesSave` → `refreshAfterTripSave()` — OK (no `scheduled_at`).
-2. `TripFremdfirmaSection` → `onAfterSave={refreshAfterTripSave}` with **no options** — **gap for `fremdfirma_id`**, not time.
-3. `use-widget-trip-assignment` — **gap for driver assignment** from overview DnD v2.
+1. `applyNotesSave` → `refreshAfterTripSave()` — **intentional** (notes do not affect widgets).
+2. ~~`TripFremdfirmaSection`~~ — **fixed v4b:** `persist()` passes `{ tripIds, patch, includePlanningWidgets: 'auto' }` to `onAfterSave`.
+3. ~~`use-widget-trip-assignment`~~ — **fixed v4b:** `onSettled` calls `invalidateAfterTripSave` with `'auto'` + patch.
 
 ---
 
@@ -703,3 +703,25 @@ The brief listed widgets under `src/features/trips/components/`; actual location
 - Hooks: `src/features/dashboard/hooks/use-unplanned-trips.ts`, `use-timeless-rule-trips.ts`
 - Detail sheet: `src/features/trips/trip-detail-sheet/trip-detail-sheet.tsx`
 - Query keys: `src/query/keys/trips.ts` (no `use-trip-queries.ts` in repo)
+
+---
+
+## v4b Resolution
+
+Date: 2026-06-23
+
+**Primary bug (detail sheet + mutation hook)**
+
+Working-tree fix verified and committed. `refreshAfterTripSave` is called with options on detail sheet save paths (`applyDetailsPatch`, `handleDriverChange`). `useUpdateTripMutation.onSettled` uses `invalidateAfterTripSave` with `'auto'` + patch.
+
+**Gap 1 — TripFremdfirmaSection**
+
+Fixed: `persist()` in [`src/features/fremdfirmen/components/trip-fremdfirma-section.tsx`](../../src/features/fremdfirmen/components/trip-fremdfirma-section.tsx) passes `{ tripIds, patch, includePlanningWidgets: 'auto' }` to `onAfterSave` (sole caller: detail sheet’s `refreshAfterTripSave`).
+
+**Gap 2 — use-widget-trip-assignment**
+
+Fixed: [`src/features/trips/hooks/use-widget-trip-assignment.ts`](../../src/features/trips/hooks/use-widget-trip-assignment.ts) `onSettled` migrated to `invalidateAfterTripSave` with `'auto'` + patch.
+
+**Overall status: CLOSED**
+
+All scheduled_at and assignee write paths now use the `invalidateAfterTripSave` contract correctly.

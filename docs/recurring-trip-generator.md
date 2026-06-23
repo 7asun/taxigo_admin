@@ -84,6 +84,18 @@ HAVING COUNT(*) > 1;
 
 ---
 
+## Widget cache contract
+
+UI trip writes (detail sheet, dashboard widgets, kanban, reschedule, etc.) must invalidate React Query through [`invalidateAfterTripSave`](../src/features/trips/lib/invalidate-after-trip-save.ts). See also [`docs/trips/invalidation-contract.md`](trips/invalidation-contract.md).
+
+| Concern | Contract |
+|---------|----------|
+| Widget cache | `invalidateAfterTripSave` is the single invalidation contract for all trip write surfaces. Every save path must pass `includePlanningWidgets` and `patch` so `tripKeys.unplannedRoot` and `tripKeys.timelessRuleTripsRoot` are busted correctly. |
+
+This contract is independent of cron/generator behaviour — the generator does not call client-side invalidation.
+
+---
+
 ## Deployment order
 
 1. Backfill (active rows only)

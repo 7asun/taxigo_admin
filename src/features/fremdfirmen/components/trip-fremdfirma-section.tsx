@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,8 +17,8 @@ import type { Trip } from '@/features/trips/api/trips.service';
 import { tripsService } from '@/features/trips/api/trips.service';
 import { useFremdfirmenQuery } from '@/features/trips/hooks/use-trip-reference-queries';
 import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import type { InvalidateAfterTripSaveOptions } from '@/features/trips/lib/invalidate-after-trip-save';
 import type { FremdfirmaPaymentMode } from '@/features/trips/types/trip-form-reference.types';
-import { tripKeys } from '@/query/keys';
 import { toast } from 'sonner';
 import { FREMDFIRMA_PAYMENT_MODE_OPTIONS } from '@/features/fremdfirmen/lib/fremdfirma-payment-mode-labels';
 
@@ -30,7 +29,9 @@ export interface TripFremdfirmaSectionProps {
   /** Live draft: „Keine Rechnung“. */
   noInvoiceRequired: boolean;
   runWithRecurringScope: (fn: () => Promise<void>) => void;
-  onAfterSave?: () => void | Promise<void>;
+  onAfterSave?: (
+    options?: InvalidateAfterTripSaveOptions
+  ) => void | Promise<void>;
   disabled?: boolean;
 }
 
@@ -49,7 +50,6 @@ export function TripFremdfirmaSection({
   onAfterSave,
   disabled = false
 }: TripFremdfirmaSectionProps) {
-  const qc = useQueryClient();
   const { data: vendors = [], isPending } = useFremdfirmenQuery();
 
   const [fremdOn, setFremdOn] = useState(!!trip.fremdfirma_id);
@@ -109,8 +109,13 @@ export function TripFremdfirmaSection({
     try {
       await tripsService.updateTrip(trip.id, patch);
       toast.success('Fremdfirma gespeichert');
-      void qc.invalidateQueries({ queryKey: tripKeys.detail(trip.id) });
-      await onAfterSave?.();
+      await onAfterSave?.({
+        tripIds: [trip.id],
+        patch,
+        // WHY: fremdfirma_id is a planning assignee — Offene Touren server filter
+        // requires both driver_id and fremdfirma_id null; 'auto' busts widget roots.
+        includePlanningWidgets: 'auto'
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(msg);
