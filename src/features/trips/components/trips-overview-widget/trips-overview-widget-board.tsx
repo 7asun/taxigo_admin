@@ -1,13 +1,25 @@
 'use client';
 
-import { useMemo } from 'react';
-import { DndContext } from '@dnd-kit/core';
+import { useMemo, useState } from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  pointerWithin
+} from '@dnd-kit/core';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { Loader2 } from 'lucide-react';
 import type { Database } from '@/types/database.types';
+import { KanbanDragPreview } from '@/features/trips/components/kanban/kanban-drag-preview';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
+import { isTripFremdfirma } from '@/features/trips/lib/trip-assignee';
 import {
   buildWidgetColumns,
-  buildWidgetItemsByColumn
+  buildWidgetItemsByColumn,
+  resolveWidgetColumnId
 } from '@/features/trips/lib/widget-columns';
 import { TripsOverviewWidgetColumn } from './trips-overview-widget-column';
 
@@ -22,23 +34,33 @@ interface TripsOverviewWidgetBoardProps {
   selectedDriverIds: string[];
   isLoading: boolean;
   isError: boolean;
+  onAssign: (trip: KanbanTrip, newDriverId: string | null) => void;
+  onCardClick?: (trip: KanbanTrip) => void;
 }
 
 const UNASSIGNED_COLUMN_ID = 'unassigned';
 
 /**
- * Horizontal driver-column board for one calendar day.
- *
- * v2: replace inert `DndContext` with sensors + `onDragEnd` calling
- * `useWidgetTripAssignment().assignDriver` for cross-column moves.
+ * Horizontal driver-column board for one calendar day with DnD reassignment.
  */
 export function TripsOverviewWidgetBoard({
   trips,
   drivers,
   selectedDriverIds,
   isLoading,
-  isError
+  isError,
+  onAssign,
+  onCardClick
 }: TripsOverviewWidgetBoardProps) {
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 120, tolerance: 8 }
+    })
+  );
+
   const columns = useMemo(() => {
     const allColumns = buildWidgetColumns(trips, drivers);
     const selected = new Set(selectedDriverIds);
@@ -73,6 +95,34 @@ export function TripsOverviewWidgetBoard({
     return map;
   }, [trips]);
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const tripId = String(active.id);
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return;
+    if (isTripFremdfirma(trip) || trip.group_id) return;
+
+    let targetColumnId = String(over.id);
+    if (targetColumnId.startsWith('trip-')) {
+      const targetTrip = trips.find(
+        (t) => t.id === targetColumnId.replace(/^trip-/, '')
+      );
+      if (!targetTrip) return;
+      targetColumnId = resolveWidgetColumnId(targetTrip);
+    }
+
+    const newDriverId = targetColumnId === 'unassigned' ? null : targetColumnId;
+    if (trip.driver_id === newDriverId) return;
+    onAssign(trip, newDriverId);
+  };
+
   if (isLoading) {
     return (
       <div className='text-muted-foreground flex min-h-0 flex-1 items-center justify-center gap-2 text-sm'>
@@ -100,7 +150,12 @@ export function TripsOverviewWidgetBoard({
 
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
-      <DndContext sensors={[]}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
         <div className='min-h-0 flex-1 overflow-x-auto overflow-y-auto'>
           <div className='inline-flex min-h-full w-max flex-row gap-3 px-1 pb-2'>
             {columns.map((column) => (
@@ -109,10 +164,26 @@ export function TripsOverviewWidgetBoard({
                 column={column}
                 items={itemsByColumn[column.id] ?? []}
                 groupLabels={groupLabels}
+                onCardClick={onCardClick}
               />
             ))}
           </div>
         </div>
+        {/*
+         * DragOverlay is a sibling to the scroll container (not nested inside it).
+         * dnd-kit portals the overlay, but tree position under DndContext still matters.
+         * groupLabels={{}} is safe: KanbanDragPreview only reads groupLabels when
+         * activeId.startsWith('group-'); widget v2 drags plain trip UUIDs only.
+         */}
+        <DragOverlay dropAnimation={null}>
+          {activeDragId ? (
+            <KanbanDragPreview
+              activeId={activeDragId}
+              effectiveTrips={trips}
+              groupLabels={{}}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );

@@ -516,8 +516,8 @@ export function Step3LineItems({
             <AlertDescription>
               <strong>Keine Rechnung:</strong> {noInvLineCount}{' '}
               {noInvLineCount === 1 ? 'Fahrt ist' : 'Fahrten sind'} als „keine
-              Rechnung" markiert. Bitte prüfen, ob diese Positionen wirklich auf
-              die Rechnung gehören.
+              Rechnung&ldquo; markiert. Bitte prüfen, ob diese Positionen
+              wirklich auf die Rechnung gehören.
             </AlertDescription>
           </Alert>
         )}
@@ -540,7 +540,7 @@ export function Step3LineItems({
             >
               {lineItems.length > 0 && filteredLineItems.length === 0 ? (
                 <p className='text-muted-foreground px-4 py-8 text-center text-sm'>
-                  Keine Fahrten für „{passengerSearch.trim()}".
+                  Keine Fahrten für „{passengerSearch.trim()}&ldquo;.
                 </p>
               ) : null}
               {filteredLineItems.map((item) => {

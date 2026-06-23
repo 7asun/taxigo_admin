@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
@@ -12,6 +13,7 @@ import {
   TripTimeError
 } from '@/features/trips/lib/trip-time';
 import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import { FREMDFIRMA_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -61,6 +63,7 @@ export interface DispatchInboxData {
 export function useDispatchInbox(
   filter: 'today' | 'all' = 'today'
 ): DispatchInboxData {
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = React.useState(true);
   const [isAssigning, setIsAssigning] = React.useState<Record<string, boolean>>(
     {}
@@ -290,6 +293,13 @@ export function useDispatchInbox(
       }
 
       await tripsService.updateTrip(tripId, updates);
+
+      // WHY: 'auto' — assignment writes scheduled_at/driver_id when present
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: [tripId],
+        patch: updates,
+        includePlanningWidgets: 'auto'
+      });
 
       if (driverId) {
         // Assigned a driver -> remove from lists

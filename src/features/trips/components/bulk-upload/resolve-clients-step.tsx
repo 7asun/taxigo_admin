@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
@@ -12,6 +13,7 @@ import {
   shouldRecalculatePrice
 } from '@/features/trips/lib/trip-price-engine';
 import type { UpdateTrip } from '@/features/trips/api/trips.service';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import type { RehydratedTripRow } from './bulk-upload-types';
 
 interface ResolveClientsStepProps {
@@ -31,6 +33,7 @@ export function ResolveClientsStep({
   onSkip,
   onDone
 }: ResolveClientsStepProps) {
+  const queryClient = useQueryClient();
   const [isWorking, setIsWorking] = React.useState(false);
 
   const handleCreateAndLinkClient = async () => {
@@ -193,6 +196,13 @@ export function ResolveClientsStep({
       }
 
       await supabase.from('trips').update(tripPatch).eq('id', current.tripId);
+
+      // WHY: client/address only — widgets unaffected; explicit opt-out
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: [current.tripId],
+        patch: tripPatch,
+        includePlanningWidgets: false
+      });
 
       toast.success('Fahrgast wurde erstellt und mit der Fahrt verknüpft.');
 

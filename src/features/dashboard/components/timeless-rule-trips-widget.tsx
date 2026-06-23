@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/select';
 import { Loader2, PlusCircle } from 'lucide-react';
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
-import { referenceKeys, tripKeys } from '@/query/keys';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
+import { referenceKeys } from '@/query/keys';
 import {
   useTimelessRuleTrips,
   type TimelessRulePair
@@ -85,6 +86,11 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
     try {
       setIsSubmitting(true);
 
+      const savedLegs: Array<{
+        tripId: string;
+        patch: { scheduled_at: string };
+      }> = [];
+
       for (const e of edits) {
         const [hours, minutes] = e.time.split(':');
         // WHY trip-time.ts: UTC date-only parsing + browser `set` mixed TZ on non-Berlin runtimes/clients.
@@ -112,14 +118,19 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
           scheduled_at: scheduledAtIso
         });
 
-        void queryClient.invalidateQueries({
-          queryKey: tripKeys.detail(e.trip.id)
+        savedLegs.push({
+          tripId: e.trip.id,
+          patch: { scheduled_at: scheduledAtIso }
         });
       }
 
-      void queryClient.invalidateQueries({
-        queryKey: tripKeys.timelessRuleTripsRoot
-      });
+      if (savedLegs.length > 0) {
+        await invalidateAfterTripSave(queryClient, {
+          tripIds: savedLegs.map((leg) => leg.tripId),
+          patch: savedLegs.map((leg) => leg.patch),
+          includePlanningWidgets: true
+        });
+      }
 
       toast.success(`Zeit für ${pair.client_name || 'Fahrt'} gesetzt.`);
       setOutboundTime('');
@@ -186,7 +197,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
             <div className='text-muted-foreground h-8 text-xs leading-8'>—</div>
           ) : pair.outbound.scheduled_at ? (
             <div className='text-muted-foreground h-8 text-xs leading-8'>
-              bereits geplant: {formatHm(pair.outbound.scheduled_at)}
+              geplant: {formatHm(pair.outbound.scheduled_at)}
             </div>
           ) : (
             <Input
@@ -208,7 +219,7 @@ function TimelessRulePairRow({ pair }: { pair: TimelessRulePair }) {
             <div className='text-muted-foreground h-8 text-xs leading-8'>—</div>
           ) : pair.return.scheduled_at ? (
             <div className='text-muted-foreground h-8 text-xs leading-8'>
-              bereits geplant: {formatHm(pair.return.scheduled_at)}
+              geplant: {formatHm(pair.return.scheduled_at)}
             </div>
           ) : (
             <Input

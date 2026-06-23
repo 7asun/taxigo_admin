@@ -37,7 +37,7 @@ export function GroupedTripsContainer({
   onUngroup
 }: GroupedTripsContainerProps) {
   const groupId = trips[0]?.group_id;
-  if (!groupId || trips.length === 0) return null;
+  const hasGroup = Boolean(groupId && trips.length > 0);
 
   const {
     attributes,
@@ -46,9 +46,14 @@ export function GroupedTripsContainer({
     transform,
     isDragging
   } = useDraggable({
-    id: `group-${groupId}`,
-    data: { groupId, tripIds: trips.map((t) => t.id) }
+    id: `group-${groupId ?? 'empty'}`,
+    disabled: !hasGroup,
+    data: hasGroup
+      ? { groupId, tripIds: trips.map((t) => t.id) }
+      : { groupId: null, tripIds: [] }
   });
+
+  if (!hasGroup || !groupId) return null;
 
   // opacity: 0 while dragging — DragOverlay is the visible representation.
   const dragStyle = {

@@ -4,8 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { tripsService, type Trip } from '@/features/trips/api/trips.service';
 import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import { createClient } from '@/lib/supabase/client';
-import { tripKeys } from '@/query/keys';
 
 type AssignDriverInput = {
   trip: Trip & { group_id?: string | null };
@@ -39,12 +39,20 @@ export function useWidgetTripAssignment() {
       await tripsService.updateTrip(trip.id, patch);
     },
     onSuccess: (_data, { trip }) => {
-      void queryClient.invalidateQueries({ queryKey: tripKeys.all });
       toast.success(
         trip.group_id
           ? 'Fahrer für die Gruppe aktualisiert'
           : 'Fahrer aktualisiert'
       );
+    },
+    onSettled: async (_data, _err, { trip, newDriverId }) => {
+      const patch = buildAssignmentPatch(trip, { driver_id: newDriverId });
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: [trip.id],
+        patch,
+        // WHY: driver_id assignee change removes row from Offene Touren; 'auto' busts roots.
+        includePlanningWidgets: 'auto'
+      });
     },
     onError: () => {
       toast.error('Zuweisung fehlgeschlagen. Bitte erneut versuchen.');

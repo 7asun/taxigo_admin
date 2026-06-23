@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { tripKeys } from '@/query/keys';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -241,7 +241,10 @@ export function RecurringRuleSheet({
         // WHY scoped to resynced > 0: billing/label-only saves don't change scheduled_at,
         // so busting the trips cache is unnecessary and would trigger avoidable network calls.
         if (resynced > 0) {
-          void queryClient.invalidateQueries({ queryKey: tripKeys.all });
+          // WHY: batch resync updates scheduled_at on unknown trip set — bust widgets broadly
+          await invalidateAfterTripSave(queryClient, {
+            includePlanningWidgets: true
+          });
         }
         finishSuccess();
       } else {
@@ -286,6 +289,12 @@ export function RecurringRuleSheet({
           ? `Regel aktualisiert. ${deleted} Fahrten wurden gelöscht.`
           : 'Regel erfolgreich aktualisiert'
       );
+      if (deleted > 0) {
+        // WHY: deleted generated trips must leave planning widgets immediately
+        await invalidateAfterTripSave(queryClient, {
+          includePlanningWidgets: true
+        });
+      }
       finishSuccess();
     } catch (error: unknown) {
       const message =

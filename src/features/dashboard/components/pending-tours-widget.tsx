@@ -16,8 +16,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useQueryClient } from '@tanstack/react-query';
-import { tripKeys } from '@/query/keys';
 import { tripsService } from '@/features/trips/api/trips.service';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
 import { toast } from 'sonner';
 import {
@@ -258,12 +258,10 @@ function UnplannedTripRow({
 
       await tripsService.updateTrip(trip.id, updatePayload);
 
-      // WHY await (not void): urgency borders read cached `trip.scheduled_at`; row removal
-      // needs a fresh unplanned list before we toast — fire-and-forget left stale props until
-      // a background refetch or manual reload.
-      await queryClient.invalidateQueries({ queryKey: tripKeys.unplannedRoot });
-      void queryClient.invalidateQueries({
-        queryKey: tripKeys.detail(trip.id)
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: [trip.id],
+        patch: updatePayload,
+        includePlanningWidgets: true
       });
 
       toast.success(

@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
-import { tripKeys } from '@/query/keys';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
@@ -89,8 +89,24 @@ export function useTripCancellation() {
         await optionalRscRefresh.refreshTripsPage();
       } else {
         await router.refresh();
-        await queryClient.invalidateQueries({ queryKey: tripKeys.all });
       }
+
+      const pairedModes = new Set<TripCancelMode>([
+        'cancel-nonrecurring-and-paired',
+        'skip-occurrence-and-paired'
+      ]);
+      const tripIds =
+        pairedModes.has(mode) && trip.linked_trip_id
+          ? [trip.id, trip.linked_trip_id]
+          : [trip.id];
+
+      // WHY: cancelled trips must leave planning widgets immediately
+      await invalidateAfterTripSave(queryClient, {
+        tripIds,
+        patch: { status: 'cancelled' },
+        includePlanningWidgets: true,
+        includeTripList: false
+      });
     } finally {
       setIsLoading(false);
     }

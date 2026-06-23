@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOptionalTripsRscRefresh } from '@/features/trips/providers';
-import { tripKeys } from '@/query/keys';
 import { CalendarRange, ClockIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,6 +41,8 @@ import {
   parseScheduledAt,
   TripTimeError
 } from '@/features/trips/lib/trip-time';
+import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
+import type { UpdateTrip } from '@/features/trips/api/trips.service';
 
 function linkedLegPickerTitle(
   paired: Pick<Trip, 'link_type' | 'linked_trip_id'>
@@ -67,6 +68,14 @@ function buildLeg(ymd: string, hm: string): LegScheduleInput {
     scheduledAt: null,
     requestedDate: ymd.trim() || null
   };
+}
+
+function legToPatch(
+  leg: LegScheduleInput
+): Pick<UpdateTrip, 'scheduled_at' | 'requested_date'> {
+  return leg.scheduledAt
+    ? { scheduled_at: leg.scheduledAt.toISOString(), requested_date: null }
+    : { scheduled_at: null, requested_date: leg.requestedDate?.trim() || null };
 }
 
 export interface TripRescheduleDialogProps {
@@ -283,8 +292,16 @@ export function TripRescheduleDialog({
         await optionalRscRefresh.refreshTripsPage();
       } else {
         await router.refresh();
-        await queryClient.invalidateQueries({ queryKey: tripKeys.all });
       }
+      // WHY: reschedule always writes scheduled_at/requested_date — always bust widgets
+      await invalidateAfterTripSave(queryClient, {
+        tripIds: paired ? [trip.id, paired.id] : [trip.id],
+        patch: paired
+          ? [legToPatch(primaryLeg), legToPatch(partnerLeg!)]
+          : legToPatch(primaryLeg),
+        includePlanningWidgets: true,
+        includeTripList: false
+      });
     } finally {
       setSaving(false);
     }
