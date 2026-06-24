@@ -319,8 +319,20 @@ export function TripRescheduleDialog({
   const invalidPartner =
     Boolean(paired) && Boolean(partnerHmTrim) && !partnerYmdTrim;
 
+  // WHY: buildLeg returns { scheduledAt: null, requestedDate: null } when both
+  // ymd and hm are blank — violates schedule anchor invariant (v4d audit Q9).
+  // Option A: block submit; user must provide at least a date.
+  const primaryBothBlank = !primaryYmdTrim && !primaryHmTrim;
+  const partnerBothBlank = Boolean(paired) && !partnerYmdTrim && !partnerHmTrim;
+
   const submitDisabled = Boolean(
-    saving || !eligible || recurring || invalidPrimary || invalidPartner
+    saving ||
+      !eligible ||
+      recurring ||
+      invalidPrimary ||
+      invalidPartner ||
+      primaryBothBlank ||
+      partnerBothBlank
   );
 
   return (
@@ -399,10 +411,14 @@ export function TripRescheduleDialog({
                     </div>
                   </div>
                 </div>
+                {primaryBothBlank ? (
+                  <p className='text-destructive text-xs' role='alert'>
+                    Bitte mindestens ein Datum angeben.
+                  </p>
+                ) : null}
                 <p className='text-muted-foreground text-[11px] leading-snug'>
                   Leeres Uhrzeitfeld wie bei „Rückfahrt mit Zeitabsprache“:
-                  keine feste Abholzeit; optional ein Tag für die Übersicht.
-                  Ohne Datum und ohne Zeit ist die Fahrt vollständig offen.
+                  keine feste Abholzeit; mindestens ein Datum ist erforderlich.
                 </p>
               </div>
 
@@ -456,6 +472,11 @@ export function TripRescheduleDialog({
                       </div>
                     </div>
                   </div>
+                  {partnerBothBlank ? (
+                    <p className='text-destructive text-xs' role='alert'>
+                      Bitte mindestens ein Datum angeben.
+                    </p>
+                  ) : null}
                   <p className='text-muted-foreground text-[11px] leading-snug'>
                     {partnerHadTimeAtOpen &&
                     baselinePrimaryMsRef.current != null &&

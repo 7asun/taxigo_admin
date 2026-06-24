@@ -34,6 +34,8 @@ export interface KanbanColumnViewProps {
   groupLabels: Record<string, string>;
   /** The id of the element currently being dragged, or null. Used to show column-reorder indicator. */
   activeDragId: string | null;
+  activeDragColumnId: string | null;
+  dragOverColumnId: string | null;
   onTimeChange: OnTimeChange;
   onStopOrderChange: OnStopOrderChange;
   onUngroup: OnUngroup;
@@ -45,6 +47,8 @@ export function KanbanColumnView({
   groupBy,
   groupLabels,
   activeDragId,
+  activeDragColumnId,
+  dragOverColumnId,
   onTimeChange,
   onStopOrderChange,
   onUngroup
@@ -87,6 +91,9 @@ export function KanbanColumnView({
   const isColumnDrag = !!activeDragId?.startsWith('column-');
   // This column is the drop target for a column reorder.
   const isColumnDropTarget = isColumnDrag && isOver && !isDragging;
+  // why: pointerWithin reports child card droppables instead of the column, so manual dragOverColumnId keeps cross-column card hovers visually aligned with column-move behavior.
+  const shouldShowColumnBodyDropHighlight =
+    (isOver || dragOverColumnId === column.id) && !isColumnDrag;
 
   return (
     <div
@@ -139,7 +146,7 @@ export function KanbanColumnView({
       <div
         className='flex flex-1 flex-col gap-2 px-2 pt-2 pb-8'
         style={
-          isOver && !isColumnDrag
+          shouldShowColumnBodyDropHighlight
             ? {
                 backgroundColor:
                   'color-mix(in srgb, var(--primary), transparent 92%)'
@@ -166,6 +173,7 @@ export function KanbanColumnView({
                 key={chunk.trips[0].id}
                 trip={chunk.trips[0]}
                 columnId={column.id}
+                activeDragColumnId={activeDragColumnId}
                 groupLabel={undefined}
                 onTimeChange={onTimeChange}
                 onStopOrderChange={onStopOrderChange}
@@ -181,6 +189,7 @@ export function KanbanColumnView({
                     : undefined
                 }
                 columnId={column.id}
+                activeDragColumnId={activeDragColumnId}
                 onTimeChange={onTimeChange}
                 onStopOrderChange={onStopOrderChange}
                 onUngroup={onUngroup}

@@ -59,7 +59,10 @@ import {
   computeTripPrice,
   type PricingContext
 } from '@/features/trips/lib/trip-price-engine';
-import { isYmdString } from '@/features/trips/lib/trip-business-date';
+import {
+  instantToYmdInBusinessTz,
+  isYmdString
+} from '@/features/trips/lib/trip-business-date';
 import {
   buildScheduledAt,
   TripTimeError
@@ -537,7 +540,14 @@ export function BulkUploadDialog({ onSuccess }: BulkUploadDialogProps) {
   ): InsertTrip => ({
     ...outbound,
     scheduled_at: null,
-    requested_date: null,
+    // WHY: Return time is TBD — no clock time on auto-return.
+    // requested_date must carry the outbound's Berlin calendar day so the return
+    // leg appears as a date-only trip in the Fahrten table (not an anchorless stub).
+    requested_date:
+      outbound.requested_date ??
+      (outbound.scheduled_at
+        ? instantToYmdInBusinessTz(new Date(outbound.scheduled_at).getTime())
+        : null),
     link_type: 'return',
     linked_trip_id: outboundId,
     status: 'pending',

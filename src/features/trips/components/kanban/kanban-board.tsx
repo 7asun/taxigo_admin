@@ -25,6 +25,7 @@ import { useTripsRscRefresh } from '@/features/trips/providers';
 import {
   DndContext,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
   DragOverlay,
   MouseSensor,
@@ -131,6 +132,11 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
     Partial<Record<GroupByMode, string[]>>
   >({});
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [activeDragColumnId, setActiveDragColumnId] = useState<string | null>(
+    null
+  );
+  // why: isOver on the column droppable never fires when the pointer is over a child card droppable (pointerWithin always prefers the smallest target). We derive column hover state manually in onDragOver instead.
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [zoomInput, setZoomInput] = useState<string | null>(null);
 
   // ── Column order persistence ────────────────────────────────────────────────
@@ -332,9 +338,111 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
 
   // ── DnD handlers ────────────────────────────────────────────────────────────
 
+  // why: Must mirror buildItemsByColumn derivation so the guard stays consistent with what the board renders.
+  // Derives the effective board column for a trip under the current groupBy mode.
+  // Must stay in sync with buildItemsByColumn in kanban-columns.ts.
+  const getTripColumnId = useCallback(
+    (trip: KanbanTrip): string =>
+      groupBy === 'driver'
+        ? (trip.driver_id ?? 'unassigned')
+        : groupBy === 'status'
+          ? (trip.status ?? '')
+          : (trip.payer_id ?? 'no_payer'),
+    [groupBy]
+  );
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
+    // why: Tracked so child cards can suppress their drop-target highlight when a cross-column drag passes over them.
+    setActiveDragColumnId(event.active.data.current?.columnId ?? null);
   }, []);
+
+  // why: Resolves the hovered column from any droppable under the pointer — card or column — so the column highlight activates regardless of what the pointer lands on.
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const overId = event.over?.id == null ? null : String(event.over.id);
+      if (
+        !overId ||
+        overId.startsWith('column-') ||
+        overId.startsWith('group-')
+      ) {
+        setDragOverColumnId(null);
+        return;
+      }
+
+      let hoveredColumnId: string | null = null;
+      if (effectiveColumns.some((column) => column.id === overId)) {
+        hoveredColumnId = overId;
+      } else if (overId.startsWith('trip-')) {
+        const tripId = overId.replace(/^trip-/, '');
+        const trip = effectiveTrips.find((t) => t.id === tripId);
+        hoveredColumnId = trip ? getTripColumnId(trip) : null;
+      }
+
+      setDragOverColumnId(
+        hoveredColumnId && hoveredColumnId !== activeDragColumnId
+          ? hoveredColumnId
+          : null
+      );
+    },
+    [activeDragColumnId, effectiveColumns, effectiveTrips, getTripColumnId]
+  );
+
+  const applyColumnAssignment = useCallback(
+    (draggedId: string, targetColumnId: string) => {
+      const isDraggingGroup = draggedId.startsWith('group-');
+      const tripIdsToUpdate = isDraggingGroup
+        ? effectiveTrips
+            .filter((t) => t.group_id === draggedId.replace('group-', ''))
+            .map((t) => t.id)
+        : [draggedId];
+
+      const draggedTrip = effectiveTrips.find((t) => t.id === draggedId);
+      const isSingleTripLeavingGroup =
+        !isDraggingGroup && !!draggedTrip?.group_id;
+
+      const value =
+        groupBy === 'driver'
+          ? targetColumnId === 'unassigned'
+            ? null
+            : targetColumnId
+          : groupBy === 'status'
+            ? targetColumnId
+            : targetColumnId === 'no_payer'
+              ? null
+              : targetColumnId;
+
+      setPendingChanges((prev) => {
+        const next = { ...prev };
+        for (const id of tripIdsToUpdate) {
+          const current = next[id] ?? {};
+          if (groupBy === 'driver') {
+            const newDriverId = value as string | null;
+            current.driver_id = newDriverId;
+            // Stage derived status immediately so the badge reflects truth.
+            const derivedStatus = deriveStatusForPending(
+              id,
+              newDriverId,
+              prev,
+              trips
+            );
+            if (derivedStatus !== undefined) current.status = derivedStatus;
+          } else if (groupBy === 'status') {
+            current.status = value as string;
+          } else if (groupBy === 'payer') {
+            current.payer_id = value as string | null;
+          }
+          if (isSingleTripLeavingGroup && id === draggedId) {
+            current.group_id = null;
+            current.stop_order = null;
+          }
+          next[id] = current;
+        }
+        return next;
+      });
+    },
+    [effectiveTrips, groupBy, trips]
+  );
 
   /**
    * Handles all drag-end events. Three cases:
@@ -346,6 +454,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActiveDragId(null);
+      setActiveDragColumnId(null);
+      setDragOverColumnId(null);
       const { active, over } = event;
       if (!over) return;
 
@@ -407,6 +517,15 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
         const targetTrip = effectiveTrips.find((t) => t.id === targetId);
         if (!draggedTrip || !targetTrip) return;
 
+        // why: Grouping across columns is not permitted — a cross-column card-on-card drop is silently promoted to a plain column move to prevent cards from ending up grouped but in different columns.
+        if (getTripColumnId(draggedTrip) !== getTripColumnId(targetTrip)) {
+          // Resolve the target column from the target trip — do not use overStr here,
+          // because overStr is "trip-{id}" not a column id when the pointer lands on a card.
+          const targetColumnId = getTripColumnId(targetTrip);
+          applyColumnAssignment(draggedId, targetColumnId);
+          return;
+        }
+
         const targetGroupId = targetTrip.group_id ?? crypto.randomUUID();
         const groupTrips = effectiveTrips.filter(
           (t) =>
@@ -436,58 +555,33 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
       }
 
       // 3. Trip/group → column: assignment
-      const targetColumnId = overStr;
-      const tripIdsToUpdate = isDraggingGroup
-        ? effectiveTrips
-            .filter((t) => t.group_id === draggedId.replace('group-', ''))
-            .map((t) => t.id)
-        : [draggedId];
+      // why: overStr may be a column id (drop on empty space) or trip-{id} (drop on
+      // a card). We must resolve to a real column id before writing assignment —
+      // passing trip-{id} as a column value causes trips to disappear into an
+      // unrendered bucket in buildItemsByColumn.
+      let resolvedColumnId: string | null = null;
 
-      const draggedTrip = effectiveTrips.find((t) => t.id === draggedId);
-      const isSingleTripLeavingGroup =
-        !isDraggingGroup && !!draggedTrip?.group_id;
+      if (effectiveColumns.some((c) => c.id === overStr)) {
+        // Dropped on empty column space — overStr is already a valid column id.
+        resolvedColumnId = overStr;
+      } else if (overStr.startsWith('trip-')) {
+        // Dropped on a card — resolve column from the target trip.
+        const targetTripId = overStr.replace(/^trip-/, '');
+        const targetTrip = effectiveTrips.find((t) => t.id === targetTripId);
+        resolvedColumnId = targetTrip ? getTripColumnId(targetTrip) : null;
+      }
 
-      const value =
-        groupBy === 'driver'
-          ? targetColumnId === 'unassigned'
-            ? null
-            : targetColumnId
-          : groupBy === 'status'
-            ? targetColumnId
-            : targetColumnId === 'no_payer'
-              ? null
-              : targetColumnId;
+      if (!resolvedColumnId) return;
 
-      setPendingChanges((prev) => {
-        const next = { ...prev };
-        for (const id of tripIdsToUpdate) {
-          const current = next[id] ?? {};
-          if (groupBy === 'driver') {
-            const newDriverId = value as string | null;
-            current.driver_id = newDriverId;
-            // Stage derived status immediately so the badge reflects truth.
-            const derivedStatus = deriveStatusForPending(
-              id,
-              newDriverId,
-              prev,
-              trips
-            );
-            if (derivedStatus !== undefined) current.status = derivedStatus;
-          } else if (groupBy === 'status') {
-            current.status = value as string;
-          } else if (groupBy === 'payer') {
-            current.payer_id = value as string | null;
-          }
-          if (isSingleTripLeavingGroup && id === draggedId) {
-            current.group_id = null;
-            current.stop_order = null;
-          }
-          next[id] = current;
-        }
-        return next;
-      });
+      applyColumnAssignment(draggedId, resolvedColumnId);
     },
-    [groupBy, effectiveTrips, effectiveColumns, trips]
+    [
+      groupBy,
+      effectiveTrips,
+      effectiveColumns,
+      getTripColumnId,
+      applyColumnAssignment
+    ]
   );
 
   // ── Save / Reset ────────────────────────────────────────────────────────────
@@ -594,6 +688,7 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
         sensors={sensors}
         collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
         <div
@@ -610,6 +705,8 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
                 groupBy={groupBy}
                 groupLabels={groupLabels}
                 activeDragId={activeDragId}
+                activeDragColumnId={activeDragColumnId}
+                dragOverColumnId={dragOverColumnId}
                 onTimeChange={onTimeChange}
                 onStopOrderChange={onStopOrderChange}
                 onUngroup={onUngroup}

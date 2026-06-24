@@ -56,6 +56,7 @@ import {
 export interface TripCardProps {
   trip: KanbanTrip;
   columnId: string;
+  activeDragColumnId: string | null;
   groupLabel?: string;
   hideGroupBadge?: boolean;
   disableDrag?: boolean;
@@ -68,6 +69,7 @@ export interface TripCardProps {
 export function TripCard({
   trip,
   columnId,
+  activeDragColumnId = null,
   groupLabel,
   hideGroupBadge = false,
   disableDrag = false,
@@ -266,11 +268,17 @@ export function TripCard({
     </div>
   );
 
+  // why: Card-level highlight is only valid when the drag originates from the same column. Cross-column drags will result in a column move, not grouping — the column body highlight covers that case.
+  const shouldShowCardDropHighlight = isOver && activeDragColumnId === columnId;
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       ref={setDroppableRef}
-      className={cn('relative', isOver && 'ring-primary/50 rounded-md ring-2')}
+      className={cn(
+        'relative',
+        shouldShowCardDropHighlight && 'ring-primary/50 rounded-md ring-2'
+      )}
     >
       <Card
         ref={disableDrag ? undefined : setDraggableRef}
@@ -422,3 +430,7 @@ export function TripCard({
     </div>
   );
 }
+
+TripCard.defaultProps = {
+  activeDragColumnId: null
+};

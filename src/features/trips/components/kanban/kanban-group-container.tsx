@@ -23,6 +23,7 @@ export interface GroupedTripsContainerProps {
   trips: KanbanTrip[];
   groupLabel?: string;
   columnId: string;
+  activeDragColumnId: string | null;
   onTimeChange: OnTimeChange;
   onStopOrderChange: OnStopOrderChange;
   onUngroup: OnUngroup;
@@ -32,6 +33,7 @@ export function GroupedTripsContainer({
   trips,
   groupLabel,
   columnId,
+  activeDragColumnId,
   onTimeChange,
   onStopOrderChange,
   onUngroup
@@ -100,6 +102,7 @@ export function GroupedTripsContainer({
           key={trip.id}
           trip={trip}
           columnId={columnId}
+          activeDragColumnId={activeDragColumnId}
           groupLabel={groupLabel}
           hideGroupBadge
           onTimeChange={onTimeChange}
