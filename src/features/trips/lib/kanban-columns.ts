@@ -8,6 +8,28 @@
 import type { DriverDayContext } from '@/lib/driver-availability';
 import type { KanbanTrip, KanbanColumn, GroupByMode } from './kanban-types';
 
+export type KanbanGroupBy = GroupByMode;
+
+export type KanbanTripLike = Pick<
+  KanbanTrip,
+  'driver_id' | 'status' | 'payer_id'
+>;
+
+/**
+ * why: Board drag logic and column bucketing must use one exact derivation so
+ * a trip can never be assigned to a bucket that buildItemsByColumn will not render.
+ */
+export function getKanbanTripColumnId(
+  trip: KanbanTripLike,
+  groupBy: KanbanGroupBy
+): string {
+  return groupBy === 'driver'
+    ? (trip.driver_id ?? 'unassigned')
+    : groupBy === 'status'
+      ? (trip.status ?? '')
+      : (trip.payer_id ?? 'no_payer');
+}
+
 // ─── buildColumns ─────────────────────────────────────────────────────────────
 
 /**
@@ -133,12 +155,7 @@ export function buildItemsByColumn(
   }
 
   for (const trip of trips) {
-    const columnId =
-      groupBy === 'driver'
-        ? (trip.driver_id ?? 'unassigned')
-        : groupBy === 'status'
-          ? trip.status
-          : (trip.payer_id ?? 'no_payer');
+    const columnId = getKanbanTripColumnId(trip, groupBy);
 
     if (!itemsByColumn[columnId]) {
       itemsByColumn[columnId] = [];

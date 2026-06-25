@@ -12,6 +12,7 @@ import {
   CollapsibleTrigger
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { parseScheduledAtOrFallback } from '@/features/trips/lib/trip-time';
 import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { useState } from 'react';
 import type { Shift } from '@/features/driver-portal/types';
@@ -30,12 +31,10 @@ function formatDate(iso: string): string {
   return `${day}.${month}.${year}`;
 }
 
+// WHY: Same rationale as driver-trip-card — shift timestamps are UTC ISO;
+// Berlin hm for correct wall-clock on any driver device TZ.
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return parseScheduledAtOrFallback(iso)?.hm ?? '--:--';
 }
 
 function computeWorkedMinutes(shift: ShiftWithEvents): number {

@@ -28,10 +28,6 @@ import {
   type DragOverEvent,
   type DragStartEvent,
   DragOverlay,
-  MouseSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
   pointerWithin
 } from '@dnd-kit/core';
 import { toast } from 'sonner';
@@ -42,6 +38,7 @@ import {
   syncTripIds
 } from '@/features/trips/stores/use-kanban-pending-store';
 import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
+import { useKanbanSensors } from '@/features/trips/hooks/use-kanban-sensors';
 import {
   buildAssignmentPatch,
   FREMDFIRMA_ALL_ASSIGNEE_PARAM,
@@ -50,9 +47,14 @@ import {
 import { getItem, setItem, STORAGE_KEYS } from '@/lib/kanban-local-storage';
 import {
   buildColumns,
-  buildItemsByColumn
+  buildItemsByColumn,
+  getKanbanTripColumnId
 } from '@/features/trips/lib/kanban-columns';
-import { deriveStatusForPending } from '@/features/trips/lib/kanban-grouping';
+import {
+  buildGroupLabels,
+  deriveStatusForPending
+} from '@/features/trips/lib/kanban-grouping';
+import { resolveKanbanDropColumnId } from '@/features/trips/lib/kanban-dnd';
 import { invalidateAfterTripSave } from '@/features/trips/lib/invalidate-after-trip-save';
 import type {
   KanbanTrip,
@@ -199,12 +201,7 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   }, [pendingChanges]);
 
   // ── DnD sensors ─────────────────────────────────────────────────────────────
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 120, tolerance: 8 }
-    })
-  );
+  const sensors = useKanbanSensors();
 
   /**
    * Server `trips` (from RSC) merged with **staged** `pendingChanges`. A background
@@ -315,41 +312,12 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
   }, [columns, columnOrderByMode, groupBy]);
 
   /** Maps group_id → "Gruppe 1", "Gruppe 2", … (ordered by earliest scheduled_at). */
-  const groupLabels = useMemo(() => {
-    const ids = [
-      ...new Set(effectiveTrips.map((t) => t.group_id).filter(Boolean))
-    ] as string[];
-    const withMinTime = ids.map((gid) => {
-      const groupTrips = effectiveTrips.filter((t) => t.group_id === gid);
-      const minTime = Math.min(
-        ...groupTrips.map((t) =>
-          t.scheduled_at ? new Date(t.scheduled_at).getTime() : Infinity
-        )
-      );
-      return { gid, minTime };
-    });
-    withMinTime.sort((a, b) => a.minTime - b.minTime);
-    const map: Record<string, string> = {};
-    withMinTime.forEach(({ gid }, i) => {
-      map[gid] = `Gruppe ${i + 1}`;
-    });
-    return map;
-  }, [effectiveTrips]);
+  const groupLabels = useMemo(
+    () => buildGroupLabels(effectiveTrips),
+    [effectiveTrips]
+  );
 
   // ── DnD handlers ────────────────────────────────────────────────────────────
-
-  // why: Must mirror buildItemsByColumn derivation so the guard stays consistent with what the board renders.
-  // Derives the effective board column for a trip under the current groupBy mode.
-  // Must stay in sync with buildItemsByColumn in kanban-columns.ts.
-  const getTripColumnId = useCallback(
-    (trip: KanbanTrip): string =>
-      groupBy === 'driver'
-        ? (trip.driver_id ?? 'unassigned')
-        : groupBy === 'status'
-          ? (trip.status ?? '')
-          : (trip.payer_id ?? 'no_payer'),
-    [groupBy]
-  );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
@@ -370,14 +338,13 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
         return;
       }
 
-      let hoveredColumnId: string | null = null;
-      if (effectiveColumns.some((column) => column.id === overId)) {
-        hoveredColumnId = overId;
-      } else if (overId.startsWith('trip-')) {
-        const tripId = overId.replace(/^trip-/, '');
-        const trip = effectiveTrips.find((t) => t.id === tripId);
-        hoveredColumnId = trip ? getTripColumnId(trip) : null;
-      }
+      const hoveredColumnId = resolveKanbanDropColumnId({
+        overId,
+        columns: effectiveColumns,
+        trips: effectiveTrips,
+        // why: Pass groupBy explicitly so drag feedback uses the same trip-to-column derivation as buildItemsByColumn for the current board mode.
+        getTripColumnId: (trip) => getKanbanTripColumnId(trip, groupBy)
+      });
 
       setDragOverColumnId(
         hoveredColumnId && hoveredColumnId !== activeDragColumnId
@@ -385,7 +352,7 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
           : null
       );
     },
-    [activeDragColumnId, effectiveColumns, effectiveTrips, getTripColumnId]
+    [activeDragColumnId, effectiveColumns, effectiveTrips, groupBy]
   );
 
   const applyColumnAssignment = useCallback(
@@ -477,12 +444,7 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
           const tripId = overStr.replace(/^trip-/, '');
           const trip = effectiveTrips.find((t) => t.id === tripId);
           if (trip) {
-            targetColumnId =
-              groupBy === 'driver'
-                ? (trip.driver_id ?? 'unassigned')
-                : groupBy === 'status'
-                  ? (trip.status ?? '')
-                  : (trip.payer_id ?? 'no_payer');
+            targetColumnId = getKanbanTripColumnId(trip, groupBy);
           }
         }
 
@@ -518,10 +480,14 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
         if (!draggedTrip || !targetTrip) return;
 
         // why: Grouping across columns is not permitted — a cross-column card-on-card drop is silently promoted to a plain column move to prevent cards from ending up grouped but in different columns.
-        if (getTripColumnId(draggedTrip) !== getTripColumnId(targetTrip)) {
+        if (
+          getKanbanTripColumnId(draggedTrip, groupBy) !==
+          getKanbanTripColumnId(targetTrip, groupBy)
+        ) {
           // Resolve the target column from the target trip — do not use overStr here,
           // because overStr is "trip-{id}" not a column id when the pointer lands on a card.
-          const targetColumnId = getTripColumnId(targetTrip);
+          // why: Passing groupBy here keeps the grouping guard aligned with the exact column mode rendered by buildItemsByColumn.
+          const targetColumnId = getKanbanTripColumnId(targetTrip, groupBy);
           applyColumnAssignment(draggedId, targetColumnId);
           return;
         }
@@ -559,29 +525,18 @@ export function TripsKanbanBoard({ trips }: TripsKanbanBoardProps) {
       // a card). We must resolve to a real column id before writing assignment —
       // passing trip-{id} as a column value causes trips to disappear into an
       // unrendered bucket in buildItemsByColumn.
-      let resolvedColumnId: string | null = null;
-
-      if (effectiveColumns.some((c) => c.id === overStr)) {
-        // Dropped on empty column space — overStr is already a valid column id.
-        resolvedColumnId = overStr;
-      } else if (overStr.startsWith('trip-')) {
-        // Dropped on a card — resolve column from the target trip.
-        const targetTripId = overStr.replace(/^trip-/, '');
-        const targetTrip = effectiveTrips.find((t) => t.id === targetTripId);
-        resolvedColumnId = targetTrip ? getTripColumnId(targetTrip) : null;
-      }
-
+      const resolvedColumnId = resolveKanbanDropColumnId({
+        overId: overStr,
+        columns: effectiveColumns,
+        trips: effectiveTrips,
+        // why: The resolver is generic; the board passes groupBy explicitly so assignment writes the same column id that the current view renders.
+        getTripColumnId: (trip) => getKanbanTripColumnId(trip, groupBy)
+      });
       if (!resolvedColumnId) return;
 
       applyColumnAssignment(draggedId, resolvedColumnId);
     },
-    [
-      groupBy,
-      effectiveTrips,
-      effectiveColumns,
-      getTripColumnId,
-      applyColumnAssignment
-    ]
+    [groupBy, effectiveTrips, effectiveColumns, applyColumnAssignment]
   );
 
   // ── Save / Reset ────────────────────────────────────────────────────────────

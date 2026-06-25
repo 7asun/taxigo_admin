@@ -288,3 +288,274 @@ See **Q2 section B** (15 files, ~20 lines). Highest-impact admin surfaces:
 5. Widget `requested_date` badges → `ymdToPickerDate` + `format`.
 
 No code changes in this audit step.
+
+---
+
+## v5a-1 Pre-Plan Findings
+
+Date: 2026-06-24  
+Scope: detail sheet date draft + driver portal time display (read-only pre-plan)  
+Files read in full (target sections): `trip-detail-sheet.tsx`, `driver-trip-card.tsx`, `shift-history-row.tsx`, `trip-time.ts` L163–200
+
+---
+
+### Q1 — `trip-detail-sheet.tsx` date draft initialisation
+
+#### a) Full initialisation logic at L537 and L935
+
+**L536–542** (inside a `useEffect` that runs when `trip` identity / KTS fields change):
+
+```typescript
+if (trip.scheduled_at) {
+  setDateYmdDraft(format(new Date(trip.scheduled_at), 'yyyy-MM-dd'));
+} else if (trip.requested_date) {
+  setDateYmdDraft(trip.requested_date);
+} else {
+  setDateYmdDraft('');
+}
+```
+
+**L934–936** (derived each render for dirty baseline):
+
+```typescript
+const currentDateYmd = trip?.scheduled_at
+  ? format(new Date(trip.scheduled_at), 'yyyy-MM-dd')
+  : (trip?.requested_date ?? '');
+```
+
+Both `scheduled_at` branches use **`format(new Date(scheduled_at), 'yyyy-MM-dd')` directly** — no `parseScheduledAtOrFallback`, no `{ in: tz(...) }`. There is **no try/catch** around the format call. The only guard is the **`if (trip.scheduled_at)`** conditional before formatting.
+
+#### b) Imports from `trip-time.ts`
+
+**`parseScheduledAtOrFallback` is not imported.**
+
+Current import from `trip-time.ts` (L32):
+
+```typescript
+import { TripTimeError } from '@/features/trips/lib/trip-time';
+```
+
+No imports from `trip-business-date.ts` in this file. TZ-aware logic elsewhere in the sheet stack uses `parseScheduledAt` / `buildScheduledAt` inside **`apply-time-to-scheduled.ts`** and **`build-trip-details-patch.ts`**, not in the sheet component itself.
+
+#### c) Is `scheduled_at` guaranteed non-null at these sites?
+
+**Guarded by conditional — not assumed always present.**
+
+| Site | Guard |
+|------|-------|
+| L536–537 | `if (trip.scheduled_at)` — only formats when non-null |
+| L538–539 | `else if (trip.requested_date)` — date-only trips |
+| L934–935 | Ternary: `trip?.scheduled_at ? … : (trip?.requested_date ?? '')` |
+
+When `scheduled_at` is null, both paths fall through to **`requested_date`** (string YMD) or `''`.
+
+#### d) Write-back vs display-only — full data flow
+
+**Write-back.** `dateYmdDraft` is **not display-only**.
+
+| Step | File | Line(s) | Role |
+|------|------|---------|------|
+| Picker binding | `trip-detail-sheet.tsx` | 1181–1182 | `<DatePicker value={dateYmdDraft} onChange={setDateYmdDraft} />` |
+| Dirty baseline | `trip-detail-sheet.tsx` | 979 | `dateYmdDraft !== currentDateYmd` → `detailsDirty` |
+| Save input | `trip-detail-sheet.tsx` | 1041–1042 | Passed to `buildTripDetailsPatch({ dateYmdDraft, currentDateYmd, timeDraft, … })` |
+| Patch logic | `build-trip-details-patch.ts` | 214–233 | If `dateYmdDraft !== currentDateYmd`: `buildScheduledAt(dateYmdDraft, timeDraft)` or sets `requested_date = dateYmdDraft` |
+| Clear time path | `build-trip-details-patch.ts` | 275–278 | `requested_date = input.dateYmdDraft \|\| …` |
+
+**Changing TZ derivation at L537/L935 affects both what the dispatcher sees and what can be saved** when they change the date or save with a dirty date field.
+
+**Mitigating factor:** time-only edits on an unchanged date use **`parseScheduledAt(trip.scheduled_at).ymd`** inside `build-trip-details-patch.ts` L255 — Berlin-correct — so a wrong prefilled date does **not** corrupt time-only saves *as long as* the user does not touch the date picker and `dateYmdDraft === currentDateYmd` (both wrong but equal).
+
+**Additional note:** the date-init `useEffect` (L484–554) **does not list `trip.scheduled_at` or `trip.requested_date` in its dependency array** (L547–554). If schedule fields update on the same `trip.id` (refetch, inline table edit), **`dateYmdDraft` may not re-sync** until trip id or listed KTS fields change. Separate from TZ but relevant to v5a-1 testing.
+
+#### e) Fallback to `requested_date`?
+
+**Yes — at both sites, when `scheduled_at` is absent.**
+
+- Init effect L538–539: `setDateYmdDraft(trip.requested_date)`  
+- `currentDateYmd` L936: `(trip?.requested_date ?? '')`  
+
+When **`scheduled_at` is present**, there is **no** fallback to `requested_date` for the date string — only the UTC-local `format(new Date(scheduled_at), 'yyyy-MM-dd')` path runs.
+
+---
+
+### Q2 — Driver portal components
+
+#### a) Exact `toLocaleTimeString` calls
+
+**`driver-trip-card.tsx` L63–68:**
+
+```typescript
+function formatTime(isoString: string | null): string {
+  if (!isoString) return '--:--';
+  return new Date(isoString).toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+```
+
+**`shift-history-row.tsx` L33–38:**
+
+```typescript
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+```
+
+Neither call passes **`timeZone`**. Locale is `'de-DE'` only.
+
+#### b) Source values
+
+| File | Call site | Source |
+|------|-----------|--------|
+| `driver-trip-card.tsx` | L223 | `formatTime(trip.scheduled_at)` — **`scheduled_at` UTC ISO** from `DriverTrip` |
+| `shift-history-row.tsx` | L111–112 | `formatTime(shift.started_at)`, `formatTime(shift.ended_at)` — **shift timestamps**, not trip schedule |
+| `shift-history-row.tsx` | L93–94 | Break events: `formatTime(breakStart)`, `formatTime(ev.timestamp)` |
+
+No pre-formatted time strings — always ISO → `Date` → locale format.
+
+#### c) Existing TZ helper imports?
+
+**None.** Neither file imports `getTripsBusinessTimeZone`, `trip-business-date.ts`, or `trip-time.ts`.
+
+`shift-history-row.tsx` also defines **`formatDate(iso)`** (L25–30) using `d.getDate()` / `getMonth()` / `getFullYear()` — runtime-local calendar, no Berlin helper.
+
+#### d) SSR vs client-only
+
+**Both components are client-only.**
+
+| File | Evidence |
+|------|----------|
+| `driver-trip-card.tsx` | L1: `'use client'` |
+| `shift-history-row.tsx` | L1: `'use client'` |
+
+Parents are also client orchestrators: `touren-page-content.tsx` L1 `'use client'`, `todays-trips-list.tsx`, `shift-history-list.tsx`.
+
+**Implication:** `toLocaleTimeString` runs in the **driver’s browser**, not on Vercel UTC SSR. UTC runtime TZ is **not a production risk today** for these components. Residual risk = **device OS timezone ≠ `Europe/Berlin`** (misconfigured phone, travel abroad).
+
+---
+
+### `trip-time.ts` — return shape (Q4 confirm)
+
+**L163–179 `parseScheduledAt`:** returns `{ ymd: string; hm: string }` where:
+
+- `ymd` = `'yyyy-MM-dd'` in `getTripsBusinessTimeZone()` (via `@date-fns/tz`)  
+- `hm` = `'HH:mm'` in same zone  
+
+**L189–197 `parseScheduledAtOrFallback`:** same shape or **`null`** when iso is null/undefined/invalid.
+
+---
+
+### Senior recommendation
+
+#### A. Detail sheet date draft — one-liner or surgery?
+
+**Not a single one-liner — coordinated small change (still surgical).**
+
+Minimum fix requires **two matching edits** in the same file:
+
+1. **L537** — init `dateYmdDraft` from `parseScheduledAtOrFallback(trip.scheduled_at)?.ymd`  
+2. **L934–935** — `currentDateYmd` must use the **same** derivation  
+
+If only L537 is fixed, `dateYmdDraft` (Berlin) ≠ `currentDateYmd` (UTC-local) → **`detailsDirty` true on open** (L979) without user edits.
+
+Also add import: extend L32 to include `parseScheduledAtOrFallback`.
+
+**Write-path impact:** Low for “open and save unchanged” (both baselines move together). **High for display correctness** vs Fahrten table (v4c). Date-change saves use `dateYmdDraft` → `buildScheduledAt` — wrong prefill could persist wrong calendar day if user saves after opening.
+
+**Real-world frequency (UTC day ≠ Berlin day):** For `Europe/Berlin`, mismatch occurs when UTC calendar date differs from Berlin civil date — roughly **22:00–24:00 UTC** (CEST) / **23:00–01:00 UTC** (CET), i.e. **~00:00–02:00 Berlin wall clock**. Typical scheduled medical transport is daytime; **low frequency** but **non-zero** (early-morning dialysis, late discharge). More visible bug: **detail sheet date disagrees with Fahrten Datum column** for those rows even in Berlin browser (because Fahrten uses `parseScheduledAtOrFallback` + `ymdToPickerDate`, sheet uses UTC `format` for ymd).
+
+**Verdict:** Safe surgical fix if **L537 + L935 + import** land together; optionally fix **time draft L471/481** in same PR for hm consistency (see C).
+
+#### B. Driver portal — real risk or theoretical?
+
+**Mostly theoretical in production today.**
+
+- Client-only → browser TZ applies.  
+- German drivers with DE locale + Berlin OS TZ → **matches business TZ**.  
+- Risk materialises only with **wrong device timezone** or **non-German TZ travel**.
+
+**Minimal safe fix:** Replace local `formatTime` with `parseScheduledAtOrFallback(iso)?.hm ?? '--:--'` (works for any ISO instant, not just trips). Alternative: `toLocaleTimeString('de-DE', { timeZone: getTripsBusinessTimeZone(), hour: '2-digit', minute: '2-digit' })`.
+
+For **`shift-history-row.tsx`**, same helper fixes shift start/end/break times; optionally replace **`formatDate`** with Berlin ymd from `parseScheduledAtOrFallback(iso)?.ymd` + display format for date row consistency.
+
+#### C. Other callsites in these files (missed by main audit)
+
+**`trip-detail-sheet.tsx` (same file — include in v5a-1 or immediate follow-up):**
+
+| Line(s) | Issue |
+|---------|-------|
+| 471, 481 | Time draft init: `format(new Date(trip.scheduled_at), 'HH:mm')` — runtime local hm; **`applyTimeToScheduledDate`** (L987) uses Berlin for dirty check → possible **false dirty** or wrong hm for non-Berlin browsers |
+| 2415 | `format(new Date(time), 'HH:mm')` — **`actual_pickup_at` / dropoff** completion stamp, not `scheduled_at`; lower priority |
+| L547–554 | Date init effect **missing `trip.scheduled_at` / `trip.requested_date` deps** — stale draft after schedule update |
+
+**`driver-trip-card.tsx`:** only L63–68 / L223 for trip time — no other schedule formatters.
+
+**`shift-history-row.tsx`:** L25–30 `formatDate` (local calendar); L33–38 `formatTime`; all shift-related, not in main audit’s trip list but **in scope for driver portal TZ consistency**.
+
+**Not in these files:** `linked-partner-callout.tsx` — defer to v5a-2.
+
+#### D. Overall — surgical two-file fix or hidden complexity?
+
+**Honest assessment: small, bounded PR — not a one-liner, not major surgery.**
+
+| Surface | Files | Effort | Complexity |
+|---------|-------|--------|------------|
+| Detail sheet date | 1 file, 2 logic sites + import | ~10 lines | Must keep `dateYmdDraft` and `currentDateYmd` in sync; test date-only + timed + midnight-edge ISO |
+| Driver portal | 2 files, 1 helper each | ~15 lines | Trivial; shift row adds optional `formatDate` |
+| Recommended same PR | Detail sheet **time draft** L471/481 | +4 lines | Avoid hm/date split-brain in one surface |
+
+**Hidden complexity (do not ignore):**
+
+1. **`currentDateYmd` must change with init** — partial fix worse than none.  
+2. **Time draft still wrong** if only date is fixed — recommend v5a-1 includes hm or documents v5a-1b.  
+3. **Effect deps** on date init — consider adding `trip.scheduled_at` / `trip.requested_date` while touching L484–554 (behaviour change; needs explicit test).  
+4. **Not two files only** if shift history included — **three files** (`trip-detail-sheet.tsx`, `driver-trip-card.tsx`, `shift-history-row.tsx`).
+
+**Does not warrant a broad v5a plan yet** — no refactor of `build-trip-details-patch` needed (already Berlin-correct on writes). Kanban/mobile/print remain out of scope for v5a-1.
+
+---
+
+### Verdict per surface
+
+| Surface | Verdict |
+|---------|---------|
+| **Detail sheet date draft** | **SURGERY NEEDED** (minimal — 2 coordinated sites + import; not a literal one-liner) |
+| **Driver portal display** | **THEORETICAL** (client-only; real only if device TZ ≠ Berlin) |
+
+---
+
+### Suggested v5a-1 plan sketch (no code)
+
+1. **`trip-detail-sheet.tsx`:** Import `parseScheduledAtOrFallback`; replace L537 and L934–935 `scheduled_at` branches; replace L471/481 time draft with `.hm`; consider effect deps for schedule fields.  
+2. **`driver-trip-card.tsx`:** `formatTime` → `parseScheduledAtOrFallback(iso)?.hm ?? '--:--'`.  
+3. **`shift-history-row.tsx`:** Same for `formatTime`; optional Berlin ymd for `formatDate`.  
+4. **Manual test:** Trip with `scheduled_at` near Berlin midnight / UTC day boundary; compare sheet date vs Fahrten Datum column; driver card time vs sheet time; save unchanged + date-change + time-only.
+
+No code changes in this audit step.
+
+---
+
+## v5a-1 Resolution
+
+Date: 2026-06-25  
+Status: **CLOSED**
+
+- Gap 1 (detail sheet date + time draft): **FIXED** — `parseScheduledAtOrFallback` for ymd/hm in `trip-detail-sheet.tsx`
+- Gap 2 (driver portal `formatTime`): **FIXED** — `driver-trip-card.tsx`, `shift-history-row.tsx`
+- v5a-2 (remaining legacy surfaces): **DEFERRED**
+
+See [v5a-implementation.md](./v5a-implementation.md).
+
+### Effect deps note
+
+The date-init useEffect dep array (L559–566) does not include `trip.scheduled_at` / `trip.requested_date`. This is the master re-initialisation effect (~20 fields). Adding schedule deps would reset all drafts on every schedule update — wrong for optimistic editing. Accepted as a known design constraint. See [v5a-implementation.md](./v5a-implementation.md) for full rationale. No action required.
+
+### Effect deps note
+
+The date-init useEffect dep array (L559–566) does not include `trip.scheduled_at` / `trip.requested_date`. This is the master re-initialisation effect (~20 fields). Adding schedule deps would reset all drafts on every schedule update — wrong for optimistic editing. Accepted as a known design constraint. See [v5a-implementation.md](./v5a-implementation.md) for full rationale. No action required.
+

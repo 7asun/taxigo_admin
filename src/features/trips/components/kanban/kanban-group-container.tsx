@@ -24,6 +24,10 @@ export interface GroupedTripsContainerProps {
   groupLabel?: string;
   columnId: string;
   activeDragColumnId: string | null;
+  // why: Allows consumer contexts (e.g. the overview widget) to suppress the
+  // ungroup affordance when no ungroup behavior is wired up, preventing a
+  // visible interactive element that silently does nothing.
+  hideUngroupAction?: boolean;
   onTimeChange: OnTimeChange;
   onStopOrderChange: OnStopOrderChange;
   onUngroup: OnUngroup;
@@ -34,6 +38,7 @@ export function GroupedTripsContainer({
   groupLabel,
   columnId,
   activeDragColumnId,
+  hideUngroupAction,
   onTimeChange,
   onStopOrderChange,
   onUngroup
@@ -81,19 +86,21 @@ export function GroupedTripsContainer({
         <span className='text-muted-foreground text-[10px] font-medium uppercase'>
           {groupLabel ?? 'Gruppe'}
         </span>
-        <button
-          type='button'
-          onClick={(e) => {
-            e.stopPropagation();
-            onUngroup(groupId);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className='text-muted-foreground hover:text-foreground text-[10px]'
-          title='Gruppe auflösen'
-          aria-label='Gruppe auflösen'
-        >
-          ×
-        </button>
+        {!hideUngroupAction && (
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation();
+              onUngroup(groupId);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className='text-muted-foreground hover:text-foreground text-[10px]'
+            title='Gruppe auflösen'
+            aria-label='Gruppe auflösen'
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Individual cards */}

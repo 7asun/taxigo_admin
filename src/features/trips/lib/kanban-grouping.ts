@@ -100,3 +100,32 @@ export function deriveStatusForPending(
     }) ?? currentStatus
   );
 }
+
+/**
+ * Builds a map of group_id → "Gruppe N" label, ordered by each group's
+ * earliest scheduled_at timestamp ascending.
+ *
+ * why: Both the main Kanban board and the overview widget build this map
+ * identically from their respective trip arrays. Single source of truth
+ * prevents label format drift between the two surfaces.
+ */
+export function buildGroupLabels(trips: KanbanTrip[]): Record<string, string> {
+  const ids = [
+    ...new Set(trips.map((t) => t.group_id).filter(Boolean))
+  ] as string[];
+  const withMinTime = ids.map((gid) => {
+    const groupTrips = trips.filter((t) => t.group_id === gid);
+    const minTime = Math.min(
+      ...groupTrips.map((t) =>
+        t.scheduled_at ? new Date(t.scheduled_at).getTime() : Infinity
+      )
+    );
+    return { gid, minTime };
+  });
+  withMinTime.sort((a, b) => a.minTime - b.minTime);
+  const map: Record<string, string> = {};
+  withMinTime.forEach(({ gid }, i) => {
+    map[gid] = `Gruppe ${i + 1}`;
+  });
+  return map;
+}

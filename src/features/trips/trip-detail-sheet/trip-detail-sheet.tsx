@@ -29,7 +29,10 @@ import { useTripFormData } from '@/features/trips/hooks/use-trip-form-data';
 import type { ClientOption } from '@/features/trips/hooks/use-trip-form-data';
 import { useTripDetailSaveRefresh } from '@/features/trips/trip-detail-sheet/hooks/use-trip-detail-save-refresh';
 import { applyTimeToScheduledDate } from '@/features/trips/trip-detail-sheet/lib/apply-time-to-scheduled';
-import { TripTimeError } from '@/features/trips/lib/trip-time';
+import {
+  TripTimeError,
+  parseScheduledAtOrFallback
+} from '@/features/trips/lib/trip-time';
 import {
   buildTripDetailsPatch,
   clientDisplayNameFromParts
@@ -468,7 +471,8 @@ export function TripDetailSheet({
   useEffect(() => {
     if (!isOpen) {
       if (trip?.scheduled_at) {
-        setTimeDraft(format(new Date(trip.scheduled_at), 'HH:mm'));
+        // WHY: Berlin wall-clock hm — not runtime-local format(new Date(…)).
+        setTimeDraft(parseScheduledAtOrFallback(trip.scheduled_at)?.hm ?? '');
       } else {
         setTimeDraft('');
       }
@@ -478,7 +482,8 @@ export function TripDetailSheet({
       setTimeDraft('');
       return;
     }
-    setTimeDraft(format(new Date(trip.scheduled_at), 'HH:mm'));
+    // WHY: Same TZ as date draft and Fahrten Zeit column (parseScheduledAtOrFallback).
+    setTimeDraft(parseScheduledAtOrFallback(trip.scheduled_at)?.hm ?? '');
   }, [isOpen, trip?.id, trip?.scheduled_at]);
 
   useEffect(() => {
@@ -534,7 +539,10 @@ export function TripDetailSheet({
     noInvoiceUserLockedRef.current = false;
     setNoInvoiceCatalogHint(null);
     if (trip.scheduled_at) {
-      setDateYmdDraft(format(new Date(trip.scheduled_at), 'yyyy-MM-dd'));
+      // WHY: Berlin civil day via parseScheduledAtOrFallback — not format(new Date(…))
+      // which uses UTC calendar components. Near Berlin midnight, UTC date ≠ Berlin date;
+      // wrong prefill would persist to DB if user saves. Matches Fahrten Datum (v4c).
+      setDateYmdDraft(parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ?? '');
     } else if (trip.requested_date) {
       setDateYmdDraft(trip.requested_date);
     } else {
@@ -931,8 +939,10 @@ export function TripDetailSheet({
     runWithRecurringScope(exec);
   };
 
+  // WHY: Same Berlin ymd derivation as dateYmdDraft init — if these differ,
+  // detailsDirty is true on open without any user edit.
   const currentDateYmd = trip?.scheduled_at
-    ? format(new Date(trip.scheduled_at), 'yyyy-MM-dd')
+    ? (parseScheduledAtOrFallback(trip.scheduled_at)?.ymd ?? '')
     : (trip?.requested_date ?? '');
 
   const detailPayerRowForReha = payerDraft

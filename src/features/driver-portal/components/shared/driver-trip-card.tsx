@@ -45,6 +45,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { UrgencyIndicator } from '@/features/trips/components/urgency-indicator';
+import { parseScheduledAtOrFallback } from '@/features/trips/lib/trip-time';
 import {
   IconAccessible,
   IconArrowDown,
@@ -60,12 +61,10 @@ import { toast } from 'sonner';
 // Helpers
 // ---------------------------------------------------------------------------
 
+// WHY: toLocaleTimeString without timeZone uses device runtime TZ — wrong when
+// phone TZ ≠ Europe/Berlin. parseScheduledAtOrFallback yields Berlin wall-clock hm.
 function formatTime(isoString: string | null): string {
-  if (!isoString) return '--:--';
-  return new Date(isoString).toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return parseScheduledAtOrFallback(isoString)?.hm ?? '--:--';
 }
 
 async function resolveActiveShiftId(driverId: string): Promise<string | null> {
