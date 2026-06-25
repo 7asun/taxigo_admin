@@ -5,3 +5,5 @@
 export * from './kts-cells';
 export * from './reha-cells';
 export * from './assignment-conflict-indicator';
+export { ScheduledTimeCell } from './scheduled-time-cell';
+export { useInlineFieldDraft } from './use-inline-field-draft';

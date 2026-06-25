@@ -2,6 +2,7 @@ import { normalizeKtsInsert } from '@/features/kts/kts.service';
 import type { InsertTrip } from '@/features/trips/api/trips.service';
 import type { Trip } from '@/features/trips/api/trips.service';
 import { buildAssignmentPatch } from '@/features/trips/lib/trip-assignee';
+import { instantToYmdInBusinessTz } from '@/features/trips/lib/trip-business-date';
 
 export interface BuildReturnTripInsertParams {
   /** UTC ISO from `buildScheduledAt` — never `Date#toISOString()` from browser-local wall time. */
@@ -125,6 +126,11 @@ export function buildReturnTripInsert(
     // WHY not `Date#toISOString()`: callers’ `Date` came from `DateTimePicker` in the runtime TZ;
     // persisting that instant mis-aligned non-Berlin dispatchers vs Fahrten/cron Berlin semantics.
     scheduled_at: params.scheduledAtIso,
+    // WHY: Dialog always supplies scheduledAtIso today; guard avoids silent
+    // '1970-01-01' if a future caller passes null/undefined (new Date(null) → epoch).
+    requested_date: params.scheduledAtIso
+      ? instantToYmdInBusinessTz(new Date(params.scheduledAtIso).getTime())
+      : null,
     driver_id: assignment.driver_id,
     status: derivedStatus,
     stop_updates: [],

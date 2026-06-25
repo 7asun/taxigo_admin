@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { Accessibility, RepeatIcon } from 'lucide-react';
+import { Accessibility } from 'lucide-react';
 import { DriverSelectCell } from './driver-select-cell';
 import { cn } from '@/lib/utils';
 import {
@@ -15,7 +15,8 @@ import {
   tripStatusLabels,
   type TripStatus
 } from '@/lib/trip-status';
-import { UrgencyIndicator } from '../urgency-indicator';
+import { ymdToPickerDate } from '@/features/trips/lib/trip-business-date';
+import { parseScheduledAtOrFallback } from '@/features/trips/lib/trip-time';
 import { parseTripAddressForDataTable } from '@/features/trips/lib/format-trip-address-display-line';
 import {
   billingFamilyFromEmbed,
@@ -36,6 +37,7 @@ import {
   KtsFehlerSwitchCell,
   KtsFehlerTextCell,
   RehaScheinSwitchCell,
+  ScheduledTimeCell,
   AssignmentConflictIndicator
 } from './inline-cells';
 
@@ -90,25 +92,24 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Datum' />
     ),
-    cell: ({ cell }) => {
-      const raw = cell.getValue<string>();
-      if (raw == null || raw === '')
-        return (
-          <div className='flex justify-center px-1'>
-            <span className='text-muted-foreground'>—</span>
-          </div>
-        );
-      const date = new Date(raw);
-      if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {
+    cell: ({ cell, row }) => {
+      const scheduledAt = cell.getValue<string | null>();
+      const requestedDate = row.original.requested_date;
+      const ymd =
+        parseScheduledAtOrFallback(scheduledAt)?.ymd ?? requestedDate ?? null;
+
+      if (!ymd) {
         return (
           <div className='flex justify-center px-1'>
             <span className='text-muted-foreground'>—</span>
           </div>
         );
       }
+
+      // WHY ymdToPickerDate: civil YMD in business TZ — not UTC `new Date(ymdString)` drift.
       return (
         <span className='font-medium'>
-          {format(date, 'dd.MM.yyyy', { locale: de })}
+          {format(ymdToPickerDate(ymd), 'dd.MM.yyyy', { locale: de })}
         </span>
       );
     },
@@ -124,40 +125,7 @@ export const columns: ColumnDef<any>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Zeit' />
     ),
-    cell: ({ cell, row }) => {
-      const raw = cell.getValue<string>();
-      if (raw == null || raw === '')
-        return (
-          <div className='flex justify-center px-1'>
-            <span className='text-muted-foreground'>—</span>
-          </div>
-        );
-      const date = new Date(raw);
-      if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {
-        return (
-          <div className='flex justify-center px-1'>
-            <span className='text-muted-foreground'>—</span>
-          </div>
-        );
-      }
-      const isRecurring = !!row.original.rule_id;
-
-      return (
-        <div className='flex items-center'>
-          <div className='flex w-4 shrink-0 items-center justify-center'>
-            <UrgencyIndicator
-              scheduledAt={raw}
-              status={row.original.status}
-              variant='dot'
-            />
-          </div>
-          <span className='font-medium'>{format(date, 'HH:mm')}</span>
-          {isRecurring && (
-            <RepeatIcon className='ml-2 h-3 w-3 text-blue-500 dark:text-blue-400' />
-          )}
-        </div>
-      );
-    },
+    cell: ({ row }) => <ScheduledTimeCell trip={row.original} />,
     meta: {
       label: 'Zeit',
       variant: 'text'

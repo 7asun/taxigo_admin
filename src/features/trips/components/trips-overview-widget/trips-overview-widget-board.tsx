@@ -1,21 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import {
-  DndContext,
-  DragOverlay,
-  MouseSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  pointerWithin
+import { useCallback, useMemo, useState } from 'react';
+import { DndContext, DragOverlay, pointerWithin } from '@dnd-kit/core';
+import type {
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { Loader2 } from 'lucide-react';
 import type { Database } from '@/types/database.types';
 import { KanbanDragPreview } from '@/features/trips/components/kanban/kanban-drag-preview';
+import { useKanbanSensors } from '@/features/trips/hooks/use-kanban-sensors';
 import type { KanbanTrip } from '@/features/trips/lib/kanban-types';
 import { isTripFremdfirma } from '@/features/trips/lib/trip-assignee';
+import { buildGroupLabels } from '@/features/trips/lib/kanban-grouping';
+import { resolveKanbanDropColumnId } from '@/features/trips/lib/kanban-dnd';
 import {
   buildWidgetColumns,
   buildWidgetItemsByColumn,
@@ -53,13 +52,12 @@ export function TripsOverviewWidgetBoard({
   onCardClick
 }: TripsOverviewWidgetBoardProps) {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  // why: pointerWithin prefers child trip droppables over the column body, so
+  // the widget must track the resolved hover column manually to keep drop
+  // feedback aligned with the actual reassignment outcome.
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
 
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 120, tolerance: 8 }
-    })
-  );
+  const sensors = useKanbanSensors();
 
   const columns = useMemo(() => {
     const allColumns = buildWidgetColumns(trips, drivers);
@@ -74,51 +72,81 @@ export function TripsOverviewWidgetBoard({
     [trips, columns]
   );
 
-  const groupLabels = useMemo(() => {
-    const ids = [
-      ...new Set(trips.map((t) => t.group_id).filter(Boolean))
-    ] as string[];
-    const withMinTime = ids.map((gid) => {
-      const groupTrips = trips.filter((t) => t.group_id === gid);
-      const minTime = Math.min(
-        ...groupTrips.map((t) =>
-          t.scheduled_at ? new Date(t.scheduled_at).getTime() : Infinity
-        )
-      );
-      return { gid, minTime };
-    });
-    withMinTime.sort((a, b) => a.minTime - b.minTime);
-    const map: Record<string, string> = {};
-    withMinTime.forEach(({ gid }, i) => {
-      map[gid] = `Gruppe ${i + 1}`;
-    });
-    return map;
-  }, [trips]);
+  const groupLabels = useMemo(() => buildGroupLabels(trips), [trips]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
   };
 
+  // why: The widget only supports column reassignment, not card-on-card grouping.
+  // Resolve the hovered column from either a raw column droppable or a trip-{id}
+  // droppable so column feedback remains stable while dragging over cards.
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const overId = event.over?.id == null ? null : String(event.over.id);
+
+      if (!overId || overId.startsWith('group-')) {
+        setDragOverColumnId(null);
+        return;
+      }
+
+      const hoveredColumnId = resolveKanbanDropColumnId({
+        overId,
+        columns,
+        trips,
+        getTripColumnId: resolveWidgetColumnId
+      });
+
+      setDragOverColumnId(hoveredColumnId);
+    },
+    [columns, trips]
+  );
+
+  const handleDragCancel = () => {
+    setActiveDragId(null);
+    setDragOverColumnId(null);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragId(null);
+    setDragOverColumnId(null);
     const { active, over } = event;
     if (!over) return;
 
-    const tripId = String(active.id);
-    const trip = trips.find((t) => t.id === tripId);
-    if (!trip) return;
-    if (isTripFremdfirma(trip) || trip.group_id) return;
+    const activeId = String(active.id);
+    const isGroupDrag = activeId.startsWith('group-');
 
-    let targetColumnId = String(over.id);
-    if (targetColumnId.startsWith('trip-')) {
-      const targetTrip = trips.find(
-        (t) => t.id === targetColumnId.replace(/^trip-/, '')
+    // why: overStr may be a column id or trip-{id}; resolveKanbanDropColumnId
+    // handles both cases so group members are never written to an unrendered bucket.
+    const resolvedColumnId = resolveKanbanDropColumnId({
+      overId: over.id,
+      columns,
+      trips,
+      getTripColumnId: resolveWidgetColumnId
+    });
+    if (!resolvedColumnId) return;
+
+    const newDriverId =
+      resolvedColumnId === 'unassigned' ? null : resolvedColumnId;
+
+    if (isGroupDrag) {
+      // why: GroupedTripsContainer emits group-{groupId} as active.id.
+      // useWidgetTripAssignment already updates all rows sharing the same
+      // group_id when the representative trip has group_id set.
+      const groupId = activeId.replace(/^group-/, '');
+      const representativeTrip = trips.find(
+        (t) => t.group_id === groupId && !isTripFremdfirma(t)
       );
-      if (!targetTrip) return;
-      targetColumnId = resolveWidgetColumnId(targetTrip);
+      if (!representativeTrip) return;
+      if (representativeTrip.driver_id === newDriverId) return;
+      onAssign(representativeTrip, newDriverId);
+      return;
     }
 
-    const newDriverId = targetColumnId === 'unassigned' ? null : targetColumnId;
+    // Existing single-trip path — preserved exactly.
+    const trip = trips.find((t) => t.id === activeId);
+    if (!trip) return;
+    if (isTripFremdfirma(trip) || trip.group_id) return;
     if (trip.driver_id === newDriverId) return;
     onAssign(trip, newDriverId);
   };
@@ -154,6 +182,8 @@ export function TripsOverviewWidgetBoard({
         sensors={sensors}
         collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragCancel={handleDragCancel}
         onDragEnd={handleDragEnd}
       >
         <div className='min-h-0 flex-1 overflow-x-auto overflow-y-auto'>
@@ -164,23 +194,21 @@ export function TripsOverviewWidgetBoard({
                 column={column}
                 items={itemsByColumn[column.id] ?? []}
                 groupLabels={groupLabels}
+                dragOverColumnId={dragOverColumnId}
                 onCardClick={onCardClick}
               />
             ))}
           </div>
         </div>
-        {/*
-         * DragOverlay is a sibling to the scroll container (not nested inside it).
-         * dnd-kit portals the overlay, but tree position under DndContext still matters.
-         * groupLabels={{}} is safe: KanbanDragPreview only reads groupLabels when
-         * activeId.startsWith('group-'); widget v2 drags plain trip UUIDs only.
-         */}
+        {/* DragOverlay is a sibling to the scroll container (not nested inside it). */}
         <DragOverlay dropAnimation={null}>
           {activeDragId ? (
+            // why: Group drags now exist in the widget, so the overlay must receive the
+            // real groupLabels map to render the same numbered preview label as the main board.
             <KanbanDragPreview
               activeId={activeDragId}
               effectiveTrips={trips}
-              groupLabels={{}}
+              groupLabels={groupLabels}
             />
           ) : null}
         </DragOverlay>

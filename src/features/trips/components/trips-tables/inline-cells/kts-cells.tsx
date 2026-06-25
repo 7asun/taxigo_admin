@@ -10,12 +10,13 @@ import {
   TooltipTrigger
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 
 import { normalizeKtsPatch } from '@/features/kts/kts.service';
 import { useUpdateKtsMutation } from '@/features/kts/hooks/use-update-kts-mutation';
 import { useTripFieldUpdate } from '@/features/trips/hooks/use-trip-field-update';
 import type { TripRow } from '@/features/trips/types/trip-row';
+
+import { useInlineFieldDraft } from './use-inline-field-draft';
 
 export type { TripRow };
 
@@ -254,27 +255,22 @@ export function KtsFehlerSwitchCell({ trip }: { trip: TripRow }) {
 
 export function KtsFehlerTextCell({ trip }: { trip: TripRow }) {
   const { updateField, isPending } = useTripFieldUpdate();
-  const [draft, setDraft] = React.useState(
-    () => trip.kts_fehler_beschreibung ?? ''
-  );
 
   const ctx = useKtsOptimistic();
   const ktsActive = ctx?.ktsActive ?? !!trip.kts_document_applies;
   const ktsFehlerActive = ctx?.ktsFehlerActive ?? !!trip.kts_fehler;
 
-  // Prop can change after RSC refresh, sibling cell cascades, or another session — keep draft aligned.
-  React.useEffect(() => {
-    setDraft(trip.kts_fehler_beschreibung ?? '');
-  }, [trip.id, trip.kts_fehler_beschreibung]);
-
-  // 1500ms gives the admin time to finish typing a sentence before the save
-  // triggers. 400ms caused visible freezes mid-input.
-  const debouncedPersist = useDebouncedCallback((raw: string) => {
-    const { kts_fehler_beschreibung } = normalizeKtsPatch({
-      kts_fehler_beschreibung: raw.trim() || null
-    });
-    updateField(trip.id, 'kts_fehler_beschreibung', kts_fehler_beschreibung);
-  }, 1500);
+  // WHY: shared useInlineFieldDraft — debounce + RSC draft sync; isPending stays on useTripFieldUpdate.
+  const { draft, setDraft } = useInlineFieldDraft({
+    initialValue: trip.kts_fehler_beschreibung ?? '',
+    debounceMs: 1500,
+    onPersist: (raw) => {
+      const { kts_fehler_beschreibung } = normalizeKtsPatch({
+        kts_fehler_beschreibung: raw.trim() || null
+      });
+      updateField(trip.id, 'kts_fehler_beschreibung', kts_fehler_beschreibung);
+    }
+  });
 
   const v = trip.kts_fehler_beschreibung as string | null | undefined;
   const t = v?.trim();
@@ -312,11 +308,7 @@ export function KtsFehlerTextCell({ trip }: { trip: TripRow }) {
       )}
       value={draft}
       disabled={isPending}
-      onChange={(e) => {
-        const next = e.target.value;
-        setDraft(next);
-        debouncedPersist(next);
-      }}
+      onChange={(e) => setDraft(e.target.value)}
       aria-label='KTS-Fehler Beschreibung'
     />
   );
