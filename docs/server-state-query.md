@@ -19,6 +19,8 @@ Implementation: [`src/features/trips/trip-detail-sheet/`](../src/features/trips/
 
 Supabase `postgres_changes` on the trip row calls **`queryClient.invalidateQueries({ queryKey: tripKeys.detail(id) })`** (see `useTripQuery` implementation). Optional debouncing can be added if events are noisy.
 
+Dashboard planning widgets subscribe to the same `trips` table but invalidate widget root keys instead of calling a hook instance `refetch()`: `tripKeys.unplannedRoot` for offene Touren and `tripKeys.timelessRuleTripsRoot` for timeless recurring trips. Root-key invalidation reaches all mounted subscribers even while `staleTime` is fresh and avoids relying on whichever hook instance handled the realtime event.
+
 ## RSC vs client cache
 
 The Fahrten **list/kanban** grid is loaded by **Server Components** (`trips-listing.tsx`). Updates go through **`refreshTripsPage()`** from [`TripsRscRefreshProvider`](../src/features/trips/providers/trips-rsc-refresh-provider.tsx), which runs **`router.refresh()`** and **`invalidateQueries(tripKeys.all)`** so RSC and TanStack Query stay aligned. See **[docs/trips-page-rsc-refresh.md](trips-page-rsc-refresh.md)** for the full picture, file layout, and Kanban behaviour.

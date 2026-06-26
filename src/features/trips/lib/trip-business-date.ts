@@ -56,3 +56,32 @@ export function getZonedDayBoundsIso(ymd: string): {
 export function ymdToPickerDate(ymd: string): Date {
   return tz(getTripsBusinessTimeZone())(ymd) as Date;
 }
+
+/**
+ * WHY: The widget must show Monday trips on Friday already (not Sunday),
+ * because the dispatch team needs one full business day of preparation time.
+ * A plain +1 calendar day is wrong on Fridays and weekends. This helper
+ * centralises the "next business day" rule next to the other Berlin-TZ
+ * date primitives so it stays testable and timezone-invariant.
+ *
+ * Rules:
+ *   Monday–Thursday  → next calendar day  (+1)
+ *   Friday           → next Monday        (+3)
+ *   Saturday         → next Monday        (+2)
+ *   Sunday           → next Monday        (+1)
+ */
+export function getNextBusinessDayYmd(ymd: string): string {
+  const base = ymdToPickerDate(ymd); // local Date at midnight Berlin
+  const dow = base.getDay(); // 0 = Sunday … 6 = Saturday
+  const daysToAdd =
+    dow === 5
+      ? 3 // Friday → Monday
+      : dow === 6
+        ? 2 // Saturday → Monday
+        : dow === 0
+          ? 1 // Sunday → Monday (safety guard)
+          : 1; // Mon–Thu → next calendar day
+  const next = new Date(base);
+  next.setDate(base.getDate() + daysToAdd);
+  return instantToYmdInBusinessTz(next.getTime());
+}
