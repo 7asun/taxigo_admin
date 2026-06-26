@@ -4,8 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { startOfWeek, endOfWeek } from 'date-fns';
 import type { Trip } from '@/features/trips/api/trips.service';
-import { tripKeys, type UnplannedTripsFilter } from '@/query/keys';
-import { createDebouncedInvalidateByQueryKey } from '@/query/realtime-bridge';
+import { tripKeys, type UnplannedTripsFilter } from '@/query/keys/trips';
 import { ASSIGNEE_JOIN_FRAGMENT } from '@/features/trips/lib/trip-query-fragments';
 
 export type UnplannedTrip = Trip & {
@@ -140,12 +139,6 @@ export function useUnplannedTrips(filter: UnplannedTripsFilter) {
   });
 
   useEffect(() => {
-    const { schedule, cancel } = createDebouncedInvalidateByQueryKey(
-      queryClient,
-      tripKeys.unplannedRoot,
-      400
-    );
-
     const supabase = createClient();
     const channel = supabase
       .channel('unplanned-trips-changes')
@@ -153,14 +146,16 @@ export function useUnplannedTrips(filter: UnplannedTripsFilter) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
         () => {
-          schedule();
+          // WHY invalidate root instead of refetch(): it reaches all mounted subscribers unconditionally; instance refetch can be skipped while staleTime is fresh or when this hook is not the active subscriber.
+          void queryClient.invalidateQueries({
+            queryKey: tripKeys.unplannedRoot
+          });
         }
       )
       .subscribe();
 
     return () => {
-      cancel();
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [queryClient]);
 

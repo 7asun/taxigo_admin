@@ -1,20 +1,17 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import type { Trip } from '@/features/trips/api/trips.service';
 import {
-  instantToYmdInBusinessTz,
-  todayYmdInBusinessTz,
-  ymdToPickerDate
+  getNextBusinessDayYmd,
+  todayYmdInBusinessTz
 } from '@/features/trips/lib/trip-business-date';
 import {
   billingFamilyFromEmbed,
   formatBillingDisplayLabel
 } from '@/features/trips/lib/format-billing-display-label';
-import { tripKeys } from '@/query/keys';
-import { createDebouncedInvalidateByQueryKey } from '@/query/realtime-bridge';
+import { tripKeys } from '@/query/keys/trips';
 
 /** Trip row with Kostenträger / Abrechnung embeds from the timeless widget query. */
 export type TimelessWidgetTrip = Trip & {
@@ -92,11 +89,11 @@ function sortByClientNameAsc(a: TimelessRulePair, b: TimelessRulePair): number {
 }
 
 /**
- * Rule-based legs with no clock yet, for Berlin **today and tomorrow** `requested_date`.
+ * Rule-based legs with no clock yet, for Berlin **today and next business day** `requested_date`.
  *
- * WHY `.in('requested_date', [today, tomorrow])` + Berlin YMDs: the old hook used
+ * WHY `.in('requested_date', [today, nextBusinessDay])` + Berlin YMDs: the old hook used
  * `format(addDays(new Date(),1), 'yyyy-MM-dd')` (device-local “tomorrow”) and `.eq`
- * a single day — so Berlin “today” rows never loaded and “tomorrow” could be wrong TZ.
+ * a single day — so Berlin “today” rows never loaded and Friday did not include Monday.
  */
 export async function fetchTimelessRulePairs(
   todayYmd: string,
@@ -224,23 +221,16 @@ export function useTimelessRuleTrips() {
   const queryClient = useQueryClient();
 
   const todayYmd = todayYmdInBusinessTz();
-  const tomorrowYmd = instantToYmdInBusinessTz(
-    addDays(ymdToPickerDate(todayYmd), 1).getTime()
-  );
+  // WHY: Friday must show Monday trips so dispatch has a full business day to prepare.
+  const nextBusinessDayYmd = getNextBusinessDayYmd(todayYmd);
 
   const query = useQuery({
-    queryKey: tripKeys.timelessRuleTrips(todayYmd, tomorrowYmd),
-    queryFn: () => fetchTimelessRulePairs(todayYmd, tomorrowYmd),
+    queryKey: tripKeys.timelessRuleTrips(todayYmd, nextBusinessDayYmd),
+    queryFn: () => fetchTimelessRulePairs(todayYmd, nextBusinessDayYmd),
     staleTime: 60_000
   });
 
   useEffect(() => {
-    const { schedule, cancel } = createDebouncedInvalidateByQueryKey(
-      queryClient,
-      tripKeys.timelessRuleTripsRoot,
-      400
-    );
-
     const supabase = createClient();
     const channel = supabase
       .channel('timeless-rule-trips-changes')
@@ -248,14 +238,16 @@ export function useTimelessRuleTrips() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trips' },
         () => {
-          schedule();
+          // WHY invalidate root instead of refetch(): it reaches all mounted subscribers unconditionally; instance refetch can be skipped while staleTime is fresh or when this hook is not the active subscriber.
+          void queryClient.invalidateQueries({
+            queryKey: tripKeys.timelessRuleTripsRoot
+          });
         }
       )
       .subscribe();
 
     return () => {
-      cancel();
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [queryClient]);
 
