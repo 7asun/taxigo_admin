@@ -134,6 +134,15 @@ Computed-role columns are rendered as read-only display cells in Step 2. The sin
 
 - `isComputedColumn(col)` from `src/features/angebote/lib/angebot-formula-engine.ts`
 
+### Computable row guard
+
+`hasComputeablePrice(v)` is the single guard for whether a row has enough price data to produce a net amount before formulas run.
+
+- A row is computable when at least one finite price-bearing input exists: `unit_price`, `flat_rate`, or `surcharge`.
+- `flat_rate` alone represents a Pauschale-only row and must compute without a fake `unit_price: 0`.
+- `surcharge` alone is intentionally valid under the same business rule.
+- Rows with no usable price input still return `null` so empty computed cells do not become misleading zeroes.
+
 ### Deferred (not in Phase 3)
 
 - **Gross-input mode** (Phase 5)

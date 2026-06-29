@@ -4,6 +4,7 @@ import {
   computeNetAmount,
   computeAngebotTotals,
   computeRow,
+  hasComputeablePrice,
   isComputedColumn,
   resolveRoleValues,
   SYNTHETIC_GROSS_KEY,
@@ -29,6 +30,19 @@ function col(
 }
 
 describe('angebot-formula-engine', () => {
+  describe('hasComputeablePrice', () => {
+    it('flat_rate only → true', () =>
+      expect(hasComputeablePrice({ flat_rate: 100 })).toBe(true));
+    it('unit_price only → true', () =>
+      expect(hasComputeablePrice({ unit_price: 10 })).toBe(true));
+    it('surcharge only → true', () =>
+      expect(hasComputeablePrice({ surcharge: 5 })).toBe(true));
+    it('all null / undefined → false', () =>
+      expect(hasComputeablePrice({})).toBe(false));
+    it('unit_price 0 still computable', () =>
+      expect(hasComputeablePrice({ unit_price: 0 })).toBe(true));
+  });
+
   it('computeNetAmount — distance + unit_price only', () => {
     const v = {
       distance_km: 10,
@@ -58,13 +72,16 @@ describe('angebot-formula-engine', () => {
     expect(computeNetAmount(v)).toBe(78);
   });
 
-  it('computeNetAmount — unit_price missing → null', () => {
+  it('computeNetAmount — no price input at all → null', () => {
     const v = {
       distance_km: 10,
-      quantity: 2,
-      flat_rate: 5
+      quantity: 2
     };
     expect(computeNetAmount(v)).toBeNull();
+  });
+
+  it('computeNetAmount — Pauschale only: flat_rate=100 → net=100', () => {
+    expect(computeNetAmount({ flat_rate: 100 })).toBe(100);
   });
 
   it('computeNetAmount — distance_km = 0, unit_price = 50, flat_rate = 20 → net = 20', () => {
@@ -214,6 +231,21 @@ describe('angebot-formula-engine', () => {
       expect(patch.net).toBeCloseTo(100);
       expect(patch.taxAmt).toBeCloseTo(7);
       expect(patch.gross).toBeCloseTo(107);
+    });
+
+    it('Pauschale only: flat_rate=107, tax=7% → net≈100', () => {
+      // This is tested via computeRow in gross mode; confirm the engine round-trip.
+      const columns: AngebotColumnDef[] = [
+        col('flat', 'Pauschale', 'betrag', 'flat_rate'),
+        col('tax', 'MwSt', 'percent', 'tax_rate'),
+        col('net', 'Netto', 'betrag', 'net_amount'),
+        col('taxAmt', 'MwSt-Betrag', 'betrag', 'tax_amount'),
+        col('gross', 'Brutto', 'betrag', 'gross_amount')
+      ];
+      const row = { flat: 107, tax: 7 };
+      const patch = computeRow(row, columns, 'gross');
+      expect(patch[SYNTHETIC_NET_KEY]).toBeCloseTo(100, 1);
+      expect(patch[SYNTHETIC_GROSS_KEY]).toBeCloseTo(107, 1);
     });
 
     it('tax_rate=0 is valid: conversion divisor=1; gross equals net and tax is 0', () => {

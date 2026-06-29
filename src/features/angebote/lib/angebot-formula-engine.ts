@@ -106,6 +106,20 @@ export function resolveRoleValues(
 }
 
 /**
+ * WHY: A row is computable if at least one price-bearing input exists.
+ * `unit_price` alone, `flat_rate` alone, or `surcharge` alone are each valid.
+ * This is the single point of truth for "can this row produce a net amount?"
+ * — checked before running any formula to prevent returning misleading zeros.
+ */
+export function hasComputeablePrice(v: ResolvedRoleValues): boolean {
+  return (
+    (v.unit_price != null && isFinite(v.unit_price)) ||
+    (v.flat_rate != null && isFinite(v.flat_rate)) ||
+    (v.surcharge != null && isFinite(v.surcharge))
+  );
+}
+
+/**
  * Computes net_amount from resolved role values.
  *
  * Formula:
@@ -114,19 +128,22 @@ export function resolveRoleValues(
  *
  * flat_rate and surcharge are per-trip costs — they multiply with quantity.
  *
- * WHY: quotes must not show misleading zeros; without a unit price we cannot
- * compute a net amount, so we return null to render an empty computed cell.
+ * WHY: quotes must not show misleading zeros; without any price-bearing input
+ * we cannot compute a net amount, so we return null to render an empty computed cell.
  */
 export function computeNetAmount(v: ResolvedRoleValues): number | null {
-  // unit_price is the minimum required input — without it we cannot compute.
-  if (v.unit_price === null || v.unit_price === undefined) return null;
+  // WHY: Delegate to hasComputeablePrice() — the single source of truth for
+  // whether a row has enough data to calculate. Previously this checked only
+  // unit_price, which caused flat_rate-only (Pauschale) rows to silently
+  // return null instead of computing.
+  if (!hasComputeablePrice(v)) return null;
 
   const distanceKm = v.distance_km ?? 0;
   const flatRate = v.flat_rate ?? 0;
   const surcharge = v.surcharge ?? 0;
   const quantity = v.quantity ?? null;
 
-  const base = distanceKm * v.unit_price + flatRate + surcharge;
+  const base = distanceKm * (v.unit_price ?? 0) + flatRate + surcharge;
   return quantity !== null ? base * quantity : base;
 }
 
